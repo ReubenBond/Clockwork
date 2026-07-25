@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="Clockwork.csproj" />
+  <Folder Name="/tests/">
+    <Project Path="tests/Clockwork.Tests/Clockwork.Tests.csproj" />
+  </Folder>
+</Solution>
