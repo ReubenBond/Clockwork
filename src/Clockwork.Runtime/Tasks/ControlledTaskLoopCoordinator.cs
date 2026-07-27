@@ -49,6 +49,9 @@ public sealed class ControlledTaskLoopCoordinator : ISimulationTaskCoordinator
         _loop.ScheduleWhenReady(isReady, continuation);
 
     /// <inheritdoc />
+    public bool RunOne(SimulationNodeIdentity? node) => _loop.RunOnce();
+
+    /// <inheritdoc />
     public void DrainUntil(SimulationNodeIdentity? node, Func<bool> completed) =>
         _loop.RunUntil(completed, "Clockwork.Runtime.Tasks synchronous wait");
 

@@ -1,4 +1,5 @@
 using Clockwork.Runtime.Execution;
+using Clockwork.Runtime.Threading;
 
 namespace Clockwork.Runtime.Tasks;
 
@@ -148,6 +149,54 @@ public static class ControlledTaskRuntime
         }
     }
 
+    internal static void RunWithCapturedExecutionContext(ExecutionContext? context, Action work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        if (context is null)
+        {
+            work();
+            return;
+        }
+
+        long strandId = ControlledSynchronizationFlow.CurrentId;
+        ExecutionContext.Run(
+            context,
+            static state =>
+            {
+                var flowed = ((long StrandId, Action Work))state!;
+                ControlledSynchronizationFlow.RunAsStrand(flowed.StrandId, flowed.Work);
+            },
+            (strandId, work));
+    }
+
+    internal static void RunWithCapturedExecutionContextAsNewStrand(ExecutionContext? context, Action work) =>
+        ControlledSynchronizationFlow.RunAsNewStrand(() => RunWithCapturedExecutionContext(context, work));
+
+    internal static void RunWithoutUserExecutionContext(SimulationExecutionSnapshot snapshot, Action work)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentNullException.ThrowIfNull(work);
+
+        long strandId = ControlledSynchronizationFlow.CurrentId;
+        ExecutionContext.Run(
+            (ExecutionContext)Activator.CreateInstance(typeof(ExecutionContext), nonPublic: true)!,
+            static state =>
+            {
+                var invocation = ((SimulationExecutionSnapshot Snapshot, long StrandId, Action Work))state!;
+                using var runtimeScope = SimulationExecutionContext.EnterRuntime(
+                    SimulationRuntimeActivation.CreateToken(),
+                    invocation.Snapshot.Runtime);
+                using var nodeScope = invocation.Snapshot.Node is null
+                    ? null
+                    : SimulationExecutionContext.EnterNode(invocation.Snapshot.Node);
+                using var executionScope = invocation.Snapshot.LogicalExecutionId.IsNone
+                    ? null
+                    : SimulationExecutionContext.EnterLogicalExecution(invocation.Snapshot.LogicalExecutionId);
+                ControlledSynchronizationFlow.RunAsStrand(invocation.StrandId, invocation.Work);
+            },
+            (snapshot, strandId, work));
+    }
+
     /// <summary>
     /// Schedules <paramref name="continuation"/> to run as immediately-runnable controlled work (the
     /// backing for <c>Task.Yield</c>). Outside a simulation it falls back to a real
@@ -205,6 +254,21 @@ public static class ControlledTaskRuntime
         if (TryGetCoordinator(apiName, out var coordinator, out var node))
         {
             coordinator.DrainUntil(node, completed);
+        }
+    }
+
+    internal static bool RunOne(string apiName)
+    {
+        return TryGetCoordinator(apiName, out var coordinator, out var node)
+            ? coordinator.RunOne(node)
+            : Thread.Yield();
+    }
+
+    internal static void ParkIndefinitely(string apiName)
+    {
+        if (TryGetCoordinator(apiName, out var coordinator, out var node))
+        {
+            coordinator.ScheduleWhenReady(node, static () => false, static () => { });
         }
     }
 

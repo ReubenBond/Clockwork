@@ -1,4 +1,5 @@
 using System.Threading;
+using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Tasks;
 
 namespace Clockwork.Runtime.Threading;
@@ -65,7 +66,9 @@ public static class ControlledThreadPool
         }
 
         ExecutionContext? context = ExecutionContext.Capture();
-        ControlledTaskRuntime.QueueWork(() => RunFlowed(context, () => callBack(state)), QueueApi);
+        ControlledTaskRuntime.QueueWork(
+            () => ControlledTaskRuntime.RunWithCapturedExecutionContext(context, () => callBack(state)),
+            QueueApi);
         return true;
     }
 
@@ -84,7 +87,9 @@ public static class ControlledThreadPool
         }
 
         ExecutionContext? context = ExecutionContext.Capture();
-        ControlledTaskRuntime.QueueWork(() => RunFlowed(context, () => callBack(state)), QueueApi);
+        ControlledTaskRuntime.QueueWork(
+            () => ControlledTaskRuntime.RunWithCapturedExecutionContext(context, () => callBack(state)),
+            QueueApi);
         return true;
     }
 
@@ -102,7 +107,10 @@ public static class ControlledThreadPool
 
         // Unsafe variants do not capture the caller's ExecutionContext, so the callback observes only the
         // ambient run-time context, not the caller's enqueue-time snapshot.
-        ControlledTaskRuntime.QueueWork(() => callBack(state), UnsafeQueueApi);
+        var snapshot = SimulationExecutionContext.Current!;
+        ControlledTaskRuntime.QueueWork(
+            () => ControlledTaskRuntime.RunWithoutUserExecutionContext(snapshot, () => callBack(state)),
+            UnsafeQueueApi);
         return true;
     }
 
@@ -118,7 +126,10 @@ public static class ControlledThreadPool
             return ThreadPool.UnsafeQueueUserWorkItem(callBack, preferLocal);
         }
 
-        ControlledTaskRuntime.QueueWork(callBack.Execute, UnsafeQueueApi);
+        var snapshot = SimulationExecutionContext.Current!;
+        ControlledTaskRuntime.QueueWork(
+            () => ControlledTaskRuntime.RunWithoutUserExecutionContext(snapshot, callBack.Execute),
+            UnsafeQueueApi);
         return true;
     }
 
@@ -136,7 +147,10 @@ public static class ControlledThreadPool
             return ThreadPool.UnsafeQueueUserWorkItem(callBack, state, preferLocal);
         }
 
-        ControlledTaskRuntime.QueueWork(() => callBack(state), UnsafeQueueApi);
+        var snapshot = SimulationExecutionContext.Current!;
+        ControlledTaskRuntime.QueueWork(
+            () => ControlledTaskRuntime.RunWithoutUserExecutionContext(snapshot, () => callBack(state)),
+            UnsafeQueueApi);
         return true;
     }
 
@@ -280,22 +294,4 @@ public static class ControlledThreadPool
         return (int)total;
     }
 
-    private static void RunFlowed(ExecutionContext? context, Action work)
-    {
-        if (context is null)
-        {
-            work();
-            return;
-        }
-
-        long strandId = ControlledSynchronizationFlow.CurrentId;
-        ExecutionContext.Run(
-            context,
-            static state =>
-            {
-                var flowed = ((long StrandId, Action Work))state!;
-                ControlledSynchronizationFlow.RunAsStrand(flowed.StrandId, flowed.Work);
-            },
-            (strandId, work));
-    }
 }

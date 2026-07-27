@@ -48,6 +48,11 @@ public interface ISimulationTaskCoordinator
     /// <param name="continuation">The continuation to run once ready.</param>
     void ScheduleWhenReady(SimulationNodeIdentity? node, Func<bool> isReady, Action continuation);
 
+    /// <summary>Runs at most one currently-ready continuation without advancing virtual time.</summary>
+    /// <param name="node">The node the yield is scoped to, or <see langword="null"/> for cluster-level work.</param>
+    /// <returns><see langword="true"/> when one continuation ran; otherwise <see langword="false"/>.</returns>
+    bool RunOne(SimulationNodeIdentity? node);
+
     /// <summary>
     /// Cooperatively pumps ready work on the calling logical thread for <paramref name="node"/> until
     /// <paramref name="completed"/> returns <see langword="true"/>. This backs both the host's top-level

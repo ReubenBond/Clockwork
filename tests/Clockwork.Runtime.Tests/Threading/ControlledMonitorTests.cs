@@ -539,4 +539,341 @@ public sealed class ControlledMonitorTests
             Assert.True(coordinator.Loop.IsIdle);
         }
     }
+
+    [Fact]
+    public void SafeThreadPoolCallbackDoesNotInheritMonitorOwnership()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var gate = new object();
+            var nestedWasOwner = true;
+            var nestedAcquired = true;
+
+            ControlledMonitor.Enter(gate);
+            var accepted = ControlledThreadPool.QueueUserWorkItem(
+                _ =>
+                {
+                    nestedWasOwner = ControlledMonitor.IsEntered(gate);
+                    nestedAcquired = ControlledMonitor.TryEnter(gate);
+                    if (nestedAcquired)
+                    {
+                        ControlledMonitor.Exit(gate);
+                    }
+                },
+                state: null);
+
+            Assert.True(accepted);
+            Assert.Equal(1, coordinator.Loop.ReadyCount);
+            coordinator.Loop.RunUntilIdle();
+
+            Assert.True(ControlledMonitor.IsEntered(gate));
+            ControlledMonitor.Exit(gate);
+            Assert.False(ControlledMonitor.IsEntered(gate));
+            Assert.False(nestedWasOwner);
+            Assert.False(nestedAcquired);
+            Assert.Equal(0, coordinator.Loop.ReadyCount);
+            Assert.Equal(0, coordinator.Loop.WaitingCount);
+            Assert.Null(coordinator.Loop.NextDeadlineDue());
+            Assert.True(coordinator.Loop.IsIdle);
+        });
+    }
+
+    [Theory]
+    [InlineData((int)QueuedTaskVariant.TaskRun)]
+    [InlineData((int)QueuedTaskVariant.TaskFactoryStartNew)]
+    [InlineData((int)QueuedTaskVariant.ContinueWith)]
+    public void QueuedTaskWorkDoesNotInheritMonitorOwnership(int variantValue)
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var variant = (QueuedTaskVariant)variantValue;
+            var gate = new object();
+            var nestedWasOwner = true;
+            var nestedAcquired = true;
+            var antecedent = new TaskCompletionSource();
+
+            void ProbeOwnership()
+            {
+                nestedWasOwner = ControlledMonitor.IsEntered(gate);
+                nestedAcquired = ControlledMonitor.TryEnter(gate);
+                if (nestedAcquired)
+                {
+                    ControlledMonitor.Exit(gate);
+                }
+            }
+
+            ControlledMonitor.Enter(gate);
+            Task task = variant switch
+            {
+                QueuedTaskVariant.TaskRun => ControlledTask.Run(ProbeOwnership),
+                QueuedTaskVariant.TaskFactoryStartNew =>
+                    ControlledTaskFactory.StartNew(Task.Factory, ProbeOwnership),
+                QueuedTaskVariant.ContinueWith =>
+                    ControlledTask.ContinueWith(antecedent.Task, _ => ProbeOwnership()),
+                _ => throw new ArgumentOutOfRangeException(nameof(variantValue)),
+            };
+
+            Assert.False(task.IsCompleted);
+            if (variant == QueuedTaskVariant.ContinueWith)
+            {
+                antecedent.SetResult();
+            }
+
+            coordinator.Loop.RunUntil(() => task.IsCompleted, "test");
+
+            Assert.Equal(TaskStatus.RanToCompletion, task.Status);
+            Assert.True(ControlledMonitor.IsEntered(gate));
+            ControlledMonitor.Exit(gate);
+            Assert.False(ControlledMonitor.IsEntered(gate));
+            Assert.False(nestedWasOwner);
+            Assert.False(nestedAcquired);
+            Assert.Equal(0, coordinator.Loop.ReadyCount);
+            Assert.Equal(0, coordinator.Loop.WaitingCount);
+            Assert.Null(coordinator.Loop.NextDeadlineDue());
+            Assert.True(coordinator.Loop.IsIdle);
+        });
+    }
+
+    private enum QueuedTaskVariant
+    {
+        TaskRun,
+        TaskFactoryStartNew,
+        ContinueWith,
+    }
+
+    [Theory]
+    [InlineData((int)NestedQueueVariant.SafeWaitCallback)]
+    [InlineData((int)NestedQueueVariant.SafeGeneric)]
+    [InlineData((int)NestedQueueVariant.UnsafeWaitCallback)]
+    [InlineData((int)NestedQueueVariant.UnsafeGeneric)]
+    [InlineData((int)NestedQueueVariant.UnsafeWorkItem)]
+    [InlineData((int)NestedQueueVariant.TaskRun)]
+    [InlineData((int)NestedQueueVariant.TaskFactoryStartNew)]
+    [InlineData((int)NestedQueueVariant.ContinueWith)]
+    public void NestedQueuedOperationsUseDistinctMonitorOwners(int variantValue)
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var variant = (NestedQueueVariant)variantValue;
+            var gate = new object();
+            var outerOwnedBeforeInner = false;
+            var outerOwnedAfterInner = false;
+            var outerOwnedAfterExit = true;
+            var innerWasOwner = true;
+            var innerAcquired = true;
+            var innerOwnedAfterTry = true;
+            QueuedOperation? innerOperation = null;
+
+            var outerOperation = QueueOperation(variant, () =>
+            {
+                ControlledMonitor.Enter(gate);
+                outerOwnedBeforeInner = ControlledMonitor.IsEntered(gate);
+
+                innerOperation = QueueOperation(variant, () =>
+                {
+                    innerWasOwner = ControlledMonitor.IsEntered(gate);
+                    innerAcquired = ControlledMonitor.TryEnter(gate);
+                    if (innerAcquired)
+                    {
+                        ControlledMonitor.Exit(gate);
+                    }
+
+                    innerOwnedAfterTry = ControlledMonitor.IsEntered(gate);
+                });
+
+                coordinator.Loop.RunUntil(
+                    () => innerOperation.IsCompleted,
+                    "nested queued Monitor ownership probe");
+
+                outerOwnedAfterInner = ControlledMonitor.IsEntered(gate);
+                ControlledMonitor.Exit(gate);
+                outerOwnedAfterExit = ControlledMonitor.IsEntered(gate);
+            });
+
+            Assert.False(outerOperation.IsCompleted);
+            coordinator.Loop.RunUntil(
+                () => outerOperation.IsCompleted,
+                "outer queued Monitor ownership probe");
+
+            AssertQueuedOperationCompleted(outerOperation);
+            Assert.NotNull(innerOperation);
+            AssertQueuedOperationCompleted(innerOperation);
+            Assert.True(outerOwnedBeforeInner);
+            Assert.False(innerWasOwner);
+            Assert.False(innerAcquired);
+            Assert.False(innerOwnedAfterTry);
+            Assert.True(outerOwnedAfterInner);
+            Assert.False(outerOwnedAfterExit);
+            Assert.False(ControlledMonitor.IsEntered(gate));
+            Assert.Equal(0, coordinator.Loop.ReadyCount);
+            Assert.Equal(0, coordinator.Loop.WaitingCount);
+            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+            Assert.Null(coordinator.Loop.NextDeadlineDue());
+            Assert.True(coordinator.Loop.IsIdle);
+        });
+    }
+
+    private static QueuedOperation QueueOperation(NestedQueueVariant variant, Action callback)
+    {
+        var operation = new QueuedOperation(variant);
+
+        void Execute()
+        {
+            callback();
+            operation.CallbackCount++;
+        }
+
+        switch (variant)
+        {
+            case NestedQueueVariant.SafeWaitCallback:
+                operation.WasAccepted = ControlledThreadPool.QueueUserWorkItem(
+                    static state => ((Action)state!)(),
+                    (Action)Execute);
+                break;
+            case NestedQueueVariant.SafeGeneric:
+                operation.WasAccepted = ControlledThreadPool.QueueUserWorkItem(
+                    static action => action(),
+                    (Action)Execute,
+                    preferLocal: true);
+                break;
+            case NestedQueueVariant.UnsafeWaitCallback:
+                operation.WasAccepted = ControlledThreadPool.UnsafeQueueUserWorkItem(
+                    static state => ((Action)state!)(),
+                    (Action)Execute);
+                break;
+            case NestedQueueVariant.UnsafeGeneric:
+                operation.WasAccepted = ControlledThreadPool.UnsafeQueueUserWorkItem(
+                    static action => action(),
+                    (Action)Execute,
+                    preferLocal: false);
+                break;
+            case NestedQueueVariant.UnsafeWorkItem:
+                operation.WasAccepted = ControlledThreadPool.UnsafeQueueUserWorkItem(
+                    new DelegateWorkItem(Execute),
+                    preferLocal: true);
+                break;
+            case NestedQueueVariant.TaskRun:
+                operation.Completion = ControlledTask.Run(() =>
+                {
+                    Execute();
+                    return QueuedOperation.ExpectedResult;
+                });
+                break;
+            case NestedQueueVariant.TaskFactoryStartNew:
+                operation.Completion = ControlledTaskFactory.StartNew(Task.Factory, () =>
+                {
+                    Execute();
+                    return QueuedOperation.ExpectedResult;
+                });
+                break;
+            case NestedQueueVariant.ContinueWith:
+                var antecedent = new TaskCompletionSource<int>();
+                operation.Antecedent = antecedent.Task;
+                operation.Completion = ControlledTask.ContinueWith<int, int>(
+                    antecedent.Task,
+                    completed =>
+                    {
+                        operation.ObservedAntecedentResult = completed.Result;
+                        Execute();
+                        return QueuedOperation.ExpectedResult;
+                    });
+                antecedent.SetResult(QueuedOperation.ExpectedAntecedentResult);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(variant));
+        }
+
+        return operation;
+    }
+
+    private static void AssertQueuedOperationCompleted(QueuedOperation operation)
+    {
+        Assert.True(operation.IsCompleted);
+        Assert.Equal(1, operation.CallbackCount);
+
+        switch (operation.Variant)
+        {
+            case NestedQueueVariant.SafeWaitCallback:
+            case NestedQueueVariant.SafeGeneric:
+            case NestedQueueVariant.UnsafeWaitCallback:
+            case NestedQueueVariant.UnsafeGeneric:
+            case NestedQueueVariant.UnsafeWorkItem:
+                Assert.Equal(true, operation.WasAccepted);
+                break;
+            case NestedQueueVariant.TaskRun:
+            case NestedQueueVariant.TaskFactoryStartNew:
+                var completion = operation.Completion;
+                Assert.NotNull(completion);
+                Assert.Equal(TaskStatus.RanToCompletion, completion.Status);
+                Assert.Equal(QueuedOperation.ExpectedResult, completion.Result);
+                break;
+            case NestedQueueVariant.ContinueWith:
+                var antecedent = operation.Antecedent;
+                Assert.NotNull(antecedent);
+                Assert.Equal(TaskStatus.RanToCompletion, antecedent.Status);
+                Assert.Equal(QueuedOperation.ExpectedAntecedentResult, antecedent.Result);
+                Assert.Equal(QueuedOperation.ExpectedAntecedentResult, operation.ObservedAntecedentResult);
+                var continuation = operation.Completion;
+                Assert.NotNull(continuation);
+                Assert.Equal(TaskStatus.RanToCompletion, continuation.Status);
+                Assert.Equal(QueuedOperation.ExpectedResult, continuation.Result);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(operation), operation.Variant, null);
+        }
+    }
+
+    private enum NestedQueueVariant
+    {
+        SafeWaitCallback,
+        SafeGeneric,
+        UnsafeWaitCallback,
+        UnsafeGeneric,
+        UnsafeWorkItem,
+        TaskRun,
+        TaskFactoryStartNew,
+        ContinueWith,
+    }
+
+    private sealed class QueuedOperation(NestedQueueVariant variant)
+    {
+        public const int ExpectedAntecedentResult = 37;
+        public const int ExpectedResult = 73;
+
+        public NestedQueueVariant Variant { get; } = variant;
+
+        public bool? WasAccepted { get; set; }
+
+        public int CallbackCount { get; set; }
+
+        public int? ObservedAntecedentResult { get; set; }
+
+        public Task<int>? Antecedent { get; set; }
+
+        public Task<int>? Completion { get; set; }
+
+        public bool IsCompleted => Variant switch
+        {
+            NestedQueueVariant.SafeWaitCallback
+                or NestedQueueVariant.SafeGeneric
+                or NestedQueueVariant.UnsafeWaitCallback
+                or NestedQueueVariant.UnsafeGeneric
+                or NestedQueueVariant.UnsafeWorkItem => CallbackCount == 1,
+            NestedQueueVariant.TaskRun
+                or NestedQueueVariant.TaskFactoryStartNew
+                or NestedQueueVariant.ContinueWith => Completion?.IsCompleted == true,
+            _ => throw new ArgumentOutOfRangeException(nameof(Variant)),
+        };
+    }
+
+    private sealed class DelegateWorkItem(Action execute) : IThreadPoolWorkItem
+    {
+        public void Execute() => execute();
+    }
 }
