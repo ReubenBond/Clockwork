@@ -46,6 +46,7 @@ public static class InstrumentedApiInventory
         Api("System.Threading.ThreadPool", "UnsafeQueueNativeOverlapped"),
         Api("System.Threading.ThreadPool", "RegisterWaitForSingleObject"),
         Api("System.Threading.ThreadPool", "UnsafeRegisterWaitForSingleObject"),
+        Api("System.Threading.RegisteredWaitHandle", Wildcard),
         Api("System.Threading.Tasks.Parallel", "Invoke"),
         Api("System.Threading.Tasks.Parallel", "For"),
         Api("System.Threading.Tasks.Parallel", "ForEach"),
