@@ -69,11 +69,120 @@ public sealed class SimulationSynchronizationContextTests
     }
 
     [Fact]
-    public void SendAlwaysThrowsBecauseSynchronousExecutionIsNotSupported()
+    public void SendOnAFreeQueueFromAForeignContextSchedulesAndSynchronouslyPumpsUntilExecuted()
+    {
+        var queue = CreateQueue();
+        var executed = false;
+
+        queue.SynchronizationContext.Send(_ => executed = true, null);
+
+        // Send only returns once the callback has actually run - no queue draining required.
+        Assert.True(executed);
+        Assert.False(queue.HasItems);
+    }
+
+    [Fact]
+    public void SendPreservesFifoOrderRelativeToAlreadyPendingWork()
+    {
+        var queue = CreateQueue();
+        var order = new List<string>();
+
+        queue.SynchronizationContext.Post(_ => order.Add("posted-1"), null);
+        queue.SynchronizationContext.Post(_ => order.Add("posted-2"), null);
+
+        queue.SynchronizationContext.Send(_ => order.Add("sent"), null);
+
+        // The already-pending posts have smaller sequence numbers, so pumping must run them
+        // first, in registration order, before reaching the synchronously-sent callback.
+        Assert.Equal(["posted-1", "posted-2", "sent"], order);
+    }
+
+    [Fact]
+    public void SendPropagatesExceptionsThrownByTheCallbackToTheCaller()
     {
         var queue = CreateQueue();
 
-        Assert.Throws<InvalidOperationException>(() => queue.SynchronizationContext.Send(_ => { }, null));
+        var thrown = Assert.Throws<InvalidTimeZoneException>(
+            () => queue.SynchronizationContext.Send(_ => throw new InvalidTimeZoneException("boom"), null));
+        Assert.Equal("boom", thrown.Message);
+    }
+
+    [Fact]
+    public void SendExecutesInlineWithoutTouchingTheQueueWhenAlreadyOnTheOwningSynchronizationContext()
+    {
+        var queue = CreateQueue();
+
+        try
+        {
+            using (queue.SynchronizationContext.Install())
+            {
+                queue.SynchronizationContext.Post(_ => { }, null); // Something already pending.
+
+                var executed = false;
+                queue.SynchronizationContext.Send(_ => executed = true, null);
+
+                Assert.True(executed);
+                Assert.True(queue.HasItems); // The unrelated pending post was left untouched.
+            }
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(null);
+        }
+    }
+
+    [Fact]
+    public async Task SendExecutesInlineWhenTheCurrentTaskSchedulerIsTheOwningSimulationTaskScheduler()
+    {
+        var queue = CreateQueue();
+        var scheduler = new SimulationTaskScheduler(queue);
+        var executed = false;
+
+        var task = Task.Factory.StartNew(
+            () => queue.SynchronizationContext.Send(_ => executed = true, null),
+            TestContext.Current.CancellationToken,
+            TaskCreationOptions.None,
+            scheduler);
+
+        Assert.True(queue.RunOnce());
+        await task;
+
+        Assert.True(executed);
+        Assert.False(queue.HasItems); // Ran inline - never touched the queue itself.
+    }
+
+    [Fact]
+    public void SendFromAGenuinelyDifferentThreadWhileTheGuardIsHeldRejectsWithAPreciseDiagnostic()
+    {
+        var queue = CreateQueue();
+        using var blockerEntered = new ManualResetEventSlim();
+        using var releaseBlocker = new ManualResetEventSlim();
+
+        queue.Enqueue(new ScheduledActionItem(() =>
+        {
+            blockerEntered.Set();
+            releaseBlocker.Wait(TestContext.Current.CancellationToken);
+        }));
+
+        var backgroundThread = new Thread(() => queue.RunOnce())
+        {
+            IsBackground = true,
+        };
+        backgroundThread.Start();
+
+        try
+        {
+            blockerEntered.Wait(TestContext.Current.CancellationToken);
+
+            var ex = Assert.Throws<InvalidOperationException>(() => queue.SynchronizationContext.Send(_ => { }, null));
+            Assert.Contains("Send", ex.Message, StringComparison.Ordinal);
+            Assert.Contains("concurrently", ex.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            releaseBlocker.Set();
+            backgroundThread.Join();
+        }
     }
 
     [Fact]
