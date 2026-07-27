@@ -43,6 +43,26 @@ internal sealed class RewriteRuleMatcher
     public bool HasTypeSubstitutions => _typeSubstitutions.Count > 0;
 
     /// <summary>
+    /// Gets the type-substitution rules whose target runtime includes the configured target, keyed by
+    /// the substituted type's Cecil full name. Used by the member-aware substitution pass to build its
+    /// type map (fields, locals, method/field references), which the operand-only
+    /// <see cref="TypeReferenceRewritingPass"/> does not cover.
+    /// </summary>
+    public IEnumerable<KeyValuePair<string, RewriteRule>> TypeSubstitutionRules
+    {
+        get
+        {
+            foreach (KeyValuePair<string, RewriteRule> entry in _typeSubstitutions)
+            {
+                if (entry.Value.SupportedRuntimes.Includes(_targetRuntime))
+                {
+                    yield return entry;
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// Finds the first rule (in declared order) matching an invocation of <paramref name="method"/>
     /// at a call/newobj site. Returns <see langword="false"/> if no rule applies. A rule whose target
     /// runtime is out of range is reported via <paramref name="outOfRangeRule"/> so the caller can

@@ -27,38 +27,20 @@ internal sealed class TypeReferenceRewritingPass : RewritePass
             return instruction;
         }
 
-        if (!Session.Matcher.TryMatchType(type, out RewriteRule rule))
+        if (!TrySubstitute(type, out TypeReference? substituted, out RewriteRule rule, out string? error))
         {
-            return instruction;
-        }
-
-        if (!Session.Resolver.TryResolveType(Session.TargetModule, rule.Replacement, out TypeReference imported, out string? error))
-        {
-            string containing = CecilNames.FullyQualifiedMethodName(Method!);
-            if (rule.Fallback == RewriteFallback.Skip)
+            if (error is null)
             {
-                Session.AddDiagnostic(Diagnostics.RewriteDiagnostic.Warning(
-                    Diagnostics.RewriteDiagnosticIds.UnresolvedReplacement,
-                    $"{error} Rule '{rule.Id}' was skipped per its fallback policy.",
-                    containing,
-                    instruction.Offset));
-            }
-            else
-            {
-                Session.AddDiagnostic(Diagnostics.RewriteDiagnostic.Error(
-                    Diagnostics.RewriteDiagnosticIds.UnresolvedReplacement,
-                    $"{error} Rule '{rule.Id}' could not be applied.",
-                    containing,
-                    instruction.Offset));
+                return instruction;
             }
 
-            Session.AddUnresolvedReference(rule.Replacement.ToCanonicalString());
+            ReportUnresolved(rule, instruction, error);
             return instruction;
         }
 
         int offset = instruction.Offset;
         RewriteSession.TryGetSequencePoint(Method!, instruction, out string? file, out int line);
-        instruction.Operand = imported;
+        instruction.Operand = substituted;
         IsMethodBodyModified = true;
 
         Session.AddTransformation(new ManifestTransformation(
@@ -74,5 +56,98 @@ internal sealed class TypeReferenceRewritingPass : RewritePass
             line));
 
         return instruction;
+    }
+
+    /// <summary>
+    /// Attempts to substitute <paramref name="type"/>. Returns <see langword="true"/> with the rewritten
+    /// reference when a rule applies; the <paramref name="rule"/> that matched at the top level is
+    /// reported for the manifest. A generic instance (for example <c>TaskAwaiter&lt;int&gt;</c>) is
+    /// rebuilt as a <em>closed</em> instance of the substitute (<c>ControlledTaskAwaiter&lt;int&gt;</c>)
+    /// so the emitted operand keeps its generic argument - a plain open substitute would be invalid IL
+    /// for <c>initobj</c>/<c>box</c>/<c>constrained.</c> and fail to load.
+    /// </summary>
+    private bool TrySubstitute(
+        TypeReference type,
+        out TypeReference? substituted,
+        out RewriteRule rule,
+        out string? error)
+    {
+        substituted = null;
+        rule = default!;
+        error = null;
+
+        if (type is GenericInstanceType generic)
+        {
+            // The element (open) type is what the substitution rules target.
+            if (!Session.Matcher.TryMatchType(generic.ElementType, out rule))
+            {
+                return false;
+            }
+
+            if (!Session.Resolver.TryResolveType(Session.TargetModule, rule.Replacement, out TypeReference imported, out error))
+            {
+                return false;
+            }
+
+            var closed = new GenericInstanceType(imported);
+            foreach (TypeReference argument in generic.GenericArguments)
+            {
+                // Recursively substitute each argument so nested substitutable types are handled, but
+                // fall back to the original argument (the common case, e.g. int) when nothing matches.
+                closed.GenericArguments.Add(
+                    TrySubstituteArgument(argument, out TypeReference? mappedArgument) ? mappedArgument! : argument);
+            }
+
+            substituted = closed;
+            return true;
+        }
+
+        if (!Session.Matcher.TryMatchType(type, out rule))
+        {
+            return false;
+        }
+
+        if (!Session.Resolver.TryResolveType(Session.TargetModule, rule.Replacement, out TypeReference resolved, out error))
+        {
+            return false;
+        }
+
+        substituted = resolved;
+        return true;
+    }
+
+    private bool TrySubstituteArgument(TypeReference argument, out TypeReference? mapped)
+    {
+        if (TrySubstitute(argument, out TypeReference? substituted, out _, out _) && substituted is not null)
+        {
+            mapped = substituted;
+            return true;
+        }
+
+        mapped = null;
+        return false;
+    }
+
+    private void ReportUnresolved(RewriteRule rule, Instruction instruction, string error)
+    {
+        string containing = CecilNames.FullyQualifiedMethodName(Method!);
+        if (rule.Fallback == RewriteFallback.Skip)
+        {
+            Session.AddDiagnostic(Diagnostics.RewriteDiagnostic.Warning(
+                Diagnostics.RewriteDiagnosticIds.UnresolvedReplacement,
+                $"{error} Rule '{rule.Id}' was skipped per its fallback policy.",
+                containing,
+                instruction.Offset));
+        }
+        else
+        {
+            Session.AddDiagnostic(Diagnostics.RewriteDiagnostic.Error(
+                Diagnostics.RewriteDiagnosticIds.UnresolvedReplacement,
+                $"{error} Rule '{rule.Id}' could not be applied.",
+                containing,
+                instruction.Offset));
+        }
+
+        Session.AddUnresolvedReference(rule.Replacement.ToCanonicalString());
     }
 }
