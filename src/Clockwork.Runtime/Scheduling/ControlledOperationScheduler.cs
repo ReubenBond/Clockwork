@@ -521,7 +521,7 @@ public sealed class ControlledOperationScheduler : IDisposable
     /// - the wait only ends when the operation is signaled.
     /// </returns>
     public ControlledWaitOutcome WaitOnResource(ControlledResource resource, ControlledOperationPauseReason reason) =>
-        WaitOnResourceCore(resource, Timeout.InfiniteTimeSpan, reason);
+        WaitOnResourceCore(resource, Timeout.InfiniteTimeSpan, reason, CancellationToken.None);
 
     /// <summary>
     /// Blocks the calling operation on <paramref name="resource"/> until it is signaled or the
@@ -548,15 +548,51 @@ public sealed class ControlledOperationScheduler : IDisposable
     /// <see cref="ControlledWaitOutcome.TimedOut"/>.
     /// </returns>
     public ControlledWaitOutcome WaitOnResource(ControlledResource resource, TimeSpan timeout, ControlledOperationPauseReason reason) =>
-        WaitOnResourceCore(resource, timeout, reason);
+        WaitOnResourceCore(resource, timeout, reason, CancellationToken.None);
 
     /// <summary>
-    /// The shared implementation behind both <c>WaitOnResource</c> overloads. Validates ownership and
-    /// the timeout, handles the non-parking zero-timeout fast path, then atomically enqueues the
-    /// waiter (with an optional virtual-time timeout) and parks the operation under the scheduler lock
-    /// before yielding the baton, so no signal delivered by the next operation can be lost.
+    /// Blocks the calling operation on <paramref name="resource"/> until it is signaled, the modeled
+    /// (virtual) timeout elapses, or <paramref name="cancellationToken"/> is canceled - whichever
+    /// happens first - resolving the three-way race deterministically. Cancellation is observed
+    /// <b>synchronously</b>: the token's registration runs on the thread that cancels the token, under
+    /// the scheduler lock, so there is no thread-pool hop and no <c>CancelAsync</c>. The registration
+    /// is always disposed when the wait ends, so no callback leaks past it.
+    /// <para>
+    /// <b>Race resolution.</b> The waiter carries a single-assignment resolution; the first of
+    /// signal/timeout/cancel to claim it under the lock wins and the terminal reason is exactly that
+    /// outcome. An already-canceled token resolves <see cref="ControlledWaitOutcome.Canceled"/>
+    /// immediately without parking (cancellation takes precedence over a zero timeout). Timeout still
+    /// fires only during virtual-time advance, so a signal or cancellation delivered while the
+    /// operation set is still making progress always precedes a same-instant timeout.
+    /// </para>
     /// </summary>
-    private ControlledWaitOutcome WaitOnResourceCore(ControlledResource resource, TimeSpan timeout, ControlledOperationPauseReason reason)
+    /// <param name="resource">The resource to wait on. Must belong to this scheduler.</param>
+    /// <param name="timeout">
+    /// The modeled wait budget: <see cref="TimeSpan.Zero"/> to poll, <see cref="Timeout.InfiniteTimeSpan"/>
+    /// to wait until signaled/canceled, or any strictly positive span for a virtual-time deadline.
+    /// </param>
+    /// <param name="reason">The stable pause reason recorded for diagnostics and the wait-for graph.</param>
+    /// <param name="cancellationToken">A token whose synchronous cancellation ends the wait.</param>
+    /// <returns>The deterministic terminal outcome of the wait.</returns>
+    public ControlledWaitOutcome WaitOnResource(
+        ControlledResource resource,
+        TimeSpan timeout,
+        ControlledOperationPauseReason reason,
+        CancellationToken cancellationToken) =>
+        WaitOnResourceCore(resource, timeout, reason, cancellationToken);
+
+    /// <summary>
+    /// The shared implementation behind every <c>WaitOnResource</c> overload. Validates ownership and
+    /// the timeout, resolves the non-parking fast paths (already-canceled token, then zero timeout),
+    /// then atomically enqueues the waiter (with an optional virtual-time timeout and synchronous
+    /// cancellation registration) and parks the operation under the scheduler lock before yielding the
+    /// baton, so no signal, timeout, or cancellation can be lost.
+    /// </summary>
+    private ControlledWaitOutcome WaitOnResourceCore(
+        ControlledResource resource,
+        TimeSpan timeout,
+        ControlledOperationPauseReason reason,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(resource);
         ArgumentNullException.ThrowIfNull(reason);
@@ -570,6 +606,18 @@ public sealed class ControlledOperationScheduler : IDisposable
                 nameof(timeout),
                 timeout,
                 "A resource wait timeout must be non-negative, TimeSpan.Zero, or Timeout.InfiniteTimeSpan.");
+        }
+
+        // Already-canceled token: resolve without parking. Cancellation takes precedence over a zero
+        // timeout so the terminal reason is exactly Canceled.
+        if (cancellationToken.IsCancellationRequested)
+        {
+            lock (_gate)
+            {
+                ThrowIfDisposed();
+            }
+
+            return ControlledWaitOutcome.Canceled;
         }
 
         // Zero timeout: never park. A signal cannot arrive synchronously to the running operation, so
@@ -597,12 +645,70 @@ public sealed class ControlledOperationScheduler : IDisposable
             }
 
             operation.ApplyTransition(ControlledOperationState.Paused, pauseReason: reason);
+
+            // Register cancellation while still holding the lock so a concurrent cancel is serialized
+            // against enqueue/park. If the token is canceled between the fast-path check above and
+            // here, Register invokes the callback synchronously on this thread; the lock is reentrant,
+            // the waiter is resolved Canceled, and the operation is moved back to Runnable - it will
+            // simply be re-granted the baton and observe the Canceled resolution in FinishWait.
+            if (cancellationToken.CanBeCanceled)
+            {
+                waiter.CancellationRegistration = cancellationToken.Register(
+                    static state =>
+                    {
+                        var (scheduler, canceledWaiter) = ((ControlledOperationScheduler, ControlledResourceWaiter))state!;
+                        scheduler.OnWaiterCanceled(canceledWaiter);
+                    },
+                    (this, waiter));
+            }
         }
 
         Notify(operation, ControlledOperationState.Paused);
         HandBackAndPark(operation);
 
         return FinishWait(operation, waiter);
+    }
+
+    /// <summary>
+    /// The synchronous cancellation callback: resolves <paramref name="waiter"/> as
+    /// <see cref="ControlledWaitOutcome.Canceled"/> (if it has not already been signaled or timed out),
+    /// cancels its virtual-time timeout, removes it from the resource queue, and makes its operation
+    /// runnable so it observes the cancellation. Runs on the thread that cancels the token, under the
+    /// scheduler lock; never touches the thread pool. The cancellation registration itself is disposed
+    /// later in <see cref="FinishWait"/> (never from inside its own callback).
+    /// </summary>
+    private void OnWaiterCanceled(ControlledResourceWaiter waiter)
+    {
+        ControlledOperation? runnable = null;
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (!waiter.TryResolve(ControlledWaitOutcome.Canceled))
+            {
+                return;
+            }
+
+            if (waiter.Timeout is { } timeout)
+            {
+                timeout.IsCanceled = true;
+            }
+
+            waiter.Resource.RemoveWaiter(waiter);
+            if (waiter.Operation.State == ControlledOperationState.Paused)
+            {
+                waiter.Operation.ApplyTransition(ControlledOperationState.Runnable);
+                runnable = waiter.Operation;
+            }
+        }
+
+        if (runnable is not null)
+        {
+            Notify(runnable, ControlledOperationState.Runnable);
+        }
     }
 
     /// <summary>
@@ -680,9 +786,11 @@ public sealed class ControlledOperationScheduler : IDisposable
 
     /// <summary>
     /// Completes a wait once the operation has been granted the baton again: reads the deterministic
-    /// resolution assigned while it was parked, detaches the waiter from the resource and the
-    /// operation, and returns the outcome. The resolution is always present here because an operation
-    /// is only ever made runnable again after its waiter has been resolved.
+    /// resolution assigned while it was parked, disposes any timeout/cancellation registrations (so a
+    /// cancellation callback that resolved the waiter without disposing its own registration cannot
+    /// leak), detaches the waiter from the resource and the operation, and returns the outcome. The
+    /// resolution is always present here because an operation is only ever made runnable again after
+    /// its waiter has been resolved.
     /// </summary>
     private ControlledWaitOutcome FinishWait(ControlledOperation operation, ControlledResourceWaiter waiter)
     {
@@ -690,6 +798,7 @@ public sealed class ControlledOperationScheduler : IDisposable
         {
             var resolution = waiter.Resolution ?? throw new ControlledOperationException(
                 string.Create(CultureInfo.InvariantCulture, $"Controlled operation {operation.Id} resumed from a resource wait with no resolution recorded."));
+            DisposeWaiterRegistrations(waiter);
             waiter.Resource.RemoveWaiter(waiter);
             if (ReferenceEquals(operation.Waiter, waiter))
             {
