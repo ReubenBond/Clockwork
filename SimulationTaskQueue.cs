@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using Clockwork.Runtime.Execution;
 
 namespace Clockwork;
 
@@ -28,6 +29,7 @@ public sealed class SimulationTaskQueue
     private readonly SortedSet<ScheduledItem> _queue = new(ScheduledItem.Comparer);
     private readonly SimulationClock _clock;
     private readonly SingleThreadedGuard _guard;
+    private readonly SimulationAmbientContextConfiguration? _ambientContext;
     private long _sequenceNumber;
 
     /// <summary>
@@ -43,12 +45,20 @@ public sealed class SimulationTaskQueue
     /// </summary>
     /// <param name="clock">The clock to use for time.</param>
     /// <param name="guard">The single-threaded guard used to detect concurrent access on simulation-thread-only operations.</param>
-    public SimulationTaskQueue(SimulationClock clock, SingleThreadedGuard guard)
+    /// <param name="ambientContext">
+    /// Optional ambient-context configuration (see <see cref="SimulationAmbientContextConfiguration"/>).
+    /// When provided, <see cref="RunOnce"/> validates external entry and installs/restores the
+    /// configured runtime (and, if present, node) as ambient <see cref="SimulationExecutionContext"/>
+    /// around each executed item. When omitted (the default), this queue behaves exactly as it did
+    /// before ambient-context integration existed.
+    /// </param>
+    public SimulationTaskQueue(SimulationClock clock, SingleThreadedGuard guard, SimulationAmbientContextConfiguration? ambientContext = null)
     {
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(guard);
         _clock = clock;
         _guard = guard;
+        _ambientContext = ambientContext;
         SynchronizationContext = new SimulationSynchronizationContext(this);
         ScheduledItems = _queue.AsReadOnly();
     }
@@ -182,12 +192,34 @@ public sealed class SimulationTaskQueue
             return false; // No ready items
 
         _queue.Remove(item);
-        using (SynchronizationContext.Install())
-        {
-            item.Invoke();
-        }
+        ExecuteReadyItem(item);
 
         return true;
+    }
+
+    /// <summary>
+    /// Executes one already-dequeued ready item, installing this queue's synchronization context
+    /// and - when this queue has an <see cref="SimulationAmbientContextConfiguration"/> - validating
+    /// external entry and installing/restoring the configured ambient
+    /// <see cref="SimulationExecutionContext"/> scope around the invocation. Queues without an
+    /// ambient context configured skip that entirely, preserving prior behavior exactly.
+    /// </summary>
+    /// <param name="item">The already-dequeued item to invoke.</param>
+    private void ExecuteReadyItem(ScheduledItem item)
+    {
+        if (_ambientContext is { } ambient)
+        {
+            SimulationExternalEntryGuard.ValidateEntry(ambient.Runtime, "SimulationTaskQueue.RunOnce");
+            using var runtimeScope = SimulationExecutionContext.EnterRuntime(ambient.ActivationToken, ambient.Runtime);
+            using var nodeScope = ambient.Node is { } node ? SimulationExecutionContext.EnterNode(node) : null;
+            using var syncScope = SynchronizationContext.Install();
+            item.Invoke();
+        }
+        else
+        {
+            using var syncScope = SynchronizationContext.Install();
+            item.Invoke();
+        }
     }
 
     /// <summary>

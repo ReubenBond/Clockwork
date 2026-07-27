@@ -32,7 +32,7 @@ public sealed class BuiltSimulation : SimulationCluster<SimulationNode>
         _materializedNodes = new List<SimulationNode>(pendingNodes.Count);
         foreach (var pending in pendingNodes)
         {
-            var context = new SimulationNodeContext(Clock, Guard, CreateDerivedRandom(), TaskQueue);
+            var context = new SimulationNodeContext(Clock, Guard, CreateDerivedRandom(), TaskQueue, ambientContext: CreateNodeAmbientContext(pending.Address));
             var node = pending.Materialize(context);
             RegisterNode(node);
             _materializedNodes.Add(node);
