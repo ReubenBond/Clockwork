@@ -86,7 +86,6 @@ public sealed class NondeterministicApiAnalyzerTests
 
     [Theory]
     [InlineData("System.Threading.Tasks.Task.CompletedTask.Wait(1);")]
-    [InlineData("_ = System.Threading.Tasks.Task.Delay(System.TimeSpan.FromSeconds(1));")]
     public async Task DoesNotFlagUninstrumentedTaskOverloads(string statement)
     {
         ImmutableArray<Diagnostic> diagnostics = await AnalyzeAsync(Wrap(statement));

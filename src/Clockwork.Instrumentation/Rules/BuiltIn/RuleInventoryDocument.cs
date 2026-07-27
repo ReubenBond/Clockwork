@@ -54,7 +54,7 @@ public static class RuleInventoryDocument
         Line("- Generic cryptographic helpers `RandomNumberGenerator.GetItems<T>` and `Shuffle<T>`, and any `GetString`/`GetHexString` overloads beyond those listed above.");
         Line("- `DateTime`/`DateTimeOffset` parsing/formatting and any culture-, timezone-, or kind-conversion helpers other than the `Now`/`UtcNow`/`Today` clocks above.");
         Line("- Synchronous blocking on `ValueTask`/`ValueTask<T>` (`.Result`/`.GetResult()` outside an awaiter): a value task may be consumed only once, so a blocking drain is unsafe. `await` is the supported controlled path.");
-        Line("- `ReaderWriterLockSlim`, `Mutex`, the kernel `Semaphore`, `SpinLock`, and general `WaitHandle` operations remain unrewritten. The `ThreadPool` registered-wait APIs listed above are rejected; `Monitor`, `Lock`, and `SemaphoreSlim` are covered above.");
+        Line("- `ReaderWriterLockSlim`, `Mutex`, the kernel `Semaphore`, `SpinLock`, and general `WaitHandle` operations remain unrewritten. The `ThreadPool` registered-wait APIs listed above are rejected.");
         Line("- `Timer`, `PeriodicTimer`, and cancellation timers remain unrewritten Phase 8 scope.");
         Line();
         Line("Determinism is claimed **only** for the exact rules tabulated above.");

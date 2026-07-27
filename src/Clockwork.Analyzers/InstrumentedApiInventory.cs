@@ -56,6 +56,7 @@ public static class InstrumentedApiInventory
         Api("System.Threading.Monitor", "Wait"),
         Api("System.Threading.Monitor", "Pulse"),
         Api("System.Threading.Monitor", "PulseAll"),
+        Api("System.Threading.Monitor", "LockContentionCount"),
         Api("System.Threading.Lock", Wildcard),
         Api("System.Threading.Lock+Scope", Wildcard),
         Api("System.Threading.SemaphoreSlim", ".ctor"),

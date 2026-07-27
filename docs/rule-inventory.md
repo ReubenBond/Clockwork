@@ -364,7 +364,7 @@ remain real BCL calls even under simulation:
 - Generic cryptographic helpers `RandomNumberGenerator.GetItems<T>` and `Shuffle<T>`, and any `GetString`/`GetHexString` overloads beyond those listed above.
 - `DateTime`/`DateTimeOffset` parsing/formatting and any culture-, timezone-, or kind-conversion helpers other than the `Now`/`UtcNow`/`Today` clocks above.
 - Synchronous blocking on `ValueTask`/`ValueTask<T>` (`.Result`/`.GetResult()` outside an awaiter): a value task may be consumed only once, so a blocking drain is unsafe. `await` is the supported controlled path.
-- `ReaderWriterLockSlim`, `Mutex`, the kernel `Semaphore`, `SpinLock`, and general `WaitHandle` operations remain unrewritten. The `ThreadPool` registered-wait APIs listed above are rejected; `Monitor`, `Lock`, and `SemaphoreSlim` are covered above.
+- `ReaderWriterLockSlim`, `Mutex`, the kernel `Semaphore`, `SpinLock`, and general `WaitHandle` operations remain unrewritten. The `ThreadPool` registered-wait APIs listed above are rejected.
 - `Timer`, `PeriodicTimer`, and cancellation timers remain unrewritten Phase 8 scope.
 
 Determinism is claimed **only** for the exact rules tabulated above.
