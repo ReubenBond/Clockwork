@@ -29,6 +29,14 @@ public static class RewriteEngine
     /// <summary>The name recorded as the producing engine in manifests and signature markers.</summary>
     public const string EngineName = "Clockwork.Instrumentation";
 
+    /// <summary>
+    /// The simple name of the shim assembly that declares the exception-hardening guard
+    /// (<c>Clockwork.Runtime.ControlledExceptionGuard</c>). The caller must include this assembly in
+    /// <see cref="RewriteOptions.ReplacementAssemblyPaths"/> when
+    /// <see cref="RewriteOptions.HardenExceptionHandlers"/> is enabled.
+    /// </summary>
+    private const string ExceptionGuardShimAssembly = "Clockwork.Runtime";
+
     /// <summary>Gets the engine version recorded in manifests and idempotence markers.</summary>
     public static string EngineVersion =>
         typeof(RewriteEngine).Assembly.GetName().Version?.ToString() ?? "0.0.0";
@@ -99,6 +107,12 @@ public static class RewriteEngine
             new CallSiteRewritingPass(session),
             new TypeReferenceRewritingPass(session),
             new MemberSubstitutionRewritingPass(session),
+            .. options.HardenExceptionHandlers
+                ? new RewritePass[] { new ExceptionHardeningRewritingPass(session, ExceptionGuardShimAssembly) }
+                : [],
+            .. options.DetectUncontrolledTasks
+                ? new RewritePass[] { new CrossAssemblyTaskDetectionPass(session) }
+                : [],
         ];
 
         foreach (RewritePass pass in passes)

@@ -77,6 +77,8 @@ internal sealed class RewriteFixture : IDisposable
         string runtimeDll = typeof(DeterministicClock).Assembly.Location;
         var options = new RewriteOptions
         {
+            HardenExceptionHandlers = true,
+            DetectUncontrolledTasks = true,
             ReplacementAssemblyPaths = [runtimeDll],
             ReferenceSearchDirectories = [AppContext.BaseDirectory],
             TargetRuntime = new Version(10, 0),

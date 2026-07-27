@@ -50,6 +50,9 @@ public static class BuiltInRuleSets
     private const string CryptoShim = "Clockwork.Runtime.Shims.DeterministicCryptoRandom";
     private const string TaskShim = "Clockwork.Runtime.Tasks.ControlledTask";
     private const string TaskFactoryShim = "Clockwork.Runtime.Tasks.ControlledTaskFactory";
+    private const string ThreadShim = "Clockwork.Runtime.Threading.ControlledThread";
+    private const string ThreadPoolShim = "Clockwork.Runtime.Threading.ControlledThreadPool";
+    private const string ParallelShim = "Clockwork.Runtime.Threading.ControlledParallel";
 
     // Cecil full names for the exact overload parameters (from the net10 reference assemblies).
     private const string Int32 = "System.Int32";
@@ -101,6 +104,91 @@ public static class BuiltInRuleSets
     private const string FuncOfMethodResult = "System.Func`1<!!0>";
     private const string FuncOfTypeResult = "System.Func`1<!0>";
     private const string FuncOfResultDecl = "System.Func`1<TResult>";
+
+    // Cecil full names for the Task.Run scheduling surface (Phase 6B controlled). The generic overloads are
+    // GenericInstanceMethods at the call site (`!!0` target) resolved against their definitions (`TResult`
+    // replacement); Func<Task>/Func<Task<TResult>> carry the unwrap overloads.
+    private const string CancellationToken = "System.Threading.CancellationToken";
+    private const string FuncOfTask = "System.Func`1<System.Threading.Tasks.Task>";
+    private const string FuncOfTaskResult = "System.Func`1<System.Threading.Tasks.Task`1<!!0>>";
+    private const string FuncOfTaskResultDecl = "System.Func`1<System.Threading.Tasks.Task`1<TResult>>";
+
+    // Cecil full names for the generic-antecedent Task<TResult>.ContinueWith surface (Phase 6B). The
+    // declaring type is the open Task`1; a call site renders the type's generic parameter as `!0` and
+    // the method's own generic parameter (ContinueWith<TNewResult>) as `!!0`, whereas the controlled
+    // shim's definition renders both by name (TResult from the declaring type, TNewResult from the
+    // method). The call-site pass binds the shim's two type parameters declaring-type-first.
+    private const string TaskTType = "System.Threading.Tasks.Task`1";
+    private const string ActionOfTaskTVar = "System.Action`1<System.Threading.Tasks.Task`1<!0>>";
+    private const string ActionOfTaskTDecl = "System.Action`1<System.Threading.Tasks.Task`1<TResult>>";
+    private const string FuncOfTaskTAndNewResult = "System.Func`2<System.Threading.Tasks.Task`1<!0>,!!0>";
+    private const string FuncOfTaskTAndNewResultDecl = "System.Func`2<System.Threading.Tasks.Task`1<TResult>,TNewResult>";
+
+    // TaskCreationOptions selects the controlled StartNew overloads that carry an explicit options value.
+    private const string TaskCreationOptions = "System.Threading.Tasks.TaskCreationOptions";
+
+    // Cecil full names for the controlled System.Threading.Thread surface (Phase 6B).
+    private const string ThreadType = "System.Threading.Thread";
+    private const string ThreadStart = "System.Threading.ThreadStart";
+    private const string ParameterizedThreadStart = "System.Threading.ParameterizedThreadStart";
+    private const string ObjectType = "System.Object";
+    private const string TimeSpan = "System.TimeSpan";
+    private const string ThreadPriority = "System.Threading.ThreadPriority";
+    private const string ApartmentState = "System.Threading.ApartmentState";
+
+    // Cecil full names for the controlled System.Threading.ThreadPool queueing surface (Phase 6B). The
+    // generic QueueUserWorkItem<TState>(Action<TState>, TState, bool) overloads are GenericInstanceMethods
+    // at the call site (`!!0` target) resolved against their definitions (`TState` replacement).
+    private const string ThreadPoolType = "System.Threading.ThreadPool";
+    private const string WaitCallback = "System.Threading.WaitCallback";
+    private const string IThreadPoolWorkItem = "System.Threading.IThreadPoolWorkItem";
+    private const string ActionOfTStateVar = "System.Action`1<!!0>";
+    private const string TStateVar = "!!0";
+    private const string ActionOfTStateDecl = "System.Action`1<TState>";
+    private const string TStateDecl = "TState";
+    private const string NativeOverlappedPtr = "System.Threading.NativeOverlapped*";
+
+    // Cecil full names for the registered-wait surface (Phase 6B slice 5). These bind a callback to a
+    // WaitHandle (a Phase 7 synchronization primitive), so they are rejected at the call site until the
+    // controlled wait-handle infrastructure lands in Phase 7. Each of RegisterWaitForSingleObject and
+    // UnsafeRegisterWaitForSingleObject has four timeout overloads (UInt32/Int32/Int64/TimeSpan).
+    private const string UInt32 = "System.UInt32";
+    private const string WaitHandle = "System.Threading.WaitHandle";
+    private const string WaitOrTimerCallback = "System.Threading.WaitOrTimerCallback";
+
+    // Cecil full names for the controlled System.Threading.Tasks.Parallel surface (Phase 6B slice 6). The
+    // generic ForEach<TSource> overloads are GenericInstanceMethods at the call site (`!!0` target) resolved
+    // against their definitions (`TSource` replacement); the ParallelLoopState / TLocal / Partitioner
+    // overloads are rejected at the call site.
+    private const string ParallelType = "System.Threading.Tasks.Parallel";
+    private const string ParallelOptionsType = "System.Threading.Tasks.ParallelOptions";
+    private const string ActionArray = "System.Action[]";
+    private const string ActionOfInt32 = "System.Action`1<System.Int32>";
+    private const string ActionOfInt64 = "System.Action`1<System.Int64>";
+    private const string IEnumerableOfTSourceVar = "System.Collections.Generic.IEnumerable`1<!!0>";
+    private const string IEnumerableOfTSourceDecl = "System.Collections.Generic.IEnumerable`1<TSource>";
+    private const string ActionOfTSourceVar = "System.Action`1<!!0>";
+    private const string ActionOfTSourceDecl = "System.Action`1<TSource>";
+    private const string ActionOfInt32LoopState = "System.Action`2<System.Int32,System.Threading.Tasks.ParallelLoopState>";
+    private const string ActionOfInt64LoopState = "System.Action`2<System.Int64,System.Threading.Tasks.ParallelLoopState>";
+    private const string ActionOfTSourceLoopStateVar = "System.Action`2<!!0,System.Threading.Tasks.ParallelLoopState>";
+    private const string ActionOfTSourceLoopStateInt64Var = "System.Action`3<!!0,System.Threading.Tasks.ParallelLoopState,System.Int64>";
+
+    // Cecil full names for the uncontrolled-invocation surface (Phase 6B slice 7): process control and
+    // abrupt host termination. These cannot be modelled by the deterministic scheduler, so every rewritten
+    // call site is rejected (throws a diagnostic naming the exact API). Process.Start is static and returns
+    // Process/Boolean; the instance Kill/WaitForExit members and Environment.Exit/FailFast are void or
+    // value-returning - InjectRejection handles every shape uniformly by prepending a throwing call.
+    private const string ProcessType = "System.Diagnostics.Process";
+    private const string EnvironmentType = "System.Environment";
+    private const string ProcessStartInfoType = "System.Diagnostics.ProcessStartInfo";
+    private const string SecureStringType = "System.Security.SecureString";
+    private const string IEnumerableOfStringType = "System.Collections.Generic.IEnumerable`1<System.String>";
+    private const string TimeSpanType = "System.TimeSpan";
+    private const string CancellationTokenType = "System.Threading.CancellationToken";
+    private const string ExceptionType = "System.Exception";
+    private const string UncontrolledInvocationShim = "Clockwork.Runtime.UncontrolledInvocationGuard";
+
 
     // Cecil full names for the compiler-generated async machinery (BCL) and their controlled substitutes.
     // Nested awaiter types use Cecil's '/' separator; generic arities carry the backtick.
@@ -160,9 +248,14 @@ public static class BuiltInRuleSets
         BuiltInRuleFamily.TaskSynchronization,
         BuiltInRuleFamily.TaskContinuations,
         BuiltInRuleFamily.TaskDeferred,
+        BuiltInRuleFamily.TaskScheduling,
         BuiltInRuleFamily.AsyncMachinery,
         BuiltInRuleFamily.ValueTaskMachinery,
         BuiltInRuleFamily.TaskFactory,
+        BuiltInRuleFamily.Thread,
+        BuiltInRuleFamily.ThreadPool,
+        BuiltInRuleFamily.Parallel,
+        BuiltInRuleFamily.UncontrolledInvocation,
     ];
 
     /// <summary>Gets the (family, rule) entries of the deterministic BCL rule set, for documentation and inventory generation.</summary>
@@ -281,18 +374,43 @@ public static class BuiltInRuleSets
         TaskRule(builder, BuiltInRuleFamily.TaskContinuations, "clockwork.tasks.continuewith.action",
             MemberSignature.Method(Task, "ContinueWith", ActionOfTask), Shim(TaskShim, "ContinueWith", Task, ActionOfTask));
 
-        // ---- Deferred: Task.Delay (Phase 8 timers) and Task.Run (Phase 6B thread-pool) rejected ----
-        // The shim rejects under simulation with a precise diagnostic and runs the real BCL API outside.
+        // Generic-antecedent Task<TResult>.ContinueWith: the Action<Task<TResult>> form is a non-generic
+        // member on a closed generic type (declaring-type arg binds the shim's TResult); the
+        // Func<Task<TResult>, TNewResult> form is a generic method on a closed generic type, so the shim's
+        // two type parameters bind declaring-type-first (TResult) then method-argument (TNewResult).
+        TaskRule(builder, BuiltInRuleFamily.TaskContinuations, "clockwork.tasks.continuewith.generic.action",
+            MemberSignature.Method(TaskTType, "ContinueWith", ActionOfTaskTVar), Shim(TaskShim, "ContinueWith", TaskTDecl, ActionOfTaskTDecl));
+        TaskRule(builder, BuiltInRuleFamily.TaskContinuations, "clockwork.tasks.continuewith.generic.func",
+            MemberSignature.Method(TaskTType, "ContinueWith", FuncOfTaskTAndNewResult), Shim(TaskShim, "ContinueWith", TaskTDecl, FuncOfTaskTAndNewResultDecl));
+
+        // ---- Deferred: Task.Delay (Phase 8 timers) rejected. The shim rejects under simulation with a
+        // precise diagnostic and runs the real BCL API outside. ----
         builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.TaskDeferred, RewriteRule.RedirectCall(
             "clockwork.tasks.delay.milliseconds",
             MemberSignature.Method(Task, "Delay", Int32),
             Shim(TaskShim, "Delay", Int32),
             SimulationApiPolicy.Rejected)));
-        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.TaskDeferred, RewriteRule.RedirectCall(
-            "clockwork.tasks.run.action",
-            MemberSignature.Method(Task, "Run", Action),
-            Shim(TaskShim, "Run", Action),
-            SimulationApiPolicy.Rejected)));
+
+        // ---- Scheduling: Task.Run (Phase 6B) controlled. The body is queued as a fresh controlled
+        // operation on the coordinator instead of a physical thread-pool thread. The generic overloads are
+        // GenericInstanceMethods (`!!0` target, `TResult` replacement); Func<Task>/Func<Task<TResult>>
+        // carry the unwrap overloads. Each has a with- and without-CancellationToken form. ----
+        TaskRule(builder, BuiltInRuleFamily.TaskScheduling, "clockwork.tasks.run.action",
+            MemberSignature.Method(Task, "Run", Action), Shim(TaskShim, "Run", Action));
+        TaskRule(builder, BuiltInRuleFamily.TaskScheduling, "clockwork.tasks.run.action.cancellationtoken",
+            MemberSignature.Method(Task, "Run", Action, CancellationToken), Shim(TaskShim, "Run", Action, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.TaskScheduling, "clockwork.tasks.run.func",
+            MemberSignature.Method(Task, "Run", FuncOfMethodResult), Shim(TaskShim, "Run", FuncOfResultDecl));
+        TaskRule(builder, BuiltInRuleFamily.TaskScheduling, "clockwork.tasks.run.func.cancellationtoken",
+            MemberSignature.Method(Task, "Run", FuncOfMethodResult, CancellationToken), Shim(TaskShim, "Run", FuncOfResultDecl, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.TaskScheduling, "clockwork.tasks.run.func.task",
+            MemberSignature.Method(Task, "Run", FuncOfTask), Shim(TaskShim, "Run", FuncOfTask));
+        TaskRule(builder, BuiltInRuleFamily.TaskScheduling, "clockwork.tasks.run.func.task.cancellationtoken",
+            MemberSignature.Method(Task, "Run", FuncOfTask, CancellationToken), Shim(TaskShim, "Run", FuncOfTask, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.TaskScheduling, "clockwork.tasks.run.func.task.generic",
+            MemberSignature.Method(Task, "Run", FuncOfTaskResult), Shim(TaskShim, "Run", FuncOfTaskResultDecl));
+        TaskRule(builder, BuiltInRuleFamily.TaskScheduling, "clockwork.tasks.run.func.task.generic.cancellationtoken",
+            MemberSignature.Method(Task, "Run", FuncOfTaskResult, CancellationToken), Shim(TaskShim, "Run", FuncOfTaskResultDecl, CancellationToken));
 
         // ---- Async machinery: retarget the compiler-generated builder/awaiter types of an async state
         // machine onto controlled equivalents (member-aware SubstituteType), plus the Task.Yield redirect.
@@ -325,26 +443,236 @@ public static class BuiltInRuleSets
         Sub(builder, BuiltInRuleFamily.ValueTaskMachinery, "clockwork.tasks.configured.valuetask.awaiter.generic", BclConfiguredValueAwaiterT, ControlledConfiguredValueAwaiterT);
 
         // ---- TaskFactory scheduling: StartNew offloads onto a task scheduler (the thread pool by
-        // default). Rejected under simulation - the shim throws a precise diagnostic and runs the real
-        // BCL API outside. Task.Factory.StartNew(Func<TResult>) is a generic method (`!!0`); the generic
-        // TaskFactory`1's StartNew(Func<TResult>) is a non-generic method over the type parameter (`!0`).
-        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.TaskFactory, RewriteRule.RedirectCall(
-            "clockwork.tasks.factory.startnew.action",
+        // default). Phase 6B controls it by queuing the delegate body as a fresh controlled operation on
+        // the coordinator (like Task.Run), honouring the factory's/call's cancellation token; the
+        // AttachedToParent creation option is rejected at runtime. Task.Factory.StartNew(Func<TResult>)
+        // is a generic method (`!!0`); TaskFactory`1's StartNew(Func<TResult>) is a non-generic method
+        // over the type parameter (`!0`). Each supported delegate form has plain, CancellationToken, and
+        // TaskCreationOptions overloads. ----
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.startnew.action",
             MemberSignature.Method(TaskFactoryType, "StartNew", Action),
-            Shim(TaskFactoryShim, "StartNew", TaskFactoryType, Action),
-            SimulationApiPolicy.Rejected)));
-        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.TaskFactory, RewriteRule.RedirectCall(
-            "clockwork.tasks.factory.startnew.func",
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryType, Action));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.startnew.action.cancellationtoken",
+            MemberSignature.Method(TaskFactoryType, "StartNew", Action, CancellationToken),
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryType, Action, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.startnew.action.options",
+            MemberSignature.Method(TaskFactoryType, "StartNew", Action, TaskCreationOptions),
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryType, Action, TaskCreationOptions));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.startnew.func",
             MemberSignature.Method(TaskFactoryType, "StartNew", FuncOfMethodResult),
-            Shim(TaskFactoryShim, "StartNew", TaskFactoryType, FuncOfResultDecl),
-            SimulationApiPolicy.Rejected)));
-        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.TaskFactory, RewriteRule.RedirectCall(
-            "clockwork.tasks.factory.generic.startnew.func",
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryType, FuncOfResultDecl));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.startnew.func.cancellationtoken",
+            MemberSignature.Method(TaskFactoryType, "StartNew", FuncOfMethodResult, CancellationToken),
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryType, FuncOfResultDecl, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.startnew.func.options",
+            MemberSignature.Method(TaskFactoryType, "StartNew", FuncOfMethodResult, TaskCreationOptions),
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryType, FuncOfResultDecl, TaskCreationOptions));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.generic.startnew.func",
             MemberSignature.Method(TaskFactoryTType, "StartNew", FuncOfTypeResult),
-            Shim(TaskFactoryShim, "StartNew", TaskFactoryTOfResultDecl, FuncOfResultDecl),
-            SimulationApiPolicy.Rejected)));
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryTOfResultDecl, FuncOfResultDecl));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.generic.startnew.func.cancellationtoken",
+            MemberSignature.Method(TaskFactoryTType, "StartNew", FuncOfTypeResult, CancellationToken),
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryTOfResultDecl, FuncOfResultDecl, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.generic.startnew.func.options",
+            MemberSignature.Method(TaskFactoryTType, "StartNew", FuncOfTypeResult, TaskCreationOptions),
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryTOfResultDecl, FuncOfResultDecl, TaskCreationOptions));
+
+        // ---- Thread: construction and Start/Join are controlled; Sleep/Yield/SpinWait yield cooperatively;
+        // the OS-specific priority/apartment/interrupt surface is rejected precisely under simulation. Each
+        // controlled thread is a real thread object whose body is queued as a fresh controlled operation, so
+        // the logical identity surface (Name, ManagedThreadId, IsBackground) keeps working unchanged. ----
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Thread, RewriteRule.RedirectNewObj(
+            "clockwork.thread.ctor.threadstart",
+            MemberSignature.Constructor(ThreadType, ThreadStart), Shim(ThreadShim, "Create", ThreadStart))));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Thread, RewriteRule.RedirectNewObj(
+            "clockwork.thread.ctor.threadstart.stacksize",
+            MemberSignature.Constructor(ThreadType, ThreadStart, Int32), Shim(ThreadShim, "Create", ThreadStart, Int32))));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Thread, RewriteRule.RedirectNewObj(
+            "clockwork.thread.ctor.parameterized",
+            MemberSignature.Constructor(ThreadType, ParameterizedThreadStart), Shim(ThreadShim, "Create", ParameterizedThreadStart))));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Thread, RewriteRule.RedirectNewObj(
+            "clockwork.thread.ctor.parameterized.stacksize",
+            MemberSignature.Constructor(ThreadType, ParameterizedThreadStart, Int32), Shim(ThreadShim, "Create", ParameterizedThreadStart, Int32))));
+
+        TaskRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.start",
+            MemberSignature.Method(ThreadType, "Start"), Shim(ThreadShim, "Start", ThreadType));
+        TaskRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.start.parameter",
+            MemberSignature.Method(ThreadType, "Start", ObjectType), Shim(ThreadShim, "Start", ThreadType, ObjectType));
+        TaskRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.join",
+            MemberSignature.Method(ThreadType, "Join"), Shim(ThreadShim, "Join", ThreadType));
+        TaskRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.join.milliseconds",
+            MemberSignature.Method(ThreadType, "Join", Int32), Shim(ThreadShim, "Join", ThreadType, Int32));
+        TaskRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.join.timespan",
+            MemberSignature.Method(ThreadType, "Join", TimeSpan), Shim(ThreadShim, "Join", ThreadType, TimeSpan));
+        TaskRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.sleep.milliseconds",
+            MemberSignature.Method(ThreadType, "Sleep", Int32), Shim(ThreadShim, "Sleep", Int32));
+        TaskRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.sleep.timespan",
+            MemberSignature.Method(ThreadType, "Sleep", TimeSpan), Shim(ThreadShim, "Sleep", TimeSpan));
+        TaskRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.spinwait",
+            MemberSignature.Method(ThreadType, "SpinWait", Int32), Shim(ThreadShim, "SpinWait", Int32));
+        TaskRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.yield",
+            MemberSignature.Method(ThreadType, "Yield"), Shim(ThreadShim, "Yield"));
+
+        RejectedRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.set_priority",
+            MemberSignature.Method(ThreadType, "set_Priority", ThreadPriority), Shim(ThreadShim, "SetPriority", ThreadType, ThreadPriority));
+        RejectedRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.interrupt",
+            MemberSignature.Method(ThreadType, "Interrupt"), Shim(ThreadShim, "Interrupt", ThreadType));
+        RejectedRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.setapartmentstate",
+            MemberSignature.Method(ThreadType, "SetApartmentState", ApartmentState), Shim(ThreadShim, "SetApartmentState", ThreadType, ApartmentState));
+        RejectedRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.trysetapartmentstate",
+            MemberSignature.Method(ThreadType, "TrySetApartmentState", ApartmentState), Shim(ThreadShim, "TrySetApartmentState", ThreadType, ApartmentState));
+
+        // ---- ThreadPool: QueueUserWorkItem / UnsafeQueueUserWorkItem queue the callback as a fresh
+        // controlled operation on the coordinator. ThreadPool methods are static, so the shim signatures
+        // match the target parameters exactly (no receiver prepended). The safe variants flow the caller's
+        // ExecutionContext; the unsafe variants do not. The generic overloads are GenericInstanceMethods
+        // (`!!0` target, `TState` replacement). UnsafeQueueNativeOverlapped is rejected at the call site. ----
+        TaskRule(builder, BuiltInRuleFamily.ThreadPool, "clockwork.threadpool.queue.waitcallback",
+            MemberSignature.Method(ThreadPoolType, "QueueUserWorkItem", WaitCallback), Shim(ThreadPoolShim, "QueueUserWorkItem", WaitCallback));
+        TaskRule(builder, BuiltInRuleFamily.ThreadPool, "clockwork.threadpool.queue.waitcallback.state",
+            MemberSignature.Method(ThreadPoolType, "QueueUserWorkItem", WaitCallback, ObjectType), Shim(ThreadPoolShim, "QueueUserWorkItem", WaitCallback, ObjectType));
+        TaskRule(builder, BuiltInRuleFamily.ThreadPool, "clockwork.threadpool.queue.generic",
+            MemberSignature.Method(ThreadPoolType, "QueueUserWorkItem", ActionOfTStateVar, TStateVar, Boolean),
+            Shim(ThreadPoolShim, "QueueUserWorkItem", ActionOfTStateDecl, TStateDecl, Boolean));
+        TaskRule(builder, BuiltInRuleFamily.ThreadPool, "clockwork.threadpool.unsafequeue.waitcallback.state",
+            MemberSignature.Method(ThreadPoolType, "UnsafeQueueUserWorkItem", WaitCallback, ObjectType), Shim(ThreadPoolShim, "UnsafeQueueUserWorkItem", WaitCallback, ObjectType));
+        TaskRule(builder, BuiltInRuleFamily.ThreadPool, "clockwork.threadpool.unsafequeue.workitem",
+            MemberSignature.Method(ThreadPoolType, "UnsafeQueueUserWorkItem", IThreadPoolWorkItem, Boolean), Shim(ThreadPoolShim, "UnsafeQueueUserWorkItem", IThreadPoolWorkItem, Boolean));
+        TaskRule(builder, BuiltInRuleFamily.ThreadPool, "clockwork.threadpool.unsafequeue.generic",
+            MemberSignature.Method(ThreadPoolType, "UnsafeQueueUserWorkItem", ActionOfTStateVar, TStateVar, Boolean),
+            Shim(ThreadPoolShim, "UnsafeQueueUserWorkItem", ActionOfTStateDecl, TStateDecl, Boolean));
+
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.ThreadPool, RewriteRule.InjectRejection(
+            "clockwork.threadpool.unsafequeuenativeoverlapped",
+            MemberSignature.Method(ThreadPoolType, "UnsafeQueueNativeOverlapped", NativeOverlappedPtr),
+            Shim(ThreadPoolShim, "RejectNativeOverlapped", String))));
+
+        // ---- Registered waits (Phase 6B slice 5): RegisterWaitForSingleObject / UnsafeRegisterWaitForSingleObject
+        // bind a callback to a WaitHandle, a Phase 7 synchronization primitive that the controlled scheduler
+        // cannot yet model. Reject every overload precisely at the call site (InjectRejection keeps the value-
+        // returning call in place for stack balance; the injected throw runs first). Each method has four
+        // timeout overloads (UInt32/Int32/Int64/TimeSpan). Lifted to controlled waits in Phase 7. ----
+        RegisterWaitRejection(builder, "clockwork.threadpool.registerwait.uint32", "RegisterWaitForSingleObject", UInt32);
+        RegisterWaitRejection(builder, "clockwork.threadpool.registerwait.int32", "RegisterWaitForSingleObject", Int32);
+        RegisterWaitRejection(builder, "clockwork.threadpool.registerwait.int64", "RegisterWaitForSingleObject", Int64);
+        RegisterWaitRejection(builder, "clockwork.threadpool.registerwait.timespan", "RegisterWaitForSingleObject", TimeSpan);
+        RegisterWaitRejection(builder, "clockwork.threadpool.unsaferegisterwait.uint32", "UnsafeRegisterWaitForSingleObject", UInt32);
+        RegisterWaitRejection(builder, "clockwork.threadpool.unsaferegisterwait.int32", "UnsafeRegisterWaitForSingleObject", Int32);
+        RegisterWaitRejection(builder, "clockwork.threadpool.unsaferegisterwait.int64", "UnsafeRegisterWaitForSingleObject", Int64);
+        RegisterWaitRejection(builder, "clockwork.threadpool.unsaferegisterwait.timespan", "UnsafeRegisterWaitForSingleObject", TimeSpan);
+
+        // ---- Parallel (Phase 6B slice 6): the simple-body Invoke / For / ForEach overloads decompose into
+        // controlled operations on the coordinator (each branch queued, then the loop drained until all
+        // complete). Parallel is static, so the shim signatures match the target exactly. The generic
+        // ForEach<TSource> overloads are GenericInstanceMethods (`!!0` target, `TSource` replacement). The
+        // break/stop (ParallelLoopState) overloads are rejected at the call site; the TLocal and Partitioner
+        // overloads are caught by the uncontrolled-invocation pass. ----
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.invoke",
+            MemberSignature.Method(ParallelType, "Invoke", ActionArray), Shim(ParallelShim, "Invoke", ActionArray));
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.invoke.options",
+            MemberSignature.Method(ParallelType, "Invoke", ParallelOptionsType, ActionArray), Shim(ParallelShim, "Invoke", ParallelOptionsType, ActionArray));
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.for.int32",
+            MemberSignature.Method(ParallelType, "For", Int32, Int32, ActionOfInt32), Shim(ParallelShim, "For", Int32, Int32, ActionOfInt32));
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.for.int32.options",
+            MemberSignature.Method(ParallelType, "For", Int32, Int32, ParallelOptionsType, ActionOfInt32), Shim(ParallelShim, "For", Int32, Int32, ParallelOptionsType, ActionOfInt32));
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.for.int64",
+            MemberSignature.Method(ParallelType, "For", Int64, Int64, ActionOfInt64), Shim(ParallelShim, "For", Int64, Int64, ActionOfInt64));
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.for.int64.options",
+            MemberSignature.Method(ParallelType, "For", Int64, Int64, ParallelOptionsType, ActionOfInt64), Shim(ParallelShim, "For", Int64, Int64, ParallelOptionsType, ActionOfInt64));
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.foreach",
+            MemberSignature.Method(ParallelType, "ForEach", IEnumerableOfTSourceVar, ActionOfTSourceVar),
+            Shim(ParallelShim, "ForEach", IEnumerableOfTSourceDecl, ActionOfTSourceDecl));
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.foreach.options",
+            MemberSignature.Method(ParallelType, "ForEach", IEnumerableOfTSourceVar, ParallelOptionsType, ActionOfTSourceVar),
+            Shim(ParallelShim, "ForEach", IEnumerableOfTSourceDecl, ParallelOptionsType, ActionOfTSourceDecl));
+
+        ParallelRejection(builder, "clockwork.parallel.for.int32.loopstate", "For", Int32, Int32, ActionOfInt32LoopState);
+        ParallelRejection(builder, "clockwork.parallel.for.int32.loopstate.options", "For", Int32, Int32, ParallelOptionsType, ActionOfInt32LoopState);
+        ParallelRejection(builder, "clockwork.parallel.for.int64.loopstate", "For", Int64, Int64, ActionOfInt64LoopState);
+        ParallelRejection(builder, "clockwork.parallel.for.int64.loopstate.options", "For", Int64, Int64, ParallelOptionsType, ActionOfInt64LoopState);
+        ParallelRejection(builder, "clockwork.parallel.foreach.loopstate", "ForEach", IEnumerableOfTSourceVar, ActionOfTSourceLoopStateVar);
+        ParallelRejection(builder, "clockwork.parallel.foreach.loopstate.index", "ForEach", IEnumerableOfTSourceVar, ActionOfTSourceLoopStateInt64Var);
+
+        // ---- Uncontrolled invocation (Phase 6B slice 7): process control and abrupt host termination. A
+        // rewritten assembly must never launch, kill, block on, or terminate a real OS process out from
+        // under the simulation, so each of these call sites is rejected with a precise diagnostic naming
+        // the exact API and IL offset (recorded in the manifest as a Rejected transformation). ----
+        UncontrolledRejection(builder, "clockwork.process.start.filename", ProcessType, "Start", String);
+        UncontrolledRejection(builder, "clockwork.process.start.startinfo", ProcessType, "Start", ProcessStartInfoType);
+        UncontrolledRejection(builder, "clockwork.process.start.filename.arguments", ProcessType, "Start", String, String);
+        UncontrolledRejection(builder, "clockwork.process.start.filename.argumentlist", ProcessType, "Start", String, IEnumerableOfStringType);
+        UncontrolledRejection(builder, "clockwork.process.start.filename.credentials", ProcessType, "Start", String, String, SecureStringType, String);
+        UncontrolledRejection(builder, "clockwork.process.start.filename.arguments.credentials", ProcessType, "Start", String, String, String, SecureStringType, String);
+        UncontrolledRejection(builder, "clockwork.process.start.instance", ProcessType, "Start");
+        UncontrolledRejection(builder, "clockwork.process.kill", ProcessType, "Kill");
+        UncontrolledRejection(builder, "clockwork.process.kill.tree", ProcessType, "Kill", Boolean);
+        UncontrolledRejection(builder, "clockwork.process.waitforexit", ProcessType, "WaitForExit");
+        UncontrolledRejection(builder, "clockwork.process.waitforexit.milliseconds", ProcessType, "WaitForExit", Int32);
+        UncontrolledRejection(builder, "clockwork.process.waitforexit.timespan", ProcessType, "WaitForExit", TimeSpanType);
+        UncontrolledRejection(builder, "clockwork.process.waitforexitasync", ProcessType, "WaitForExitAsync", CancellationTokenType);
+        UncontrolledRejection(builder, "clockwork.environment.exit", EnvironmentType, "Exit", Int32);
+        UncontrolledRejection(builder, "clockwork.environment.failfast.message", EnvironmentType, "FailFast", String);
+        UncontrolledRejection(builder, "clockwork.environment.failfast.exception", EnvironmentType, "FailFast", String, ExceptionType);
 
         return builder.ToImmutable();
+    }
+
+    // Rejects a Parallel overload at the call site. The BCL methods return ParallelLoopResult, so
+    // InjectRejection is used (it prepends a throwing RejectUnsupported(string) before the original call,
+    // keeping the value-returning invocation in place for stack balance).
+    private static void ParallelRejection(
+        ImmutableArray<BuiltInRuleEntry>.Builder builder,
+        string id,
+        string method,
+        params string[] parameterTypes)
+    {
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Parallel, RewriteRule.InjectRejection(
+            id,
+            MemberSignature.Method(ParallelType, method, parameterTypes),
+            Shim(ParallelShim, "RejectUnsupported", String))));
+    }
+
+    // Rejects an uncontrolled process/termination call at the call site. The targets have varied return
+    // types (Process, Boolean, Task, void), so InjectRejection is used uniformly: it prepends a throwing
+    // Reject(string) before the original invocation, which therefore never executes at runtime while the
+    // IL stack stays balanced. The injected diagnostic names the exact API and the pass records the site
+    // as a Rejected transformation in the manifest.
+    private static void UncontrolledRejection(
+        ImmutableArray<BuiltInRuleEntry>.Builder builder,
+        string id,
+        string declaringType,
+        string method,
+        params string[] parameterTypes)
+    {
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.UncontrolledInvocation, RewriteRule.InjectRejection(
+            id,
+            MemberSignature.Method(declaringType, method, parameterTypes),
+            Shim(UncontrolledInvocationShim, "Reject", String))));
+    }
+
+    private static void RejectedRule(
+        ImmutableArray<BuiltInRuleEntry>.Builder builder,
+        BuiltInRuleFamily family,
+        string id,
+        MemberSignature target,
+        RewriteReplacement replacement)
+    {
+        builder.Add(new BuiltInRuleEntry(family, RewriteRule.RedirectCall(id, target, replacement, SimulationApiPolicy.Rejected)));
+    }
+
+    // Rejects a registered-wait overload at the call site. The BCL method returns RegisteredWaitHandle, so
+    // InjectRejection is used (it prepends a throwing Reject(string) before the original call, keeping the
+    // value-returning invocation in place for stack balance) rather than a return-value shim.
+    private static void RegisterWaitRejection(
+        ImmutableArray<BuiltInRuleEntry>.Builder builder,
+        string id,
+        string method,
+        string timeoutType)
+    {
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.ThreadPool, RewriteRule.InjectRejection(
+            id,
+            MemberSignature.Method(ThreadPoolType, method, WaitHandle, WaitOrTimerCallback, ObjectType, timeoutType, Boolean),
+            Shim(ThreadPoolShim, "RejectRegisteredWait", String))));
     }
 
     private static void Sub(

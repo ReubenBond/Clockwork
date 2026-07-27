@@ -105,20 +105,36 @@ Policy: **Controlled**. Blocking `Task.Wait()`, `Task.WaitAll`, and `Task.WaitAn
 
 ## TaskContinuations family
 
-Policy: **Controlled**. `Task.ContinueWith(Action<Task>)` redirects so the continuation is scheduled on the controlled coordinator and runs on the logical thread after the antecedent completes.
+Policy: **Controlled**. `Task.ContinueWith(Action<Task>)`, `Task<T>.ContinueWith(Action<Task<T>>)`, and the result-producing `Task<T>.ContinueWith<TNewResult>(Func<Task<T>,TNewResult>)` redirect so the continuation is scheduled on the controlled coordinator and runs on the logical thread after the antecedent completes.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
 | `clockwork.tasks.continuewith.action` | `System.Threading.Tasks.Task::ContinueWith(System.Action`1<System.Threading.Tasks.Task>)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::ContinueWith(System.Threading.Tasks.Task,System.Action`1<System.Threading.Tasks.Task>)` | Controlled |
+| `clockwork.tasks.continuewith.generic.action` | `System.Threading.Tasks.Task`1::ContinueWith(System.Action`1<System.Threading.Tasks.Task`1<!0>>)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::ContinueWith(System.Threading.Tasks.Task`1<TResult>,System.Action`1<System.Threading.Tasks.Task`1<TResult>>)` | Controlled |
+| `clockwork.tasks.continuewith.generic.func` | `System.Threading.Tasks.Task`1::ContinueWith(System.Func`2<System.Threading.Tasks.Task`1<!0>,!!0>)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::ContinueWith(System.Threading.Tasks.Task`1<TResult>,System.Func`2<System.Threading.Tasks.Task`1<TResult>,TNewResult>)` | Controlled |
 
 ## TaskDeferred family
 
-Policy: **Rejected**. `Task.Delay` (virtual timers, Phase 8) and `Task.Run` (thread-pool offload, Phase 6B) are rejected under simulation with a precise diagnostic rather than silently using wall time or a real thread-pool thread. Outside simulation they run the real BCL API unchanged.
+Policy: **Rejected**. `Task.Delay` (virtual timers, Phase 8) is rejected under simulation with a precise diagnostic rather than silently using wall time. Outside simulation it runs the real BCL API unchanged.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
 | `clockwork.tasks.delay.milliseconds` | `System.Threading.Tasks.Task::Delay(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Delay(System.Int32)` | Rejected |
-| `clockwork.tasks.run.action` | `System.Threading.Tasks.Task::Run(System.Action)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Run(System.Action)` | Rejected |
+
+## TaskScheduling family
+
+Policy: **Controlled**. `Task.Run` (all `Action`/`Func<TResult>`/`Func<Task>`/`Func<Task<TResult>>` overloads, with and without a `CancellationToken`) offloads work that Phase 6A left uncontrolled onto the thread pool. Each overload redirects to a controlled equivalent that schedules the delegate as a controlled operation on the simulation coordinator, preserving cancellation and unwrap semantics; outside simulation it runs the real BCL API unchanged.
+
+| Rule id | BCL target | Shim | Policy |
+| --- | --- | --- | --- |
+| `clockwork.tasks.run.action` | `System.Threading.Tasks.Task::Run(System.Action)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Run(System.Action)` | Controlled |
+| `clockwork.tasks.run.action.cancellationtoken` | `System.Threading.Tasks.Task::Run(System.Action,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Run(System.Action,System.Threading.CancellationToken)` | Controlled |
+| `clockwork.tasks.run.func` | `System.Threading.Tasks.Task::Run(System.Func`1<!!0>)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Run(System.Func`1<TResult>)` | Controlled |
+| `clockwork.tasks.run.func.cancellationtoken` | `System.Threading.Tasks.Task::Run(System.Func`1<!!0>,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Run(System.Func`1<TResult>,System.Threading.CancellationToken)` | Controlled |
+| `clockwork.tasks.run.func.task` | `System.Threading.Tasks.Task::Run(System.Func`1<System.Threading.Tasks.Task>)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Run(System.Func`1<System.Threading.Tasks.Task>)` | Controlled |
+| `clockwork.tasks.run.func.task.cancellationtoken` | `System.Threading.Tasks.Task::Run(System.Func`1<System.Threading.Tasks.Task>,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Run(System.Func`1<System.Threading.Tasks.Task>,System.Threading.CancellationToken)` | Controlled |
+| `clockwork.tasks.run.func.task.generic` | `System.Threading.Tasks.Task::Run(System.Func`1<System.Threading.Tasks.Task`1<!!0>>)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Run(System.Func`1<System.Threading.Tasks.Task`1<TResult>>)` | Controlled |
+| `clockwork.tasks.run.func.task.generic.cancellationtoken` | `System.Threading.Tasks.Task::Run(System.Func`1<System.Threading.Tasks.Task`1<!!0>>,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Run(System.Func`1<System.Threading.Tasks.Task`1<TResult>>,System.Threading.CancellationToken)` | Controlled |
 
 ## AsyncMachinery family
 
@@ -155,13 +171,109 @@ Policy: **Controlled**. The compiler-generated builder and awaiter types of an `
 
 ## TaskFactory family
 
-Policy: **Rejected**. `TaskFactory.StartNew` and `TaskFactory<T>.StartNew` offload work onto a task scheduler (the thread pool by default), which Phase 6A does not control. They are rejected under simulation with a precise diagnostic at the rewritten call site rather than silently escaping onto a physical thread; outside simulation they run the real BCL API unchanged.
+Policy: **Controlled**. `TaskFactory.StartNew` and `TaskFactory<T>.StartNew` (the `Action`/`Func<TResult>` overloads with and without a `CancellationToken` or `TaskCreationOptions`) offload work onto a task scheduler that Phase 6A left uncontrolled. Each redirects to a controlled equivalent that schedules the delegate as a controlled operation on the simulation coordinator; `TaskCreationOptions` are honoured where they have a controlled meaning and an unsupported combination is rejected with a precise diagnostic. Outside simulation they run the real BCL API unchanged.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
-| `clockwork.tasks.factory.startnew.action` | `System.Threading.Tasks.TaskFactory::StartNew(System.Action)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Action)` | Rejected |
-| `clockwork.tasks.factory.startnew.func` | `System.Threading.Tasks.TaskFactory::StartNew(System.Func`1<!!0>)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Func`1<TResult>)` | Rejected |
-| `clockwork.tasks.factory.generic.startnew.func` | `System.Threading.Tasks.TaskFactory`1::StartNew(System.Func`1<!0>)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory`1<TResult>,System.Func`1<TResult>)` | Rejected |
+| `clockwork.tasks.factory.startnew.action` | `System.Threading.Tasks.TaskFactory::StartNew(System.Action)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Action)` | Controlled |
+| `clockwork.tasks.factory.startnew.action.cancellationtoken` | `System.Threading.Tasks.TaskFactory::StartNew(System.Action,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Action,System.Threading.CancellationToken)` | Controlled |
+| `clockwork.tasks.factory.startnew.action.options` | `System.Threading.Tasks.TaskFactory::StartNew(System.Action,System.Threading.Tasks.TaskCreationOptions)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Action,System.Threading.Tasks.TaskCreationOptions)` | Controlled |
+| `clockwork.tasks.factory.startnew.func` | `System.Threading.Tasks.TaskFactory::StartNew(System.Func`1<!!0>)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Func`1<TResult>)` | Controlled |
+| `clockwork.tasks.factory.startnew.func.cancellationtoken` | `System.Threading.Tasks.TaskFactory::StartNew(System.Func`1<!!0>,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Func`1<TResult>,System.Threading.CancellationToken)` | Controlled |
+| `clockwork.tasks.factory.startnew.func.options` | `System.Threading.Tasks.TaskFactory::StartNew(System.Func`1<!!0>,System.Threading.Tasks.TaskCreationOptions)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Func`1<TResult>,System.Threading.Tasks.TaskCreationOptions)` | Controlled |
+| `clockwork.tasks.factory.generic.startnew.func` | `System.Threading.Tasks.TaskFactory`1::StartNew(System.Func`1<!0>)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory`1<TResult>,System.Func`1<TResult>)` | Controlled |
+| `clockwork.tasks.factory.generic.startnew.func.cancellationtoken` | `System.Threading.Tasks.TaskFactory`1::StartNew(System.Func`1<!0>,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory`1<TResult>,System.Func`1<TResult>,System.Threading.CancellationToken)` | Controlled |
+| `clockwork.tasks.factory.generic.startnew.func.options` | `System.Threading.Tasks.TaskFactory`1::StartNew(System.Func`1<!0>,System.Threading.Tasks.TaskCreationOptions)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory`1<TResult>,System.Func`1<TResult>,System.Threading.Tasks.TaskCreationOptions)` | Controlled |
+
+## Thread family
+
+Policy: **Controlled**. `Thread` construction (`ThreadStart`/`ParameterizedThreadStart`, with and without a stack size), `Start`, `Join` (all overloads), `Sleep`, `Yield`, and `SpinWait` redirect to a controlled thread that maps each thread to a controlled operation on the simulation coordinator; `Join`/`Sleep` yield the logical thread via the deterministic loop rather than blocking a physical thread or consuming real time. OS-specific priority, apartment-state, and `Interrupt` operations cannot be modelled faithfully and are rejected with a precise diagnostic. Outside simulation the shims run the real BCL `Thread` unchanged.
+
+| Rule id | BCL target | Shim | Policy |
+| --- | --- | --- | --- |
+| `clockwork.thread.ctor.threadstart` | `new System.Threading.Thread(System.Threading.ThreadStart)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::Create(System.Threading.ThreadStart)` | Controlled |
+| `clockwork.thread.ctor.threadstart.stacksize` | `new System.Threading.Thread(System.Threading.ThreadStart,System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::Create(System.Threading.ThreadStart,System.Int32)` | Controlled |
+| `clockwork.thread.ctor.parameterized` | `new System.Threading.Thread(System.Threading.ParameterizedThreadStart)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::Create(System.Threading.ParameterizedThreadStart)` | Controlled |
+| `clockwork.thread.ctor.parameterized.stacksize` | `new System.Threading.Thread(System.Threading.ParameterizedThreadStart,System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::Create(System.Threading.ParameterizedThreadStart,System.Int32)` | Controlled |
+| `clockwork.thread.start` | `System.Threading.Thread::Start()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::Start(System.Threading.Thread)` | Controlled |
+| `clockwork.thread.start.parameter` | `System.Threading.Thread::Start(System.Object)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::Start(System.Threading.Thread,System.Object)` | Controlled |
+| `clockwork.thread.join` | `System.Threading.Thread::Join()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::Join(System.Threading.Thread)` | Controlled |
+| `clockwork.thread.join.milliseconds` | `System.Threading.Thread::Join(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::Join(System.Threading.Thread,System.Int32)` | Controlled |
+| `clockwork.thread.join.timespan` | `System.Threading.Thread::Join(System.TimeSpan)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::Join(System.Threading.Thread,System.TimeSpan)` | Controlled |
+| `clockwork.thread.sleep.milliseconds` | `System.Threading.Thread::Sleep(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::Sleep(System.Int32)` | Controlled |
+| `clockwork.thread.sleep.timespan` | `System.Threading.Thread::Sleep(System.TimeSpan)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::Sleep(System.TimeSpan)` | Controlled |
+| `clockwork.thread.spinwait` | `System.Threading.Thread::SpinWait(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::SpinWait(System.Int32)` | Controlled |
+| `clockwork.thread.yield` | `System.Threading.Thread::Yield()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::Yield()` | Controlled |
+| `clockwork.thread.set_priority` | `System.Threading.Thread::set_Priority(System.Threading.ThreadPriority)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::SetPriority(System.Threading.Thread,System.Threading.ThreadPriority)` | Rejected |
+| `clockwork.thread.interrupt` | `System.Threading.Thread::Interrupt()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::Interrupt(System.Threading.Thread)` | Rejected |
+| `clockwork.thread.setapartmentstate` | `System.Threading.Thread::SetApartmentState(System.Threading.ApartmentState)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::SetApartmentState(System.Threading.Thread,System.Threading.ApartmentState)` | Rejected |
+| `clockwork.thread.trysetapartmentstate` | `System.Threading.Thread::TrySetApartmentState(System.Threading.ApartmentState)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::TrySetApartmentState(System.Threading.Thread,System.Threading.ApartmentState)` | Rejected |
+
+## ThreadPool family
+
+Policy: **Controlled**. `ThreadPool.QueueUserWorkItem` (the `WaitCallback`, `WaitCallback`+state, and generic `Action<TState>`+state+preferLocal forms) and `UnsafeQueueUserWorkItem` (the `WaitCallback`+state, `IThreadPoolWorkItem`, and generic forms) queue the callback as a controlled operation on the simulation coordinator; the safe variants flow `ExecutionContext` while the unsafe variants do not, matching the BCL. `UnsafeQueueNativeOverlapped` and the registered-wait APIs (`RegisterWaitForSingleObject`/`UnsafeRegisterWaitForSingleObject`) depend on native I/O and wait-handle primitives that arrive in Phase 7, so they are rejected with a precise diagnostic.
+
+| Rule id | BCL target | Shim | Policy |
+| --- | --- | --- | --- |
+| `clockwork.threadpool.queue.waitcallback` | `System.Threading.ThreadPool::QueueUserWorkItem(System.Threading.WaitCallback)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThreadPool::QueueUserWorkItem(System.Threading.WaitCallback)` | Controlled |
+| `clockwork.threadpool.queue.waitcallback.state` | `System.Threading.ThreadPool::QueueUserWorkItem(System.Threading.WaitCallback,System.Object)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThreadPool::QueueUserWorkItem(System.Threading.WaitCallback,System.Object)` | Controlled |
+| `clockwork.threadpool.queue.generic` | `System.Threading.ThreadPool::QueueUserWorkItem(System.Action`1<!!0>,!!0,System.Boolean)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThreadPool::QueueUserWorkItem(System.Action`1<TState>,TState,System.Boolean)` | Controlled |
+| `clockwork.threadpool.unsafequeue.waitcallback.state` | `System.Threading.ThreadPool::UnsafeQueueUserWorkItem(System.Threading.WaitCallback,System.Object)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThreadPool::UnsafeQueueUserWorkItem(System.Threading.WaitCallback,System.Object)` | Controlled |
+| `clockwork.threadpool.unsafequeue.workitem` | `System.Threading.ThreadPool::UnsafeQueueUserWorkItem(System.Threading.IThreadPoolWorkItem,System.Boolean)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThreadPool::UnsafeQueueUserWorkItem(System.Threading.IThreadPoolWorkItem,System.Boolean)` | Controlled |
+| `clockwork.threadpool.unsafequeue.generic` | `System.Threading.ThreadPool::UnsafeQueueUserWorkItem(System.Action`1<!!0>,!!0,System.Boolean)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThreadPool::UnsafeQueueUserWorkItem(System.Action`1<TState>,TState,System.Boolean)` | Controlled |
+| `clockwork.threadpool.unsafequeuenativeoverlapped` | `System.Threading.ThreadPool::UnsafeQueueNativeOverlapped(System.Threading.NativeOverlapped*)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThreadPool::RejectNativeOverlapped(System.String)` | Rejected |
+| `clockwork.threadpool.registerwait.uint32` | `System.Threading.ThreadPool::RegisterWaitForSingleObject(System.Threading.WaitHandle,System.Threading.WaitOrTimerCallback,System.Object,System.UInt32,System.Boolean)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThreadPool::RejectRegisteredWait(System.String)` | Rejected |
+| `clockwork.threadpool.registerwait.int32` | `System.Threading.ThreadPool::RegisterWaitForSingleObject(System.Threading.WaitHandle,System.Threading.WaitOrTimerCallback,System.Object,System.Int32,System.Boolean)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThreadPool::RejectRegisteredWait(System.String)` | Rejected |
+| `clockwork.threadpool.registerwait.int64` | `System.Threading.ThreadPool::RegisterWaitForSingleObject(System.Threading.WaitHandle,System.Threading.WaitOrTimerCallback,System.Object,System.Int64,System.Boolean)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThreadPool::RejectRegisteredWait(System.String)` | Rejected |
+| `clockwork.threadpool.registerwait.timespan` | `System.Threading.ThreadPool::RegisterWaitForSingleObject(System.Threading.WaitHandle,System.Threading.WaitOrTimerCallback,System.Object,System.TimeSpan,System.Boolean)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThreadPool::RejectRegisteredWait(System.String)` | Rejected |
+| `clockwork.threadpool.unsaferegisterwait.uint32` | `System.Threading.ThreadPool::UnsafeRegisterWaitForSingleObject(System.Threading.WaitHandle,System.Threading.WaitOrTimerCallback,System.Object,System.UInt32,System.Boolean)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThreadPool::RejectRegisteredWait(System.String)` | Rejected |
+| `clockwork.threadpool.unsaferegisterwait.int32` | `System.Threading.ThreadPool::UnsafeRegisterWaitForSingleObject(System.Threading.WaitHandle,System.Threading.WaitOrTimerCallback,System.Object,System.Int32,System.Boolean)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThreadPool::RejectRegisteredWait(System.String)` | Rejected |
+| `clockwork.threadpool.unsaferegisterwait.int64` | `System.Threading.ThreadPool::UnsafeRegisterWaitForSingleObject(System.Threading.WaitHandle,System.Threading.WaitOrTimerCallback,System.Object,System.Int64,System.Boolean)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThreadPool::RejectRegisteredWait(System.String)` | Rejected |
+| `clockwork.threadpool.unsaferegisterwait.timespan` | `System.Threading.ThreadPool::UnsafeRegisterWaitForSingleObject(System.Threading.WaitHandle,System.Threading.WaitOrTimerCallback,System.Object,System.TimeSpan,System.Boolean)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThreadPool::RejectRegisteredWait(System.String)` | Rejected |
+
+## Parallel family
+
+Policy: **Controlled**. `Parallel.Invoke`, `Parallel.For` (`int`/`long`, with and without `ParallelOptions`), and `Parallel.ForEach(IEnumerable<T>)` run their bodies as controlled operations on the simulation coordinator, preserving results, cancellation, and exception aggregation. The `ParallelLoopState` break/stop overloads cannot be modelled deterministically yet and are rejected with a precise diagnostic.
+
+| Rule id | BCL target | Shim | Policy |
+| --- | --- | --- | --- |
+| `clockwork.parallel.invoke` | `System.Threading.Tasks.Parallel::Invoke(System.Action[])` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::Invoke(System.Action[])` | Controlled |
+| `clockwork.parallel.invoke.options` | `System.Threading.Tasks.Parallel::Invoke(System.Threading.Tasks.ParallelOptions,System.Action[])` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::Invoke(System.Threading.Tasks.ParallelOptions,System.Action[])` | Controlled |
+| `clockwork.parallel.for.int32` | `System.Threading.Tasks.Parallel::For(System.Int32,System.Int32,System.Action`1<System.Int32>)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::For(System.Int32,System.Int32,System.Action`1<System.Int32>)` | Controlled |
+| `clockwork.parallel.for.int32.options` | `System.Threading.Tasks.Parallel::For(System.Int32,System.Int32,System.Threading.Tasks.ParallelOptions,System.Action`1<System.Int32>)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::For(System.Int32,System.Int32,System.Threading.Tasks.ParallelOptions,System.Action`1<System.Int32>)` | Controlled |
+| `clockwork.parallel.for.int64` | `System.Threading.Tasks.Parallel::For(System.Int64,System.Int64,System.Action`1<System.Int64>)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::For(System.Int64,System.Int64,System.Action`1<System.Int64>)` | Controlled |
+| `clockwork.parallel.for.int64.options` | `System.Threading.Tasks.Parallel::For(System.Int64,System.Int64,System.Threading.Tasks.ParallelOptions,System.Action`1<System.Int64>)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::For(System.Int64,System.Int64,System.Threading.Tasks.ParallelOptions,System.Action`1<System.Int64>)` | Controlled |
+| `clockwork.parallel.foreach` | `System.Threading.Tasks.Parallel::ForEach(System.Collections.Generic.IEnumerable`1<!!0>,System.Action`1<!!0>)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::ForEach(System.Collections.Generic.IEnumerable`1<TSource>,System.Action`1<TSource>)` | Controlled |
+| `clockwork.parallel.foreach.options` | `System.Threading.Tasks.Parallel::ForEach(System.Collections.Generic.IEnumerable`1<!!0>,System.Threading.Tasks.ParallelOptions,System.Action`1<!!0>)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::ForEach(System.Collections.Generic.IEnumerable`1<TSource>,System.Threading.Tasks.ParallelOptions,System.Action`1<TSource>)` | Controlled |
+| `clockwork.parallel.for.int32.loopstate` | `System.Threading.Tasks.Parallel::For(System.Int32,System.Int32,System.Action`2<System.Int32,System.Threading.Tasks.ParallelLoopState>)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.for.int32.loopstate.options` | `System.Threading.Tasks.Parallel::For(System.Int32,System.Int32,System.Threading.Tasks.ParallelOptions,System.Action`2<System.Int32,System.Threading.Tasks.ParallelLoopState>)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.for.int64.loopstate` | `System.Threading.Tasks.Parallel::For(System.Int64,System.Int64,System.Action`2<System.Int64,System.Threading.Tasks.ParallelLoopState>)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.for.int64.loopstate.options` | `System.Threading.Tasks.Parallel::For(System.Int64,System.Int64,System.Threading.Tasks.ParallelOptions,System.Action`2<System.Int64,System.Threading.Tasks.ParallelLoopState>)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.foreach.loopstate` | `System.Threading.Tasks.Parallel::ForEach(System.Collections.Generic.IEnumerable`1<!!0>,System.Action`2<!!0,System.Threading.Tasks.ParallelLoopState>)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.foreach.loopstate.index` | `System.Threading.Tasks.Parallel::ForEach(System.Collections.Generic.IEnumerable`1<!!0>,System.Action`3<!!0,System.Threading.Tasks.ParallelLoopState,System.Int64>)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+
+## UncontrolledInvocation family
+
+Policy: **Rejected**. Process control and abrupt-termination APIs (`Process.Start`/`Start` instance/`Kill`/`WaitForExit`/`WaitForExitAsync`, `Environment.Exit`/`FailFast`) cannot be modelled inside a single simulated process at all. A throwing guard is injected before each call site so a rewritten assembly can never launch, kill, wait on, or terminate a real OS process; unlike the controlled shims the rejection is unconditional (it fires whether or not a simulation is active).
+
+| Rule id | BCL target | Shim | Policy |
+| --- | --- | --- | --- |
+| `clockwork.process.start.filename` | `System.Diagnostics.Process::Start(System.String)` | `Clockwork.Runtime!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.start.startinfo` | `System.Diagnostics.Process::Start(System.Diagnostics.ProcessStartInfo)` | `Clockwork.Runtime!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.start.filename.arguments` | `System.Diagnostics.Process::Start(System.String,System.String)` | `Clockwork.Runtime!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.start.filename.argumentlist` | `System.Diagnostics.Process::Start(System.String,System.Collections.Generic.IEnumerable`1<System.String>)` | `Clockwork.Runtime!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.start.filename.credentials` | `System.Diagnostics.Process::Start(System.String,System.String,System.Security.SecureString,System.String)` | `Clockwork.Runtime!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.start.filename.arguments.credentials` | `System.Diagnostics.Process::Start(System.String,System.String,System.String,System.Security.SecureString,System.String)` | `Clockwork.Runtime!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.start.instance` | `System.Diagnostics.Process::Start()` | `Clockwork.Runtime!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.kill` | `System.Diagnostics.Process::Kill()` | `Clockwork.Runtime!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.kill.tree` | `System.Diagnostics.Process::Kill(System.Boolean)` | `Clockwork.Runtime!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.waitforexit` | `System.Diagnostics.Process::WaitForExit()` | `Clockwork.Runtime!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.waitforexit.milliseconds` | `System.Diagnostics.Process::WaitForExit(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.waitforexit.timespan` | `System.Diagnostics.Process::WaitForExit(System.TimeSpan)` | `Clockwork.Runtime!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.waitforexitasync` | `System.Diagnostics.Process::WaitForExitAsync(System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.environment.exit` | `System.Environment::Exit(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.environment.failfast.message` | `System.Environment::FailFast(System.String)` | `Clockwork.Runtime!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.environment.failfast.exception` | `System.Environment::FailFast(System.String,System.Exception)` | `Clockwork.Runtime!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
 
 ## Documented holes (not rewritten in these rule sets)
 
@@ -171,8 +283,8 @@ remain real BCL calls even under simulation:
 - `Stopwatch` instance APIs (`Start`/`Stop`/`Restart`/`Elapsed`/`ElapsedMilliseconds`/`ElapsedTicks`) and the `GetElapsedTime(long, long)` overload.
 - Generic cryptographic helpers `RandomNumberGenerator.GetItems<T>` and `Shuffle<T>`, and any `GetString`/`GetHexString` overloads beyond those listed above.
 - `DateTime`/`DateTimeOffset` parsing/formatting and any culture-, timezone-, or kind-conversion helpers other than the `Now`/`UtcNow`/`Today` clocks above.
-- Synchronous blocking on `ValueTask`/`ValueTask<T>` (`.Result`/`.GetResult()` outside an awaiter): a value task may be consumed only once, so a blocking drain is unsafe. `await` is the supported controlled path; deferred to Phase 6B.
-- Generic `Task<TResult>.ContinueWith<TNewResult>` overloads and `TaskFactory`/`TaskFactory<T>` surfaces other than the rejected `StartNew` sites above. Deferred to Phase 6B.
-- Thread/`ThreadPool`/`Parallel`, `Monitor`/semaphores/wait handles, timers and the `Task.Delay` implementation, and cancellation timers. These are Phase 6B / Phase 8 scope.
+- Synchronous blocking on `ValueTask`/`ValueTask<T>` (`.Result`/`.GetResult()` outside an awaiter): a value task may be consumed only once, so a blocking drain is unsafe. `await` is the supported controlled path.
+- `Monitor`, semaphores, and wait handles (including the `ThreadPool` registered-wait APIs, which are rejected until then). These are Phase 7 scope.
+- Timers, `PeriodicTimer`, the `Task.Delay` implementation, and cancellation timers. These are Phase 8 scope (`Thread.Sleep` is a controlled virtual wait now).
 
 Determinism is claimed **only** for the exact rules tabulated above.

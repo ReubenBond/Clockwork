@@ -53,9 +53,9 @@ public static class RuleInventoryDocument
         Line("- `Stopwatch` instance APIs (`Start`/`Stop`/`Restart`/`Elapsed`/`ElapsedMilliseconds`/`ElapsedTicks`) and the `GetElapsedTime(long, long)` overload.");
         Line("- Generic cryptographic helpers `RandomNumberGenerator.GetItems<T>` and `Shuffle<T>`, and any `GetString`/`GetHexString` overloads beyond those listed above.");
         Line("- `DateTime`/`DateTimeOffset` parsing/formatting and any culture-, timezone-, or kind-conversion helpers other than the `Now`/`UtcNow`/`Today` clocks above.");
-        Line("- Synchronous blocking on `ValueTask`/`ValueTask<T>` (`.Result`/`.GetResult()` outside an awaiter): a value task may be consumed only once, so a blocking drain is unsafe. `await` is the supported controlled path; deferred to Phase 6B.");
-        Line("- Generic `Task<TResult>.ContinueWith<TNewResult>` overloads and `TaskFactory`/`TaskFactory<T>` surfaces other than the rejected `StartNew` sites above. Deferred to Phase 6B.");
-        Line("- Thread/`ThreadPool`/`Parallel`, `Monitor`/semaphores/wait handles, timers and the `Task.Delay` implementation, and cancellation timers. These are Phase 6B / Phase 8 scope.");
+        Line("- Synchronous blocking on `ValueTask`/`ValueTask<T>` (`.Result`/`.GetResult()` outside an awaiter): a value task may be consumed only once, so a blocking drain is unsafe. `await` is the supported controlled path.");
+        Line("- `Monitor`, semaphores, and wait handles (including the `ThreadPool` registered-wait APIs, which are rejected until then). These are Phase 7 scope.");
+        Line("- Timers, `PeriodicTimer`, the `Task.Delay` implementation, and cancellation timers. These are Phase 8 scope (`Thread.Sleep` is a controlled virtual wait now).");
         Line();
         Line("Determinism is claimed **only** for the exact rules tabulated above.");
 
@@ -137,12 +137,18 @@ public static class RuleInventoryDocument
             "the deterministic loop rather than blocking a physical thread; a never-satisfiable wait surfaces " +
             "as a precise deadlock diagnostic instead of hanging the scheduler.",
         BuiltInRuleFamily.TaskContinuations =>
-            "`Task.ContinueWith(Action<Task>)` redirects so the continuation is scheduled on the controlled " +
-            "coordinator and runs on the logical thread after the antecedent completes.",
+            "`Task.ContinueWith(Action<Task>)`, `Task<T>.ContinueWith(Action<Task<T>>)`, and the result-producing " +
+            "`Task<T>.ContinueWith<TNewResult>(Func<Task<T>,TNewResult>)` redirect so the continuation is " +
+            "scheduled on the controlled coordinator and runs on the logical thread after the antecedent completes.",
         BuiltInRuleFamily.TaskDeferred =>
-            "`Task.Delay` (virtual timers, Phase 8) and `Task.Run` (thread-pool offload, Phase 6B) are " +
-            "rejected under simulation with a precise diagnostic rather than silently using wall time or a " +
-            "real thread-pool thread. Outside simulation they run the real BCL API unchanged.",
+            "`Task.Delay` (virtual timers, Phase 8) is rejected under simulation with a precise diagnostic " +
+            "rather than silently using wall time. Outside simulation it runs the real BCL API unchanged.",
+        BuiltInRuleFamily.TaskScheduling =>
+            "`Task.Run` (all `Action`/`Func<TResult>`/`Func<Task>`/`Func<Task<TResult>>` overloads, with and " +
+            "without a `CancellationToken`) offloads work that Phase 6A left uncontrolled onto the thread pool. " +
+            "Each overload redirects to a controlled equivalent that schedules the delegate as a controlled " +
+            "operation on the simulation coordinator, preserving cancellation and unwrap semantics; outside " +
+            "simulation it runs the real BCL API unchanged.",
         BuiltInRuleFamily.AsyncMachinery =>
             "The compiler-generated builder and awaiter types of an `async` state machine " +
             "(`AsyncTaskMethodBuilder`, `TaskAwaiter`, `ConfiguredTaskAwaitable`/`YieldAwaitable` and their " +
@@ -159,10 +165,40 @@ public static class RuleInventoryDocument
             "preserving normal semantics outside. Synchronous blocking on a value task is not rewritten " +
             "(a value task may be consumed only once); `await` is the supported controlled path.",
         BuiltInRuleFamily.TaskFactory =>
-            "`TaskFactory.StartNew` and `TaskFactory<T>.StartNew` offload work onto a task scheduler (the " +
-            "thread pool by default), which Phase 6A does not control. They are rejected under simulation " +
-            "with a precise diagnostic at the rewritten call site rather than silently escaping onto a " +
-            "physical thread; outside simulation they run the real BCL API unchanged.",
+            "`TaskFactory.StartNew` and `TaskFactory<T>.StartNew` (the `Action`/`Func<TResult>` overloads with " +
+            "and without a `CancellationToken` or `TaskCreationOptions`) offload work onto a task scheduler " +
+            "that Phase 6A left uncontrolled. Each redirects to a controlled equivalent that schedules the " +
+            "delegate as a controlled operation on the simulation coordinator; `TaskCreationOptions` are " +
+            "honoured where they have a controlled meaning and an unsupported combination is rejected with a " +
+            "precise diagnostic. Outside simulation they run the real BCL API unchanged.",
+        BuiltInRuleFamily.Thread =>
+            "`Thread` construction (`ThreadStart`/`ParameterizedThreadStart`, with and without a stack size), " +
+            "`Start`, `Join` (all overloads), `Sleep`, `Yield`, and `SpinWait` redirect to a controlled thread " +
+            "that maps each thread to a controlled operation on the simulation coordinator; `Join`/`Sleep` " +
+            "yield the logical thread via the deterministic loop rather than blocking a physical thread or " +
+            "consuming real time. OS-specific priority, apartment-state, and `Interrupt` operations cannot be " +
+            "modelled faithfully and are rejected with a precise diagnostic. Outside simulation the shims run " +
+            "the real BCL `Thread` unchanged.",
+        BuiltInRuleFamily.ThreadPool =>
+            "`ThreadPool.QueueUserWorkItem` (the `WaitCallback`, `WaitCallback`+state, and generic " +
+            "`Action<TState>`+state+preferLocal forms) and `UnsafeQueueUserWorkItem` (the `WaitCallback`+state, " +
+            "`IThreadPoolWorkItem`, and generic forms) queue the callback as a controlled operation on the " +
+            "simulation coordinator; the safe variants flow `ExecutionContext` while the unsafe variants do " +
+            "not, matching the BCL. `UnsafeQueueNativeOverlapped` and the registered-wait APIs " +
+            "(`RegisterWaitForSingleObject`/`UnsafeRegisterWaitForSingleObject`) depend on native I/O and " +
+            "wait-handle primitives that arrive in Phase 7, so they are rejected with a precise diagnostic.",
+        BuiltInRuleFamily.Parallel =>
+            "`Parallel.Invoke`, `Parallel.For` (`int`/`long`, with and without `ParallelOptions`), and " +
+            "`Parallel.ForEach(IEnumerable<T>)` run their bodies as controlled operations on the simulation " +
+            "coordinator, preserving results, cancellation, and exception aggregation. The `ParallelLoopState` " +
+            "break/stop overloads cannot be modelled deterministically yet and are rejected with a precise " +
+            "diagnostic.",
+        BuiltInRuleFamily.UncontrolledInvocation =>
+            "Process control and abrupt-termination APIs (`Process.Start`/`Start` instance/`Kill`/`WaitForExit`/" +
+            "`WaitForExitAsync`, `Environment.Exit`/`FailFast`) cannot be modelled inside a single simulated " +
+            "process at all. A throwing guard is injected before each call site so a rewritten assembly can " +
+            "never launch, kill, wait on, or terminate a real OS process; unlike the controlled shims the " +
+            "rejection is unconditional (it fires whether or not a simulation is active).",
         _ => string.Empty,
     };
 

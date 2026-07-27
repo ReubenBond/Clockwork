@@ -1,6 +1,5 @@
 using System.Reflection;
 using System.Threading.Tasks;
-using Clockwork.Runtime.Tasks;
 
 namespace Clockwork.Conformance.Tests;
 
@@ -9,7 +8,7 @@ namespace Clockwork.Conformance.Tests;
 /// rule set now covers: the generic <c>WhenAll&lt;T&gt;</c>/<c>WhenAny&lt;T&gt;</c> combinator overloads
 /// (span, array, and enumerable bindings), the blocking <c>Task&lt;T&gt;.Result</c> accessor draining the
 /// controlled loop instead of dead-locking a physical thread, the <c>TaskExtensions.Unwrap</c> extension
-/// methods, and the rejected <see cref="TaskFactory"/>
+/// methods, and the controlled <see cref="TaskFactory"/>
 /// scheduling surface. Each probe is compiled from ordinary source, rewritten, and executed inside a live
 /// single-logical-thread <see cref="SimulationHost"/>, so any escape to the thread pool would hang.
 /// </summary>
@@ -54,7 +53,7 @@ public sealed class GenericTaskConformanceTests : IDisposable
                 return sum;
             }
 
-            // ---- TaskFactory scheduling is rejected under simulation ----
+            // ---- TaskFactory scheduling is controlled under simulation (Phase 6B) ----
             public static Task<int> FactoryStartNew() => System.Threading.Tasks.Task.Factory.StartNew(() => 5);
 
             // ---- TaskExtensions.Unwrap: inner+outer both complete on the logical thread ----
@@ -187,20 +186,19 @@ public sealed class GenericTaskConformanceTests : IDisposable
     }
 
     [Fact]
-    public void TaskFactoryStartNewIsRejectedUnderSimulation()
+    public void TaskFactoryStartNewIsControlledUnderSimulation()
     {
         using var host = new SimulationHost(Start);
 
-        ControlledTaskUnsupportedException error = Assert.Throws<ControlledTaskUnsupportedException>(
-            () => host.Invoke(Method("FactoryStartNew")));
+        var task = (Task<int>)host.Invoke(Method("FactoryStartNew"))!;
 
-        Assert.Contains("StartNew", error.ApiName, StringComparison.Ordinal);
+        Assert.Equal(5, Result<int>(task));
     }
 
     [Fact]
     public async Task TaskFactoryStartNewDelegatesToRealBclOutsideAnySimulation()
     {
-        // No SimulationHost: the ambient runtime is inactive, so the rejected shim must fall through to
+        // No SimulationHost: the ambient runtime is inactive, so the controlled shim must fall through to
         // the real BCL TaskFactory and schedule the work on the thread pool.
         var task = (Task<int>)Method("FactoryStartNew").Invoke(null, null)!;
         int value = await task;

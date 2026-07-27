@@ -43,4 +43,30 @@ public sealed record RewriteOptions
     /// Defaults to <see langword="true"/>.
     /// </summary>
     public bool ComputeOutputHash { get; init; } = true;
+
+    /// <summary>
+    /// Gets a value indicating whether to run the exception-hardening pass, which injects a guard at the
+    /// start of every broad <c>catch (Exception)</c> / <c>catch</c> block and every exception <c>filter</c>
+    /// so a rewritten assembly's user handlers cannot swallow the scheduler's internal control-flow signal.
+    /// When enabled, the shim assembly declaring
+    /// <c>Clockwork.Runtime.ControlledExceptionGuard.ThrowIfControlSignal</c> must be supplied in
+    /// <see cref="ReplacementAssemblyPaths"/>. Defaults to <see langword="false"/> (the built-in
+    /// controlled-task activation turns it on); narrow typed catches, finally blocks, rethrow-only
+    /// handlers, and compiler-generated async-state-machine handlers are never instrumented, so normal
+    /// application exception handling is unchanged.
+    /// </summary>
+    public bool HardenExceptionHandlers { get; init; }
+
+    /// <summary>
+    /// Gets a value indicating whether to run the cross-assembly task-detection pass, which emits a
+    /// <see cref="Diagnostics.RewriteDiagnosticIds.UncontrolledTaskReturn"/> warning at every call site that
+    /// invokes a method in an uncontrolled assembly (one that is neither being rewritten, nor part of the
+    /// BCL, nor the Clockwork runtime shim) and returns a <see cref="System.Threading.Tasks.Task"/>,
+    /// <see cref="System.Threading.Tasks.ValueTask"/>, or other awaitable whose continuation could escape the
+    /// deterministic scheduler. The escape is surfaced with a precise source/IL call-site diagnostic rather
+    /// than being silently accepted. Defaults to <see langword="false"/> (the built-in controlled-task
+    /// activation turns it on). HttpClient-specific control remains Phase 10, so BCL <c>System.*</c> calls
+    /// are intentionally not flagged here.
+    /// </summary>
+    public bool DetectUncontrolledTasks { get; init; }
 }
