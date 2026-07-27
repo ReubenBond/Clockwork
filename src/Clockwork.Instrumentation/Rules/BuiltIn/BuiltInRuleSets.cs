@@ -103,9 +103,14 @@ public static class BuiltInRuleSets
     private const string TaskFactoryType = "System.Threading.Tasks.TaskFactory";
     private const string TaskFactoryTType = "System.Threading.Tasks.TaskFactory`1";
     private const string TaskFactoryTOfResultDecl = "System.Threading.Tasks.TaskFactory`1<TResult>";
+    private const string TaskSchedulerType = "System.Threading.Tasks.TaskScheduler";
+    private const string ActionOfObject = "System.Action`1<System.Object>";
     private const string FuncOfMethodResult = "System.Func`1<!!0>";
     private const string FuncOfTypeResult = "System.Func`1<!0>";
     private const string FuncOfResultDecl = "System.Func`1<TResult>";
+    private const string FuncOfObjectAndMethodResult = "System.Func`2<System.Object,!!0>";
+    private const string FuncOfObjectAndTypeResult = "System.Func`2<System.Object,!0>";
+    private const string FuncOfObjectAndResultDecl = "System.Func`2<System.Object,TResult>";
 
     // Cecil full names for the Task.Run scheduling surface (Phase 6B controlled). The generic overloads are
     // GenericInstanceMethods at the call site (`!!0` target) resolved against their definitions (`TResult`
@@ -492,8 +497,8 @@ public static class BuiltInRuleSets
         // the coordinator (like Task.Run), honouring the factory's/call's cancellation token; the
         // AttachedToParent creation option is rejected at runtime. Task.Factory.StartNew(Func<TResult>)
         // is a generic method (`!!0`); TaskFactory`1's StartNew(Func<TResult>) is a non-generic method
-        // over the type parameter (`!0`). Each supported delegate form has plain, CancellationToken, and
-        // TaskCreationOptions overloads. ----
+        // over the type parameter (`!0`). The inventory mirrors all 24 .NET 10 / Coyote StartNew signatures:
+        // plain, CancellationToken, TaskCreationOptions, full scheduler, and state-carrying forms. ----
         TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.startnew.action",
             MemberSignature.Method(TaskFactoryType, "StartNew", Action),
             Shim(TaskFactoryShim, "StartNew", TaskFactoryType, Action));
@@ -503,6 +508,21 @@ public static class BuiltInRuleSets
         TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.startnew.action.options",
             MemberSignature.Method(TaskFactoryType, "StartNew", Action, TaskCreationOptions),
             Shim(TaskFactoryShim, "StartNew", TaskFactoryType, Action, TaskCreationOptions));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.startnew.action.scheduler",
+            MemberSignature.Method(TaskFactoryType, "StartNew", Action, CancellationToken, TaskCreationOptions, TaskSchedulerType),
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryType, Action, CancellationToken, TaskCreationOptions, TaskSchedulerType));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.startnew.action.state",
+            MemberSignature.Method(TaskFactoryType, "StartNew", ActionOfObject, ObjectType),
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryType, ActionOfObject, ObjectType));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.startnew.action.state.cancellationtoken",
+            MemberSignature.Method(TaskFactoryType, "StartNew", ActionOfObject, ObjectType, CancellationToken),
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryType, ActionOfObject, ObjectType, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.startnew.action.state.options",
+            MemberSignature.Method(TaskFactoryType, "StartNew", ActionOfObject, ObjectType, TaskCreationOptions),
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryType, ActionOfObject, ObjectType, TaskCreationOptions));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.startnew.action.state.scheduler",
+            MemberSignature.Method(TaskFactoryType, "StartNew", ActionOfObject, ObjectType, CancellationToken, TaskCreationOptions, TaskSchedulerType),
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryType, ActionOfObject, ObjectType, CancellationToken, TaskCreationOptions, TaskSchedulerType));
         TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.startnew.func",
             MemberSignature.Method(TaskFactoryType, "StartNew", FuncOfMethodResult),
             Shim(TaskFactoryShim, "StartNew", TaskFactoryType, FuncOfResultDecl));
@@ -512,6 +532,21 @@ public static class BuiltInRuleSets
         TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.startnew.func.options",
             MemberSignature.Method(TaskFactoryType, "StartNew", FuncOfMethodResult, TaskCreationOptions),
             Shim(TaskFactoryShim, "StartNew", TaskFactoryType, FuncOfResultDecl, TaskCreationOptions));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.startnew.func.scheduler",
+            MemberSignature.Method(TaskFactoryType, "StartNew", FuncOfMethodResult, CancellationToken, TaskCreationOptions, TaskSchedulerType),
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryType, FuncOfResultDecl, CancellationToken, TaskCreationOptions, TaskSchedulerType));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.startnew.func.state",
+            MemberSignature.Method(TaskFactoryType, "StartNew", FuncOfObjectAndMethodResult, ObjectType),
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryType, FuncOfObjectAndResultDecl, ObjectType));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.startnew.func.state.cancellationtoken",
+            MemberSignature.Method(TaskFactoryType, "StartNew", FuncOfObjectAndMethodResult, ObjectType, CancellationToken),
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryType, FuncOfObjectAndResultDecl, ObjectType, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.startnew.func.state.options",
+            MemberSignature.Method(TaskFactoryType, "StartNew", FuncOfObjectAndMethodResult, ObjectType, TaskCreationOptions),
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryType, FuncOfObjectAndResultDecl, ObjectType, TaskCreationOptions));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.startnew.func.state.scheduler",
+            MemberSignature.Method(TaskFactoryType, "StartNew", FuncOfObjectAndMethodResult, ObjectType, CancellationToken, TaskCreationOptions, TaskSchedulerType),
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryType, FuncOfObjectAndResultDecl, ObjectType, CancellationToken, TaskCreationOptions, TaskSchedulerType));
         TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.generic.startnew.func",
             MemberSignature.Method(TaskFactoryTType, "StartNew", FuncOfTypeResult),
             Shim(TaskFactoryShim, "StartNew", TaskFactoryTOfResultDecl, FuncOfResultDecl));
@@ -521,6 +556,21 @@ public static class BuiltInRuleSets
         TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.generic.startnew.func.options",
             MemberSignature.Method(TaskFactoryTType, "StartNew", FuncOfTypeResult, TaskCreationOptions),
             Shim(TaskFactoryShim, "StartNew", TaskFactoryTOfResultDecl, FuncOfResultDecl, TaskCreationOptions));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.generic.startnew.func.scheduler",
+            MemberSignature.Method(TaskFactoryTType, "StartNew", FuncOfTypeResult, CancellationToken, TaskCreationOptions, TaskSchedulerType),
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryTOfResultDecl, FuncOfResultDecl, CancellationToken, TaskCreationOptions, TaskSchedulerType));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.generic.startnew.func.state",
+            MemberSignature.Method(TaskFactoryTType, "StartNew", FuncOfObjectAndTypeResult, ObjectType),
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryTOfResultDecl, FuncOfObjectAndResultDecl, ObjectType));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.generic.startnew.func.state.cancellationtoken",
+            MemberSignature.Method(TaskFactoryTType, "StartNew", FuncOfObjectAndTypeResult, ObjectType, CancellationToken),
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryTOfResultDecl, FuncOfObjectAndResultDecl, ObjectType, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.generic.startnew.func.state.options",
+            MemberSignature.Method(TaskFactoryTType, "StartNew", FuncOfObjectAndTypeResult, ObjectType, TaskCreationOptions),
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryTOfResultDecl, FuncOfObjectAndResultDecl, ObjectType, TaskCreationOptions));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.generic.startnew.func.state.scheduler",
+            MemberSignature.Method(TaskFactoryTType, "StartNew", FuncOfObjectAndTypeResult, ObjectType, CancellationToken, TaskCreationOptions, TaskSchedulerType),
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryTOfResultDecl, FuncOfObjectAndResultDecl, ObjectType, CancellationToken, TaskCreationOptions, TaskSchedulerType));
 
         // ---- Thread: construction and Start/Join are controlled; Sleep/Yield/SpinWait yield cooperatively;
         // the OS-specific priority/apartment/interrupt surface is rejected precisely under simulation. Each

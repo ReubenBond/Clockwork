@@ -1,5 +1,6 @@
 using System.Threading.Tasks;
 using Clockwork.Runtime.Tasks;
+using Clockwork.Runtime.Threading;
 
 namespace Clockwork.Runtime.Tests.Tasks;
 
@@ -379,6 +380,98 @@ public sealed class ControlledTaskApiTests
     }
 
     [Fact]
+    public void TaskFactoryStateAndFullSchedulerFormsRunOnControlledStrands()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            long actionStrand = ControlledSynchronizationFlow.None;
+            long actionState = 0;
+            var action = ControlledTaskFactory.StartNew(
+                Task.Factory,
+                state =>
+                {
+                    actionState = (long)state!;
+                    actionStrand = ControlledSynchronizationFlow.CurrentId;
+                },
+                17L,
+                CancellationToken.None,
+                TaskCreationOptions.DenyChildAttach,
+                TaskScheduler.Default);
+            var result = ControlledTaskFactory.StartNew(
+                Task.Factory,
+                state => (Value: (int)state!, Strand: ControlledSynchronizationFlow.CurrentId),
+                42,
+                CancellationToken.None,
+                TaskCreationOptions.HideScheduler,
+                TaskScheduler.Default);
+
+            coordinator.Loop.RunUntil(() => action.IsCompleted && result.IsCompleted, "test");
+
+            Assert.Equal(17L, actionState);
+            Assert.Equal(17L, action.AsyncState);
+            Assert.NotEqual(ControlledSynchronizationFlow.None, actionStrand);
+            Assert.Equal(42, result.Result.Value);
+            Assert.Equal(42, result.AsyncState);
+            Assert.NotEqual(ControlledSynchronizationFlow.None, result.Result.Strand);
+            Assert.True(action.IsCompletedSuccessfully);
+        });
+    }
+
+    [Fact]
+    public void GenericTaskFactoryStateFormPreservesStateAndResult()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var factory = new TaskFactory<int>();
+            var result = ControlledTaskFactory.StartNew(
+                factory,
+                state => (int)state! * 2,
+                21,
+                CancellationToken.None,
+                TaskCreationOptions.None,
+                TaskScheduler.Default);
+
+            coordinator.Loop.RunUntil(() => result.IsCompleted, "test");
+            Assert.Equal(42, result.Result);
+            Assert.Equal(21, result.AsyncState);
+        });
+    }
+
+    [Fact]
+    public void TaskFactoryRejectsUnsupportedSchedulerAndOptions()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var schedulers = new ConcurrentExclusiveSchedulerPair();
+            Assert.Throws<ControlledTaskUnsupportedException>((Action)(() =>
+            {
+                _ = ControlledTaskFactory.StartNew(
+                    Task.Factory,
+                    () => { },
+                    CancellationToken.None,
+                    TaskCreationOptions.None,
+                    schedulers.ExclusiveScheduler);
+            }));
+            Assert.Throws<ControlledTaskUnsupportedException>((Action)(() =>
+            {
+                _ = ControlledTaskFactory.StartNew(
+                    Task.Factory,
+                    () => { },
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default);
+            }));
+            schedulers.Complete();
+        });
+    }
+
+    [Fact]
     public void TaskFactoryStartNewRejectsAttachedToParent()
     {
         var coordinator = new ControlledTaskLoopCoordinator();
@@ -387,7 +480,7 @@ public sealed class ControlledTaskApiTests
         {
             var ex = Assert.Throws<ControlledTaskUnsupportedException>(() =>
             {
-                // Intentionally the TaskCreationOptions overload (no CancellationToken variant exists for it).
+                // Exercise the options-only overload independently from the full scheduler form.
 #pragma warning disable xUnit1051
                 _ = ControlledTaskFactory.StartNew(Task.Factory, () => { }, TaskCreationOptions.AttachedToParent);
 #pragma warning restore xUnit1051
@@ -443,5 +536,23 @@ public sealed class ControlledTaskApiTests
         var value = await task;
 
         Assert.Equal(5, value);
+    }
+
+    [Fact]
+    public async Task TaskFactoryStateAndCustomSchedulerPassThroughOutsideSimulation()
+    {
+        Assert.False(ControlledTaskRuntime.IsSimulationActive);
+        var schedulers = new ConcurrentExclusiveSchedulerPair();
+        var task = ControlledTaskFactory.StartNew(
+            Task.Factory,
+            state => (int)state! * 2,
+            6,
+            TestContext.Current.CancellationToken,
+            TaskCreationOptions.None,
+            schedulers.ExclusiveScheduler);
+
+        Assert.Equal(12, await task);
+        schedulers.Complete();
+        await schedulers.Completion;
     }
 }

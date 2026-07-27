@@ -165,12 +165,12 @@ public static class RuleInventoryDocument
             "preserving normal semantics outside. Synchronous blocking on a value task is not rewritten " +
             "(a value task may be consumed only once); `await` is the supported controlled path.",
         BuiltInRuleFamily.TaskFactory =>
-            "`TaskFactory.StartNew` and `TaskFactory<T>.StartNew` (the `Action`/`Func<TResult>` overloads with " +
-            "and without a `CancellationToken` or `TaskCreationOptions`) offload work onto a task scheduler " +
-            "that Phase 6A left uncontrolled. Each redirects to a controlled equivalent that schedules the " +
-            "delegate as a controlled operation on the simulation coordinator; `TaskCreationOptions` are " +
-            "honoured where they have a controlled meaning and an unsupported combination is rejected with a " +
-            "precise diagnostic. Outside simulation they run the real BCL API unchanged.",
+            "All 24 .NET 10 `TaskFactory.StartNew` and `TaskFactory<T>.StartNew` overloads are classified, " +
+            "including state-carrying delegates and the full cancellation/options/scheduler forms. Each " +
+            "redirects to a controlled equivalent that schedules the delegate as a fresh logical strand while " +
+            "preserving state, cancellation, and results. Non-default schedulers and creation options whose " +
+            "semantics cannot be preserved are rejected precisely; outside simulation every overload runs the " +
+            "real BCL API unchanged.",
         BuiltInRuleFamily.Thread =>
             "`Thread` construction (`ThreadStart`/`ParameterizedThreadStart`, with and without a stack size), " +
             "`Start`, `Join` (all overloads), `Sleep`, `Yield`, and `SpinWait` redirect to a controlled thread " +

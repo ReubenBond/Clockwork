@@ -18,6 +18,7 @@ public sealed class TaskFactoryConformanceTests : IDisposable
     private const string Source = """
         using System;
         using System.Globalization;
+        using System.Collections.Generic;
         using System.Threading;
         using System.Threading.Tasks;
         namespace Conf { public static class FactoryProbe {
@@ -31,6 +32,61 @@ public sealed class TaskFactoryConformanceTests : IDisposable
             {
                 await Task.Factory.StartNew(() => { sink[0] = 7; });
                 return sink[0];
+            }
+
+            public static Task<int> StateResult() =>
+                Task.Factory.StartNew(
+                    state => (int)state!,
+                    42,
+                    CancellationToken.None,
+                    TaskCreationOptions.None,
+                    TaskScheduler.Default);
+
+            public static Task<int> GenericStateResult() =>
+                new TaskFactory<int>().StartNew(
+                    state => (int)state!,
+                    43,
+                    CancellationToken.None,
+                    TaskCreationOptions.None,
+                    TaskScheduler.Default);
+
+            public static Task<long[]> Identity(Func<long> strand) => IdentityImpl(strand);
+            private static async Task<long[]> IdentityImpl(Func<long> strand)
+            {
+                long[] values = [Environment.CurrentManagedThreadId, strand(), 0, 0];
+                await Task.Factory.StartNew(
+                    state =>
+                    {
+                        var pair = (object[])state!;
+                        var sink = (long[])pair[0];
+                        var readStrand = (Func<long>)pair[1];
+                        sink[2] = Environment.CurrentManagedThreadId;
+                        sink[3] = readStrand();
+                    },
+                    new object[] { values, strand },
+                    CancellationToken.None,
+                    TaskCreationOptions.None,
+                    TaskScheduler.Default);
+                return values;
+            }
+
+            public static Task<string> Trace() => TraceImpl();
+            private static async Task<string> TraceImpl()
+            {
+                var trace = new List<int>();
+                Task[] tasks = new Task[4];
+                for (int i = 0; i < tasks.Length; i++)
+                {
+                    tasks[i] = Task.Factory.StartNew(
+                        state => trace.Add((int)state!),
+                        i,
+                        CancellationToken.None,
+                        TaskCreationOptions.None,
+                        TaskScheduler.Default);
+                }
+
+                await Task.WhenAll(tasks);
+                return string.Join(",", trace);
             }
 
             // Generic Task<T>.ContinueWith<TNewResult> projects the antecedent result.
@@ -65,6 +121,28 @@ public sealed class TaskFactoryConformanceTests : IDisposable
                     return Task.FromResult(true);
                 }
             }
+
+            public static Task<bool> RejectsCustomScheduler()
+            {
+                var schedulers = new ConcurrentExclusiveSchedulerPair();
+                try
+                {
+                    Task.Factory.StartNew(
+                        () => { },
+                        CancellationToken.None,
+                        TaskCreationOptions.None,
+                        schedulers.ExclusiveScheduler);
+                    return Task.FromResult(false);
+                }
+                catch (Exception ex) when (ex.GetType().Name == "ControlledTaskUnsupportedException")
+                {
+                    return Task.FromResult(true);
+                }
+                finally
+                {
+                    schedulers.Complete();
+                }
+            }
         } }
         """;
 
@@ -94,6 +172,45 @@ public sealed class TaskFactoryConformanceTests : IDisposable
     }
 
     [Fact]
+    public void StateAndFullSchedulerOverloadsPreserveResults()
+    {
+        using var host = new SimulationHost(Start);
+        var state = (Task<int>)host.Invoke(Method("StateResult"))!;
+        var genericState = (Task<int>)host.Invoke(Method("GenericStateResult"))!;
+        Assert.Equal(42, Result<int>(state));
+        Assert.Equal(42, state.AsyncState);
+        Assert.Equal(43, Result<int>(genericState));
+        Assert.Equal(43, genericState.AsyncState);
+    }
+
+    [Fact]
+    public void StartNewRunsOnTheControlledLogicalThreadAndFreshStrand()
+    {
+        using var host = new SimulationHost(Start);
+        var task = (Task<long[]>)host.Invoke(
+            Method("Identity"),
+            (Func<long>)(() => Clockwork.Runtime.Threading.ControlledSynchronizationFlow.CurrentId))!;
+        long[] values = Result<long[]>(task);
+
+        Assert.Equal(values[0], values[2]);
+        Assert.Equal(Clockwork.Runtime.Threading.ControlledSynchronizationFlow.None, values[1]);
+        Assert.NotEqual(Clockwork.Runtime.Threading.ControlledSynchronizationFlow.None, values[3]);
+    }
+
+    [Fact]
+    public void StartNewTraceIsRepeatable()
+    {
+        string Run()
+        {
+            using var host = new SimulationHost(Start);
+            return Result<string>((Task<string>)host.Invoke(Method("Trace"))!);
+        }
+
+        Assert.Equal("0,1,2,3", Run());
+        Assert.Equal(Run(), Run());
+    }
+
+    [Fact]
     public void GenericContinueWithProjectsTheAntecedentResult()
     {
         using var host = new SimulationHost(Start);
@@ -114,6 +231,14 @@ public sealed class TaskFactoryConformanceTests : IDisposable
     {
         using var host = new SimulationHost(Start);
         var task = (Task<bool>)host.Invoke(Method("RejectsAttached"))!;
+        Assert.True(Result<bool>(task));
+    }
+
+    [Fact]
+    public void StartNewRejectsCustomSchedulerInsideSimulation()
+    {
+        using var host = new SimulationHost(Start);
+        var task = (Task<bool>)host.Invoke(Method("RejectsCustomScheduler"))!;
         Assert.True(Result<bool>(task));
     }
 

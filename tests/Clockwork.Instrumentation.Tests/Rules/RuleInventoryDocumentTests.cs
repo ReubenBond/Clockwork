@@ -62,6 +62,23 @@ public sealed class RuleInventoryDocumentTests
             entry => Assert.Equal(Clockwork.Runtime.Policy.SimulationApiPolicy.Rejected, entry.Rule.Policy));
     }
 
+    [Fact]
+    public void TaskFactoryRulesClassifyEveryNet10StartNewOverload()
+    {
+        int frameworkOverloadCount =
+            typeof(TaskFactory).GetMethods().Count(method => method.Name == nameof(TaskFactory.StartNew)) +
+            typeof(TaskFactory<>).GetMethods().Count(method => method.Name == nameof(TaskFactory.StartNew));
+        RewriteRule[] classified = BuiltInRuleSets.ControlledTasksInventory
+            .Where(entry => entry.Family == BuiltInRuleFamily.TaskFactory)
+            .Select(entry => entry.Rule)
+            .ToArray();
+
+        Assert.Equal(24, frameworkOverloadCount);
+        Assert.Equal(frameworkOverloadCount, classified.Length);
+        Assert.All(classified, rule =>
+            Assert.Equal(Clockwork.Runtime.Policy.SimulationApiPolicy.Controlled, rule.Policy));
+    }
+
     private static string InventoryPath()
     {
         string dir = Path.GetDirectoryName(ThisFile())!;

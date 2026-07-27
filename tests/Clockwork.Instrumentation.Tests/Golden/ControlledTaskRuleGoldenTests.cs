@@ -20,7 +20,9 @@ namespace Clockwork.Instrumentation.Tests.Golden;
 public sealed class ControlledTaskRuleGoldenTests
 {
     private const string Fixture = """
+        using System;
         using System.Collections.Generic;
+        using System.Threading;
         using System.Threading.Tasks;
 
         namespace Fx
@@ -52,8 +54,29 @@ public sealed class ControlledTaskRuleGoldenTests
                 public static async ValueTask<int> VtAsyncT(ValueTask<int> inner) => await inner.ConfigureAwait(false);
 
                 public static Task Factory() => Task.Factory.StartNew(() => { });
+                public static Task FactoryToken() => Task.Factory.StartNew(() => { }, CancellationToken.None);
+                public static Task FactoryOptions() => Task.Factory.StartNew(() => { }, TaskCreationOptions.DenyChildAttach);
+                public static Task FactoryScheduler() => Task.Factory.StartNew(() => { }, CancellationToken.None, TaskCreationOptions.None, TaskScheduler.Default);
+                public static Task FactoryState() => Task.Factory.StartNew(_ => { }, 1);
+                public static Task FactoryStateToken() => Task.Factory.StartNew(_ => { }, 1, CancellationToken.None);
+                public static Task FactoryStateOptions() => Task.Factory.StartNew(_ => { }, 1, TaskCreationOptions.DenyChildAttach);
+                public static Task FactoryStateScheduler() => Task.Factory.StartNew(_ => { }, 1, CancellationToken.None, TaskCreationOptions.None, TaskScheduler.Default);
                 public static Task<int> FactoryFunc() => Task.Factory.StartNew(() => 5);
+                public static Task<int> FactoryFuncToken() => Task.Factory.StartNew(() => 5, CancellationToken.None);
+                public static Task<int> FactoryFuncOptions() => Task.Factory.StartNew(() => 5, TaskCreationOptions.DenyChildAttach);
+                public static Task<int> FactoryFuncScheduler() => Task.Factory.StartNew(() => 5, CancellationToken.None, TaskCreationOptions.None, TaskScheduler.Default);
+                public static Task<int> FactoryFuncState() => Task.Factory.StartNew(s => (int)s!, 5);
+                public static Task<int> FactoryFuncStateToken() => Task.Factory.StartNew(s => (int)s!, 5, CancellationToken.None);
+                public static Task<int> FactoryFuncStateOptions() => Task.Factory.StartNew(s => (int)s!, 5, TaskCreationOptions.DenyChildAttach);
+                public static Task<int> FactoryFuncStateScheduler() => Task.Factory.StartNew(s => (int)s!, 5, CancellationToken.None, TaskCreationOptions.None, TaskScheduler.Default);
                 public static Task<int> FactoryGeneric() => new TaskFactory<int>().StartNew(() => 7);
+                public static Task<int> FactoryGenericToken() => new TaskFactory<int>().StartNew(() => 7, CancellationToken.None);
+                public static Task<int> FactoryGenericOptions() => new TaskFactory<int>().StartNew(() => 7, TaskCreationOptions.DenyChildAttach);
+                public static Task<int> FactoryGenericScheduler() => new TaskFactory<int>().StartNew(() => 7, CancellationToken.None, TaskCreationOptions.None, TaskScheduler.Default);
+                public static Task<int> FactoryGenericState() => new TaskFactory<int>().StartNew(s => (int)s!, 7);
+                public static Task<int> FactoryGenericStateToken() => new TaskFactory<int>().StartNew(s => (int)s!, 7, CancellationToken.None);
+                public static Task<int> FactoryGenericStateOptions() => new TaskFactory<int>().StartNew(s => (int)s!, 7, TaskCreationOptions.DenyChildAttach);
+                public static Task<int> FactoryGenericStateScheduler() => new TaskFactory<int>().StartNew(s => (int)s!, 7, CancellationToken.None, TaskCreationOptions.None, TaskScheduler.Default);
 
                 public static Task Unwrapped(Task<Task> t) => t.Unwrap();
                 public static Task<int> UnwrappedT(Task<Task<int>> t) => t.Unwrap();
@@ -277,15 +300,21 @@ public sealed class ControlledTaskRuleGoldenTests
         using ModuleDefinition module = context.LoadModule(
             Path.Combine(context.Directory, "Fx.TaskFactory.rewritten.dll"));
 
-        MethodDefinition factory = CecilInspect.GetMethod(module, "Fx.TaskUser", "Factory");
-        Assert.True(CecilInspect.CallsAnyContaining(factory, "ControlledTaskFactory::StartNew"));
-        Assert.False(CecilInspect.CallsAnyContaining(factory, "Threading.Tasks.TaskFactory::StartNew"));
-
-        MethodDefinition factoryFunc = CecilInspect.GetMethod(module, "Fx.TaskUser", "FactoryFunc");
-        Assert.True(CecilInspect.CallsAnyContaining(factoryFunc, "ControlledTaskFactory::StartNew"));
-
-        MethodDefinition factoryGeneric = CecilInspect.GetMethod(module, "Fx.TaskUser", "FactoryGeneric");
-        Assert.True(CecilInspect.CallsAnyContaining(factoryGeneric, "ControlledTaskFactory::StartNew"));
+        string[] methods =
+        [
+            "Factory", "FactoryToken", "FactoryOptions", "FactoryScheduler",
+            "FactoryState", "FactoryStateToken", "FactoryStateOptions", "FactoryStateScheduler",
+            "FactoryFunc", "FactoryFuncToken", "FactoryFuncOptions", "FactoryFuncScheduler",
+            "FactoryFuncState", "FactoryFuncStateToken", "FactoryFuncStateOptions", "FactoryFuncStateScheduler",
+            "FactoryGeneric", "FactoryGenericToken", "FactoryGenericOptions", "FactoryGenericScheduler",
+            "FactoryGenericState", "FactoryGenericStateToken", "FactoryGenericStateOptions", "FactoryGenericStateScheduler",
+        ];
+        foreach (string methodName in methods)
+        {
+            MethodDefinition method = CecilInspect.GetMethod(module, "Fx.TaskUser", methodName);
+            Assert.True(CecilInspect.CallsAnyContaining(method, "ControlledTaskFactory::StartNew"), methodName);
+            Assert.False(CecilInspect.CallsAnyContaining(method, "Threading.Tasks.TaskFactory::StartNew"), methodName);
+        }
 
         // Phase 6B controls the TaskFactory scheduling surface (queued as a controlled operation on the
         // coordinator, like Task.Run), superseding the Phase 6A rejection.
@@ -296,6 +325,12 @@ public sealed class ControlledTaskRuleGoldenTests
             t.RuleId == "clockwork.tasks.factory.startnew.func" && t.Policy == SimulationApiPolicy.Controlled);
         Assert.Contains(transformations, t =>
             t.RuleId == "clockwork.tasks.factory.generic.startnew.func" && t.Policy == SimulationApiPolicy.Controlled);
+        Assert.Equal(
+            24,
+            transformations
+                .Select(t => t.RuleId)
+                .Distinct(StringComparer.Ordinal)
+                .Count(id => id.StartsWith("clockwork.tasks.factory.", StringComparison.Ordinal)));
     }
 
     [Fact]
