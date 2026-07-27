@@ -1,13 +1,15 @@
-# Deterministic BCL rule inventory
+# Built-in rewrite rule inventory
 
 <!-- Generated from Clockwork.Instrumentation.Rules.BuiltIn.RuleInventoryDocument.Render().
      Do not edit by hand; a test verifies this file matches the shipped rule set. -->
 
+This is the exact, exhaustive surface the built-in rule sets redirect. Every other API is **not** rewritten. Outside an active simulation each shim runs the real BCL API unchanged; under an active simulation with no registered runtime environment the shim fails explicitly rather than fall back to real time, randomness, or an uncontrolled task.
+
+# Deterministic BCL rule set
+
 Rule set id: `clockwork.bcl.deterministic`  
 Version: `1.0.0`  
 Shim assembly: `Clockwork.Runtime`
-
-This is the exact, exhaustive surface the built-in rule set redirects. Every other API is **not** rewritten. Outside an active simulation each shim runs the real BCL API unchanged; under an active simulation with no registered runtime environment the shim fails explicitly rather than fall back to real time or randomness.
 
 ## Clock family
 
@@ -61,14 +63,62 @@ Policy: **Rejected**. Static entropy APIs are redirected to a policy shim. The d
 | `clockwork.bcl.rng.gethexstring.length` | `System.Security.Cryptography.RandomNumberGenerator::GetHexString(System.Int32,System.Boolean)` | `Clockwork.Runtime!Clockwork.Runtime.Shims.DeterministicCryptoRandom::GetHexString(System.Int32,System.Boolean)` | Rejected |
 | `clockwork.bcl.rng.getstring` | `System.Security.Cryptography.RandomNumberGenerator::GetString(System.ReadOnlySpan`1<System.Char>,System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Shims.DeterministicCryptoRandom::GetString(System.ReadOnlySpan`1<System.Char>,System.Int32)` | Rejected |
 
-## Documented holes (not rewritten in this rule set)
+# Controlled task rule set
 
-These nondeterministic or entropy-drawing surfaces are intentionally **not** covered by
-Phase 5 and remain real BCL calls even under simulation:
+Rule set id: `clockwork.tasks.controlled`  
+Version: `1.0.0`  
+Shim assembly: `Clockwork.Runtime`
+
+## TaskCombinators family
+
+Policy: **Controlled**. `Task.WhenAll`/`WhenAny` (the non-generic `Task[]`, `IEnumerable<Task>`, .NET 9+ params `ReadOnlySpan<Task>`, and two-argument overloads) redirect to controlled combinators. Completion and the returned winner become a deterministic function of when the antecedents complete on the logical thread instead of a physical thread-pool race.
+
+| Rule id | BCL target | Shim | Policy |
+| --- | --- | --- | --- |
+| `clockwork.tasks.whenall.array` | `System.Threading.Tasks.Task::WhenAll(System.Threading.Tasks.Task[])` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::WhenAll(System.Threading.Tasks.Task[])` | Controlled |
+| `clockwork.tasks.whenall.span` | `System.Threading.Tasks.Task::WhenAll(System.ReadOnlySpan`1<System.Threading.Tasks.Task>)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::WhenAll(System.ReadOnlySpan`1<System.Threading.Tasks.Task>)` | Controlled |
+| `clockwork.tasks.whenall.enumerable` | `System.Threading.Tasks.Task::WhenAll(System.Collections.Generic.IEnumerable`1<System.Threading.Tasks.Task>)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::WhenAll(System.Collections.Generic.IEnumerable`1<System.Threading.Tasks.Task>)` | Controlled |
+| `clockwork.tasks.whenany.array` | `System.Threading.Tasks.Task::WhenAny(System.Threading.Tasks.Task[])` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::WhenAny(System.Threading.Tasks.Task[])` | Controlled |
+| `clockwork.tasks.whenany.span` | `System.Threading.Tasks.Task::WhenAny(System.ReadOnlySpan`1<System.Threading.Tasks.Task>)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::WhenAny(System.ReadOnlySpan`1<System.Threading.Tasks.Task>)` | Controlled |
+| `clockwork.tasks.whenany.pair` | `System.Threading.Tasks.Task::WhenAny(System.Threading.Tasks.Task,System.Threading.Tasks.Task)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::WhenAny(System.Threading.Tasks.Task,System.Threading.Tasks.Task)` | Controlled |
+| `clockwork.tasks.whenany.enumerable` | `System.Threading.Tasks.Task::WhenAny(System.Collections.Generic.IEnumerable`1<System.Threading.Tasks.Task>)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::WhenAny(System.Collections.Generic.IEnumerable`1<System.Threading.Tasks.Task>)` | Controlled |
+
+## TaskSynchronization family
+
+Policy: **Controlled**. Blocking `Task.Wait()`, `Task.WaitAll`, and `Task.WaitAny` redirect to controlled waits that pump the deterministic loop rather than blocking a physical thread; a never-satisfiable wait surfaces as a precise deadlock diagnostic instead of hanging the scheduler.
+
+| Rule id | BCL target | Shim | Policy |
+| --- | --- | --- | --- |
+| `clockwork.tasks.wait.instance` | `System.Threading.Tasks.Task::Wait()` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Wait(System.Threading.Tasks.Task)` | Controlled |
+| `clockwork.tasks.waitall.array` | `System.Threading.Tasks.Task::WaitAll(System.Threading.Tasks.Task[])` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::WaitAll(System.Threading.Tasks.Task[])` | Controlled |
+| `clockwork.tasks.waitany.array` | `System.Threading.Tasks.Task::WaitAny(System.Threading.Tasks.Task[])` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::WaitAny(System.Threading.Tasks.Task[])` | Controlled |
+
+## TaskContinuations family
+
+Policy: **Controlled**. `Task.ContinueWith(Action<Task>)` redirects so the continuation is scheduled on the controlled coordinator and runs on the logical thread after the antecedent completes.
+
+| Rule id | BCL target | Shim | Policy |
+| --- | --- | --- | --- |
+| `clockwork.tasks.continuewith.action` | `System.Threading.Tasks.Task::ContinueWith(System.Action`1<System.Threading.Tasks.Task>)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::ContinueWith(System.Threading.Tasks.Task,System.Action`1<System.Threading.Tasks.Task>)` | Controlled |
+
+## TaskDeferred family
+
+Policy: **Rejected**. `Task.Delay` (virtual timers, Phase 8) and `Task.Run` (thread-pool offload, Phase 6B) are rejected under simulation with a precise diagnostic rather than silently using wall time or a real thread-pool thread. Outside simulation they run the real BCL API unchanged.
+
+| Rule id | BCL target | Shim | Policy |
+| --- | --- | --- | --- |
+| `clockwork.tasks.delay.milliseconds` | `System.Threading.Tasks.Task::Delay(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Delay(System.Int32)` | Rejected |
+| `clockwork.tasks.run.action` | `System.Threading.Tasks.Task::Run(System.Action)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Run(System.Action)` | Rejected |
+
+## Documented holes (not rewritten in these rule sets)
+
+These nondeterministic or entropy-drawing surfaces are intentionally **not** covered and
+remain real BCL calls even under simulation:
 
 - `Stopwatch` instance APIs (`Start`/`Stop`/`Restart`/`Elapsed`/`ElapsedMilliseconds`/`ElapsedTicks`) and the `GetElapsedTime(long, long)` overload.
 - Generic cryptographic helpers `RandomNumberGenerator.GetItems<T>` and `Shuffle<T>`, and any `GetString`/`GetHexString` overloads beyond those listed above.
 - `DateTime`/`DateTimeOffset` parsing/formatting and any culture-, timezone-, or kind-conversion helpers other than the `Now`/`UtcNow`/`Today` clocks above.
-- Everything outside time/identity/random: task/thread/synchronization primitives, timers, collections, Buggify, hosting, and network/HTTP. These are out of scope for Phase 5.
+- Generic `Task<TResult>` combinator overloads (`WhenAll<T>`/`WhenAny<T>`), the `Task<T>.Result` accessor, `ValueTask`, `TaskCompletionSource`, `TaskFactory`, and the compiler-generated builder/awaiter types. These are served by the `Clockwork.Runtime` controlled-task engine but are **not** in the shipped rule set: matching them requires the member-aware / generic-arity substitution pass deferred to Phase 6B.
+- Thread/`ThreadPool`/`Parallel`, `Monitor`/semaphores/wait handles, timers and the `Task.Delay` implementation, and cancellation timers. These are Phase 6B / Phase 8 scope.
 
 Determinism is claimed **only** for the exact rules tabulated above.

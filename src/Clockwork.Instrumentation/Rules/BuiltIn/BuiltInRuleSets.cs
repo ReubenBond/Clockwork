@@ -35,6 +35,12 @@ public static class BuiltInRuleSets
     /// <summary>The version of the deterministic BCL rule set.</summary>
     public const string DeterministicBclVersion = "1.0.0";
 
+    /// <summary>The stable id of the controlled task / async machinery rule set (Phase 6A).</summary>
+    public const string ControlledTasksId = "clockwork.tasks.controlled";
+
+    /// <summary>The version of the controlled task rule set.</summary>
+    public const string ControlledTasksVersion = "1.0.0";
+
     /// <summary>The simple name of the assembly declaring every built-in shim.</summary>
     public const string ShimAssemblyName = "Clockwork.Runtime";
 
@@ -42,6 +48,7 @@ public static class BuiltInRuleSets
     private const string GuidShim = "Clockwork.Runtime.Shims.DeterministicGuid";
     private const string RandomShim = "Clockwork.Runtime.Shims.DeterministicRandom";
     private const string CryptoShim = "Clockwork.Runtime.Shims.DeterministicCryptoRandom";
+    private const string TaskShim = "Clockwork.Runtime.Tasks.ControlledTask";
 
     // Cecil full names for the exact overload parameters (from the net10 reference assemblies).
     private const string Int32 = "System.Int32";
@@ -53,18 +60,40 @@ public static class BuiltInRuleSets
     private const string SpanChar = "System.Span`1<System.Char>";
     private const string ReadOnlySpanChar = "System.ReadOnlySpan`1<System.Char>";
 
+    // Cecil full names for the controlled-task overload parameters.
+    private const string Task = "System.Threading.Tasks.Task";
+    private const string TaskArray = "System.Threading.Tasks.Task[]";
+    private const string IEnumerableTask = "System.Collections.Generic.IEnumerable`1<System.Threading.Tasks.Task>";
+    private const string ReadOnlySpanTask = "System.ReadOnlySpan`1<System.Threading.Tasks.Task>";
+    private const string ActionOfTask = "System.Action`1<System.Threading.Tasks.Task>";
+    private const string Action = "System.Action";
+
     private static readonly ImmutableArray<BuiltInRuleEntry> DeterministicBcl = BuildDeterministicBclEntries();
+    private static readonly ImmutableArray<BuiltInRuleEntry> ControlledTasks = BuildControlledTasksEntries();
 
     /// <summary>Gets the ids of every built-in rule set that can be enabled by name.</summary>
-    public static ImmutableArray<string> AvailableIds { get; } = [DeterministicBclId];
+    public static ImmutableArray<string> AvailableIds { get; } = [DeterministicBclId, ControlledTasksId];
 
     /// <summary>Gets every rule family in canonical (declared) order.</summary>
     public static ImmutableArray<BuiltInRuleFamily> AllFamilies { get; } =
-        [BuiltInRuleFamily.Clock, BuiltInRuleFamily.Identity, BuiltInRuleFamily.Random, BuiltInRuleFamily.Crypto];
+    [
+        BuiltInRuleFamily.Clock,
+        BuiltInRuleFamily.Identity,
+        BuiltInRuleFamily.Random,
+        BuiltInRuleFamily.Crypto,
+        BuiltInRuleFamily.TaskCombinators,
+        BuiltInRuleFamily.TaskSynchronization,
+        BuiltInRuleFamily.TaskContinuations,
+        BuiltInRuleFamily.TaskDeferred,
+    ];
 
     /// <summary>Gets the (family, rule) entries of the deterministic BCL rule set, for documentation and inventory generation.</summary>
     public static ImmutableArray<(BuiltInRuleFamily Family, RewriteRule Rule)> DeterministicBclInventory { get; } =
         [.. DeterministicBcl.Select(e => (e.Family, e.Rule))];
+
+    /// <summary>Gets the (family, rule) entries of the controlled task rule set, for documentation and inventory generation.</summary>
+    public static ImmutableArray<(BuiltInRuleFamily Family, RewriteRule Rule)> ControlledTasksInventory { get; } =
+        [.. ControlledTasks.Select(e => (e.Family, e.Rule))];
 
     /// <summary>Gets a value indicating whether <paramref name="id"/> names a known built-in rule set.</summary>
     public static bool IsKnownId(string id) => AvailableIds.Contains(id, StringComparer.Ordinal);
@@ -87,6 +116,86 @@ public static class BuiltInRuleSets
             .Where(e => selected.Contains(e.Family))
             .Select(e => e.Rule);
         return new RewriteRuleSet(DeterministicBclId, DeterministicBclVersion, rules);
+    }
+
+    /// <summary>
+    /// Builds the controlled task rule set restricted to <paramref name="families"/>, preserving the
+    /// canonical family and rule order so the result is stable across runs.
+    /// </summary>
+    /// <param name="families">The families to include. An empty set produces an empty rule set.</param>
+    /// <returns>The versioned rule set.</returns>
+    public static RewriteRuleSet BuildControlledTasks(IEnumerable<BuiltInRuleFamily> families)
+    {
+        ArgumentNullException.ThrowIfNull(families);
+        var selected = new HashSet<BuiltInRuleFamily>(families);
+        IEnumerable<RewriteRule> rules = ControlledTasks
+            .Where(e => selected.Contains(e.Family))
+            .Select(e => e.Rule);
+        return new RewriteRuleSet(ControlledTasksId, ControlledTasksVersion, rules);
+    }
+
+    private static ImmutableArray<BuiltInRuleEntry> BuildControlledTasksEntries()
+    {
+        var builder = ImmutableArray.CreateBuilder<BuiltInRuleEntry>();
+
+        // ---- Combinators: WhenAll / WhenAny non-generic overloads -> controlled equivalents ----
+        // Completion order becomes a deterministic function of logical-thread completion instead of the
+        // physical thread-pool race. The generic Task<TResult> overloads and Result<T> accessor are
+        // served by the runtime shim but are not in the shipped rule set: matching them requires the
+        // member-aware / generic-arity substitution pass deferred to Phase 6B.
+        TaskRule(builder, BuiltInRuleFamily.TaskCombinators, "clockwork.tasks.whenall.array",
+            MemberSignature.Method(Task, "WhenAll", TaskArray), Shim(TaskShim, "WhenAll", TaskArray));
+        TaskRule(builder, BuiltInRuleFamily.TaskCombinators, "clockwork.tasks.whenall.span",
+            MemberSignature.Method(Task, "WhenAll", ReadOnlySpanTask), Shim(TaskShim, "WhenAll", ReadOnlySpanTask));
+        TaskRule(builder, BuiltInRuleFamily.TaskCombinators, "clockwork.tasks.whenall.enumerable",
+            MemberSignature.Method(Task, "WhenAll", IEnumerableTask), Shim(TaskShim, "WhenAll", IEnumerableTask));
+        TaskRule(builder, BuiltInRuleFamily.TaskCombinators, "clockwork.tasks.whenany.array",
+            MemberSignature.Method(Task, "WhenAny", TaskArray), Shim(TaskShim, "WhenAny", TaskArray));
+        TaskRule(builder, BuiltInRuleFamily.TaskCombinators, "clockwork.tasks.whenany.span",
+            MemberSignature.Method(Task, "WhenAny", ReadOnlySpanTask), Shim(TaskShim, "WhenAny", ReadOnlySpanTask));
+        TaskRule(builder, BuiltInRuleFamily.TaskCombinators, "clockwork.tasks.whenany.pair",
+            MemberSignature.Method(Task, "WhenAny", Task, Task), Shim(TaskShim, "WhenAny", Task, Task));
+        TaskRule(builder, BuiltInRuleFamily.TaskCombinators, "clockwork.tasks.whenany.enumerable",
+            MemberSignature.Method(Task, "WhenAny", IEnumerableTask), Shim(TaskShim, "WhenAny", IEnumerableTask));
+
+        // ---- Synchronization: blocking waits -> controlled waits that pump the deterministic loop ----
+        // The receiver of the instance Wait() is already on the IL stack, so a redirect to the static
+        // shim taking the antecedent as its first parameter is stack-balanced.
+        TaskRule(builder, BuiltInRuleFamily.TaskSynchronization, "clockwork.tasks.wait.instance",
+            MemberSignature.Method(Task, "Wait"), Shim(TaskShim, "Wait", Task));
+        TaskRule(builder, BuiltInRuleFamily.TaskSynchronization, "clockwork.tasks.waitall.array",
+            MemberSignature.Method(Task, "WaitAll", TaskArray), Shim(TaskShim, "WaitAll", TaskArray));
+        TaskRule(builder, BuiltInRuleFamily.TaskSynchronization, "clockwork.tasks.waitany.array",
+            MemberSignature.Method(Task, "WaitAny", TaskArray), Shim(TaskShim, "WaitAny", TaskArray));
+
+        // ---- Continuations: ContinueWith -> controlled scheduling on the logical thread ----
+        TaskRule(builder, BuiltInRuleFamily.TaskContinuations, "clockwork.tasks.continuewith.action",
+            MemberSignature.Method(Task, "ContinueWith", ActionOfTask), Shim(TaskShim, "ContinueWith", Task, ActionOfTask));
+
+        // ---- Deferred: Task.Delay (Phase 8 timers) and Task.Run (Phase 6B thread-pool) rejected ----
+        // The shim rejects under simulation with a precise diagnostic and runs the real BCL API outside.
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.TaskDeferred, RewriteRule.RedirectCall(
+            "clockwork.tasks.delay.milliseconds",
+            MemberSignature.Method(Task, "Delay", Int32),
+            Shim(TaskShim, "Delay", Int32),
+            SimulationApiPolicy.Rejected)));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.TaskDeferred, RewriteRule.RedirectCall(
+            "clockwork.tasks.run.action",
+            MemberSignature.Method(Task, "Run", Action),
+            Shim(TaskShim, "Run", Action),
+            SimulationApiPolicy.Rejected)));
+
+        return builder.ToImmutable();
+    }
+
+    private static void TaskRule(
+        ImmutableArray<BuiltInRuleEntry>.Builder builder,
+        BuiltInRuleFamily family,
+        string id,
+        MemberSignature target,
+        RewriteReplacement replacement)
+    {
+        builder.Add(new BuiltInRuleEntry(family, RewriteRule.RedirectCall(id, target, replacement)));
     }
 
     private static ImmutableArray<BuiltInRuleEntry> BuildDeterministicBclEntries()

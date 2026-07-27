@@ -26,4 +26,32 @@ public enum BuiltInRuleFamily
     /// by default and only serves deterministic-insecure bytes under an explicit test-only opt-in.
     /// </summary>
     Crypto,
+
+    /// <summary>
+    /// Task combinators: the static <see cref="System.Threading.Tasks.Task.WhenAll(System.Threading.Tasks.Task[])"/>
+    /// and <c>WhenAny</c> family, redirected to controlled equivalents whose completion order is a
+    /// deterministic function of when the antecedents complete on the logical thread.
+    /// </summary>
+    TaskCombinators,
+
+    /// <summary>
+    /// Task synchronous waits: <c>Task.Wait()</c>, <c>Task.WaitAll</c>, and <c>Task.WaitAny</c>, redirected
+    /// to controlled waits that pump the deterministic loop instead of blocking a physical thread (a
+    /// never-satisfiable wait surfaces as a precise deadlock diagnostic).
+    /// </summary>
+    TaskSynchronization,
+
+    /// <summary>
+    /// Task continuations: <c>Task.ContinueWith</c>, redirected so the continuation is scheduled on the
+    /// controlled coordinator and runs on the logical thread after the antecedent.
+    /// </summary>
+    TaskContinuations,
+
+    /// <summary>
+    /// Task surfaces deferred to later phases: <c>Task.Delay</c> (virtual timers, Phase 8) and
+    /// <c>Task.Run</c> (thread-pool offload, Phase 6B). Classified <c>Rejected</c>:
+    /// the shim fails the call with a precise diagnostic under simulation rather than silently using wall
+    /// time or a real thread-pool thread, and runs the real BCL API unchanged outside simulation.
+    /// </summary>
+    TaskDeferred,
 }

@@ -156,8 +156,13 @@ public static class RuleSetMerge
                 throw new ConfigurationException($"Unknown built-in rule set id '{id}'. Known ids: {known}.");
             }
 
-            // Only one built-in rule set exists today; it is family-filtered identically for each id.
-            result.Add(BuiltInRuleSets.BuildDeterministicBcl(families));
+            // Dispatch by id: each built-in id maps to its own family-filtered rule set. Family
+            // selection is shared, so a set simply ignores families that name no rules of its own.
+            result.Add(id switch
+            {
+                BuiltInRuleSets.ControlledTasksId => BuiltInRuleSets.BuildControlledTasks(families),
+                _ => BuiltInRuleSets.BuildDeterministicBcl(families),
+            });
         }
 
         return result;

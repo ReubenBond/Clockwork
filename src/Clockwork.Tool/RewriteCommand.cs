@@ -100,6 +100,11 @@ internal static class RewriteCommand
         }
 
         bool anyBlocking = rows.Any(r => r.IsBlocking);
+
+        // The merged rule set carries a synthesized 'clockwork.merged' id once more than one built-in
+        // (or document) contributes, so surface the constituent built-in ids for an auditable dry run.
+        ImmutableArray<string> builtInIds = [.. RuleSetMerge.ResolveBuiltIns(configuration).Select(s => s.Id)];
+
         if (json)
         {
             var array = new JsonArray();
@@ -113,6 +118,12 @@ internal static class RewriteCommand
                 });
             }
 
+            var builtInArray = new JsonArray();
+            foreach (string id in builtInIds)
+            {
+                builtInArray.Add(id);
+            }
+
             var doc = new JsonObject
             {
                 ["command"] = "rewrite",
@@ -121,6 +132,7 @@ internal static class RewriteCommand
                 ["ruleSetId"] = ruleSet.Id,
                 ["ruleSetVersion"] = ruleSet.Version,
                 ["ruleCount"] = ruleSet.Rules.Length,
+                ["builtInRuleSets"] = builtInArray,
                 ["candidates"] = rows.Count,
                 ["copies"] = plan.AssetsToCopy.Count(),
                 ["blocking"] = anyBlocking,
@@ -132,6 +144,11 @@ internal static class RewriteCommand
         {
             output.WriteLine($"Dry run for '{plan.RootDirectory}'");
             output.WriteLine($"Rule set: {ruleSet.Id} v{ruleSet.Version} ({ruleSet.Rules.Length} rules)");
+            if (!builtInIds.IsEmpty)
+            {
+                output.WriteLine($"Built-in rule sets: {string.Join(", ", builtInIds)}");
+            }
+
             output.WriteLine($"Rewrite candidates: {rows.Count}; verbatim copies: {plan.AssetsToCopy.Count()}");
             foreach (PlannedAction row in rows.OrderBy(r => r.RelativePath, StringComparer.Ordinal))
             {

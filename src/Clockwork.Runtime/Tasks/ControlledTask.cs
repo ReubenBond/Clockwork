@@ -33,6 +33,14 @@ public static class ControlledTask
     /// <returns>A task that completes when all <paramref name="tasks"/> complete.</returns>
     public static Task WhenAll(params Task[] tasks) => Task.WhenAll(tasks);
 
+    /// <summary>
+    /// Controlled <c>Task.WhenAll(ReadOnlySpan&lt;Task&gt;)</c>: the .NET 9+ params-span overload that a
+    /// two-or-more argument <c>Task.WhenAll(a, b, ...)</c> call binds to.
+    /// </summary>
+    /// <param name="tasks">The tasks to await.</param>
+    /// <returns>A task that completes when all <paramref name="tasks"/> complete.</returns>
+    public static Task WhenAll(params ReadOnlySpan<Task> tasks) => Task.WhenAll(tasks);
+
     /// <summary>Controlled <c>Task.WhenAll(IEnumerable&lt;Task&gt;)</c>.</summary>
     /// <param name="tasks">The tasks to await.</param>
     /// <returns>A task that completes when all <paramref name="tasks"/> complete.</returns>
@@ -54,6 +62,23 @@ public static class ControlledTask
     /// <param name="tasks">The candidate tasks.</param>
     /// <returns>A task whose result is the first task to complete.</returns>
     public static Task<Task> WhenAny(params Task[] tasks) => Task.WhenAny(tasks);
+
+    /// <summary>
+    /// Controlled <c>Task.WhenAny(ReadOnlySpan&lt;Task&gt;)</c>: the .NET 9+ params-span overload that a
+    /// three-or-more argument <c>Task.WhenAny(a, b, c, ...)</c> call binds to.
+    /// </summary>
+    /// <param name="tasks">The candidate tasks.</param>
+    /// <returns>A task whose result is the first task to complete.</returns>
+    public static Task<Task> WhenAny(params ReadOnlySpan<Task> tasks) => Task.WhenAny(tasks);
+
+    /// <summary>
+    /// Controlled <c>Task.WhenAny(Task, Task)</c>: the two-argument overload that <c>Task.WhenAny(a, b)</c>
+    /// binds to.
+    /// </summary>
+    /// <param name="task1">The first candidate task.</param>
+    /// <param name="task2">The second candidate task.</param>
+    /// <returns>A task whose result is the first task to complete.</returns>
+    public static Task<Task> WhenAny(Task task1, Task task2) => Task.WhenAny(task1, task2);
 
     /// <summary>Controlled <c>Task.WhenAny(IEnumerable&lt;Task&gt;)</c>.</summary>
     /// <param name="tasks">The candidate tasks.</param>
