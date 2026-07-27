@@ -77,7 +77,29 @@ public sealed class NondeterministicApiAnalyzer : DiagnosticAnalyzer
         {
             ReportControlled(context, operation.Syntax.GetLocation(), type.Name + "." + property.Name, ruleId);
         }
+        else if (known.TryGetMetadataName(type, out string typeName)
+            && InstrumentedApiInventory.Contains(typeName, property.Name)
+            && (typeName != "System.Threading.Thread"
+                || property.Name != "Priority"
+                || IsPropertyWrite(operation)))
+        {
+            ReportControlled(
+                context,
+                operation.Syntax.GetLocation(),
+                type.Name + "." + property.Name,
+                "clockwork.tasks.controlled");
+        }
+
     }
+
+    private static bool IsPropertyWrite(IPropertyReferenceOperation operation) =>
+        operation.Parent switch
+        {
+            ISimpleAssignmentOperation assignment => ReferenceEquals(assignment.Target, operation),
+            ICompoundAssignmentOperation assignment => ReferenceEquals(assignment.Target, operation),
+            IIncrementOrDecrementOperation increment => ReferenceEquals(increment.Target, operation),
+            _ => false,
+        };
 
     private static void AnalyzeInvocation(OperationAnalysisContext context, KnownTypes known)
     {
@@ -130,12 +152,23 @@ public sealed class NondeterministicApiAnalyzer : DiagnosticAnalyzer
 
         if (SymbolEqualityComparer.Default.Equals(type, known.RandomNumberGenerator) &&
             method.IsStatic &&
-            method.Name is "Create" or "Fill" or "GetBytes" or "GetInt32" or "GetHexString" or "GetString")
+            method.Name is "Create" or "Fill" or "GetBytes" or "GetInt32" or "GetHexString" or "GetItems" or "GetString" or "Shuffle")
         {
             context.ReportDiagnostic(Diagnostic.Create(
                 DeterminismDiagnostics.RejectedApi,
                 operation.Syntax.GetLocation(),
                 "RandomNumberGenerator." + method.Name));
+            return;
+        }
+
+        if (known.TryGetMetadataName(type, out string typeName)
+            && InstrumentedApiInventory.ContainsInvocation(typeName, method))
+        {
+            ReportControlled(
+                context,
+                operation.Syntax.GetLocation(),
+                type.Name + "." + method.Name,
+                "clockwork.tasks.controlled");
         }
     }
 
@@ -152,7 +185,17 @@ public sealed class NondeterministicApiAnalyzer : DiagnosticAnalyzer
             string ruleId = ctor.Parameters.Length == 0
                 ? "clockwork.bcl.random.ctor.unseeded"
                 : "clockwork.bcl.random.ctor.seeded";
-            ReportControlled(context, operation.Syntax.GetLocation(), "new Random()", ruleId);
+            string display = ctor.Parameters.Length == 0 ? "new Random()" : "new Random(int)";
+            ReportControlled(context, operation.Syntax.GetLocation(), display, ruleId);
+        }
+        else if (known.TryGetMetadataName(ctor.ContainingType, out string typeName)
+            && InstrumentedApiInventory.Contains(typeName, ".ctor"))
+        {
+            ReportControlled(
+                context,
+                operation.Syntax.GetLocation(),
+                "new " + ctor.ContainingType.Name + "(...)",
+                "clockwork.tasks.controlled");
         }
     }
 
@@ -172,6 +215,17 @@ public sealed class NondeterministicApiAnalyzer : DiagnosticAnalyzer
             Random = compilation.GetTypeByMetadataName("System.Random");
             Task = compilation.GetTypeByMetadataName("System.Threading.Tasks.Task");
             RandomNumberGenerator = compilation.GetTypeByMetadataName("System.Security.Cryptography.RandomNumberGenerator");
+
+            var instrumentedTypes = ImmutableDictionary.CreateBuilder<INamedTypeSymbol, string>(SymbolEqualityComparer.Default);
+            foreach (string metadataName in InstrumentedApiInventory.TypeMetadataNames)
+            {
+                if (compilation.GetTypeByMetadataName(metadataName) is { } type)
+                {
+                    instrumentedTypes[type] = metadataName;
+                }
+            }
+
+            InstrumentedTypes = instrumentedTypes.ToImmutable();
         }
 
         public INamedTypeSymbol? DateTime { get; }
@@ -190,8 +244,23 @@ public sealed class NondeterministicApiAnalyzer : DiagnosticAnalyzer
 
         public INamedTypeSymbol? RandomNumberGenerator { get; }
 
+        private ImmutableDictionary<INamedTypeSymbol, string> InstrumentedTypes { get; }
+
+        public bool TryGetMetadataName(INamedTypeSymbol type, out string metadataName)
+        {
+            if (InstrumentedTypes.TryGetValue(type.OriginalDefinition, out string? resolved))
+            {
+                metadataName = resolved;
+                return true;
+            }
+
+            metadataName = string.Empty;
+            return false;
+        }
+
         public bool AnyResolved =>
             new[] { DateTime, DateTimeOffset, Stopwatch, Environment, Guid, Random, Task, RandomNumberGenerator }
-                .Any(static symbol => symbol is not null);
+                .Any(static symbol => symbol is not null)
+            || InstrumentedTypes.Count > 0;
     }
 }

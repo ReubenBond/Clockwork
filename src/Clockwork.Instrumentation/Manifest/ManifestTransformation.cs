@@ -19,6 +19,7 @@ namespace Clockwork.Instrumentation.Manifest;
 /// <param name="ILOffset">The IL offset of the site within <paramref name="Method"/>.</param>
 /// <param name="SourceFile">The source file for the site, if symbols were available; else <see langword="null"/>.</param>
 /// <param name="SourceLine">The source line for the site, or <c>-1</c> if unavailable.</param>
+/// <param name="Reason">The reason for a non-transforming policy outcome, if any.</param>
 public readonly record struct ManifestTransformation(
     string RuleId,
     RewriteOperationKind Operation,
@@ -29,4 +30,5 @@ public readonly record struct ManifestTransformation(
     string Method,
     int ILOffset,
     string? SourceFile,
-    int SourceLine);
+    int SourceLine,
+    string? Reason = null);

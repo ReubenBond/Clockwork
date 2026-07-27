@@ -75,7 +75,7 @@ public static class AssemblyInspector
                     continue;
                 }
 
-                if (attribute.ConstructorArguments.Count != 4)
+                if (attribute.ConstructorArguments.Count < 4)
                 {
                     return false;
                 }
@@ -84,7 +84,10 @@ public static class AssemblyInspector
                     attribute.ConstructorArguments[0].Value as string ?? string.Empty,
                     attribute.ConstructorArguments[1].Value as string ?? string.Empty,
                     attribute.ConstructorArguments[2].Value as string ?? string.Empty,
-                    attribute.ConstructorArguments[3].Value as string ?? string.Empty);
+                    attribute.ConstructorArguments[3].Value as string ?? string.Empty,
+                    attribute.ConstructorArguments.Count >= 5
+                        ? attribute.ConstructorArguments[4].Value as string ?? string.Empty
+                        : string.Empty);
                 return true;
             }
         }

@@ -1,5 +1,8 @@
+using Clockwork.Instrumentation.Manifest;
+using Clockwork.Instrumentation.Rewriting;
 using Clockwork.Instrumentation.Rules;
 using Clockwork.Instrumentation.Tests.Infrastructure;
+using Clockwork.Runtime.Policy;
 using Mono.Cecil;
 
 namespace Clockwork.Instrumentation.Tests.Golden;
@@ -71,5 +74,41 @@ public sealed class TypeSubstitutionGoldenTests
         Assert.All(
             result.Manifest.Transformations,
             t => Assert.Equal(RewriteOperationKind.SubstituteType, t.Operation));
+    }
+
+    [Fact]
+    public void PassThroughTypeRuleRecordsSitesWithoutSubstitution()
+    {
+        using var context = RewriteTestContext.Create();
+        string fixturePath = context.CompileFixture("Fx.TypePassThrough", Fixture);
+        var ruleSet = new RewriteRuleSet(
+            "clockwork.fixtures.types.passthrough",
+            "1.0",
+            [
+                RewriteRule.SubstituteType(
+                    "passthrough-marker",
+                    "ClockworkFixtures.Api.LegacyMarker",
+                    RewriteReplacement.Type("Missing", "Missing.ModernMarker"),
+                    SimulationApiPolicy.PassThrough) with
+                {
+                    Description = "Approved legacy marker.",
+                },
+            ]);
+
+        RewriteResult result = context.Rewrite(fixturePath, ruleSet);
+        result.EnsureSuccess();
+
+        using ModuleDefinition module = context.LoadModule(
+            Path.Combine(context.Directory, "Fx.TypePassThrough.rewritten.dll"));
+        Assert.Contains(
+            CecilInspect.TypeOperands(CecilInspect.GetMethod(module, "Fx.Types", "Name")),
+            operand => operand.Contains("LegacyMarker", StringComparison.Ordinal));
+        Assert.NotEmpty(result.Manifest.Transformations);
+        Assert.All(result.Manifest.Transformations, transformation =>
+        {
+            Assert.Equal(TransformationOutcome.PassedThrough, transformation.Outcome);
+            Assert.Equal("Approved legacy marker.", transformation.Reason);
+            Assert.Null(transformation.Replacement);
+        });
     }
 }

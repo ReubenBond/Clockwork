@@ -113,4 +113,36 @@ public sealed class CrossAssemblyTaskDetectionGoldenTests
         // The diagnostics carry a precise call-site (the containing consumer method).
         Assert.All(warnings, w => Assert.Contains("Fx.Consumer", w.Method!, StringComparison.Ordinal));
     }
+
+    [Fact]
+    public void UnresolvableCustomAwaitableReturnTypeIsDiagnosed()
+    {
+        using var context = RewriteTestContext.Create();
+        string dependencyPath = FixtureCompiler.Compile(
+            "Dep.Uncontrolled", DependencySource, context.Directory, FixtureSymbols.PortableFile, optimize: false);
+        string consumerPath = FixtureCompiler.Compile(
+            "Fx.Consumer.MissingDep", ConsumerSource, context.Directory, FixtureSymbols.PortableFile, optimize: false,
+            additionalReferencePaths: [dependencyPath]);
+        File.Delete(dependencyPath);
+        File.Delete(Path.ChangeExtension(dependencyPath, "pdb"));
+
+        var options = new RewriteOptions
+        {
+            DetectUncontrolledTasks = true,
+            ReplacementAssemblyPaths = [context.ShimPath],
+            ReferenceSearchDirectories = [context.Directory],
+        };
+        RewriteResult result = RewriteEngine.Rewrite(new RewriteRequest(
+            consumerPath,
+            Path.Combine(context.Directory, "Fx.Consumer.MissingDep.rewritten.dll"),
+            RewriteTestContext.StandardRuleSet(),
+            options));
+
+        result.EnsureSuccess();
+        RewriteDiagnostic diagnostic = Assert.Single(
+            result.Diagnostics,
+            candidate => candidate.Id == RewriteDiagnosticIds.AwaitableResolutionFailed);
+        Assert.Contains("Dep.CustomAwaitable", diagnostic.Message);
+        Assert.Contains("ReturnsCustomAwaitable", diagnostic.Message);
+    }
 }

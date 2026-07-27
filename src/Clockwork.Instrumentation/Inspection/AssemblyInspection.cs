@@ -11,11 +11,13 @@ namespace Clockwork.Instrumentation.Inspection;
 /// <param name="RuleSetId">The identity of the applied rule set.</param>
 /// <param name="RuleSetVersion">The version of the applied rule set.</param>
 /// <param name="Signature">The stable content hash of the applied rule set and engine version.</param>
+/// <param name="OptionsFingerprint">The semantic rewrite-options fingerprint, or empty for a legacy marker.</param>
 public readonly record struct InstrumentationMarker(
     string EngineVersion,
     string RuleSetId,
     string RuleSetVersion,
-    string Signature);
+    string Signature,
+    string OptionsFingerprint);
 
 /// <summary>The debug-symbol form associated with an assembly.</summary>
 public enum SymbolPresence

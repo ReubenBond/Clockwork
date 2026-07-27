@@ -130,6 +130,7 @@ public sealed record InstrumentationManifest
                 ["ilOffset"] = transformation.ILOffset,
                 ["sourceFile"] = transformation.SourceFile,
                 ["sourceLine"] = transformation.SourceLine,
+                ["reason"] = transformation.Reason,
             });
         }
 

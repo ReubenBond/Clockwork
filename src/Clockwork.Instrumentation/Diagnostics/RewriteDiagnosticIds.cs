@@ -40,6 +40,9 @@ public static class RewriteDiagnosticIds
     /// <summary>A mixed-mode assembly cannot be rewritten by Mono.Cecil.</summary>
     public const string MixedModeAssembly = "CWR0011";
 
+    /// <summary>A resolved replacement method is incompatible with the target invocation's IL stack contract.</summary>
+    public const string ReplacementContractMismatch = "CWR0012";
+
     /// <summary>A ReadyToRun input was rejected by the configured <see cref="Configuration.ReadyToRunPolicy"/>.</summary>
     public const string ReadyToRunRejected = "CWR0100";
 
@@ -62,4 +65,7 @@ public static class RewriteDiagnosticIds
     /// than silently accepted (Phase 6B cross-assembly enforcement).
     /// </summary>
     public const string UncontrolledTaskReturn = "CWR0200";
+
+    /// <summary>A custom-awaitable return type could not be resolved, so task-like status could not be determined.</summary>
+    public const string AwaitableResolutionFailed = "CWR0201";
 }

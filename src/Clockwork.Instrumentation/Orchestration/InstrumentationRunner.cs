@@ -31,6 +31,7 @@ public static class InstrumentationRunner
         string sourceDirectory = Path.GetFullPath(request.SourceDirectory);
         string stagingDirectory = Path.GetFullPath(request.StagingDirectory);
         InstrumentationConfiguration configuration = request.Configuration;
+        ValidateStagingDirectory(sourceDirectory, stagingDirectory);
 
         var topLevel = new List<RewriteDiagnostic>();
 
@@ -87,6 +88,8 @@ public static class InstrumentationRunner
             };
         }
 
+        DeleteIfExists(request.CachePath);
+
         if (topLevel.Count > 0)
         {
             return new InstrumentationResult
@@ -140,17 +143,11 @@ public static class InstrumentationRunner
         bool succeeded = topLevel.All(d => !d.IsError) && !assemblyResults.SelectMany(a => a.Errors).Any();
 
         ClosureManifest manifest = BuildManifest(plan, configuration, request.RuleSet, incrementalKey, assemblyResults, copied);
-        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(request.ManifestPath))!);
-        File.WriteAllText(request.ManifestPath, manifest.ToJson());
+        WriteAllTextAtomically(request.ManifestPath, manifest.ToJson());
 
         if (succeeded)
         {
-            File.WriteAllText(request.CachePath, incrementalKey);
-        }
-        else if (File.Exists(request.CachePath))
-        {
-            // Invalidate any stale cache so the next build retries rather than skipping a failed run.
-            File.Delete(request.CachePath);
+            WriteAllTextAtomically(request.CachePath, incrementalKey);
         }
 
         return new InstrumentationResult
@@ -382,6 +379,49 @@ public static class InstrumentationRunner
         }
 
         Directory.CreateDirectory(stagingDirectory);
+    }
+
+    private static void ValidateStagingDirectory(string sourceDirectory, string stagingDirectory)
+    {
+        string source = NormalizeDirectoryPath(sourceDirectory);
+        string staging = NormalizeDirectoryPath(stagingDirectory);
+        string root = NormalizeDirectoryPath(Path.GetPathRoot(stagingDirectory)
+            ?? throw new ClosureException($"Staging directory '{stagingDirectory}' has no filesystem root."));
+
+        if (string.Equals(staging, root, PathComparison)
+            || IsSameOrDescendant(source, staging)
+            || IsSameOrDescendant(staging, source))
+        {
+            throw new ClosureException(
+                $"Staging directory '{stagingDirectory}' must be a dedicated directory which does not equal, contain, or reside within source directory '{sourceDirectory}'.");
+        }
+    }
+
+    private static bool IsSameOrDescendant(string candidate, string parent) =>
+        string.Equals(candidate, parent, PathComparison)
+        || candidate.StartsWith(parent + Path.DirectorySeparatorChar, PathComparison);
+
+    private static string NormalizeDirectoryPath(string path) =>
+        Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+    private static StringComparison PathComparison =>
+        OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+    private static void WriteAllTextAtomically(string path, string contents)
+    {
+        string fullPath = Path.GetFullPath(path);
+        Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+        string temporaryPath = fullPath + ".tmp";
+        File.WriteAllText(temporaryPath, contents);
+        File.Move(temporaryPath, fullPath, overwrite: true);
+    }
+
+    private static void DeleteIfExists(string path)
+    {
+        if (File.Exists(path))
+        {
+            File.Delete(path);
+        }
     }
 
     private static string ToStagingPath(string stagingDirectory, string relativePath) =>

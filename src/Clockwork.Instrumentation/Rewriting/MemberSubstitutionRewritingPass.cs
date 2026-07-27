@@ -85,6 +85,11 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
     /// <inheritdoc/>
     protected override Instruction VisitInstruction(Instruction instruction)
     {
+        if (TryRecordPassThrough(instruction))
+        {
+            return instruction;
+        }
+
         if (!IsActive)
         {
             return instruction;
@@ -102,7 +107,7 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
                     {
                         instruction.Operand = mapped;
                         IsMethodBodyModified = true;
-                        RecordType(mapped.FieldType, field.FieldType);
+                        RecordType(mapped.FieldType, field.FieldType, instruction);
                     }
 
                     return instruction;
@@ -111,6 +116,37 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
             default:
                 return instruction;
         }
+    }
+
+    private bool TryRecordPassThrough(Instruction instruction)
+    {
+        TypeReference? targetType = instruction.Operand switch
+        {
+            MethodReference method => method.DeclaringType,
+            FieldReference field => field.DeclaringType,
+            _ => null,
+        };
+        if (targetType is null
+            || !Session.Matcher.TryMatchType(targetType, out RewriteRule rule)
+            || rule.Policy != SimulationApiPolicy.PassThrough)
+        {
+            return false;
+        }
+
+        RewriteSession.TryGetSequencePoint(Method!, instruction, out string? file, out int line);
+        Session.AddTransformation(new ManifestTransformation(
+            rule.Id,
+            rule.Operation,
+            TransformationOutcome.PassedThrough,
+            rule.Policy,
+            rule.Target.ToCanonicalString(),
+            null,
+            CecilNames.FullyQualifiedMethodName(Method!),
+            instruction.Offset,
+            file,
+            line,
+            rule.Description ?? "Explicit PassThrough policy."));
+        return true;
     }
 
     private Instruction VisitMethodOperand(Instruction instruction, MethodReference method)
@@ -136,9 +172,9 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
         MethodReference? mapped = Mapper.MapMethod(method);
         if (mapped is not null)
         {
+            RecordMethod(method, instruction);
             instruction.Operand = mapped;
             IsMethodBodyModified = true;
-            RecordMethod(method);
         }
 
         return instruction;
@@ -153,8 +189,8 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
         }
 
         Instruction replacement = Processor!.Create(OpCodes.Newobj, constructor);
+        RecordType(constructor.DeclaringType, method.ReturnType, instruction);
         Replace(instruction, replacement);
-        RecordType(constructor.DeclaringType, method.ReturnType);
         return replacement;
     }
 
@@ -167,20 +203,20 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
             Session.AddUnresolvedReference(rule.Replacement.ToCanonicalString());
         });
 
-    private void RecordMethod(MethodReference original)
+    private void RecordMethod(MethodReference original, Instruction instruction)
     {
         string normalized = CecilNames.NormalizedTypeFullName(
             original is GenericInstanceMethod generic ? generic.ElementMethod.DeclaringType : original.DeclaringType);
-        Record(normalized, original.DeclaringType.FullName);
+        Record(normalized, original.DeclaringType.FullName, instruction);
     }
 
-    private void RecordType(TypeReference mapped, TypeReference original)
+    private void RecordType(TypeReference mapped, TypeReference original, Instruction? instruction = null)
     {
         string normalized = CecilNames.NormalizedTypeFullName(original);
-        Record(normalized, mapped.FullName);
+        Record(normalized, mapped.FullName, instruction);
     }
 
-    private void Record(string normalizedOriginal, string replacement)
+    private void Record(string normalizedOriginal, string replacement, Instruction? instruction)
     {
         string? ruleId = Mapper.RuleIdFor(normalizedOriginal);
         if (ruleId is null || Method is null)
@@ -188,12 +224,11 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
             return;
         }
 
-        Instruction? first = Method.HasBody ? Method.Body.Instructions.FirstOrDefault() : null;
         string? file = null;
         int line = -1;
-        if (first is not null)
+        if (instruction is not null)
         {
-            RewriteSession.TryGetSequencePoint(Method, first, out file, out line);
+            RewriteSession.TryGetSequencePoint(Method, instruction, out file, out line);
         }
 
         Session.AddTransformation(new ManifestTransformation(
@@ -204,7 +239,7 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
             normalizedOriginal,
             replacement,
             CecilNames.FullyQualifiedMethodName(Method),
-            0,
+            instruction?.Offset ?? -1,
             file,
             line));
     }

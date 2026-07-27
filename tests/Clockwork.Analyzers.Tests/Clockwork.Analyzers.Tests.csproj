@@ -18,5 +18,6 @@
     <!-- Referenced as a normal assembly (not registered as an analyzer on this project) so the
          tests can instantiate and drive the analyzer directly over crafted compilations. -->
     <ProjectReference Include="..\..\src\Clockwork.Analyzers\Clockwork.Analyzers.csproj" />
+    <ProjectReference Include="..\..\src\Clockwork.Instrumentation\Clockwork.Instrumentation.csproj" />
   </ItemGroup>
 </Project>
