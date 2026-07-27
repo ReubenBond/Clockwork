@@ -21,7 +21,9 @@ namespace Clockwork;
 public sealed class SimulationLatch
 {
     private readonly SimulationTaskQueue _queue;
-    private readonly List<TaskCompletionSource> _waiters = [];
+    private readonly object _sync = new();
+    private readonly List<SimulationRendezvousSupport.Waiter> _waiters = [];
+    private int _remainingCount;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SimulationLatch"/> class.
@@ -37,7 +39,7 @@ public sealed class SimulationLatch
         ArgumentNullException.ThrowIfNull(queue);
         ArgumentOutOfRangeException.ThrowIfNegative(initialCount);
         _queue = queue;
-        RemainingCount = initialCount;
+        _remainingCount = initialCount;
         Name = name;
     }
 
@@ -49,12 +51,30 @@ public sealed class SimulationLatch
     /// <summary>
     /// Gets the number of outstanding signals still required before the latch opens. Never negative.
     /// </summary>
-    public int RemainingCount { get; private set; }
+    public int RemainingCount
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _remainingCount;
+            }
+        }
+    }
 
     /// <summary>
     /// Gets a value indicating whether the latch has counted down to zero and released its waiters.
     /// </summary>
-    public bool IsSignaled => RemainingCount == 0;
+    public bool IsSignaled
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _remainingCount == 0;
+            }
+        }
+    }
 
     /// <summary>
     /// Decrements the remaining count by <paramref name="count"/>. When the count reaches zero,
@@ -71,23 +91,29 @@ public sealed class SimulationLatch
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(count, 1);
 
-        if (RemainingCount == 0)
+        SimulationRendezvousSupport.Waiter[] waiters = [];
+        lock (_sync)
         {
-            throw new InvalidOperationException("The latch has already been fully signaled and cannot be signaled again.");
+            if (_remainingCount == 0)
+            {
+                throw new InvalidOperationException("The latch has already been fully signaled and cannot be signaled again.");
+            }
+
+            if (count > _remainingCount)
+            {
+                throw new InvalidOperationException(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"Signal count {count} exceeds the remaining count {_remainingCount}."));
+            }
+
+            _remainingCount -= count;
+            if (_remainingCount == 0)
+            {
+                waiters = SimulationRendezvousSupport.TakeAllForRelease(_waiters);
+            }
         }
 
-        if (count > RemainingCount)
-        {
-            throw new InvalidOperationException(string.Create(
-                CultureInfo.InvariantCulture,
-                $"Signal count {count} exceeds the remaining count {RemainingCount}."));
-        }
-
-        RemainingCount -= count;
-        if (RemainingCount == 0)
-        {
-            SimulationRendezvousSupport.ReleaseAll(_queue, _waiters);
-        }
+        SimulationRendezvousSupport.ScheduleReleases(_queue, waiters);
     }
 
     /// <summary>
@@ -102,12 +128,37 @@ public sealed class SimulationLatch
     /// <returns>A task that completes when the latch reaches zero, or is canceled per <paramref name="cancellationToken"/>.</returns>
     public Task WaitAsync(CancellationToken cancellationToken = default)
     {
-        if (IsSignaled)
+        lock (_sync)
         {
-            return cancellationToken.IsCancellationRequested ? Task.FromCanceled(cancellationToken) : Task.CompletedTask;
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return Task.FromCanceled(cancellationToken);
+            }
+
+            if (_remainingCount == 0)
+            {
+                return Task.CompletedTask;
+            }
+
+            return SimulationRendezvousSupport.AddWaiter(_waiters, CancelWaiter, cancellationToken).Task;
+        }
+    }
+
+    private void CancelWaiter(SimulationRendezvousSupport.Waiter waiter)
+    {
+        var canceled = false;
+        lock (_sync)
+        {
+            if (waiter.TryCancel())
+            {
+                canceled = _waiters.Remove(waiter);
+            }
         }
 
-        return SimulationRendezvousSupport.AddWaiter(_waiters, cancellationToken);
+        if (canceled)
+        {
+            waiter.CompleteCancellation();
+        }
     }
 
     private string DebuggerDisplay => string.Create(

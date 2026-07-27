@@ -153,5 +153,36 @@ public sealed class SimulationLatchTests
         Assert.False(queue.HasItems); // Only the surviving waiter was enqueued for release.
     }
 
+    [Fact]
+    public async Task CrossThreadCancellationRacingSignalDoesNotLoseOrDuplicateAWaiter()
+    {
+        for (var iteration = 0; iteration < 200; iteration++)
+        {
+            var queue = CreateQueue();
+            var latch = new SimulationLatch(queue, initialCount: 1);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+            using var start = new ManualResetEventSlim();
+
+            var racingTask = latch.WaitAsync(cts.Token);
+            var survivor = latch.WaitAsync(TestContext.Current.CancellationToken);
+            var cancellation = Task.Run(
+                () =>
+                {
+                    start.Wait(TestContext.Current.CancellationToken);
+                    cts.Cancel();
+                },
+                TestContext.Current.CancellationToken);
+
+            start.Set();
+            latch.Signal();
+            await cancellation.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            queue.RunUntilIdle();
+
+            Assert.True(racingTask.IsCanceled || racingTask.IsCompletedSuccessfully);
+            Assert.True(survivor.IsCompletedSuccessfully);
+            Assert.False(queue.HasItems);
+        }
+    }
+
     private static SimulationTaskQueue CreateQueue() => new(new SimulationClock(DateTimeOffset.UnixEpoch), new SingleThreadedGuard());
 }

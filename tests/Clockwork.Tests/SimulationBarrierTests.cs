@@ -130,5 +130,86 @@ public sealed class SimulationBarrierTests
         Assert.True(task.IsCompletedSuccessfully);
     }
 
+    [Fact]
+    public async Task CrossThreadCancellationRacingFinalArrivalRollsBackOrReleasesTheWholeRound()
+    {
+        for (var iteration = 0; iteration < 200; iteration++)
+        {
+            var queue = CreateQueue();
+            var barrier = new SimulationBarrier(queue, participantCount: 2);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+            using var start = new ManualResetEventSlim();
+
+            var first = barrier.ArriveAndWaitAsync(cts.Token);
+            var cancellation = Task.Run(
+                () =>
+                {
+                    start.Wait(TestContext.Current.CancellationToken);
+                    cts.Cancel();
+                },
+                TestContext.Current.CancellationToken);
+
+            start.Set();
+            var second = barrier.ArriveAndWaitAsync(TestContext.Current.CancellationToken);
+            await cancellation.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            queue.RunUntilIdle();
+
+            if (first.IsCanceled)
+            {
+                Assert.Equal(1, barrier.ArrivedCount);
+                Assert.False(second.IsCompleted);
+
+                var replacement = barrier.ArriveAndWaitAsync(TestContext.Current.CancellationToken);
+                Assert.Equal(2, queue.RunUntilIdle());
+                Assert.True(second.IsCompletedSuccessfully);
+                Assert.True(replacement.IsCompletedSuccessfully);
+            }
+            else
+            {
+                Assert.Equal(0, barrier.ArrivedCount);
+                Assert.True(first.IsCompletedSuccessfully);
+                Assert.True(second.IsCompletedSuccessfully);
+            }
+
+            Assert.False(queue.HasItems);
+        }
+    }
+
+    [Fact]
+    public void CancelingAWaiterDisposesItsCancellationRegistration()
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+
+        var barrierReference = CreateCanceledBarrierReference(cts);
+
+        AssertEventuallyCollected(barrierReference);
+        GC.KeepAlive(cts);
+    }
+
     private static SimulationTaskQueue CreateQueue() => new(new SimulationClock(DateTimeOffset.UnixEpoch), new SingleThreadedGuard());
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static WeakReference CreateCanceledBarrierReference(CancellationTokenSource cts)
+    {
+        var barrier = new SimulationBarrier(CreateQueue(), participantCount: 2);
+        var task = barrier.ArriveAndWaitAsync(cts.Token);
+        var reference = new WeakReference(barrier);
+
+        cts.Cancel();
+        Assert.True(task.IsCanceled);
+        Assert.Equal(0, barrier.ArrivedCount);
+        return reference;
+    }
+
+    private static void AssertEventuallyCollected(WeakReference reference)
+    {
+        for (var attempt = 0; attempt < 10 && reference.IsAlive; attempt++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+        }
+
+        Assert.False(reference.IsAlive);
+    }
 }
