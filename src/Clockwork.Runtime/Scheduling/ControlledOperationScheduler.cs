@@ -11,8 +11,10 @@ namespace Clockwork.Runtime.Scheduling;
 /// <see cref="ControlledOperation"/>s, chooses exactly one runnable operation at a time, grants and
 /// revokes the permission baton, drives every legal state transition, and performs terminal
 /// cleanup. This is the foundational scheduling layer future controlled <c>Monitor</c>, semaphore,
-/// wait-handle, and synchronous <see cref="Task"/> waits (Phase 3B) will build on; it deliberately
-/// contains no resource model, no timeouts, and no deadlock detection yet.
+/// wait-handle, and synchronous <see cref="Task"/> waits (Phase 3B) will build on. It owns the
+/// reusable controlled-resource model, atomic resource waits with virtual-time timeouts, and the
+/// modeled clock those timeouts fire against; cancellation-token races and deadlock detection are
+/// layered on in later Phase 3B increments.
 /// </para>
 /// <para>
 /// <b>Physical-thread gating.</b> Each operation runs on its own dedicated physical thread, but the
@@ -51,6 +53,7 @@ public sealed class ControlledOperationScheduler : IDisposable
     private readonly SortedDictionary<ControlledResourceId, ControlledResource> _resources = new();
     private readonly SemaphoreSlim _handback = new(0, 1);
     private readonly SimulationLogicalExecutionIdSource _logicalIds = new();
+    private readonly ControlledVirtualClock _clock = new();
     private readonly SimulationActivationToken _activationToken;
     private readonly SimulationRuntimeIdentity _runtime;
     private readonly IControlledOperationListener? _listener;
@@ -309,20 +312,92 @@ public sealed class ControlledOperationScheduler : IDisposable
     }
 
     /// <summary>
-    /// Repeatedly runs steps until no operation is runnable, returning the number of steps executed.
-    /// A step count that keeps growing without the set of operations shrinking indicates operations
-    /// that only ever yield; callers that need a bound should cap iterations themselves.
+    /// Repeatedly runs steps until no operation is runnable, advancing modeled virtual time to fire
+    /// the next due timeout whenever the runnable set is exhausted, and repeating until neither any
+    /// operation is runnable nor any timeout is pending. Returns the number of steps executed (time
+    /// advances are not steps). A step count that keeps growing without the set of operations
+    /// shrinking indicates operations that only ever yield; callers that need a bound should cap
+    /// iterations themselves.
     /// </summary>
     /// <returns>The number of steps executed.</returns>
     public int Drain()
     {
         var steps = 0;
-        while (RunStep())
+        while (true)
         {
-            steps++;
+            while (RunStep())
+            {
+                steps++;
+            }
+
+            if (!TryAdvanceVirtualTime())
+            {
+                break;
+            }
         }
 
         return steps;
+    }
+
+    /// <summary>
+    /// Advances modeled virtual time to the earliest pending timeout and fires every timeout due at
+    /// that instant, resolving each affected waiter as <see cref="ControlledWaitOutcome.TimedOut"/>
+    /// and making its operation runnable. Advancing is only legal when no operation is currently
+    /// runnable (the controlling thread is idle and nothing can make progress in the present instant);
+    /// this is what guarantees a pending signal always precedes a same-instant timeout. It is a no-op
+    /// - returning <see langword="false"/> - when an operation is still runnable or no timeout is
+    /// pending.
+    /// </summary>
+    /// <returns><see langword="true"/> if time advanced and at least one waiter timed out; otherwise <see langword="false"/>.</returns>
+    public bool TryAdvanceVirtualTime()
+    {
+        List<ControlledOperation> timedOut = [];
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            if (_controlThreadBusy)
+            {
+                throw new ControlledOperationException(
+                    "Cannot advance virtual time while an operation is running; drive RunStep to quiescence first.");
+            }
+
+            if (HasRunnableUnderLock() || !_clock.HasPending)
+            {
+                return false;
+            }
+
+            foreach (var registration in _clock.AdvanceToNextDue())
+            {
+                var waiter = registration.Waiter;
+                if (waiter.TryResolve(ControlledWaitOutcome.TimedOut))
+                {
+                    DisposeWaiterRegistrations(waiter);
+                    waiter.Resource.RemoveWaiter(waiter);
+                    waiter.Operation.ApplyTransition(ControlledOperationState.Runnable);
+                    timedOut.Add(waiter.Operation);
+                }
+            }
+        }
+
+        foreach (var operation in timedOut)
+        {
+            Notify(operation, ControlledOperationState.Runnable);
+        }
+
+        return timedOut.Count > 0;
+    }
+
+    private bool HasRunnableUnderLock()
+    {
+        foreach (var operation in _operations.Values)
+        {
+            if (operation.State == ControlledOperationState.Runnable)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -445,12 +520,69 @@ public sealed class ControlledOperationScheduler : IDisposable
     /// The outcome of the wait. For this overload that is always <see cref="ControlledWaitOutcome.Signaled"/>
     /// - the wait only ends when the operation is signaled.
     /// </returns>
-    public ControlledWaitOutcome WaitOnResource(ControlledResource resource, ControlledOperationPauseReason reason)
+    public ControlledWaitOutcome WaitOnResource(ControlledResource resource, ControlledOperationPauseReason reason) =>
+        WaitOnResourceCore(resource, Timeout.InfiniteTimeSpan, reason);
+
+    /// <summary>
+    /// Blocks the calling operation on <paramref name="resource"/> until it is signaled or the
+    /// modeled (virtual) timeout elapses, whichever happens first, resolving the race
+    /// deterministically. Timeouts are driven purely by Clockwork's virtual time, never by a
+    /// real-time timer, so the wait is fully replayable.
+    /// <para>
+    /// <b>Timeout semantics.</b> A <see cref="TimeSpan.Zero"/> timeout never parks: it resolves
+    /// <see cref="ControlledWaitOutcome.TimedOut"/> immediately (a signal cannot arrive synchronously
+    /// to the still-running operation). <see cref="Timeout.InfiniteTimeSpan"/> registers no timeout
+    /// and behaves exactly like the signal-only overload. A finite, strictly positive timeout
+    /// registers a virtual-time deadline; the deadline can only fire while no operation is runnable
+    /// (see <see cref="TryAdvanceVirtualTime"/>), so a pending signal at the same instant always wins.
+    /// </para>
+    /// </summary>
+    /// <param name="resource">The resource to wait on. Must belong to this scheduler.</param>
+    /// <param name="timeout">
+    /// The modeled wait budget: <see cref="TimeSpan.Zero"/> to poll, <see cref="Timeout.InfiniteTimeSpan"/>
+    /// to wait forever, or any strictly positive span for a virtual-time deadline.
+    /// </param>
+    /// <param name="reason">The stable pause reason recorded for diagnostics and the wait-for graph.</param>
+    /// <returns>
+    /// <see cref="ControlledWaitOutcome.Signaled"/> if signaled first, otherwise
+    /// <see cref="ControlledWaitOutcome.TimedOut"/>.
+    /// </returns>
+    public ControlledWaitOutcome WaitOnResource(ControlledResource resource, TimeSpan timeout, ControlledOperationPauseReason reason) =>
+        WaitOnResourceCore(resource, timeout, reason);
+
+    /// <summary>
+    /// The shared implementation behind both <c>WaitOnResource</c> overloads. Validates ownership and
+    /// the timeout, handles the non-parking zero-timeout fast path, then atomically enqueues the
+    /// waiter (with an optional virtual-time timeout) and parks the operation under the scheduler lock
+    /// before yielding the baton, so no signal delivered by the next operation can be lost.
+    /// </summary>
+    private ControlledWaitOutcome WaitOnResourceCore(ControlledResource resource, TimeSpan timeout, ControlledOperationPauseReason reason)
     {
         ArgumentNullException.ThrowIfNull(resource);
         ArgumentNullException.ThrowIfNull(reason);
         ValidateResourceOwnership(resource);
         var operation = RequireCurrentOperation();
+
+        var infinite = timeout == Timeout.InfiniteTimeSpan;
+        if (!infinite && timeout < TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(timeout),
+                timeout,
+                "A resource wait timeout must be non-negative, TimeSpan.Zero, or Timeout.InfiniteTimeSpan.");
+        }
+
+        // Zero timeout: never park. A signal cannot arrive synchronously to the running operation, so
+        // the deterministic outcome is an immediate timeout.
+        if (!infinite && timeout == TimeSpan.Zero)
+        {
+            lock (_gate)
+            {
+                ThrowIfDisposed();
+            }
+
+            return ControlledWaitOutcome.TimedOut;
+        }
 
         ControlledResourceWaiter waiter;
         lock (_gate)
@@ -459,6 +591,11 @@ public sealed class ControlledOperationScheduler : IDisposable
             waiter = new ControlledResourceWaiter(operation, resource, ++_nextWaiterSequence, reason);
             resource.EnqueueWaiter(waiter);
             operation.Waiter = waiter;
+            if (!infinite)
+            {
+                waiter.Timeout = _clock.Schedule(timeout, waiter);
+            }
+
             operation.ApplyTransition(ControlledOperationState.Paused, pauseReason: reason);
         }
 
@@ -659,6 +796,34 @@ public sealed class ControlledOperationScheduler : IDisposable
     }
 
     /// <summary>
+    /// Gets the current modeled (virtual) time, as a monotonic offset from simulation start. Advanced
+    /// only by <see cref="TryAdvanceVirtualTime"/>; never tied to wall-clock time.
+    /// </summary>
+    public TimeSpan VirtualTime
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _clock.Now;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets a deterministic snapshot of the timed waits currently pending in virtual time, ordered by
+    /// due time then registration sequence, for diagnostics and deadlock reports.
+    /// </summary>
+    /// <returns>An ordered, immutable list of pending timeout descriptors.</returns>
+    public IReadOnlyList<ControlledPendingTimeoutInfo> CapturePendingTimeouts()
+    {
+        lock (_gate)
+        {
+            return _clock.SnapshotPending();
+        }
+    }
+
+    /// <summary>
     /// Tears the scheduler down: cancels every non-terminal operation, cooperatively unwinds and
     /// joins their parked physical threads (bounded by <see cref="ThreadJoinTimeout"/>), and releases
     /// all wait handles. No operation is aborted unsafely; no thread is left stranded. Idempotent.
@@ -695,6 +860,9 @@ public sealed class ControlledOperationScheduler : IDisposable
                 operation.ApplyTransition(ControlledOperationState.Canceled);
                 victims.Add(operation);
             }
+
+            // Drop any pending virtual-time timeouts; their waiters were just detached and canceled.
+            _clock.Clear();
         }
 
         foreach (var victim in victims)
