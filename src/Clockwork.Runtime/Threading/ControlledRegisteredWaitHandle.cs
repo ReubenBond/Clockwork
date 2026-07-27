@@ -184,13 +184,8 @@ public sealed class ControlledRegisteredWaitHandle
             return;
         }
 
-        ExecutionContext.Run(
+        ControlledTaskRuntime.RunWithCapturedExecutionContext(
             _context,
-            static s =>
-            {
-                (ControlledRegisteredWaitHandle self, bool t) = ((ControlledRegisteredWaitHandle, bool))s!;
-                self._callback(self._state, t);
-            },
-            (this, timedOut));
+            () => _callback(_state, timedOut));
     }
 }

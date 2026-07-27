@@ -297,8 +297,9 @@ public sealed class ControlledThreadPoolTests
             var seen = -1;
             AutoResetEvent evt = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: false);
 
-            // Unsafe variant does not capture the caller's context; the callback observes the ambient value
-            // at run time, so the post-registration mutation is visible.
+            // Unsafe variant does not capture the caller's context; it runs under a clean user execution
+            // context rather than inheriting whichever AsyncLocal values happen to be ambient while the
+            // controlled loop dispatches the registration.
             ControlledThreadPool.UnsafeRegisterWaitForSingleObject(
                 evt, (_, _) => seen = ambient.Value, state: null, Timeout.Infinite, executeOnlyOnce: true);
 
@@ -306,7 +307,7 @@ public sealed class ControlledThreadPoolTests
             ControlledEventWaitHandle.Set(evt);
             coordinator.Loop.RunUntilIdle();
 
-            Assert.Equal(9, seen);
+            Assert.Equal(0, seen);
         });
     }
 
