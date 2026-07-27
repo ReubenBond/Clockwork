@@ -477,6 +477,7 @@ public sealed class ControlledOperationScheduler : IDisposable
     public bool TryAdvanceVirtualTime()
     {
         List<ControlledOperation> timedOut = [];
+        List<CancellationTokenRegistration> registrations = [];
         lock (_gate)
         {
             ThrowIfDisposed();
@@ -496,7 +497,7 @@ public sealed class ControlledOperationScheduler : IDisposable
                 var waiter = registration.Waiter;
                 if (waiter.TryResolve(ControlledWaitOutcome.TimedOut))
                 {
-                    DisposeWaiterRegistrations(waiter);
+                    registrations.Add(DetachWaiterRegistrationsUnderLock(waiter));
                     waiter.Resource.RemoveWaiter(waiter);
                     waiter.Operation.ApplyTransition(ControlledOperationState.Runnable);
                     timedOut.Add(waiter.Operation);
@@ -504,6 +505,7 @@ public sealed class ControlledOperationScheduler : IDisposable
             }
         }
 
+        DisposeRegistrations(registrations);
         foreach (var operation in timedOut)
         {
             Notify(operation, ControlledOperationState.Runnable);
@@ -559,6 +561,7 @@ public sealed class ControlledOperationScheduler : IDisposable
         ValidateOwnership(operation);
 
         bool needsUnwind;
+        CancellationTokenRegistration registration;
         lock (_gate)
         {
             if (operation.IsTerminal)
@@ -573,11 +576,12 @@ public sealed class ControlledOperationScheduler : IDisposable
             }
 
             operation.RequestTermination();
-            DetachWaiterUnderLock(operation);
+            registration = DetachWaiterUnderLock(operation);
             operation.ApplyTransition(ControlledOperationState.Canceled);
             needsUnwind = operation.Thread is not null;
         }
 
+        registration.Dispose();
         if (needsUnwind)
         {
             UnwindParkedThread(operation);
@@ -851,19 +855,21 @@ public sealed class ControlledOperationScheduler : IDisposable
         ValidateResourceOwnership(resource);
 
         ControlledOperation? woken = null;
+        CancellationTokenRegistration registration = default;
         lock (_gate)
         {
             ThrowIfDisposed();
             var next = resource.PeekNextPending();
             if (next is not null && next.TryResolve(ControlledWaitOutcome.Signaled))
             {
-                DisposeWaiterRegistrations(next);
+                registration = DetachWaiterRegistrationsUnderLock(next);
                 resource.RemoveWaiter(next);
                 next.Operation.ApplyTransition(ControlledOperationState.Runnable);
                 woken = next.Operation;
             }
         }
 
+        registration.Dispose();
         if (woken is not null)
         {
             Notify(woken, ControlledOperationState.Runnable);
@@ -886,6 +892,7 @@ public sealed class ControlledOperationScheduler : IDisposable
         ValidateResourceOwnership(resource);
 
         List<ControlledOperation> woken = [];
+        List<CancellationTokenRegistration> registrations = [];
         lock (_gate)
         {
             ThrowIfDisposed();
@@ -893,7 +900,7 @@ public sealed class ControlledOperationScheduler : IDisposable
             {
                 if (waiter.TryResolve(ControlledWaitOutcome.Signaled))
                 {
-                    DisposeWaiterRegistrations(waiter);
+                    registrations.Add(DetachWaiterRegistrationsUnderLock(waiter));
                     resource.RemoveWaiter(waiter);
                     waiter.Operation.ApplyTransition(ControlledOperationState.Runnable);
                     woken.Add(waiter.Operation);
@@ -901,6 +908,7 @@ public sealed class ControlledOperationScheduler : IDisposable
             }
         }
 
+        DisposeRegistrations(registrations);
         foreach (var operation in woken)
         {
             Notify(operation, ControlledOperationState.Runnable);
@@ -919,56 +927,70 @@ public sealed class ControlledOperationScheduler : IDisposable
     /// </summary>
     private ControlledWaitOutcome FinishWait(ControlledOperation operation, ControlledResourceWaiter waiter)
     {
+        ControlledWaitOutcome resolution;
+        CancellationTokenRegistration registration;
         lock (_gate)
         {
-            var resolution = waiter.Resolution ?? throw new ControlledOperationException(
+            resolution = waiter.Resolution ?? throw new ControlledOperationException(
                 string.Create(CultureInfo.InvariantCulture, $"Controlled operation {operation.Id} resumed from a resource wait with no resolution recorded."));
-            DisposeWaiterRegistrations(waiter);
+            registration = DetachWaiterRegistrationsUnderLock(waiter);
             waiter.Resource.RemoveWaiter(waiter);
             if (ReferenceEquals(operation.Waiter, waiter))
             {
                 operation.Waiter = null;
             }
-
-            return resolution;
         }
+
+        registration.Dispose();
+        return resolution;
     }
 
     /// <summary>
     /// Detaches a paused operation's waiter (if any) during cancellation/teardown: resolves it as
     /// <see cref="ControlledWaitOutcome.Canceled"/> so a later signal never tries to wake a terminal
-    /// operation, disposes its timeout/cancellation registrations, removes it from the resource queue,
-    /// and clears the operation's waiter slot. Caller must hold the lock.
+    /// operation, cancels its timeout, captures its cancellation registration for disposal after the
+    /// scheduler lock is released, removes it from the resource queue, and clears the operation's waiter
+    /// slot. Caller must hold the lock.
     /// </summary>
-    private static void DetachWaiterUnderLock(ControlledOperation operation)
+    private static CancellationTokenRegistration DetachWaiterUnderLock(ControlledOperation operation)
     {
         var waiter = operation.Waiter;
         if (waiter is null)
         {
-            return;
+            return default;
         }
 
         waiter.TryResolve(ControlledWaitOutcome.Canceled);
-        DisposeWaiterRegistrations(waiter);
+        var registration = DetachWaiterRegistrationsUnderLock(waiter);
         waiter.Resource.RemoveWaiter(waiter);
         operation.Waiter = null;
+        return registration;
     }
 
     /// <summary>
-    /// Releases the timeout and cancellation registrations attached to a waiter so no virtual-time
-    /// item or cancellation callback outlives the wait. A no-op for waits that had neither. Timeout
-    /// and cancellation wiring are added in later Phase 3B increments; this is the single release point
-    /// they hook into.
+    /// Cancels and detaches the timeout and cancellation registrations attached to a waiter. The caller
+    /// disposes the returned cancellation registration only after releasing the scheduler lock, since
+    /// disposal can wait for an in-flight callback that is itself waiting to acquire that lock.
     /// </summary>
-    private static void DisposeWaiterRegistrations(ControlledResourceWaiter waiter)
+    private static CancellationTokenRegistration DetachWaiterRegistrationsUnderLock(ControlledResourceWaiter waiter)
     {
         if (waiter.Timeout is { } timeout)
         {
             timeout.IsCanceled = true;
+            waiter.Timeout = null;
         }
 
-        waiter.CancellationRegistration.Dispose();
+        var registration = waiter.CancellationRegistration;
         waiter.CancellationRegistration = default;
+        return registration;
+    }
+
+    private static void DisposeRegistrations(List<CancellationTokenRegistration> registrations)
+    {
+        foreach (var registration in registrations)
+        {
+            registration.Dispose();
+        }
     }
 
     private void ValidateResourceOwnership(ControlledResource resource)
@@ -1279,6 +1301,7 @@ public sealed class ControlledOperationScheduler : IDisposable
     public void Dispose()
     {
         List<ControlledOperation> victims;
+        List<CancellationTokenRegistration> registrations;
         lock (_gate)
         {
             if (_disposed)
@@ -1288,6 +1311,7 @@ public sealed class ControlledOperationScheduler : IDisposable
 
             _disposed = true;
             victims = new List<ControlledOperation>();
+            registrations = new List<CancellationTokenRegistration>();
             foreach (var operation in _operations.Values)
             {
                 if (operation.IsTerminal)
@@ -1299,7 +1323,7 @@ public sealed class ControlledOperationScheduler : IDisposable
 
                 // Detach any resource wait first so a resolved-Canceled waiter is removed from its
                 // resource queue and never wakes a terminal operation.
-                DetachWaiterUnderLock(operation);
+                registrations.Add(DetachWaiterUnderLock(operation));
 
                 // Force every non-terminal operation to Canceled. Running is not expected here
                 // because Dispose must not race an in-flight step; the Created/Runnable/Paused ->
@@ -1313,6 +1337,7 @@ public sealed class ControlledOperationScheduler : IDisposable
             _clock.Clear();
         }
 
+        DisposeRegistrations(registrations);
         foreach (var victim in victims)
         {
             if (victim.Thread is not null)

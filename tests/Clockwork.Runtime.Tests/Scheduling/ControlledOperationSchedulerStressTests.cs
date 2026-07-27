@@ -1,4 +1,5 @@
 using Clockwork.Runtime.Scheduling;
+using Clockwork.Runtime.Scheduling.Resources;
 
 namespace Clockwork.Runtime.Tests.Scheduling;
 
@@ -168,6 +169,97 @@ public sealed class ControlledOperationSchedulerStressTests
         Assert.True(SpinUntilDead(secondThread!));
     }
 
+    [Theory]
+    [InlineData(CancellationRace.Signal)]
+    [InlineData(CancellationRace.Timeout)]
+    [InlineData(CancellationRace.Dispose)]
+    public void ExternalCancellationDoesNotDeadlockWaiterCleanup(CancellationRace race)
+    {
+        for (var iteration = 0; iteration < 25; iteration++)
+        {
+            var scheduler = SchedulerTestHarness.NewScheduler();
+            var resource = scheduler.CreateResource(ControlledResourceKind.Semaphore, "race");
+            using var cancellation = new CancellationTokenSource();
+            var timeout = race == CancellationRace.Timeout
+                ? TimeSpan.FromTicks(1)
+                : Timeout.InfiniteTimeSpan;
+
+            var operation = scheduler.Schedule(
+                "waiter",
+                () => scheduler.WaitOnResource(
+                    resource,
+                    timeout,
+                    ControlledOperationPauseReason.ResourceWait("race"),
+                    cancellation.Token));
+
+            Assert.True(scheduler.RunStep());
+            Assert.Equal(ControlledOperationState.Paused, operation.State);
+
+            using var start = new Barrier(2);
+            Exception? contenderError = null;
+            Exception? cancelError = null;
+            var contender = new Thread(() =>
+            {
+                try
+                {
+                    start.SignalAndWait();
+                    switch (race)
+                    {
+                        case CancellationRace.Signal:
+                            scheduler.SignalOne(resource);
+                            break;
+                        case CancellationRace.Timeout:
+                            scheduler.TryAdvanceVirtualTime();
+                            break;
+                        case CancellationRace.Dispose:
+                            scheduler.Dispose();
+                            break;
+                    }
+                }
+                catch (Exception exception)
+                {
+                    contenderError = exception;
+                }
+            })
+            {
+                IsBackground = true,
+            };
+            var canceler = new Thread(() =>
+            {
+                try
+                {
+                    start.SignalAndWait();
+                    cancellation.Cancel();
+                }
+                catch (Exception exception)
+                {
+                    cancelError = exception;
+                }
+            })
+            {
+                IsBackground = true,
+            };
+
+            contender.Start();
+            canceler.Start();
+
+            var completed = contender.Join(TimeSpan.FromSeconds(2))
+                && canceler.Join(TimeSpan.FromSeconds(2));
+            Assert.True(completed, $"{race} deadlocked against external cancellation on iteration {iteration}.");
+            Assert.Null(contenderError);
+            Assert.Null(cancelError);
+
+            if (race != CancellationRace.Dispose)
+            {
+                scheduler.Drain();
+                Assert.Empty(scheduler.CapturePendingTimeouts());
+                scheduler.Dispose();
+            }
+
+            Assert.True(SpinUntilDead(operation.Thread!), $"Operation {operation.Id} leaked after {race} race.");
+        }
+    }
+
     private static void UpdateMax(ref int target, int candidate)
     {
         int seen;
@@ -184,4 +276,11 @@ public sealed class ControlledOperationSchedulerStressTests
 
     private static bool SpinUntilDead(Thread thread) =>
         SpinWait.SpinUntil(() => !thread.IsAlive, TimeSpan.FromSeconds(10));
+
+    public enum CancellationRace
+    {
+        Signal,
+        Timeout,
+        Dispose,
+    }
 }
