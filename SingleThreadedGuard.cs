@@ -9,8 +9,26 @@ namespace Clockwork;
 /// rather than blocking. Allows reentrant access by the same thread.
 /// Use this for simulation code that must be single-threaded.
 /// </summary>
-public sealed class SingleThreadedGuard
+/// <remarks>
+/// <para>
+/// By default the guard's notion of "who is inside" is the physical
+/// <see cref="Environment.CurrentManagedThreadId"/>. When the simulation is driven by the
+/// controlled-operation kernel (see <c>ControlledOperationScheduler</c>), one logical simulation
+/// thread is carried by several physical threads over its lifetime - the controlling thread plus a
+/// dedicated thread per operation - even though the permission baton guarantees only one of them
+/// ever executes at a time. Supplying a <paramref name="logicalOwnerProvider"/> lets the guard key
+/// on that single logical owner instead, so a legitimate baton handoff is reentrant while genuinely
+/// escaped async work (running on an unrelated thread) is still detected. When no provider is
+/// supplied the guard behaves exactly as it always has.
+/// </para>
+/// </remarks>
+/// <param name="logicalOwnerProvider">
+/// An optional delegate returning a stable identifier for the current logical owner. When
+/// <see langword="null"/> (the default), the physical managed thread id is used.
+/// </param>
+public sealed class SingleThreadedGuard(Func<int>? logicalOwnerProvider = null)
 {
+    private readonly Func<int>? _logicalOwnerProvider = logicalOwnerProvider;
     private int _ownerThreadId;
     private int _entryCount;
     private string? _ownerStackTrace;
@@ -22,7 +40,7 @@ public sealed class SingleThreadedGuard
     /// <returns>A disposable scope that exits the guard when disposed.</returns>
     public Scope Enter()
     {
-        var currentThreadId = Environment.CurrentManagedThreadId;
+        var currentThreadId = _logicalOwnerProvider?.Invoke() ?? Environment.CurrentManagedThreadId;
         var existingOwner = Interlocked.CompareExchange(ref _ownerThreadId, currentThreadId, 0);
 
         if (existingOwner != 0 && existingOwner != currentThreadId)

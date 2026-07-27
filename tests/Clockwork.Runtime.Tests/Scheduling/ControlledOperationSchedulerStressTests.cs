@@ -1,0 +1,187 @@
+using Clockwork.Runtime.Scheduling;
+
+namespace Clockwork.Runtime.Tests.Scheduling;
+
+/// <summary>
+/// Stress and teardown coverage for <see cref="ControlledOperationScheduler"/>: the
+/// exactly-one-running invariant across many physical threads, deterministic interleaving under
+/// yielding, no physical thread leaks, and teardown with paused/parked operations.
+/// </summary>
+public sealed class ControlledOperationSchedulerStressTests
+{
+    [Theory]
+    [InlineData(8, 50)]
+    [InlineData(32, 20)]
+    public void ExactlyOneOperationExecutesSutCodeAtATimeUnderYieldingStress(int operationCount, int iterations)
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        var concurrent = 0;
+        var maxObserved = 0;
+        var violations = 0;
+        var threadIds = new System.Collections.Concurrent.ConcurrentDictionary<int, byte>();
+
+        for (var i = 0; i < operationCount; i++)
+        {
+            scheduler.Schedule($"op-{i}", () =>
+            {
+                threadIds.TryAdd(Environment.CurrentManagedThreadId, 0);
+                for (var iter = 0; iter < iterations; iter++)
+                {
+                    var now = Interlocked.Increment(ref concurrent);
+                    if (now != 1)
+                    {
+                        Interlocked.Increment(ref violations);
+                    }
+
+                    UpdateMax(ref maxObserved, now);
+                    Thread.SpinWait(200);
+                    Interlocked.Decrement(ref concurrent);
+                    scheduler.Yield();
+                }
+            });
+        }
+
+        scheduler.Drain();
+
+        Assert.Equal(0, violations);
+        Assert.Equal(1, maxObserved);
+        // Each operation ran on its own dedicated physical thread.
+        Assert.Equal(operationCount, threadIds.Count);
+    }
+
+    [Fact]
+    public void YieldingOperationsInterleaveInDeterministicRoundRobinOrder()
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        var trace = new List<string>();
+        for (var i = 0; i < 3; i++)
+        {
+            var name = $"op{i}";
+            scheduler.Schedule(name, () =>
+            {
+                for (var round = 0; round < 3; round++)
+                {
+                    trace.Add($"{name}:{round}");
+                    scheduler.Yield();
+                }
+            });
+        }
+
+        scheduler.Drain();
+
+        // Lowest-id selection means all round-0 slices run (in registration order) before any
+        // round-1 slice, and so on: a stable, deterministic round-robin.
+        Assert.Equal(
+            [
+                "op0:0", "op1:0", "op2:0",
+                "op0:1", "op1:1", "op2:1",
+                "op0:2", "op1:2", "op2:2",
+            ],
+            trace);
+    }
+
+    [Fact]
+    public void CompletedOperationsLeaveNoLivePhysicalThreads()
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        var ops = new List<ControlledOperation>();
+        for (var i = 0; i < 16; i++)
+        {
+            ops.Add(scheduler.Schedule($"op-{i}", () => Thread.SpinWait(100)));
+        }
+
+        scheduler.Drain();
+
+        foreach (var op in ops)
+        {
+            Assert.Equal(ControlledOperationState.Completed, op.State);
+            Assert.True(op.Thread is null or { IsAlive: false }, $"Operation {op.Id} leaked a live physical thread.");
+        }
+    }
+
+    [Fact]
+    public void ManyPausedOperationsKeepDistinctThreadsParkedThenTeardownReclaimsThemAll()
+    {
+        const int count = 12;
+        var scheduler = SchedulerTestHarness.NewScheduler();
+        var ops = new List<ControlledOperation>();
+        for (var i = 0; i < count; i++)
+        {
+            ops.Add(scheduler.Schedule($"op-{i}", () =>
+                scheduler.Pause(ControlledOperationPauseReason.ResourceWait("never-signaled"))));
+        }
+
+        // Drive each operation once so all of them park in the paused state.
+        for (var i = 0; i < count; i++)
+        {
+            Assert.True(scheduler.RunStep());
+        }
+
+        Assert.False(scheduler.RunStep());
+        Assert.Equal(count, scheduler.PendingOperationCount);
+
+        var threads = new HashSet<Thread>();
+        foreach (var op in ops)
+        {
+            Assert.Equal(ControlledOperationState.Paused, op.State);
+            Assert.NotNull(op.Thread);
+            Assert.True(op.Thread!.IsAlive, $"Paused operation {op.Id} should keep its thread parked.");
+            threads.Add(op.Thread);
+        }
+
+        Assert.Equal(count, threads.Count);
+
+        // Teardown must cooperatively unwind and reclaim every parked thread.
+        scheduler.Dispose();
+
+        foreach (var op in ops)
+        {
+            Assert.Equal(ControlledOperationState.Canceled, op.State);
+            Assert.True(SpinUntilDead(op.Thread!), $"Operation {op.Id} left a stranded thread after teardown.");
+        }
+    }
+
+    [Fact]
+    public void DisposeIsIdempotentAndSafeWithNoOperations()
+    {
+        var scheduler = SchedulerTestHarness.NewScheduler();
+        scheduler.Dispose();
+        scheduler.Dispose();
+    }
+
+    [Fact]
+    public void OperationsCanBeUsedAfterEarlierOnesCompleteWithoutLeakingThreads()
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        Thread? firstThread = null;
+        var first = scheduler.Schedule("first", () => firstThread = Thread.CurrentThread);
+        scheduler.Drain();
+        Assert.True(SpinUntilDead(firstThread!));
+
+        Thread? secondThread = null;
+        var second = scheduler.Schedule("second", () => secondThread = Thread.CurrentThread);
+        scheduler.Drain();
+
+        Assert.Equal(ControlledOperationState.Completed, first.State);
+        Assert.Equal(ControlledOperationState.Completed, second.State);
+        Assert.NotSame(firstThread, secondThread);
+        Assert.True(SpinUntilDead(secondThread!));
+    }
+
+    private static void UpdateMax(ref int target, int candidate)
+    {
+        int seen;
+        do
+        {
+            seen = Volatile.Read(ref target);
+            if (candidate <= seen)
+            {
+                return;
+            }
+        }
+        while (Interlocked.CompareExchange(ref target, candidate, seen) != seen);
+    }
+
+    private static bool SpinUntilDead(Thread thread) =>
+        SpinWait.SpinUntil(() => !thread.IsAlive, TimeSpan.FromSeconds(10));
+}

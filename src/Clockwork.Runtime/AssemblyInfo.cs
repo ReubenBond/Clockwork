@@ -6,3 +6,8 @@ using System.Runtime.CompilerServices;
 // a public global boolean/environment variable.
 [assembly: InternalsVisibleTo("Clockwork")]
 [assembly: InternalsVisibleTo("Clockwork.Runtime.Tests")]
+
+// The root Clockwork test project is allowed to mint activation tokens so it can exercise the
+// opt-in Phase 3A controlled-operation compatibility bridge in SimulationTaskQueue directly (which
+// requires a real ambient-context configuration) without routing through a full cluster.
+[assembly: InternalsVisibleTo("Clockwork.Tests")]

@@ -204,8 +204,7 @@ public sealed class SimulationExecutionContextTests
     }
 
     [Fact]
-#pragma warning disable xUnit1031 // Intentional: verifying synchronous ExecutionContext.SuppressFlow semantics requires a blocking check with no await between suppress and restore.
-    public void SuppressFlowPreventsANewUnflowedTaskRunFromObservingAmbientContext()
+    public void SuppressFlowPreventsANewUnflowedThreadFromObservingAmbientContext()
     {
         var token = SimulationRuntimeActivation.CreateToken();
         var runtime = NewRuntime();
@@ -216,21 +215,36 @@ public sealed class SimulationExecutionContextTests
 
             using (SimulationExecutionContext.SuppressFlow("test: verifying suppression"))
             {
-                // Task.Run captures ExecutionContext at the point of the call; with flow
-                // suppressed, the AsyncLocal-backed ambient runtime must not be visible inside.
-                // This must stay synchronous (no await) between SuppressFlow and its Dispose -
-                // AsyncFlowControl.Undo() requires restoring on the same context it suppressed.
-                observedInsideSuppressedWork = Task.Run(() => SimulationExecutionContext.IsActive).GetAwaiter().GetResult();
+                // A newly started thread captures ExecutionContext at Start; with flow suppressed
+                // that capture is empty, so the AsyncLocal-backed ambient runtime must not be visible
+                // inside. A fresh dedicated thread (rather than Task.Run) is used deliberately: a
+                // thread-pool thread can carry a stale AsyncLocal value from a prior work item, and
+                // when flow is suppressed the pool does not restore a clean context, which makes the
+                // pool-based form intermittently observe leftover ambient state. A brand-new thread
+                // always begins with empty AsyncLocals, isolating exactly the suppression semantic.
+                observedInsideSuppressedWork = RunOnNewThread(static () => SimulationExecutionContext.IsActive);
             }
 
             Assert.False(observedInsideSuppressedWork);
 
-            // Flow is restored once the suppression scope is disposed.
-            var observedAfterRestoration = Task.Run(() => SimulationExecutionContext.IsActive).GetAwaiter().GetResult();
+            // Flow is restored once the suppression scope is disposed, so a thread started now
+            // captures the ambient context and observes it.
+            var observedAfterRestoration = RunOnNewThread(static () => SimulationExecutionContext.IsActive);
             Assert.True(observedAfterRestoration);
         }
     }
-#pragma warning restore xUnit1031
+
+    private static bool RunOnNewThread(Func<bool> work)
+    {
+        var result = false;
+        var thread = new Thread(() => result = work())
+        {
+            IsBackground = true,
+        };
+        thread.Start();
+        thread.Join();
+        return result;
+    }
 
     [Fact]
     public void SuppressFlowRecordsADiagnosticEntryDescribingWhy()
