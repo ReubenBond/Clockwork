@@ -190,8 +190,22 @@ public sealed class ControlledManualResetEventSlimTests
             Assert.Same(bridge, ControlledManualResetEventSlim.WaitHandle(evt));
             Assert.False(ControlledWaitHandle.WaitOne(bridge, 0));
 
+            var callbacks = 0;
+            ControlledThreadPool.RegisterWaitForSingleObject(
+                bridge,
+                (_, timedOut) =>
+                {
+                    Assert.False(timedOut);
+                    callbacks++;
+                },
+                state: null,
+                Timeout.Infinite,
+                executeOnlyOnce: true);
+
             ControlledManualResetEventSlim.Set(evt);
             Assert.True(ControlledWaitHandle.WaitOne(bridge, 0));
+            coordinator.Loop.RunUntilIdle();
+            Assert.Equal(1, callbacks);
 
             ControlledManualResetEventSlim.Reset(evt);
             Assert.False(ControlledWaitHandle.WaitOne(bridge, 0));

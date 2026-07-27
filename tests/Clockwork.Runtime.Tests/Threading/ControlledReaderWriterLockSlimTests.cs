@@ -175,6 +175,32 @@ public sealed class ControlledReaderWriterLockSlimTests
     }
 
     [Fact]
+    public void QueuedWriterPreventsLaterReadersFromStarvingIt()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var rw = ControlledReaderWriterLockSlim.Create();
+            var laterReaderAcquired = true;
+
+            ControlledReaderWriterLockSlim.EnterReadLock(rw);
+            Thread writer = ControlledThread.Create(() => ControlledReaderWriterLockSlim.EnterWriteLock(rw));
+            ControlledThread.Start(writer);
+            Pump();
+
+            Assert.Equal(1, ControlledReaderWriterLockSlim.WaitingWriteCount(rw));
+
+            Thread laterReader = ControlledThread.Create(() =>
+                laterReaderAcquired = ControlledReaderWriterLockSlim.TryEnterReadLock(rw, 0));
+            ControlledThread.Start(laterReader);
+            ControlledThread.Join(laterReader);
+
+            Assert.False(laterReaderAcquired);
+            ControlledReaderWriterLockSlim.ExitReadLock(rw);
+        });
+    }
+
+    [Fact]
     public void TryEnterHonorsZeroAndFiniteTimeouts()
     {
         var coordinator = new ControlledTaskLoopCoordinator();
