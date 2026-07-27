@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Text;
 using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Scheduling.Resources;
 
@@ -228,6 +229,32 @@ public sealed class ControlledOperationScheduler : IDisposable
         }
     }
 
+
+    /// <summary>
+    /// Records (or clears) the operation that owns <paramref name="resource"/>. Ownership is the raw
+    /// metadata the wait-for graph reads to draw a "waiter -&gt; owner" edge and the hook a future
+    /// controlled <c>Monitor</c> or synchronous <c>Task</c> wait sets when it acquires a resource; this
+    /// method deliberately performs no acquire/release policy of its own (it does not block or count),
+    /// so each primitive composes its own semantics on top. Must be given operations/resources that
+    /// belong to this scheduler.
+    /// </summary>
+    /// <param name="resource">The resource whose owner is being set. Must belong to this scheduler.</param>
+    /// <param name="owner">The owning operation, or <see langword="null"/> to mark the resource unowned.</param>
+    public void MarkResourceOwner(ControlledResource resource, ControlledOperation? owner)
+    {
+        ArgumentNullException.ThrowIfNull(resource);
+        ValidateResourceOwnership(resource);
+        if (owner is not null)
+        {
+            ValidateOwnership(owner);
+        }
+
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            resource.Owner = owner;
+        }
+    }
 
     /// <summary>
     /// Admits a <see cref="ControlledOperationState.Created"/> operation for scheduling, transitioning
@@ -931,6 +958,220 @@ public sealed class ControlledOperationScheduler : IDisposable
             return _clock.SnapshotPending();
         }
     }
+
+    /// <summary>
+    /// Analyzes the current wait-for graph and classifies whether outstanding work can still make
+    /// progress, distinguishing a genuine resource-ownership deadlock from a paused-until-time state,
+    /// an externally-completable wait, an idle-with-pending-work state, or quiescence. Every detected
+    /// cycle is reported deterministically (operations and resources by stable id/name, owners, waiter
+    /// order, and originating pause reason), so a stuck simulation explains itself instead of hanging.
+    /// <para>
+    /// Only <b>indefinite</b> waits contribute deadlock edges: a wait with a pending virtual-time
+    /// timeout can always be broken by advancing modeled time, so it never counts as a true cycle.
+    /// </para>
+    /// </summary>
+    /// <returns>A deterministic deadlock/liveness report.</returns>
+    public ControlledDeadlockReport DetectDeadlock()
+    {
+        lock (_gate)
+        {
+            var edges = new Dictionary<ControlledOperationId, DeadlockEdge>();
+            var runnable = 0;
+            var blocked = 0;
+            var nonTerminal = 0;
+            foreach (var operation in _operations.Values)
+            {
+                if (!operation.IsTerminal)
+                {
+                    nonTerminal++;
+                }
+
+                if (operation.State == ControlledOperationState.Runnable)
+                {
+                    runnable++;
+                }
+
+                if (operation.State != ControlledOperationState.Paused || operation.Waiter is not { } waiter)
+                {
+                    continue;
+                }
+
+                blocked++;
+
+                // Only an indefinite wait (no pending timeout) can form a true deadlock: a timed wait
+                // is always broken by advancing virtual time.
+                if (waiter.Timeout is not null)
+                {
+                    continue;
+                }
+
+                if (waiter.Resource.Owner is { } owner && !owner.IsTerminal && owner.Id != operation.Id)
+                {
+                    edges[operation.Id] = new DeadlockEdge(owner.Id, waiter);
+                }
+            }
+
+            var cycles = FindWaitForCyclesUnderLock(edges);
+            var pendingTimeouts = _clock.PendingCount;
+            var liveness = ClassifyLiveness(nonTerminal, runnable, cycles.Count, pendingTimeouts);
+            return new ControlledDeadlockReport(liveness, cycles, runnable, blocked, pendingTimeouts);
+        }
+    }
+
+    /// <summary>
+    /// Produces a deterministic, multi-line human-readable diagnostic that folds the operation-status
+    /// snapshot (<see cref="CaptureStatus"/>) together with the <see cref="DetectDeadlock"/> liveness
+    /// classification and any wait-for cycles. This is the summary intended to be surfaced by
+    /// higher-level execution diagnostics when a simulation appears stuck.
+    /// </summary>
+    /// <returns>A stable, replayable multi-line description of scheduler liveness.</returns>
+    public string DescribeLiveness()
+    {
+        ControlledDeadlockReport report;
+        List<(ControlledOperationId Id, ControlledOperationState State, string Work, ControlledOperationPauseReason? Reason)> operations;
+        TimeSpan now;
+        lock (_gate)
+        {
+            report = DetectDeadlock();
+            now = _clock.Now;
+            operations = new List<(ControlledOperationId, ControlledOperationState, string, ControlledOperationPauseReason?)>(_operations.Count);
+            foreach (var operation in _operations.Values)
+            {
+                operations.Add((operation.Id, operation.State, operation.WorkDescription, operation.PauseReason));
+            }
+        }
+
+        var builder = new StringBuilder();
+        builder.Append(CultureInfo.InvariantCulture, $"Liveness: {report.Liveness} (virtual-time {now}, runnable {report.RunnableCount}, blocked {report.BlockedCount}, pending-timeouts {report.PendingTimeoutCount})");
+        foreach (var (id, state, work, reason) in operations)
+        {
+            builder.Append(CultureInfo.InvariantCulture, $"{Environment.NewLine}  {id} [{state}] {work}");
+            if (reason is not null && state == ControlledOperationState.Paused)
+            {
+                builder.Append(CultureInfo.InvariantCulture, $" waiting: {reason}");
+            }
+        }
+
+        for (var i = 0; i < report.Cycles.Count; i++)
+        {
+            builder.Append(CultureInfo.InvariantCulture, $"{Environment.NewLine}  Deadlock cycle {i + 1}:");
+            foreach (var entry in report.Cycles[i].Entries)
+            {
+                builder.Append(CultureInfo.InvariantCulture, $"{Environment.NewLine}    {entry.OperationId} '{entry.WorkDescription}' waits on {entry.ResourceId} '{entry.ResourceName}' (seq {entry.EnqueueSequence}, {entry.Reason}) owned by {entry.OwnerId}");
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    private List<ControlledWaitCycle> FindWaitForCyclesUnderLock(Dictionary<ControlledOperationId, DeadlockEdge> edges)
+    {
+        var cycles = new List<ControlledWaitCycle>();
+        var globallyVisited = new HashSet<ControlledOperationId>();
+
+        // The wait-for graph is functional here (each paused operation waits on exactly one resource,
+        // hence has at most one successor), so following the single successor chain from each start
+        // node detects every cycle deterministically. _operations is id-sorted, so starts are ordered.
+        foreach (var operation in _operations.Values)
+        {
+            var start = operation.Id;
+            if (!edges.ContainsKey(start) || globallyVisited.Contains(start))
+            {
+                continue;
+            }
+
+            var path = new List<ControlledOperationId>();
+            var indexInPath = new Dictionary<ControlledOperationId, int>();
+            var current = start;
+            while (true)
+            {
+                if (globallyVisited.Contains(current))
+                {
+                    break;
+                }
+
+                if (indexInPath.TryGetValue(current, out var index))
+                {
+                    cycles.Add(BuildCycle(path.GetRange(index, path.Count - index), edges));
+                    break;
+                }
+
+                if (!edges.TryGetValue(current, out var edge))
+                {
+                    break;
+                }
+
+                indexInPath[current] = path.Count;
+                path.Add(current);
+                current = edge.OwnerId;
+            }
+
+            foreach (var id in path)
+            {
+                globallyVisited.Add(id);
+            }
+        }
+
+        // Order cycles deterministically by their (already smallest-first) leading operation id.
+        cycles.Sort(static (a, b) => a.Entries[0].OperationId.CompareTo(b.Entries[0].OperationId));
+        return cycles;
+    }
+
+    private ControlledWaitCycle BuildCycle(List<ControlledOperationId> cycleIds, Dictionary<ControlledOperationId, DeadlockEdge> edges)
+    {
+        // Rotate so the cycle starts at its smallest operation id for a stable representation.
+        var minIndex = 0;
+        for (var i = 1; i < cycleIds.Count; i++)
+        {
+            if (cycleIds[i] < cycleIds[minIndex])
+            {
+                minIndex = i;
+            }
+        }
+
+        var entries = new List<ControlledWaitCycleEntry>(cycleIds.Count);
+        for (var i = 0; i < cycleIds.Count; i++)
+        {
+            var id = cycleIds[(minIndex + i) % cycleIds.Count];
+            var edge = edges[id];
+            var waiter = edge.Waiter;
+            entries.Add(new ControlledWaitCycleEntry(
+                id,
+                _operations[id].WorkDescription,
+                waiter.Resource.Id,
+                waiter.Resource.Name,
+                edge.OwnerId,
+                waiter.EnqueueSequence,
+                waiter.Reason.ToString()));
+        }
+
+        return new ControlledWaitCycle(entries);
+    }
+
+    private static ControlledLivenessState ClassifyLiveness(int nonTerminal, int runnable, int cycleCount, int pendingTimeouts)
+    {
+        if (nonTerminal == 0)
+        {
+            return ControlledLivenessState.Quiescent;
+        }
+
+        if (runnable > 0)
+        {
+            return ControlledLivenessState.Progressing;
+        }
+
+        if (cycleCount > 0)
+        {
+            return ControlledLivenessState.Deadlocked;
+        }
+
+        return pendingTimeouts > 0
+            ? ControlledLivenessState.PausedUntilTime
+            : ControlledLivenessState.ExternallyCompletable;
+    }
+
+    /// <summary>A single wait-for edge used during deadlock analysis: the owner to follow and the waiter that drew it.</summary>
+    private readonly record struct DeadlockEdge(ControlledOperationId OwnerId, ControlledResourceWaiter Waiter);
 
     /// <summary>
     /// Tears the scheduler down: cancels every non-terminal operation, cooperatively unwinds and
