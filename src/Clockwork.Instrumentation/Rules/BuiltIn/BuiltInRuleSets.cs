@@ -753,8 +753,8 @@ public static class BuiltInRuleSets
         // ---- SemaphoreSlim (Phase 7A): SemaphoreSlim is a sealed class, so the controlled object is a real
         // SemaphoreSlim identity handle whose count/waiter state lives in a weak-keyed side table. The two
         // constructors redirect to Create factories; every instance member is receiver-first (the shim
-        // prepends the SemaphoreSlim receiver). AvailableWaitHandle depends on the Phase 7B wait-handle
-        // surface and is rejected precisely until then. ----
+        // prepends the SemaphoreSlim receiver). AvailableWaitHandle is bridged to a controlled manual-reset
+        // wait handle (Phase 7B) whose signalled state tracks whether a permit is available. ----
         builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Semaphore, RewriteRule.RedirectNewObj(
             "clockwork.semaphoreslim.ctor.initial",
             MemberSignature.Constructor(SemaphoreSlimType, Int32), Shim(SemaphoreSlimShim, "Create", Int32))));
@@ -795,7 +795,8 @@ public static class BuiltInRuleSets
         TaskRule(builder, BuiltInRuleFamily.Semaphore, "clockwork.semaphoreslim.dispose",
             MemberSignature.Method(SemaphoreSlimType, "Dispose"), Shim(SemaphoreSlimShim, "Dispose", SemaphoreSlimType));
 
-        RejectedRule(builder, BuiltInRuleFamily.Semaphore, "clockwork.semaphoreslim.get_availablewaithandle",
+        // AvailableWaitHandle is bridged to a controlled manual-reset wait handle (Phase 7B) tracking count > 0.
+        TaskRule(builder, BuiltInRuleFamily.Semaphore, "clockwork.semaphoreslim.get_availablewaithandle",
             MemberSignature.Method(SemaphoreSlimType, "get_AvailableWaitHandle"), Shim(SemaphoreSlimShim, "AvailableWaitHandle", SemaphoreSlimType));
 
         BuildInterlockedEntries(builder);

@@ -102,6 +102,55 @@ public static class ControlledWaitHandle
         return state;
     }
 
+    // ---- externally-driven bridge handle (SemaphoreSlim.AvailableWaitHandle) ----
+
+    /// <summary>
+    /// Creates a controlled manual-reset wait handle whose signalled state is driven by an external
+    /// condition rather than by <c>Set</c>/<c>Reset</c>. The real <see cref="ManualResetEvent"/> is used
+    /// purely as an identity handle; callers publish state transitions through
+    /// <see cref="UpdateBridgeSignal"/>. This backs <see cref="SemaphoreSlim.AvailableWaitHandle"/>, whose
+    /// handle is signalled exactly while the semaphore has a permit available (count &gt; 0).
+    /// </summary>
+    /// <param name="signaled">The initial signalled state (permit available).</param>
+    /// <returns>The identity handle registered with a manual-reset modelled state.</returns>
+    internal static ManualResetEvent CreateBridge(bool signaled)
+    {
+        var handle = new ManualResetEvent(signaled);
+        Register(handle, new EventState(EventResetMode.ManualReset, signaled));
+        return handle;
+    }
+
+    /// <summary>
+    /// Publishes the signalled state of a bridge handle to track its external condition. A rising edge
+    /// releases every waiter (manual-reset semantics); waiting on the handle never consumes the underlying
+    /// resource. No-ops if the handle is unknown or already disposed.
+    /// </summary>
+    /// <param name="handle">The bridge identity handle.</param>
+    /// <param name="signaled">The new signalled state.</param>
+    internal static void UpdateBridgeSignal(WaitHandle handle, bool signaled)
+    {
+        if (!TryGetState(handle, out EventState state) || state.Disposed)
+        {
+            return;
+        }
+
+        state.Signaled = signaled;
+        if (signaled)
+        {
+            ReleaseWaiters(state);
+        }
+    }
+
+    /// <summary>Marks a bridge handle's modelled state disposed so subsequent waits fault precisely.</summary>
+    /// <param name="handle">The bridge identity handle, or <see langword="null"/> if none was materialised.</param>
+    internal static void DisposeBridge(WaitHandle? handle)
+    {
+        if (handle is not null && TryGetState(handle, out EventState state))
+        {
+            state.Disposed = true;
+        }
+    }
+
     // ---- signalled-state kernel shared by events and WaitOne ----
 
     /// <summary>

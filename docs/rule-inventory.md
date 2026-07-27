@@ -309,7 +309,7 @@ Policy: **Controlled**.
 | `clockwork.semaphoreslim.release` | `System.Threading.SemaphoreSlim::Release()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphoreSlim::Release(System.Threading.SemaphoreSlim)` | Controlled |
 | `clockwork.semaphoreslim.release.count` | `System.Threading.SemaphoreSlim::Release(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphoreSlim::Release(System.Threading.SemaphoreSlim,System.Int32)` | Controlled |
 | `clockwork.semaphoreslim.dispose` | `System.Threading.SemaphoreSlim::Dispose()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphoreSlim::Dispose(System.Threading.SemaphoreSlim)` | Controlled |
-| `clockwork.semaphoreslim.get_availablewaithandle` | `System.Threading.SemaphoreSlim::get_AvailableWaitHandle()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphoreSlim::AvailableWaitHandle(System.Threading.SemaphoreSlim)` | Rejected |
+| `clockwork.semaphoreslim.get_availablewaithandle` | `System.Threading.SemaphoreSlim::get_AvailableWaitHandle()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphoreSlim::AvailableWaitHandle(System.Threading.SemaphoreSlim)` | Controlled |
 
 ## Interlocked family
 

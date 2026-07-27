@@ -275,13 +275,17 @@ constructors redirect to `Create` factories and every instance member is a recei
 | `Release()` | ✅ Controlled | `clockwork.semaphoreslim.release` |
 | `Release(int)` | ✅ Controlled | `clockwork.semaphoreslim.release.count` |
 | `Dispose()` | ✅ Controlled | `clockwork.semaphoreslim.dispose` |
-| `SemaphoreSlim.AvailableWaitHandle` | ⛔ Rejected (tested) | `clockwork.semaphoreslim.get_availablewaithandle` — exposes a `WaitHandle` (Phase 7B); rejected precisely until then |
+| `SemaphoreSlim.AvailableWaitHandle` | ✅ Controlled | `clockwork.semaphoreslim.get_availablewaithandle` — bridged to a controlled manual-reset wait handle (Phase 7B) tracking count > 0 |
 
 **Semantics:** a synchronous `Wait` with no permit pumps the loop until a permit is released; `WaitAsync`
 returns a task completed when a permit is released (driven by the controlled awaiter when awaited);
 `Release` enforces the maximum count (`SemaphoreFullException`) and serves waiters in a deterministic,
 replayable FIFO order (matching arrival, not promising BCL fairness); cancellation is honoured
-synchronously on the logical thread (`OperationCanceledException`). **Timeouts:** zero timeouts are
+synchronously on the logical thread (`OperationCanceledException`). `AvailableWaitHandle` is bridged to a
+controlled manual-reset wait handle — materialised once and cached — whose signalled state tracks whether
+a permit is available (count > 0) across every `Wait`/`Release` transition; observing it never consumes a
+permit and it composes with `WaitAny`/`WaitAll`, and it faults after the semaphore is disposed.
+**Timeouts:** zero timeouts are
 faithful non-blocking tries; a finite positive timeout (sync `Wait` or async `WaitAsync`) completes with
 `false` on a **simulated** deadline driven by the cluster clock — a same-instant release or cancellation
 wins over the timeout (Phase 3B first-winner), no wall-clock time is used; a never-satisfiable *infinite*
@@ -445,9 +449,8 @@ kernel object outside the scheduler) and are likewise rejected.
 ## Coyote surfaces intentionally deferred (Phase 7B / Phase 8)
 
 These Coyote controlled types are **out of Phase 7A scope** by the phase plan. Where a surface would
-otherwise need them (the `ThreadPool` registered-wait APIs and `SemaphoreSlim.AvailableWaitHandle` need
-controlled wait handles), Clockwork **rejects** the call with a tested diagnostic until the owning phase
-lands.
+otherwise need them (the `ThreadPool` registered-wait APIs need controlled wait handles), Clockwork
+**rejects** the call with a tested diagnostic until the owning slice lands.
 
 | Coyote type(s) | Owning phase | Current posture |
 | --- | --- | --- |
@@ -479,7 +482,8 @@ lands.
 - **`System.Threading.Lock`:** controlled by type substitution **beyond Coyote** (Phase 7A), covering the
   C# `lock (Lock)` scope lowering; nothing rejected.
 - **Coyote `SemaphoreSlim`:** every constructor, `CurrentCount`, sync `Wait`, async `WaitAsync`,
-  `Release`, and `Dispose` controlled (Phase 7A); `AvailableWaitHandle` rejected pending Phase 7B.
+  `Release`, and `Dispose` controlled (Phase 7A); `AvailableWaitHandle` bridged to a controlled manual-reset
+  wait handle tracking count > 0 (Phase 7B).
 - **Coyote `Interlocked`:** full .NET 10 surface controlled (Phase 7B) — every `Increment`/`Decrement`/
   `Add`/`And`/`Or`/`Exchange`/`CompareExchange`/`Read` overload plus the memory barriers, each delegating
   to the real primitive since a cooperative logical thread makes the read-modify-write indivisible.
@@ -498,8 +502,7 @@ lands.
   atomic consume) and `SignalAndWait` (atomic signal-then-wait) multi-handle operations are controlled with
   full array validation; named/cross-process open APIs and the raw `Handle`/`SafeWaitHandle` accessors are
   rejected with tested diagnostics.
-- **Deferred by phase plan:** `SemaphoreSlim.AvailableWaitHandle` and the `ThreadPool` registered-wait APIs
-  (remaining Phase 7B slices);
+- **Deferred by phase plan:** the `ThreadPool` registered-wait APIs (remaining Phase 7B slice);
   `ReaderWriterLockSlim`/`Mutex`/`Semaphore`/`SpinLock` and timers/`Task.Delay` (Phase 8).
 
 Every Coyote entry above is therefore **controlled** (with a cited rule id or by architecture),

@@ -15,7 +15,8 @@ namespace Clockwork.Runtime.Tests.Threading;
 /// Tests for the controlled <see cref="ControlledSemaphoreSlim"/> shims: the count and waiter set are
 /// modelled on the cooperative logical thread, a contended synchronous <c>Wait</c> pumps the loop until
 /// a permit is released, <c>WaitAsync</c> completes when a permit is released, max-count is enforced,
-/// cancellation is honoured, and <c>AvailableWaitHandle</c> is rejected until Phase 7B. Outside a
+/// cancellation is honoured, and <c>AvailableWaitHandle</c> is bridged to a controlled manual-reset handle
+/// that tracks count &gt; 0 (Phase 7B). Outside a
 /// simulation every shim delegates to the real <see cref="SemaphoreSlim"/>.
 /// </summary>
 public sealed class ControlledSemaphoreSlimTests
@@ -186,15 +187,64 @@ public sealed class ControlledSemaphoreSlimTests
     }
 
     [Fact]
-    public void AvailableWaitHandleIsRejected()
+    public void AvailableWaitHandleTracksCountTransitions()
     {
         var coordinator = new ControlledTaskLoopCoordinator();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var sem = ControlledSemaphoreSlim.Create(1);
-            Assert.Throws<ControlledSemaphoreSlimUnsupportedException>(
-                () => ControlledSemaphoreSlim.AvailableWaitHandle(sem));
+            WaitHandle handle = ControlledSemaphoreSlim.AvailableWaitHandle(sem);
+
+            // Signalled while a permit is available; observing it does not consume the permit.
+            Assert.True(ControlledWaitHandle.WaitOne(handle, 0));
+            Assert.Equal(1, ControlledSemaphoreSlim.CurrentCount(sem));
+
+            // Draining the last permit clears the handle.
+            ControlledSemaphoreSlim.Wait(sem);
+            Assert.False(ControlledWaitHandle.WaitOne(handle, 0));
+
+            // Releasing a permit re-signals the same cached handle.
+            ControlledSemaphoreSlim.Release(sem);
+            Assert.Same(handle, ControlledSemaphoreSlim.AvailableWaitHandle(sem));
+            Assert.True(ControlledWaitHandle.WaitOne(handle, 0));
+        });
+    }
+
+    [Fact]
+    public void AvailableWaitHandleWakesAWaiterOnRelease()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var sem = ControlledSemaphoreSlim.Create(0);
+            WaitHandle handle = ControlledSemaphoreSlim.AvailableWaitHandle(sem);
+            var woke = false;
+
+            var waiter = ControlledThread.Create(() => woke = ControlledWaitHandle.WaitOne(handle));
+            var releaser = ControlledThread.Create(() => ControlledSemaphoreSlim.Release(sem));
+
+            ControlledThread.Start(waiter);
+            ControlledThread.Start(releaser);
+            ControlledThread.Join(waiter);
+            ControlledThread.Join(releaser);
+
+            Assert.True(woke);
+            Assert.True(coordinator.Loop.IsIdle);
+        });
+    }
+
+    [Fact]
+    public void AvailableWaitHandleRejectedAfterDispose()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var sem = ControlledSemaphoreSlim.Create(1);
+            ControlledSemaphoreSlim.Dispose(sem);
+            Assert.Throws<ObjectDisposedException>(() => ControlledSemaphoreSlim.AvailableWaitHandle(sem));
         });
     }
 
