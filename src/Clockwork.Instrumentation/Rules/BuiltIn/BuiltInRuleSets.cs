@@ -56,6 +56,7 @@ public static class BuiltInRuleSets
     private const string MonitorShim = "Clockwork.Runtime.Threading.ControlledMonitor";
     private const string SemaphoreSlimShim = "Clockwork.Runtime.Threading.ControlledSemaphoreSlim";
     private const string InterlockedShim = "Clockwork.Runtime.Threading.ControlledInterlocked";
+    private const string VolatileShim = "Clockwork.Runtime.Threading.ControlledVolatile";
 
     // Cecil full names for the exact overload parameters (from the net10 reference assemblies).
     private const string Int32 = "System.Int32";
@@ -237,6 +238,11 @@ public static class BuiltInRuleSets
     private const string GenericArg0Ref = "!!0&";
     private const string GenericTDecl = "T";
     private const string GenericTRefDecl = "T&";
+
+    // Cecil full name for the controlled Phase 7B Volatile acquire/release surface. Reuses the primitive
+    // ref-type constants above; the generic Read<T>/Write<T> overloads use the `!!0`/`!!0&` target ->
+    // `T`/`T&` replacement split.
+    private const string VolatileType = "System.Threading.Volatile";
 
 
     // Cecil full names for the compiler-generated async machinery (BCL) and their controlled substitutes.
@@ -766,6 +772,7 @@ public static class BuiltInRuleSets
             MemberSignature.Method(SemaphoreSlimType, "get_AvailableWaitHandle"), Shim(SemaphoreSlimShim, "AvailableWaitHandle", SemaphoreSlimType));
 
         BuildInterlockedEntries(builder);
+        BuildVolatileEntries(builder);
 
         return builder.ToImmutable();
     }
@@ -844,6 +851,54 @@ public static class BuiltInRuleSets
         Rule("clockwork.interlocked.read.uint64", "Read", [UInt64Ref], [UInt64Ref]);
         Rule("clockwork.interlocked.memorybarrier", "MemoryBarrier", [], []);
         Rule("clockwork.interlocked.memorybarrierprocesswide", "MemoryBarrierProcessWide", [], []);
+    }
+
+    // Phase 7B: the full .NET 10 System.Threading.Volatile surface. Each Read/Write call site is redirected
+    // to a shim with the identical ref-first signature; the generic Read<T>/Write<T> overloads use the
+    // `!!0`/`!!0&` target -> `T`/`T&` replacement split. Under the cooperative single-logical-thread
+    // scheduler a volatile access is an indivisible step, so each shim delegates to the real primitive,
+    // preserving the exact value and the acquire (read) / release (write) fence intent.
+    private static void BuildVolatileEntries(ImmutableArray<BuiltInRuleEntry>.Builder builder)
+    {
+        void Rule(string id, string member, string[] target, string[] replacement) =>
+            TaskRule(builder, BuiltInRuleFamily.Volatile, id,
+                MemberSignature.Method(VolatileType, member, target), Shim(VolatileShim, member, replacement));
+
+        // Read (every primitive, native-int, floating-point, generic reference).
+        Rule("clockwork.volatile.read.boolean", "Read", [BooleanRef], [BooleanRef]);
+        Rule("clockwork.volatile.read.sbyte", "Read", [SByteRef], [SByteRef]);
+        Rule("clockwork.volatile.read.byte", "Read", [ByteRef], [ByteRef]);
+        Rule("clockwork.volatile.read.int16", "Read", [Int16Ref], [Int16Ref]);
+        Rule("clockwork.volatile.read.uint16", "Read", [UInt16Ref], [UInt16Ref]);
+        Rule("clockwork.volatile.read.int32", "Read", [Int32Ref], [Int32Ref]);
+        Rule("clockwork.volatile.read.uint32", "Read", [UInt32Ref], [UInt32Ref]);
+        Rule("clockwork.volatile.read.int64", "Read", [Int64Ref], [Int64Ref]);
+        Rule("clockwork.volatile.read.uint64", "Read", [UInt64Ref], [UInt64Ref]);
+        Rule("clockwork.volatile.read.intptr", "Read", [IntPtrRef], [IntPtrRef]);
+        Rule("clockwork.volatile.read.uintptr", "Read", [UIntPtrRef], [UIntPtrRef]);
+        Rule("clockwork.volatile.read.single", "Read", [SingleRef], [SingleRef]);
+        Rule("clockwork.volatile.read.double", "Read", [DoubleRef], [DoubleRef]);
+        Rule("clockwork.volatile.read.generic", "Read", [GenericArg0Ref], [GenericTRefDecl]);
+
+        // Write (every primitive, native-int, floating-point, generic reference).
+        Rule("clockwork.volatile.write.boolean", "Write", [BooleanRef, Boolean], [BooleanRef, Boolean]);
+        Rule("clockwork.volatile.write.sbyte", "Write", [SByteRef, SByteType], [SByteRef, SByteType]);
+        Rule("clockwork.volatile.write.byte", "Write", [ByteRef, ByteType], [ByteRef, ByteType]);
+        Rule("clockwork.volatile.write.int16", "Write", [Int16Ref, Int16Type], [Int16Ref, Int16Type]);
+        Rule("clockwork.volatile.write.uint16", "Write", [UInt16Ref, UInt16Type], [UInt16Ref, UInt16Type]);
+        Rule("clockwork.volatile.write.int32", "Write", [Int32Ref, Int32], [Int32Ref, Int32]);
+        Rule("clockwork.volatile.write.uint32", "Write", [UInt32Ref, UInt32], [UInt32Ref, UInt32]);
+        Rule("clockwork.volatile.write.int64", "Write", [Int64Ref, Int64], [Int64Ref, Int64]);
+        Rule("clockwork.volatile.write.uint64", "Write", [UInt64Ref, UInt64], [UInt64Ref, UInt64]);
+        Rule("clockwork.volatile.write.intptr", "Write", [IntPtrRef, IntPtrType], [IntPtrRef, IntPtrType]);
+        Rule("clockwork.volatile.write.uintptr", "Write", [UIntPtrRef, UIntPtrType], [UIntPtrRef, UIntPtrType]);
+        Rule("clockwork.volatile.write.single", "Write", [SingleRef, SingleType], [SingleRef, SingleType]);
+        Rule("clockwork.volatile.write.double", "Write", [DoubleRef, DoubleType], [DoubleRef, DoubleType]);
+        Rule("clockwork.volatile.write.generic", "Write", [GenericArg0Ref, GenericArg0], [GenericTRefDecl, GenericTDecl]);
+
+        // Acquire / release fences.
+        Rule("clockwork.volatile.readbarrier", "ReadBarrier", [], []);
+        Rule("clockwork.volatile.writebarrier", "WriteBarrier", [], []);
     }
 
     // Rejects a Parallel overload at the call site. The BCL methods return ParallelLoopResult, so

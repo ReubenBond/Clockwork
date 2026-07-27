@@ -320,6 +320,31 @@ reference assemblies; no applicable `Interlocked` overload is left uncontrolled.
 
 ---
 
+## `System.Threading.Volatile` — Coyote `…Types.Threading.Volatile` (Phase 7B)
+
+Coyote controls the volatile surface so a read/write and its fence are observed atomically under its
+scheduler. Clockwork mirrors the **full .NET 10 `Volatile` surface** by redirecting every call site to a
+shim with the identical `ref`-first signature. On the single cooperative logical thread a volatile access
+is an indivisible step, so each shim delegates to the real primitive — preserving the exact value together
+with the acquire (read) / release (write) fence intent. The single delegation site is the future Phase 9
+race-hook attachment point.
+
+| .NET 10 member | Posture | Rule id |
+| --- | --- | --- |
+| `Read(ref bool/sbyte/byte/short/ushort/int/uint/long/ulong/IntPtr/UIntPtr/float/double)` | ✅ Controlled | `clockwork.volatile.read.*` |
+| `Read<T>(ref T) where T : class?` | ✅ Controlled | `clockwork.volatile.read.generic` |
+| `Write(ref bool/sbyte/byte/short/ushort/int/uint/long/ulong/IntPtr/UIntPtr/float/double, …)` | ✅ Controlled | `clockwork.volatile.write.*` |
+| `Write<T>(ref T, T) where T : class?` | ✅ Controlled | `clockwork.volatile.write.generic` |
+| `ReadBarrier()`, `WriteBarrier()` | ✅ Controlled | `clockwork.volatile.readbarrier`, `…writebarrier` |
+
+**Semantics:** `Read` returns exactly the value at the location; `Write` stores exactly the supplied
+value; the generic overloads publish/acquire a reference by identity; the barriers are controlled
+acquire/release fences. Enumerated against the .NET 10 reference assemblies (13 primitive/native/float
+`Read` + 1 generic, the matching 14 `Write`, and both barriers); no applicable `Volatile` overload is
+left uncontrolled.
+
+---
+
 ## Coyote surfaces intentionally deferred (Phase 7B / Phase 8)
 
 These Coyote controlled types are **out of Phase 7A scope** by the phase plan. Where a surface would
@@ -331,7 +356,7 @@ lands.
 | --- | --- | --- |
 | `WaitHandle`, `EventWaitHandle`, `AutoResetEvent`, `ManualResetEvent`, `WaitAny`/`WaitAll` | Phase 7B | not rewritten; unblocks `ThreadPool` registered-wait APIs and `SemaphoreSlim.AvailableWaitHandle`, which stay rejected until then |
 | `Interlocked` | ✅ **Controlled (Phase 7B)** — see the `Interlocked` section above | full .NET 10 surface redirected to `clockwork.interlocked.*` |
-| `Volatile` | Phase 7B | not rewritten |
+| `Volatile` | ✅ **Controlled (Phase 7B)** — see the `Volatile` section above | full .NET 10 surface redirected to `clockwork.volatile.*` |
 | `SpinWait` (struct) | Phase 7B | not rewritten (`Thread.SpinWait(int)` *static* **is** controlled — `clockwork.thread.spinwait`) |
 | `ReaderWriterLockSlim`, `Mutex`, `Semaphore`, `SpinLock`, `ManualResetEventSlim` | Phase 8 | not rewritten (real BCL calls) |
 | `Timer` / `PeriodicTimer` / `Task.Delay` / cancellation timers | Phase 8 | `Task.Delay` rejected; `Thread.Sleep` **is** a controlled virtual wait |
@@ -361,7 +386,10 @@ lands.
 - **Coyote `Interlocked`:** full .NET 10 surface controlled (Phase 7B) — every `Increment`/`Decrement`/
   `Add`/`And`/`Or`/`Exchange`/`CompareExchange`/`Read` overload plus the memory barriers, each delegating
   to the real primitive since a cooperative logical thread makes the read-modify-write indivisible.
-- **Deferred by phase plan:** wait handles / events / `Volatile` / `SpinWait` struct
+- **Coyote `Volatile`:** full .NET 10 surface controlled (Phase 7B) — every `Read`/`Write` overload plus
+  the `ReadBarrier`/`WriteBarrier` fences, delegating to the real primitive with acquire/release intent
+  preserved.
+- **Deferred by phase plan:** wait handles / events / `SpinWait` struct
   (Phase 7B); `ReaderWriterLockSlim`/`Mutex`/`Semaphore`/`SpinLock` and timers/`Task.Delay` (Phase 8).
 
 Every Coyote entry above is therefore **controlled** (with a cited rule id or by architecture),

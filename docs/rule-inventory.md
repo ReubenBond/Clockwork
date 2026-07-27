@@ -370,6 +370,43 @@ Policy: **Controlled**. The full .NET 10 `Interlocked` surface - `Increment`/`De
 | `clockwork.interlocked.memorybarrier` | `System.Threading.Interlocked::MemoryBarrier()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledInterlocked::MemoryBarrier()` | Controlled |
 | `clockwork.interlocked.memorybarrierprocesswide` | `System.Threading.Interlocked::MemoryBarrierProcessWide()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledInterlocked::MemoryBarrierProcessWide()` | Controlled |
 
+## Volatile family
+
+Policy: **Controlled**. The full .NET 10 `Volatile` surface - `Read`/`Write` (every primitive, native-int, floating-point, and generic reference overload) and the `ReadBarrier`/`WriteBarrier` fences - redirects each call site to a shim with the identical `ref`-first signature. Under the cooperative single-logical-thread scheduler a volatile access is an indivisible step, so the shim delegates to the real primitive and preserves the exact value read/written together with the acquire (read) / release (write) fence intent. The single delegation site is the future Phase 9 race-hook attachment point.
+
+| Rule id | BCL target | Shim | Policy |
+| --- | --- | --- | --- |
+| `clockwork.volatile.read.boolean` | `System.Threading.Volatile::Read(System.Boolean&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::Read(System.Boolean&)` | Controlled |
+| `clockwork.volatile.read.sbyte` | `System.Threading.Volatile::Read(System.SByte&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::Read(System.SByte&)` | Controlled |
+| `clockwork.volatile.read.byte` | `System.Threading.Volatile::Read(System.Byte&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::Read(System.Byte&)` | Controlled |
+| `clockwork.volatile.read.int16` | `System.Threading.Volatile::Read(System.Int16&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::Read(System.Int16&)` | Controlled |
+| `clockwork.volatile.read.uint16` | `System.Threading.Volatile::Read(System.UInt16&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::Read(System.UInt16&)` | Controlled |
+| `clockwork.volatile.read.int32` | `System.Threading.Volatile::Read(System.Int32&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::Read(System.Int32&)` | Controlled |
+| `clockwork.volatile.read.uint32` | `System.Threading.Volatile::Read(System.UInt32&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::Read(System.UInt32&)` | Controlled |
+| `clockwork.volatile.read.int64` | `System.Threading.Volatile::Read(System.Int64&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::Read(System.Int64&)` | Controlled |
+| `clockwork.volatile.read.uint64` | `System.Threading.Volatile::Read(System.UInt64&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::Read(System.UInt64&)` | Controlled |
+| `clockwork.volatile.read.intptr` | `System.Threading.Volatile::Read(System.IntPtr&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::Read(System.IntPtr&)` | Controlled |
+| `clockwork.volatile.read.uintptr` | `System.Threading.Volatile::Read(System.UIntPtr&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::Read(System.UIntPtr&)` | Controlled |
+| `clockwork.volatile.read.single` | `System.Threading.Volatile::Read(System.Single&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::Read(System.Single&)` | Controlled |
+| `clockwork.volatile.read.double` | `System.Threading.Volatile::Read(System.Double&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::Read(System.Double&)` | Controlled |
+| `clockwork.volatile.read.generic` | `System.Threading.Volatile::Read(!!0&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::Read(T&)` | Controlled |
+| `clockwork.volatile.write.boolean` | `System.Threading.Volatile::Write(System.Boolean&,System.Boolean)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::Write(System.Boolean&,System.Boolean)` | Controlled |
+| `clockwork.volatile.write.sbyte` | `System.Threading.Volatile::Write(System.SByte&,System.SByte)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::Write(System.SByte&,System.SByte)` | Controlled |
+| `clockwork.volatile.write.byte` | `System.Threading.Volatile::Write(System.Byte&,System.Byte)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::Write(System.Byte&,System.Byte)` | Controlled |
+| `clockwork.volatile.write.int16` | `System.Threading.Volatile::Write(System.Int16&,System.Int16)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::Write(System.Int16&,System.Int16)` | Controlled |
+| `clockwork.volatile.write.uint16` | `System.Threading.Volatile::Write(System.UInt16&,System.UInt16)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::Write(System.UInt16&,System.UInt16)` | Controlled |
+| `clockwork.volatile.write.int32` | `System.Threading.Volatile::Write(System.Int32&,System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::Write(System.Int32&,System.Int32)` | Controlled |
+| `clockwork.volatile.write.uint32` | `System.Threading.Volatile::Write(System.UInt32&,System.UInt32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::Write(System.UInt32&,System.UInt32)` | Controlled |
+| `clockwork.volatile.write.int64` | `System.Threading.Volatile::Write(System.Int64&,System.Int64)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::Write(System.Int64&,System.Int64)` | Controlled |
+| `clockwork.volatile.write.uint64` | `System.Threading.Volatile::Write(System.UInt64&,System.UInt64)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::Write(System.UInt64&,System.UInt64)` | Controlled |
+| `clockwork.volatile.write.intptr` | `System.Threading.Volatile::Write(System.IntPtr&,System.IntPtr)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::Write(System.IntPtr&,System.IntPtr)` | Controlled |
+| `clockwork.volatile.write.uintptr` | `System.Threading.Volatile::Write(System.UIntPtr&,System.UIntPtr)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::Write(System.UIntPtr&,System.UIntPtr)` | Controlled |
+| `clockwork.volatile.write.single` | `System.Threading.Volatile::Write(System.Single&,System.Single)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::Write(System.Single&,System.Single)` | Controlled |
+| `clockwork.volatile.write.double` | `System.Threading.Volatile::Write(System.Double&,System.Double)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::Write(System.Double&,System.Double)` | Controlled |
+| `clockwork.volatile.write.generic` | `System.Threading.Volatile::Write(!!0&,!!0)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::Write(T&,T)` | Controlled |
+| `clockwork.volatile.readbarrier` | `System.Threading.Volatile::ReadBarrier()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::ReadBarrier()` | Controlled |
+| `clockwork.volatile.writebarrier` | `System.Threading.Volatile::WriteBarrier()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::WriteBarrier()` | Controlled |
+
 ## UncontrolledInvocation family
 
 Policy: **Rejected**. Process control and abrupt-termination APIs (`Process.Start`/`Start` instance/`Kill`/`WaitForExit`/`WaitForExitAsync`, `Environment.Exit`/`FailFast`) cannot be modelled inside a single simulated process at all. A throwing guard is injected before each call site so a rewritten assembly can never launch, kill, wait on, or terminate a real OS process; unlike the controlled shims the rejection is unconditional (it fires whether or not a simulation is active).
