@@ -147,11 +147,18 @@ public sealed class TaskFactoryConformanceTests : IDisposable
         """;
 
     private readonly RewriteFixture _fixture = new();
-    private readonly Lazy<StagedProbe> _probe;
+    private readonly Lazy<StagedProbe> _release;
+    private readonly Lazy<StagedProbe> _debug;
 
-    public TaskFactoryConformanceTests() =>
-        _probe = new Lazy<StagedProbe>(() =>
-            _fixture.StageControlledTasks("Conf.TaskFactory", "Conf.FactoryProbe", Source, optimize: true));
+    public TaskFactoryConformanceTests()
+    {
+        _release = new Lazy<StagedProbe>(() =>
+            _fixture.StageControlledTasks("Conf.TaskFactoryRel", "Conf.FactoryProbe", Source, optimize: true));
+        _debug = new Lazy<StagedProbe>(() =>
+            _fixture.StageControlledTasks("Conf.TaskFactoryDbg", "Conf.FactoryProbe", Source, optimize: false));
+    }
+
+    public static TheoryData<bool> Optimize => new() { true, false };
 
     [Fact]
     public void StartNewComputesResultOnTheLogicalThread()
@@ -183,12 +190,13 @@ public sealed class TaskFactoryConformanceTests : IDisposable
         Assert.Equal(43, genericState.AsyncState);
     }
 
-    [Fact]
-    public void StartNewRunsOnTheControlledLogicalThreadAndFreshStrand()
+    [Theory]
+    [MemberData(nameof(Optimize))]
+    public void StartNewRunsOnTheControlledLogicalThreadAndFreshStrand(bool optimize)
     {
         using var host = new SimulationHost(Start);
         var task = (Task<long[]>)host.Invoke(
-            Method("Identity"),
+            Method("Identity", optimize),
             (Func<long>)(() => Clockwork.Runtime.Threading.ControlledSynchronizationFlow.CurrentId))!;
         long[] values = Result<long[]>(task);
 
@@ -197,13 +205,14 @@ public sealed class TaskFactoryConformanceTests : IDisposable
         Assert.NotEqual(Clockwork.Runtime.Threading.ControlledSynchronizationFlow.None, values[3]);
     }
 
-    [Fact]
-    public void StartNewTraceIsRepeatable()
+    [Theory]
+    [MemberData(nameof(Optimize))]
+    public void StartNewTraceIsRepeatable(bool optimize)
     {
         string Run()
         {
             using var host = new SimulationHost(Start);
-            return Result<string>((Task<string>)host.Invoke(Method("Trace"))!);
+            return Result<string>((Task<string>)host.Invoke(Method("Trace", optimize))!);
         }
 
         Assert.Equal("0,1,2,3", Run());
@@ -249,7 +258,10 @@ public sealed class TaskFactoryConformanceTests : IDisposable
         Assert.Equal(42, await task);
     }
 
-    private MethodInfo Method(string name) => _probe.Value.Method(name);
+    private MethodInfo Method(string name) => _release.Value.Method(name);
+
+    private MethodInfo Method(string name, bool optimize) =>
+        (optimize ? _release : _debug).Value.Method(name);
 
     private static T Result<T>(object task)
     {

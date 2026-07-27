@@ -92,15 +92,71 @@ public sealed class ThreadPoolConformanceTests : IDisposable
                 ThreadPool.RegisterWaitForSingleObject(mre, (_, _) => { }, null, 1000, true);
                 return true;
             }
+
+            public static async Task<long[]> IdentityAndTrace(System.Func<long> strand)
+            {
+                long[] values = new long[9];
+                values[0] = System.Environment.CurrentManagedThreadId;
+                values[1] = strand();
+                var trace = new System.Collections.Generic.List<int>();
+                var completed = new TaskCompletionSource();
+                int remaining = 3;
+                for (int i = 0; i < remaining; i++)
+                {
+                    ThreadPool.QueueUserWorkItem(state =>
+                    {
+                        int index = (int)state!;
+                        values[2 + index * 2] = System.Environment.CurrentManagedThreadId;
+                        values[3 + index * 2] = strand();
+                        trace.Add(index + 1);
+                        if (--remaining == 0) completed.SetResult();
+                    }, i);
+                }
+
+                await completed.Task;
+                values[8] = trace[0] * 100 + trace[1] * 10 + trace[2];
+                return values;
+            }
         } }
         """;
 
     private readonly RewriteFixture _fixture = new();
-    private readonly Lazy<StagedProbe> _probe;
+    private readonly Lazy<StagedProbe> _release;
+    private readonly Lazy<StagedProbe> _debug;
 
-    public ThreadPoolConformanceTests() =>
-        _probe = new Lazy<StagedProbe>(() =>
-            _fixture.StageControlledTasks("Conf.ThreadPool", "Conf.PoolProbe", Source, optimize: true));
+    public ThreadPoolConformanceTests()
+    {
+        _release = new Lazy<StagedProbe>(() =>
+            _fixture.StageControlledTasks("Conf.ThreadPoolRel", "Conf.PoolProbe", Source, optimize: true));
+        _debug = new Lazy<StagedProbe>(() =>
+            _fixture.StageControlledTasks("Conf.ThreadPoolDbg", "Conf.PoolProbe", Source, optimize: false));
+    }
+
+    public static TheoryData<bool> Optimize => new() { true, false };
+
+    [Theory]
+    [MemberData(nameof(Optimize))]
+    public void QueueUsesFreshControlledStrandsWithRepeatableTrace(bool optimize)
+    {
+        long[] Run()
+        {
+            using var host = new SimulationHost(Start);
+            return Result<long[]>((Task<long[]>)host.Invoke(
+                Method("IdentityAndTrace", optimize),
+                (Func<long>)(() => Clockwork.Runtime.Threading.ControlledSynchronizationFlow.CurrentId))!);
+        }
+
+        long[] first = Run();
+        long[] second = Run();
+        Assert.Equal(Clockwork.Runtime.Threading.ControlledSynchronizationFlow.None, first[1]);
+        Assert.Equal(123, first[8]);
+        Assert.Equal(first[8], second[8]);
+        for (int i = 0; i < 3; i++)
+        {
+            Assert.Equal(first[0], first[2 + i * 2]);
+            Assert.NotEqual(Clockwork.Runtime.Threading.ControlledSynchronizationFlow.None, first[3 + i * 2]);
+        }
+    }
 
     [Fact]
     public void QueueUserWorkItemRunsCallbackUnderTheClusterDrive()
@@ -179,7 +235,10 @@ public sealed class ThreadPoolConformanceTests : IDisposable
         return ex;
     }
 
-    private MethodInfo Method(string name) => _probe.Value.Method(name);
+    private MethodInfo Method(string name) => _release.Value.Method(name);
+
+    private MethodInfo Method(string name, bool optimize) =>
+        (optimize ? _release : _debug).Value.Method(name);
 
     private static T Result<T>(object task)
     {

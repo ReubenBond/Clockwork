@@ -65,15 +65,62 @@ public sealed class ParallelConformanceTests : IDisposable
                 Parallel.For(0, 3, (i, state) => state.Break());
                 return Task.FromResult(0);
             }
+
+            public static Task<long[]> IdentityAndTrace(Func<long> strand)
+            {
+                long[] values = new long[9];
+                values[0] = Environment.CurrentManagedThreadId;
+                values[1] = strand();
+                var trace = new List<int>();
+                Parallel.For(0, 3, index =>
+                {
+                    values[2 + index * 2] = Environment.CurrentManagedThreadId;
+                    values[3 + index * 2] = strand();
+                    trace.Add(index + 1);
+                });
+                values[8] = trace[0] * 100 + trace[1] * 10 + trace[2];
+                return Task.FromResult(values);
+            }
         } }
         """;
 
     private readonly RewriteFixture _fixture = new();
-    private readonly Lazy<StagedProbe> _probe;
+    private readonly Lazy<StagedProbe> _release;
+    private readonly Lazy<StagedProbe> _debug;
 
-    public ParallelConformanceTests() =>
-        _probe = new Lazy<StagedProbe>(() =>
-            _fixture.StageControlledTasks("Conf.Parallel", "Conf.ParallelProbe", Source, optimize: true));
+    public ParallelConformanceTests()
+    {
+        _release = new Lazy<StagedProbe>(() =>
+            _fixture.StageControlledTasks("Conf.ParallelRel", "Conf.ParallelProbe", Source, optimize: true));
+        _debug = new Lazy<StagedProbe>(() =>
+            _fixture.StageControlledTasks("Conf.ParallelDbg", "Conf.ParallelProbe", Source, optimize: false));
+    }
+
+    public static TheoryData<bool> Optimize => new() { true, false };
+
+    [Theory]
+    [MemberData(nameof(Optimize))]
+    public void ParallelBranchesUseFreshControlledStrandsWithRepeatableTrace(bool optimize)
+    {
+        long[] Run()
+        {
+            using var host = new SimulationHost(Start);
+            return Result<long[]>((Task<long[]>)host.Invoke(
+                Method("IdentityAndTrace", optimize),
+                (Func<long>)(() => Clockwork.Runtime.Threading.ControlledSynchronizationFlow.CurrentId))!);
+        }
+
+        long[] first = Run();
+        long[] second = Run();
+        Assert.Equal(Clockwork.Runtime.Threading.ControlledSynchronizationFlow.None, first[1]);
+        Assert.Equal(123, first[8]);
+        Assert.Equal(first[8], second[8]);
+        for (int i = 0; i < 3; i++)
+        {
+            Assert.Equal(first[0], first[2 + i * 2]);
+            Assert.NotEqual(Clockwork.Runtime.Threading.ControlledSynchronizationFlow.None, first[3 + i * 2]);
+        }
+    }
 
     [Fact]
     public void ForRunsEveryIterationUnderTheClusterDrive()
@@ -125,7 +172,10 @@ public sealed class ParallelConformanceTests : IDisposable
         Assert.Equal(0 + 1 + 2 + 3 + 4, await task);
     }
 
-    private MethodInfo Method(string name) => _probe.Value.Method(name);
+    private MethodInfo Method(string name) => _release.Value.Method(name);
+
+    private MethodInfo Method(string name, bool optimize) =>
+        (optimize ? _release : _debug).Value.Method(name);
 
     private static T Result<T>(object task)
     {

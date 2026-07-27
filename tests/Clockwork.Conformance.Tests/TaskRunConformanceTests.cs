@@ -55,15 +55,69 @@ public sealed class TaskRunConformanceTests : IDisposable
                 try { await t; } catch (OperationCanceledException) { }
                 return t.IsCanceled && !ran();
             }
+
+            public static async Task<long[]> IdentityAndTrace(Func<long> strand)
+            {
+                long[] values = new long[9];
+                values[0] = Environment.CurrentManagedThreadId;
+                values[1] = strand();
+                var trace = new System.Collections.Generic.List<int>();
+                Task[] tasks = new Task[3];
+                for (int i = 0; i < tasks.Length; i++)
+                {
+                    int index = i;
+                    tasks[i] = Task.Run(() =>
+                    {
+                        values[2 + index * 2] = Environment.CurrentManagedThreadId;
+                        values[3 + index * 2] = strand();
+                        trace.Add(index + 1);
+                    });
+                }
+
+                await Task.WhenAll(tasks);
+                values[8] = trace[0] * 100 + trace[1] * 10 + trace[2];
+                return values;
+            }
         } }
         """;
 
     private readonly RewriteFixture _fixture = new();
-    private readonly Lazy<StagedProbe> _probe;
+    private readonly Lazy<StagedProbe> _release;
+    private readonly Lazy<StagedProbe> _debug;
 
-    public TaskRunConformanceTests() =>
-        _probe = new Lazy<StagedProbe>(() =>
-            _fixture.StageControlledTasks("Conf.TaskRun", "Conf.RunProbe", Source, optimize: true));
+    public TaskRunConformanceTests()
+    {
+        _release = new Lazy<StagedProbe>(() =>
+            _fixture.StageControlledTasks("Conf.TaskRunRel", "Conf.RunProbe", Source, optimize: true));
+        _debug = new Lazy<StagedProbe>(() =>
+            _fixture.StageControlledTasks("Conf.TaskRunDbg", "Conf.RunProbe", Source, optimize: false));
+    }
+
+    public static TheoryData<bool> Optimize => new() { true, false };
+
+    [Theory]
+    [MemberData(nameof(Optimize))]
+    public void RunUsesFreshControlledStrandsWithRepeatableTrace(bool optimize)
+    {
+        long[] Run()
+        {
+            using var host = new SimulationHost(Start);
+            return Result<long[]>((Task<long[]>)host.Invoke(
+                Method("IdentityAndTrace", optimize),
+                (Func<long>)(() => Clockwork.Runtime.Threading.ControlledSynchronizationFlow.CurrentId))!);
+        }
+
+        long[] first = Run();
+        long[] second = Run();
+        Assert.Equal(Clockwork.Runtime.Threading.ControlledSynchronizationFlow.None, first[1]);
+        Assert.Equal(123, first[8]);
+        Assert.Equal(first[8], second[8]);
+        for (int i = 0; i < 3; i++)
+        {
+            Assert.Equal(first[0], first[2 + i * 2]);
+            Assert.NotEqual(Clockwork.Runtime.Threading.ControlledSynchronizationFlow.None, first[3 + i * 2]);
+        }
+    }
 
     [Fact]
     public void RunComputesResultOnTheLogicalThread()
@@ -115,7 +169,10 @@ public sealed class TaskRunConformanceTests : IDisposable
         Assert.Equal(42, await task);
     }
 
-    private MethodInfo Method(string name) => _probe.Value.Method(name);
+    private MethodInfo Method(string name) => _release.Value.Method(name);
+
+    private MethodInfo Method(string name, bool optimize) =>
+        (optimize ? _release : _debug).Value.Method(name);
 
     private static T Result<T>(object task)
     {
