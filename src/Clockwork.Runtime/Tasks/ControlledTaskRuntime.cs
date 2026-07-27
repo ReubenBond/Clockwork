@@ -193,6 +193,40 @@ public static class ControlledTaskRuntime
         return coordinator.RegisterTimeout(node, delay, onElapsed);
     }
 
+    internal static IControlledTimeout RegisterTimeout(
+        SimulationExecutionSnapshot snapshot,
+        TimeSpan delay,
+        Action? onElapsed,
+        string apiName)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (!SimulationTaskCoordination.TryGet(snapshot.Runtime, out var coordinator) || coordinator is null)
+        {
+            throw new ControlledTaskServiceMissingException(snapshot.Runtime, apiName);
+        }
+
+        return coordinator.RegisterTimeout(snapshot.Node, delay, onElapsed);
+    }
+
+    internal static void QueueCapturedWork(
+        SimulationExecutionSnapshot snapshot,
+        ExecutionContext? context,
+        Action work,
+        string apiName)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentNullException.ThrowIfNull(work);
+        if (!SimulationTaskCoordination.TryGet(snapshot.Runtime, out var coordinator) || coordinator is null)
+        {
+            throw new ControlledTaskServiceMissingException(snapshot.Runtime, apiName);
+        }
+
+        coordinator.Schedule(
+            snapshot.Node,
+            () => ControlledSynchronizationFlow.RunAsNewStrand(
+                () => RunScheduledWork(snapshot, context, work)));
+    }
+
     private static void RunScheduledWork(
         SimulationExecutionSnapshot snapshot,
         ExecutionContext? context,
