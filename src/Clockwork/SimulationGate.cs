@@ -22,7 +22,9 @@ namespace Clockwork;
 public sealed class SimulationGate
 {
     private readonly SimulationTaskQueue _queue;
-    private readonly List<TaskCompletionSource> _waiters = [];
+    private readonly object _sync = new();
+    private readonly List<SimulationRendezvousSupport.Waiter> _waiters = [];
+    private bool _isOpen;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SimulationGate"/> class.
@@ -34,7 +36,7 @@ public sealed class SimulationGate
     {
         ArgumentNullException.ThrowIfNull(queue);
         _queue = queue;
-        IsOpen = isOpen;
+        _isOpen = isOpen;
         Name = name;
     }
 
@@ -46,7 +48,16 @@ public sealed class SimulationGate
     /// <summary>
     /// Gets a value indicating whether the gate is currently open.
     /// </summary>
-    public bool IsOpen { get; private set; }
+    public bool IsOpen
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _isOpen;
+            }
+        }
+    }
 
     /// <summary>
     /// Opens the gate, releasing every waiter currently registered via <see cref="WaitAsync"/>.
@@ -55,13 +66,19 @@ public sealed class SimulationGate
     /// </summary>
     public void Open()
     {
-        if (IsOpen)
+        SimulationRendezvousSupport.Waiter[] waiters;
+        lock (_sync)
         {
-            return;
+            if (_isOpen)
+            {
+                return;
+            }
+
+            _isOpen = true;
+            waiters = SimulationRendezvousSupport.TakeAllForRelease(_waiters);
         }
 
-        IsOpen = true;
-        SimulationRendezvousSupport.ReleaseAll(_queue, _waiters);
+        SimulationRendezvousSupport.ScheduleReleases(_queue, waiters);
     }
 
     /// <summary>
@@ -69,7 +86,13 @@ public sealed class SimulationGate
     /// the next <see cref="Open"/>. Does not affect waiters already released by a previous
     /// <see cref="Open"/> call. Calling this while already closed has no effect.
     /// </summary>
-    public void Close() => IsOpen = false;
+    public void Close()
+    {
+        lock (_sync)
+        {
+            _isOpen = false;
+        }
+    }
 
     /// <summary>
     /// Waits for the gate to be open. If the gate is already open, completes immediately
@@ -83,12 +106,37 @@ public sealed class SimulationGate
     /// <returns>A task that completes when the gate opens, or is canceled per <paramref name="cancellationToken"/>.</returns>
     public Task WaitAsync(CancellationToken cancellationToken = default)
     {
-        if (IsOpen)
+        lock (_sync)
         {
-            return cancellationToken.IsCancellationRequested ? Task.FromCanceled(cancellationToken) : Task.CompletedTask;
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return Task.FromCanceled(cancellationToken);
+            }
+
+            if (_isOpen)
+            {
+                return Task.CompletedTask;
+            }
+
+            return SimulationRendezvousSupport.AddWaiter(_waiters, CancelWaiter, cancellationToken).Task;
+        }
+    }
+
+    private void CancelWaiter(SimulationRendezvousSupport.Waiter waiter)
+    {
+        var canceled = false;
+        lock (_sync)
+        {
+            if (waiter.TryCancel())
+            {
+                canceled = _waiters.Remove(waiter);
+            }
         }
 
-        return SimulationRendezvousSupport.AddWaiter(_waiters, cancellationToken);
+        if (canceled)
+        {
+            waiter.CompleteCancellation();
+        }
     }
 
     private string DebuggerDisplay => $"SimulationGate({Name ?? "unnamed"}, IsOpen={IsOpen})";

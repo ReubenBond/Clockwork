@@ -2,80 +2,177 @@ namespace Clockwork;
 
 /// <summary>
 /// Shared waiter bookkeeping for the rendezvous primitives (<see cref="SimulationGate"/>,
-/// <see cref="SimulationLatch"/>, <see cref="SimulationBarrier"/>): registering a cancelable
-/// waiter and releasing a batch of waiters deterministically through a <see cref="SimulationTaskQueue"/>.
-/// Not public - each primitive exposes its own crisp, purpose-specific API; this only factors out
-/// the mechanics they all share so those mechanics are implemented (and tested, transitively) once.
+/// <see cref="SimulationLatch"/>, <see cref="SimulationBarrier"/>).
 /// </summary>
 internal static class SimulationRendezvousSupport
 {
     /// <summary>
-    /// Registers a new waiter in <paramref name="waiters"/> and returns its task. If
-    /// <paramref name="cancellationToken"/> is already canceled, returns a canceled task without
-    /// registering anything (per Clockwork's determinism requirements: cancellation is observed
-    /// synchronously, never via a background wait). Otherwise, if the token can be canceled, a
-    /// synchronous cancellation callback removes the waiter from <paramref name="waiters"/> (if it
-    /// is still present - it may already have been released) and transitions its task to canceled.
+    /// Adds a waiter while the owning primitive's lock is held.
     /// </summary>
-    /// <param name="waiters">The list of pending waiters to register into.</param>
-    /// <param name="cancellationToken">The cancellation token to observe.</param>
-    /// <param name="onCancelled">
-    /// Optional callback invoked when this specific waiter is canceled while still pending (i.e.
-    /// it was found and removed from <paramref name="waiters"/>). Used by <see cref="SimulationBarrier"/>
-    /// to retract an arrival.
-    /// </param>
-    /// <returns>The pending (or already-canceled) waiter's task.</returns>
-    public static Task AddWaiter(List<TaskCompletionSource> waiters, CancellationToken cancellationToken, Action? onCancelled = null)
+    public static Waiter AddWaiter(
+        List<Waiter> waiters,
+        Action<Waiter> onCancellation,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(waiters);
+        ArgumentNullException.ThrowIfNull(onCancellation);
 
-        if (cancellationToken.IsCancellationRequested)
-        {
-            return Task.FromCanceled(cancellationToken);
-        }
-
-        var tcs = new TaskCompletionSource();
-        waiters.Add(tcs);
-
-        if (cancellationToken.CanBeCanceled)
-        {
-            cancellationToken.Register(() =>
-            {
-                if (waiters.Remove(tcs))
-                {
-                    onCancelled?.Invoke();
-                }
-
-                tcs.TrySetCanceled(cancellationToken);
-            });
-        }
-
-        return tcs.Task;
+        var waiter = new Waiter(onCancellation, cancellationToken);
+        waiters.Add(waiter);
+        waiter.RegisterCancellation();
+        return waiter;
     }
 
     /// <summary>
-    /// Snapshots and clears <paramref name="waiters"/>, then enqueues completion of each one onto
-    /// <paramref name="queue"/> in the order they were registered, so continuations run at a
-    /// deterministic point in the simulation's schedule (never inline, never via a real-time wait
-    /// or thread-pool callback) and observe a stable, FIFO release order.
+    /// Claims and removes all pending waiters for release while the owning primitive's lock is held.
     /// </summary>
-    /// <param name="queue">The queue to dispatch completions through.</param>
-    /// <param name="waiters">The waiters to release.</param>
-    public static void ReleaseAll(SimulationTaskQueue queue, List<TaskCompletionSource> waiters)
+    public static Waiter[] TakeAllForRelease(List<Waiter> waiters)
     {
-        ArgumentNullException.ThrowIfNull(queue);
         ArgumentNullException.ThrowIfNull(waiters);
 
         if (waiters.Count == 0)
         {
-            return;
+            return [];
         }
 
-        var snapshot = waiters.ToArray();
+        var result = waiters.ToArray();
         waiters.Clear();
-        foreach (var waiter in snapshot)
+        foreach (var waiter in result)
         {
-            queue.Enqueue(new ScheduledActionItem(() => waiter.TrySetResult()));
+            if (!waiter.TryRelease())
+            {
+                throw new InvalidOperationException("A terminal waiter remained in the pending waiter list.");
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Disposes cancellation registrations and queues claimed releases in FIFO order.
+    /// Must be called without the owning primitive's lock held.
+    /// </summary>
+    public static void ScheduleReleases(SimulationTaskQueue queue, IReadOnlyList<Waiter> waiters)
+    {
+        ArgumentNullException.ThrowIfNull(queue);
+        ArgumentNullException.ThrowIfNull(waiters);
+
+        foreach (var waiter in waiters)
+        {
+            waiter.ScheduleRelease(queue);
+        }
+    }
+
+    /// <summary>
+    /// A single rendezvous wait and its cancellation registration.
+    /// </summary>
+    internal sealed class Waiter
+    {
+        private const int Pending = 0;
+        private const int Released = 1;
+        private const int Canceled = 2;
+
+        private readonly TaskCompletionSource _completion = new();
+        private readonly CancellationToken _cancellationToken;
+        private readonly object _registrationLock = new();
+        private readonly Action<Waiter> _onCancellation;
+        private CancellationTokenRegistration _registration;
+        private bool _hasRegistration;
+        private bool _registrationDisposalRequested;
+        private int _state;
+
+        public Waiter(Action<Waiter> onCancellation, CancellationToken cancellationToken)
+        {
+            _cancellationToken = cancellationToken;
+            _onCancellation = onCancellation;
+        }
+
+        public Task Task => _completion.Task;
+
+        public void RegisterCancellation()
+        {
+            if (!_cancellationToken.CanBeCanceled)
+            {
+                return;
+            }
+
+            var registration = _cancellationToken.Register(
+                static state => ((Waiter)state!).CancellationRequested(),
+                this);
+            SetRegistration(registration);
+        }
+
+        public bool TryRelease()
+        {
+            if (Interlocked.CompareExchange(ref _state, Released, Pending) != Pending)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        public bool TryCancel()
+        {
+            if (Interlocked.CompareExchange(ref _state, Canceled, Pending) != Pending)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        public void CompleteCancellation()
+        {
+            DisposeRegistration();
+            _completion.TrySetCanceled(_cancellationToken);
+        }
+
+        public void ScheduleRelease(SimulationTaskQueue queue)
+        {
+            DisposeRegistration();
+            queue.Enqueue(new ScheduledActionItem(() => _completion.TrySetResult()));
+        }
+
+        private void CancellationRequested() => _onCancellation(this);
+
+        private void SetRegistration(CancellationTokenRegistration registration)
+        {
+            var dispose = false;
+            lock (_registrationLock)
+            {
+                if (_registrationDisposalRequested)
+                {
+                    dispose = true;
+                }
+                else
+                {
+                    _registration = registration;
+                    _hasRegistration = true;
+                }
+            }
+
+            if (dispose)
+            {
+                registration.Dispose();
+            }
+        }
+
+        private void DisposeRegistration()
+        {
+            CancellationTokenRegistration registration = default;
+            lock (_registrationLock)
+            {
+                _registrationDisposalRequested = true;
+                if (_hasRegistration)
+                {
+                    registration = _registration;
+                    _registration = default;
+                    _hasRegistration = false;
+                }
+            }
+
+            registration.Dispose();
         }
     }
 }

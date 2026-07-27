@@ -25,7 +25,9 @@ namespace Clockwork;
 public sealed class SimulationBarrier
 {
     private readonly SimulationTaskQueue _queue;
-    private readonly List<TaskCompletionSource> _waiters = [];
+    private readonly object _sync = new();
+    private readonly List<SimulationRendezvousSupport.Waiter> _waiters = [];
+    private int _arrivedCount;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SimulationBarrier"/> class.
@@ -55,7 +57,16 @@ public sealed class SimulationBarrier
     /// <summary>
     /// Gets the number of participants that have arrived for the current round but not yet been released.
     /// </summary>
-    public int ArrivedCount { get; private set; }
+    public int ArrivedCount
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _arrivedCount;
+            }
+        }
+    }
 
     /// <summary>
     /// Arrives at the barrier and waits for every other participant to arrive. When the last
@@ -71,21 +82,49 @@ public sealed class SimulationBarrier
     /// <returns>A task that completes when this round is released.</returns>
     public Task ArriveAndWaitAsync(CancellationToken cancellationToken = default)
     {
-        if (cancellationToken.IsCancellationRequested)
+        SimulationRendezvousSupport.Waiter[] waiters = [];
+        Task task;
+        lock (_sync)
         {
-            return Task.FromCanceled(cancellationToken);
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return Task.FromCanceled(cancellationToken);
+            }
+
+            _arrivedCount++;
+            var waiter = SimulationRendezvousSupport.AddWaiter(_waiters, CancelWaiter, cancellationToken);
+            task = waiter.Task;
+
+            if (_arrivedCount == ParticipantCount)
+            {
+                _arrivedCount = 0;
+                waiters = SimulationRendezvousSupport.TakeAllForRelease(_waiters);
+            }
         }
 
-        var task = SimulationRendezvousSupport.AddWaiter(_waiters, cancellationToken, onCancelled: () => ArrivedCount--);
-        ArrivedCount++;
-
-        if (ArrivedCount == ParticipantCount)
-        {
-            ArrivedCount = 0;
-            SimulationRendezvousSupport.ReleaseAll(_queue, _waiters);
-        }
-
+        SimulationRendezvousSupport.ScheduleReleases(_queue, waiters);
         return task;
+    }
+
+    private void CancelWaiter(SimulationRendezvousSupport.Waiter waiter)
+    {
+        var canceled = false;
+        lock (_sync)
+        {
+            if (waiter.TryCancel())
+            {
+                canceled = _waiters.Remove(waiter);
+                if (canceled)
+                {
+                    _arrivedCount--;
+                }
+            }
+        }
+
+        if (canceled)
+        {
+            waiter.CompleteCancellation();
+        }
     }
 
     private string DebuggerDisplay => string.Create(
