@@ -407,10 +407,34 @@ simulation and trace snapshot is byte-identical. The actual `Monitor`/`Semaphore
 shims, resource ownership and wait queues, virtual timeouts, and deadlock detection that build on
 this kernel are deferred to Phase 3B - see `docs/compatibility.md`.
 
+### Reusable resource/wait scheduler (Phase 3B)
+
+`Clockwork.Runtime.Scheduling` (and `Scheduling/Resources`, `Scheduling/Strategies`) adds the
+*reusable resource and wait layer* the later synchronization shims will sit on - still with **no
+public BCL shims**. It introduces controlled resources with stable identity, optional owner,
+capacity, and a deterministic waiter queue (`ControlledResource`); atomic
+`WaitOnResource`/`SignalOne`/`SignalAll` that transition the running operation to
+*paused-on-resource*, yield the baton, and later wake it with no lost/duplicate/stale wakeups;
+virtual-time timeouts (zero/finite/infinite) modeled by an internal `ControlledVirtualClock` that
+mirrors `SimulationClock` semantics without a package dependency, resolving release-vs-timeout
+races deterministically; synchronous `CancellationToken` integration (via `Register`, never
+`CancelAsync` or a thread-pool hop) that resolves release/timeout/cancel to exactly one terminal
+reason and never leaks a registration; a wait-for graph with deterministic deadlock detection and
+liveness classification (`DetectDeadlock`, `DescribeLiveness`) that distinguishes a true resource
+cycle from *paused-until-time*, *externally completable*, and *quiescent* states; and pluggable
+scheduling strategies (`IControlledSchedulingStrategy`) - FIFO, round-robin (the default,
+identical to Phase 3A), seeded-random from the Phase 2 `Scheduler` seed domain, priority, and
+exact replay - where every real choice is recorded and replay fails at the first divergence.
+
+Fairness is defined narrowly: **no BCL fairness is promised**; waiter order is only guaranteed
+deterministic under the selected policy and replayable. The public `Monitor`/`Semaphore`/
+`WaitHandle`/`Task` shims and the Cecil/call-site rewriting that would redirect real BCL calls
+onto this layer remain **Phase 6/7** work - see `docs/compatibility.md`.
+
 None of this is wired into any interception or IL-rewriting layer - see
-`docs/compatibility.md` for what remains deferred to later phases (Phase 3B resource
-pause/resume and `Monitor`/`Semaphore` shims, deadlock detection, the Cecil-based deep
-instrumentation mode, BCL shims, a public Buggify API, Generic Host integration, and HTTP support).
+`docs/compatibility.md` for what remains deferred to later phases (the Cecil-based deep
+instrumentation mode, public BCL shims, a public Buggify API, Generic Host integration, and HTTP
+support).
 
 
 ## License

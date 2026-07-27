@@ -128,6 +128,61 @@ those primitives to be built on top; it implements none of them itself. A paused
 operation yields the baton deterministically and later becomes runnable again without
 ever introducing physical concurrency.
 
+#### Reusable resource/wait scheduler (Phase 3B)
+
+Phase 3B builds the *reusable resource and wait layer* every future controlled
+synchronization primitive needs, all inside `Clockwork.Runtime/Scheduling/` - still
+with **no public `Monitor`/`Semaphore`/`WaitHandle`/`Task` shims** (those remain Phase
+6/7; see below). It adds:
+
+- **Controlled resources** (`ControlledResource`, `ControlledResourceId`,
+  `ControlledResourceKind`): a general model with stable identity, an optional owner,
+  capacity/count support, a deterministic waiter queue ordered by enqueue sequence, and
+  rich debug metadata. The `kind` distinguishes `Monitor`, `Semaphore`, events, wait
+  handles, synchronous `Task` waits, and timers without pretending they share identical
+  semantics - specialized behavior is layered on top rather than baked in.
+- **Atomic pause/wakeup** (`WaitOnResource`/`SignalOne`/`SignalAll`): registering a wait
+  atomically transitions the running operation to *paused-on-resource*, yields the
+  permission baton, and later makes it runnable - with no lost wakeups, duplicate queue
+  entries, or stale wakeups (a waiter resolves exactly once).
+- **Virtual-time timeouts** (`ControlledVirtualClock`): zero, finite, and infinite
+  timeouts modeled entirely in virtual time. Because `Clockwork.Runtime` does not depend
+  on the root `Clockwork` package, the clock mirrors `SimulationClock` semantics
+  internally instead of referencing it. Timeouts fire only during an explicit virtual-time
+  advance that happens *only when nothing is runnable*, so a pending signal deterministically
+  precedes a same-instant timeout. **No real-time delays are ever used as modeled
+  behavior** - wall-clock time only guards test/process teardown.
+- **Synchronous cancellation** integrated via `CancellationToken.Register` (never
+  `CancelAsync`, never a thread-pool hop): cancellation is observed on the cancelling
+  operation's own thread under the scheduler lock. Release/timeout/cancel races resolve to
+  exactly one terminal reason, and registrations are always disposed on the way out.
+- **Wait-for graph + deadlock detection** (`DetectDeadlock`, `DescribeLiveness`): reports
+  deterministic ownership cycles with operation ids/names, resource ids/names, owners,
+  waiter order, and originating metadata, and classifies liveness so a genuine resource
+  deadlock is distinguished from *paused-until-time*, *externally completable*, and
+  *quiescent* states. Only indefinite waits contribute deadlock edges - a timed wait is
+  always breakable by advancing modeled time. The liveness summary folds in the existing
+  operation-status snapshot, integrating with execution diagnostics.
+- **Pluggable scheduling strategies** (`IControlledSchedulingStrategy`): FIFO/legacy,
+  round-robin (the **default**, byte-for-byte the Phase 3A behavior), seeded-random (from
+  the Phase 2 `Scheduler` seed domain), priority (a crisp `ControlledOperation.Priority`
+  integer, *not* BCL thread priority), and exact replay. Every real choice among two or
+  more runnable operations is recorded as a `SchedulingOrder` decision when a decision log
+  is attached, and replay validation fails at the first divergent choice.
+
+**Fairness is defined narrowly and deliberately.** The layer makes *no* promise of BCL
+fairness. Resource waiter order is deterministic under the selected policy and replayable;
+that is the only guarantee. The strategy interface is public because choosing a scheduling
+policy is a legitimate consumer concern, but it grants no BCL-compatible fairness semantics.
+
+**Still deferred to Phase 6/7 (explicitly not in Phase 3B):** the public
+`Monitor`/`Semaphore(Slim)`/`WaitHandle`/synchronous-`Task`-wait shims themselves, and the
+Cecil/call-site rewriting that would redirect real BCL calls onto this layer. Phase 3B
+provides only the *internal* resource/wait scheduler those shims will sit on; where a
+specific future primitive needs specialized semantics, it plugs into an extensible internal
+hook (resource `kind`, owner metadata, custom strategy) rather than forcing incorrect
+one-size-fits-all behavior into the shared model.
+
 ### Race exploration mode
 
 Beyond redirecting nondeterminism, this mode actively perturbs scheduling decisions
