@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks;
 
@@ -24,13 +26,21 @@ public static class ControlledSynchronizationContext
     private const string SendApi = "System.Threading.SynchronizationContext.Send";
     private const string WaitApi = "System.Threading.SynchronizationContext.Wait";
 
-    private static readonly Dictionary<(Guid RuntimeId, long StrandId), SynchronizationContext?> Contexts = [];
+    private sealed class RuntimeContexts
+    {
+        public Dictionary<long, SynchronizationContext> ByStrand { get; } = [];
+    }
+
+    // SimulationRuntimeIdentity instances are lifecycle objects. An ephemeron registry lets a completed
+    // runtime and every context installed beneath it be collected without retaining a Guid-keyed global map.
+    private static readonly ConditionalWeakTable<SimulationRuntimeIdentity, RuntimeContexts> Contexts = new();
 
     /// <summary>Gets the synchronization context installed for the current logical execution.</summary>
     public static SynchronizationContext? Current()
     {
         var snapshot = SimulationRuntimeDispatch.RequireActiveSimulation(CurrentApi);
-        return Contexts.TryGetValue((snapshot.Runtime.Id, ControlledSynchronizationFlow.CurrentId), out var context)
+        return Contexts.GetValue(snapshot.Runtime, static _ => new RuntimeContexts()).ByStrand
+            .TryGetValue(ControlledSynchronizationFlow.CurrentId, out var context)
             ? context
             : null;
     }
@@ -39,14 +49,15 @@ public static class ControlledSynchronizationContext
     public static void SetSynchronizationContext(SynchronizationContext? syncContext)
     {
         var snapshot = SimulationRuntimeDispatch.RequireActiveSimulation(SetApi);
-        var key = (snapshot.Runtime.Id, ControlledSynchronizationFlow.CurrentId);
+        var contexts = Contexts.GetValue(snapshot.Runtime, static _ => new RuntimeContexts()).ByStrand;
+        long strandId = ControlledSynchronizationFlow.CurrentId;
         if (syncContext is null)
         {
-            Contexts.Remove(key);
+            contexts.Remove(strandId);
         }
         else
         {
-            Contexts[key] = syncContext;
+            contexts[strandId] = syncContext;
         }
     }
 

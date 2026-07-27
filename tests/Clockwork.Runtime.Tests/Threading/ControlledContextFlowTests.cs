@@ -268,6 +268,19 @@ public sealed class ControlledContextFlowTests
     }
 
     [Fact]
+    public void SynchronizationContextRegistryIsWeaklyScopedToRuntimeObjects()
+    {
+        var registry = typeof(ControlledSynchronizationContext).GetField(
+            "Contexts",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+
+        Assert.NotNull(registry);
+        Assert.True(registry.FieldType.IsGenericType);
+        Assert.Equal(typeof(System.Runtime.CompilerServices.ConditionalWeakTable<,>), registry.FieldType.GetGenericTypeDefinition());
+        Assert.Equal(typeof(SimulationRuntimeIdentity), registry.FieldType.GetGenericArguments()[0]);
+    }
+
+    [Fact]
     public void NewContextEntriesRequireAnActiveSimulationBeforeValidatingArguments()
     {
         SimulationNotActiveExceptionAssert.Equal(

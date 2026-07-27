@@ -1,6 +1,9 @@
 using System.Collections.Immutable;
+using System.Reflection;
+using System.Runtime.Loader;
 using Clockwork.Instrumentation.Manifest;
 using Clockwork.Instrumentation.Rewriting;
+using Clockwork.Instrumentation.Rules;
 using Clockwork.Instrumentation.Rules.BuiltIn;
 using Clockwork.Instrumentation.Tests.Infrastructure;
 using Clockwork.Runtime.Policy;
@@ -157,6 +160,40 @@ public sealed class ModernSynchronizationRuleGoldenTests
         }
         """;
 
+    private const string CrossAssemblyApiFixture = """
+        using System.Threading;
+
+        namespace Fx.Contracts
+        {
+            public static class SynchronizationApi
+            {
+                public static Barrier ReturnBarrier(Barrier barrier, CountdownEvent countdown, SpinLock spinLock) => barrier;
+                public static CountdownEvent ReturnCountdown(Barrier barrier, CountdownEvent countdown, SpinLock spinLock) => countdown;
+                public static SpinLock ReturnSpinLock(Barrier barrier, CountdownEvent countdown, SpinLock spinLock) => spinLock;
+            }
+        }
+        """;
+
+    private const string CrossAssemblyConsumerFixture = """
+        using System.Threading;
+        using Fx.Contracts;
+
+        namespace Fx.Consumer
+        {
+            public static class SynchronizationConsumer
+            {
+                public static Barrier CallBarrier(Barrier barrier, CountdownEvent countdown, SpinLock spinLock) =>
+                    SynchronizationApi.ReturnBarrier(barrier, countdown, spinLock);
+
+                public static CountdownEvent CallCountdown(Barrier barrier, CountdownEvent countdown, SpinLock spinLock) =>
+                    SynchronizationApi.ReturnCountdown(barrier, countdown, spinLock);
+
+                public static SpinLock CallSpinLock(Barrier barrier, CountdownEvent countdown, SpinLock spinLock) =>
+                    SynchronizationApi.ReturnSpinLock(barrier, countdown, spinLock);
+            }
+        }
+        """;
+
     private static string RuntimeAssemblyPath =>
         typeof(Clockwork.Runtime.Threading.ControlledBarrier).Assembly.Location;
 
@@ -241,6 +278,81 @@ public sealed class ModernSynchronizationRuleGoldenTests
                 || field.FieldType.FullName.Contains("System.Threading.CountdownEvent", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void CrossAssemblyCallsRebuildSignaturesWhenOnlyParameterAndReturnTypesAreSubstituted()
+    {
+        using var context = RewriteTestContext.Create();
+        string apiPath = FixtureCompiler.Compile(
+            "Fx.SignatureApi",
+            CrossAssemblyApiFixture,
+            context.Directory,
+            FixtureSymbols.PortableFile,
+            optimize: false);
+        string consumerPath = FixtureCompiler.Compile(
+            "Fx.SignatureConsumer",
+            CrossAssemblyConsumerFixture,
+            context.Directory,
+            FixtureSymbols.PortableFile,
+            optimize: false,
+            additionalReferencePaths: [apiPath]);
+        string rewrittenApiPath = Path.Combine(context.Directory, "Fx.SignatureApi.rewritten.dll");
+        string rewrittenConsumerPath = Path.Combine(context.Directory, "Fx.SignatureConsumer.rewritten.dll");
+        var options = new RewriteOptions
+        {
+            ReplacementAssemblyPaths = [RuntimeAssemblyPath],
+            ReferenceSearchDirectories = [context.Directory, Path.GetDirectoryName(RuntimeAssemblyPath)!],
+        };
+        RewriteRuleSet rules = BuiltInRuleSets.BuildControlledTasks(BuiltInRuleSets.AllFamilies);
+
+        RewriteEngine.Rewrite(new RewriteRequest(apiPath, rewrittenApiPath, rules, options)).EnsureSuccess();
+        RewriteEngine.Rewrite(new RewriteRequest(consumerPath, rewrittenConsumerPath, rules, options)).EnsureSuccess();
+
+        using ModuleDefinition consumer = context.LoadModule(rewrittenConsumerPath);
+        MethodReference[] apiCalls = consumer.GetType("Fx.Consumer.SynchronizationConsumer")!.Methods
+            .SelectMany(method => method.Body.Instructions)
+            .Select(instruction => instruction.Operand)
+            .OfType<MethodReference>()
+            .Where(method => method.DeclaringType.FullName == "Fx.Contracts.SynchronizationApi")
+            .ToArray();
+        Assert.Equal(3, apiCalls.Length);
+        Assert.All(apiCalls, call =>
+        {
+            Assert.DoesNotContain("System.Threading.", call.ReturnType.FullName, StringComparison.Ordinal);
+            Assert.All(call.Parameters, parameter =>
+                Assert.DoesNotContain("System.Threading.", parameter.ParameterType.FullName, StringComparison.Ordinal));
+        });
+
+        File.Copy(rewrittenApiPath, apiPath, overwrite: true);
+        var loadContext = new DirectoryLoadContext(context.Directory);
+        try
+        {
+            Assembly consumerAssembly = loadContext.LoadFromAssemblyPath(rewrittenConsumerPath);
+            Type consumerType = consumerAssembly.GetType("Fx.Consumer.SynchronizationConsumer", throwOnError: true)!;
+            foreach (string methodName in new[] { "CallBarrier", "CallCountdown", "CallSpinLock" })
+            {
+                MethodInfo method = consumerType.GetMethod(methodName, BindingFlags.Public | BindingFlags.Static)!;
+                Type spinLockType = method.GetParameters()[2].ParameterType;
+                object spinLock = Activator.CreateInstance(spinLockType)!;
+
+                // If MapMethod retains the original BCL signature, this invocation fails with
+                // MissingMethodException before the trivial API method can return.
+                object? result = method.Invoke(null, [null, null, spinLock]);
+                if (methodName == "CallSpinLock")
+                {
+                    Assert.NotNull(result);
+                }
+                else
+                {
+                    Assert.Null(result);
+                }
+            }
+        }
+        finally
+        {
+            loadContext.Unload();
+        }
+    }
+
     private static RewriteResult Rewrite(RewriteTestContext context, string assemblyName, string fixture)
     {
         string fixturePath = context.CompileFixture(assemblyName, fixture);
@@ -264,5 +376,21 @@ public sealed class ModernSynchronizationRuleGoldenTests
     {
         Assert.True(CecilInspect.AnyMethodCallsContaining(module, controlled));
         Assert.False(CecilInspect.AnyMethodCallsContaining(module, original));
+    }
+
+    private sealed class DirectoryLoadContext(string directory) : AssemblyLoadContext(isCollectible: true)
+    {
+        private readonly string _directory = directory;
+
+        protected override Assembly? Load(AssemblyName assemblyName)
+        {
+            if (assemblyName.Name is null)
+            {
+                return null;
+            }
+
+            string candidate = Path.Combine(_directory, assemblyName.Name + ".dll");
+            return File.Exists(candidate) ? LoadFromAssemblyPath(candidate) : null;
+        }
     }
 }

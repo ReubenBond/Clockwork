@@ -113,6 +113,66 @@ public sealed class ControlledReaderWriterLockSlimTests
     }
 
     [Fact]
+    public void NoRecursionUpgradeableOwnerCanEnterAndExitReadBeforeUpgrading()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            ReaderWriterLockSlim rw = ControlledReaderWriterLockSlim.Create();
+
+            ControlledReaderWriterLockSlim.EnterUpgradeableReadLock(rw);
+            ControlledReaderWriterLockSlim.EnterReadLock(rw);
+            Assert.Equal(1, ControlledReaderWriterLockSlim.CurrentReadCount(rw));
+            Assert.Equal(1, ControlledReaderWriterLockSlim.RecursiveReadCount(rw));
+            Assert.Equal(1, ControlledReaderWriterLockSlim.RecursiveUpgradeCount(rw));
+            ControlledReaderWriterLockSlim.ExitReadLock(rw);
+
+            ControlledReaderWriterLockSlim.EnterWriteLock(rw);
+            Assert.Equal(1, ControlledReaderWriterLockSlim.RecursiveWriteCount(rw));
+            ControlledReaderWriterLockSlim.ExitWriteLock(rw);
+            ControlledReaderWriterLockSlim.ExitUpgradeableReadLock(rw);
+        });
+    }
+
+    [Fact]
+    public void EligibleUpgradeableOwnerUpgradesAheadOfQueuedOrdinaryWriter()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            ReaderWriterLockSlim rw = ControlledReaderWriterLockSlim.Create();
+            ControlledReaderWriterLockSlim.EnterUpgradeableReadLock(rw);
+            var upgradeCompleted = false;
+            var writerCompleted = false;
+            Thread ordinaryWriter = ControlledThread.Create(() =>
+            {
+                ControlledReaderWriterLockSlim.EnterWriteLock(rw);
+                writerCompleted = true;
+                ControlledReaderWriterLockSlim.ExitWriteLock(rw);
+            });
+
+            ControlledThread.Start(ordinaryWriter);
+            ControlledTaskRuntime.QueueWork(
+                () => ControlledSynchronizationFlow.RunAsStrand(
+                    ControlledSynchronizationFlow.None,
+                    () =>
+                    {
+                        ControlledReaderWriterLockSlim.EnterWriteLock(rw);
+                        upgradeCompleted = true;
+                        ControlledReaderWriterLockSlim.ExitWriteLock(rw);
+                        ControlledReaderWriterLockSlim.ExitUpgradeableReadLock(rw);
+                    }),
+                "test.upgrade-before-writer",
+                flowExecutionContext: false);
+
+            ControlledThread.Join(ordinaryWriter);
+
+            Assert.True(upgradeCompleted);
+            Assert.True(writerCompleted);
+        });
+    }
+
+    [Fact]
     public void RecursionPoliciesAndCountsAreObserved()
     {
         var coordinator = new ControlledTaskLoopCoordinator();

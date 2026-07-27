@@ -381,7 +381,7 @@ public static class ControlledReaderWriterLockSlim
             return false;
         }
 
-        if (waiter is null && state.Waiters.Count != 0)
+        if (waiter is null && state.Waiters.Count != 0 && !IsUpgradeableOwnerUpgrade(state, kind, owner))
         {
             return false;
         }
@@ -392,7 +392,9 @@ public static class ControlledReaderWriterLockSlim
             WaitKind.UpgradeableRead =>
                 state.UpgradeableOwner is null && !HasPendingWriter(state),
             WaitKind.Write =>
-                (waiter is null || IsFirstWriter(state, waiter)) &&
+                (IsUpgradeableOwnerUpgrade(state, kind, owner) ||
+                 waiter is null ||
+                 IsFirstWriter(state, waiter)) &&
                 CanEnterWrite(state, owner),
             _ => false,
         };
@@ -411,6 +413,9 @@ public static class ControlledReaderWriterLockSlim
     private static bool IsFirstWriter(State state, Waiter waiter) =>
         state.Waiters.FirstOrDefault(candidate =>
             candidate.Kind == WaitKind.Write && candidate.Outcome == WaitOutcome.Pending) == waiter;
+
+    private static bool IsUpgradeableOwnerUpgrade(State state, WaitKind kind, long owner) =>
+        kind == WaitKind.Write && state.UpgradeableOwner == owner;
 
     private static bool IsRecursive(State state, WaitKind kind, long owner) =>
         kind switch
@@ -441,8 +446,10 @@ public static class ControlledReaderWriterLockSlim
             return;
         }
 
-        var allowedUpgrade = kind == WaitKind.Write && holdsUpgradeable && !holdsRead && !holdsWrite;
-        if ((holdsRead || holdsUpgradeable || holdsWrite) && !allowedUpgrade)
+        var allowedCrossModeEntry =
+            (kind == WaitKind.Read && holdsUpgradeable && !holdsWrite) ||
+            (kind == WaitKind.Write && holdsUpgradeable && !holdsRead && !holdsWrite);
+        if ((holdsRead || holdsUpgradeable || holdsWrite) && !allowedCrossModeEntry)
         {
             throw new LockRecursionException();
         }

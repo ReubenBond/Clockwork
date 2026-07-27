@@ -146,6 +146,35 @@ public sealed class ControlledMutexTests
     }
 
     [Fact]
+    public void WaitAnyAcquiresMutexForTheWaitingStrandWhenAnotherStrandReleasesIt()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            Mutex mutex = ControlledMutex.Create(initiallyOwned: true);
+            Exception? releaseException = null;
+            Thread waiter = ControlledThread.Create(() =>
+            {
+                Assert.Equal(0, ControlledWaitHandle.WaitAny([mutex]));
+                releaseException = Record.Exception(() => ControlledMutex.ReleaseMutex(mutex));
+            });
+
+            ControlledThread.Start(waiter);
+            ControlledTaskRuntime.QueueWork(
+                () => ControlledSynchronizationFlow.RunAsStrand(
+                    ControlledSynchronizationFlow.None,
+                    () => ControlledMutex.ReleaseMutex(mutex)),
+                "test.release-mutex",
+                flowExecutionContext: false);
+
+            ControlledThread.Join(waiter);
+
+            Assert.Null(releaseException);
+            Assert.True(coordinator.Loop.IsIdle);
+        });
+    }
+
+    [Fact]
     public void WaitAllWithMutexIsRejectedWithoutAcquiringOtherHandles()
     {
         var coordinator = new ControlledTaskLoopCoordinator();

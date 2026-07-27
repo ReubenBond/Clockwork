@@ -266,6 +266,82 @@ public sealed class ControlledThreadPoolTests
     }
 
     [Fact]
+    public void RepeatingRegisteredWaitRearmsBeforeBlockingCallbackSoAutoResetSignalsAreNotLost()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            AutoResetEvent evt = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: false);
+            AutoResetEvent releaseFirstCallback = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: false);
+            var count = 0;
+
+            ControlledRegisteredWaitHandle registration = ControlledThreadPool.RegisterWaitForSingleObject(
+                evt,
+                (_, _) =>
+                {
+                    count++;
+                    if (count == 1)
+                    {
+                        ControlledTaskRuntime.QueueWork(
+                            () =>
+                            {
+                                ControlledEventWaitHandle.Set(evt);
+                                ControlledEventWaitHandle.Set(evt);
+                                ControlledEventWaitHandle.Set(releaseFirstCallback);
+                            },
+                            "test.registered-wait-signals",
+                            flowExecutionContext: false);
+                        Assert.True(ControlledWaitHandle.WaitOne(releaseFirstCallback));
+                    }
+                },
+                state: null,
+                Timeout.Infinite,
+                executeOnlyOnce: false);
+
+            ControlledEventWaitHandle.Set(evt);
+            coordinator.Loop.RunUntilIdle();
+
+            Assert.Equal(3, count);
+            Assert.True(registration.Unregister(null));
+            coordinator.Loop.RunUntilIdle();
+        });
+    }
+
+    [Fact]
+    public void RegisteredWaitCallbackRunsAsAFreshControlledStrand()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            AutoResetEvent evt = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: false);
+            var monitor = new object();
+            Exception? callbackException = null;
+
+            ControlledThreadPool.RegisterWaitForSingleObject(
+                evt,
+                (_, _) => callbackException = Record.Exception(() => ControlledMonitor.Exit(monitor)),
+                state: null,
+                Timeout.Infinite,
+                executeOnlyOnce: true);
+
+            ControlledMonitor.Enter(monitor);
+            try
+            {
+                ControlledEventWaitHandle.Set(evt);
+                coordinator.Loop.RunUntilIdle();
+            }
+            finally
+            {
+                ControlledMonitor.Exit(monitor);
+            }
+
+            Assert.IsType<SynchronizationLockException>(callbackException);
+        });
+    }
+
+    [Fact]
     public void UnregisterSignalsCompletionHandleWhenProvided()
     {
         var coordinator = new ControlledTaskLoopCoordinator();

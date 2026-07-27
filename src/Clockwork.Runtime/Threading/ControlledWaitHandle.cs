@@ -59,6 +59,10 @@ public static class ControlledWaitHandle
 
         public required bool WaitAll { get; init; }
 
+        // The logical strand which started this multi-handle wait. Completion can be driven by a
+        // different signaler's strand, but mutex acquisition must remain owned by the waiter.
+        public required long OwnerId { get; init; }
+
         public TaskCompletionSource<bool> Completion { get; } = new();
 
         public IControlledTimeout? Deadline { get; set; }
@@ -680,12 +684,13 @@ public static class ControlledWaitHandle
     {
         ValidateTimeout(millisecondsTimeout);
         HandleState[] states = ResolveStates(waitHandles, WaitAnyApi, requireUnique: false);
+        long owner = ControlledSynchronizationFlow.CurrentId;
 
         // Fast path: serve the lowest-index available handle, acquiring it (auto-reset clears).
-        int index = FirstAvailable(states);
+        int index = FirstAvailable(states, owner);
         if (index >= 0)
         {
-            _ = states[index].TryAcquire(ControlledSynchronizationFlow.CurrentId);
+            _ = states[index].TryAcquire(owner);
             return index;
         }
 
@@ -694,7 +699,7 @@ public static class ControlledWaitHandle
             return WaitTimeout;
         }
 
-        var waiter = new MultiWaiter { States = states, WaitAll = false };
+        var waiter = new MultiWaiter { States = states, WaitAll = false, OwnerId = owner };
         RegisterMultiWaiter(waiter);
         if (TryResolveMultiWaiter(waiter))
         {
@@ -713,12 +718,13 @@ public static class ControlledWaitHandle
         ValidateTimeout(millisecondsTimeout);
         HandleState[] states = ResolveStates(waitHandles, WaitAllApi, requireUnique: true);
         RejectWaitAllWithMutex(states);
+        long owner = ControlledSynchronizationFlow.CurrentId;
 
         // Fast path: only succeeds if every handle is simultaneously signalled, and then consumes them all
         // atomically (an auto-reset handle is never partially consumed).
-        if (AllSignaled(states))
+        if (AllSignaled(states, owner))
         {
-            ConsumeAll(states);
+            ConsumeAll(states, owner);
             return true;
         }
 
@@ -727,7 +733,7 @@ public static class ControlledWaitHandle
             return false;
         }
 
-        var waiter = new MultiWaiter { States = states, WaitAll = true };
+        var waiter = new MultiWaiter { States = states, WaitAll = true, OwnerId = owner };
         RegisterMultiWaiter(waiter);
         if (TryResolveMultiWaiter(waiter))
         {
@@ -797,11 +803,11 @@ public static class ControlledWaitHandle
         return states;
     }
 
-    private static int FirstAvailable(HandleState[] states)
+    private static int FirstAvailable(HandleState[] states, long owner)
     {
         for (int i = 0; i < states.Length; i++)
         {
-            if (states[i].IsAvailable(ControlledSynchronizationFlow.CurrentId))
+            if (states[i].IsAvailable(owner))
             {
                 return i;
             }
@@ -810,11 +816,11 @@ public static class ControlledWaitHandle
         return -1;
     }
 
-    private static bool AllSignaled(HandleState[] states)
+    private static bool AllSignaled(HandleState[] states, long owner)
     {
         for (int i = 0; i < states.Length; i++)
         {
-            if (!states[i].IsAvailable(ControlledSynchronizationFlow.CurrentId))
+            if (!states[i].IsAvailable(owner))
             {
                 return false;
             }
@@ -823,11 +829,11 @@ public static class ControlledWaitHandle
         return true;
     }
 
-    private static void ConsumeAll(HandleState[] states)
+    private static void ConsumeAll(HandleState[] states, long owner)
     {
         for (int i = 0; i < states.Length; i++)
         {
-            _ = states[i].TryAcquire(ControlledSynchronizationFlow.CurrentId);
+            _ = states[i].TryAcquire(owner);
         }
     }
 
@@ -869,18 +875,18 @@ public static class ControlledWaitHandle
 
         if (waiter.WaitAll)
         {
-            if (!AllSignaled(waiter.States))
+            if (!AllSignaled(waiter.States, waiter.OwnerId))
             {
                 return false;
             }
 
-            ConsumeAll(waiter.States);
+            ConsumeAll(waiter.States, waiter.OwnerId);
             CompleteMultiWaiter(waiter, succeeded: true);
             return true;
         }
 
-        int index = FirstAvailable(waiter.States);
-        if (index < 0 || !waiter.States[index].TryAcquire(ControlledSynchronizationFlow.CurrentId))
+        int index = FirstAvailable(waiter.States, waiter.OwnerId);
+        if (index < 0 || !waiter.States[index].TryAcquire(waiter.OwnerId))
         {
             return false;
         }

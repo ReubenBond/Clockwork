@@ -17,7 +17,9 @@ public struct ControlledSpinLock
 
     // A bool is kept separately from the owner because the root controlled strand has id zero.
     private bool _isHeld;
-    private bool _ownerTrackingEnabled;
+    // SpinLock's all-zero default has owner tracking enabled. Store the inverse so default(ControlledSpinLock)
+    // preserves that BCL contract while the bool constructor can explicitly disable tracking.
+    private bool _ownerTrackingDisabled;
     private long _ownerId;
 
     /// <summary>Initializes a controlled spin lock with optional logical-strand owner tracking.</summary>
@@ -26,7 +28,7 @@ public struct ControlledSpinLock
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(TypeName + "..ctor");
         _isHeld = false;
-        _ownerTrackingEnabled = enableThreadOwnerTracking;
+        _ownerTrackingDisabled = !enableThreadOwnerTracking;
         _ownerId = ControlledSynchronizationFlow.None;
     }
 
@@ -41,7 +43,7 @@ public struct ControlledSpinLock
         get
         {
             SimulationRuntimeDispatch.RequireActiveSimulation(TypeName + ".get_IsHeldByCurrentThread");
-            if (!_ownerTrackingEnabled)
+            if (_ownerTrackingDisabled)
             {
                 throw new InvalidOperationException("Thread owner tracking is disabled.");
             }
@@ -52,7 +54,7 @@ public struct ControlledSpinLock
 
     /// <summary>Gets whether owner tracking was enabled when this lock was constructed.</summary>
     public readonly bool IsThreadOwnerTrackingEnabled =>
-        (SimulationRuntimeDispatch.RequireActiveSimulation(TypeName + ".get_IsThreadOwnerTrackingEnabled"), _ownerTrackingEnabled).Item2;
+        (SimulationRuntimeDispatch.RequireActiveSimulation(TypeName + ".get_IsThreadOwnerTrackingEnabled"), !_ownerTrackingDisabled).Item2;
 
     /// <summary>Enters the lock, cooperatively pumping the scheduler while it is held.</summary>
     /// <param name="lockTaken">Must be <see langword="false"/> on entry; set after acquisition.</param>
@@ -159,7 +161,7 @@ public struct ControlledSpinLock
         }
 
         _isHeld = true;
-        if (_ownerTrackingEnabled)
+        if (!_ownerTrackingDisabled)
         {
             _ownerId = ControlledSynchronizationFlow.CurrentId;
         }
@@ -212,7 +214,7 @@ public struct ControlledSpinLock
 
     private void Release()
     {
-        if (_ownerTrackingEnabled && (!_isHeld || _ownerId != ControlledSynchronizationFlow.CurrentId))
+        if (!_ownerTrackingDisabled && (!_isHeld || _ownerId != ControlledSynchronizationFlow.CurrentId))
         {
             throw new SynchronizationLockException();
         }
@@ -225,7 +227,7 @@ public struct ControlledSpinLock
 
     private readonly void ThrowIfRecursiveOwner()
     {
-        if (_ownerTrackingEnabled && _ownerId == ControlledSynchronizationFlow.CurrentId)
+        if (!_ownerTrackingDisabled && _ownerId == ControlledSynchronizationFlow.CurrentId)
         {
             throw new LockRecursionException();
         }

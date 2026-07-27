@@ -62,6 +62,24 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
             }
         }
 
+        foreach (PropertyDefinition property in type.Properties)
+        {
+            TypeReference? mappedProperty = Mapper.MapType(property.PropertyType);
+            if (mappedProperty is not null)
+            {
+                property.PropertyType = mappedProperty;
+            }
+
+            foreach (ParameterDefinition parameter in property.Parameters)
+            {
+                TypeReference? mappedParameter = Mapper.MapType(parameter.ParameterType);
+                if (mappedParameter is not null)
+                {
+                    parameter.ParameterType = mappedParameter;
+                }
+            }
+        }
+
         // A substituted type can occur directly or inside a generic method signature, such as
         // Action<Barrier> in a compiler-generated callback. Leaving these signatures unchanged would
         // produce incompatible closure and public API references after the whole-type substitution.

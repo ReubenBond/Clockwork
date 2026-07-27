@@ -14,9 +14,13 @@ public sealed class ControlledSpinLockTests
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             ControlledSpinLock @default = default;
-            Assert.False(@default.IsThreadOwnerTrackingEnabled);
+            Assert.True(@default.IsThreadOwnerTrackingEnabled);
             Assert.False(@default.IsHeld);
-            Assert.Throws<InvalidOperationException>(() => _ = @default.IsHeldByCurrentThread);
+            Assert.False(@default.IsHeldByCurrentThread);
+
+            var disabled = new ControlledSpinLock(enableThreadOwnerTracking: false);
+            Assert.False(disabled.IsThreadOwnerTrackingEnabled);
+            Assert.Throws<InvalidOperationException>(() => _ = disabled.IsHeldByCurrentThread);
 
             var tracked = new ControlledSpinLock(enableThreadOwnerTracking: true);
             Assert.True(tracked.IsThreadOwnerTrackingEnabled);

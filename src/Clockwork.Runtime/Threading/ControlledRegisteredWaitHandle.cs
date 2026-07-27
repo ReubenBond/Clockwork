@@ -43,6 +43,8 @@ public sealed class ControlledRegisteredWaitHandle
 
     private bool _unregistered;
     private bool _finished;
+    private bool _stopped;
+    private int _inFlightCallbacks;
     private WaitHandle? _completion;
 
     // The current pending waiter and its target handle state, or null between iterations.
@@ -96,6 +98,10 @@ public sealed class ControlledRegisteredWaitHandle
         {
             ControlledWaitHandle.CancelRegisteredWaiter(_pendingState, _pending);
         }
+        else
+        {
+            FinishWhenQuiescent();
+        }
 
         return true;
     }
@@ -104,7 +110,7 @@ public sealed class ControlledRegisteredWaitHandle
     {
         if (_unregistered)
         {
-            Finish();
+            FinishWhenQuiescent();
             return;
         }
 
@@ -150,30 +156,56 @@ public sealed class ControlledRegisteredWaitHandle
     {
         if (_unregistered)
         {
-            Finish();
+            FinishWhenQuiescent();
             return;
         }
-
-        Invoke(timedOut: !signaled);
 
         if (_executeOnlyOnce)
         {
-            Finish();
-            return;
+            _stopped = true;
+        }
+        else
+        {
+            // Keep an independent passive wait armed before user code can block. Signals which arrive
+            // while a callback is running then complete the next iteration instead of being coalesced.
+            Arm();
         }
 
-        Arm();
+        DispatchCallback(timedOut: !signaled);
     }
 
-    private void Finish()
+    private void FinishWhenQuiescent()
     {
-        if (_finished)
+        if (_finished ||
+            _pending is not null ||
+            _inFlightCallbacks != 0 ||
+            (!_unregistered && !_stopped))
         {
             return;
         }
 
         _finished = true;
         ControlledWaitHandle.TrySignal(_completion);
+    }
+
+    private void DispatchCallback(bool timedOut)
+    {
+        _inFlightCallbacks++;
+        ControlledTaskRuntime.QueueWork(
+            () =>
+            {
+                try
+                {
+                    Invoke(timedOut);
+                }
+                finally
+                {
+                    _inFlightCallbacks--;
+                    FinishWhenQuiescent();
+                }
+            },
+            RegisterApi,
+            flowExecutionContext: false);
     }
 
     private void Invoke(bool timedOut)
