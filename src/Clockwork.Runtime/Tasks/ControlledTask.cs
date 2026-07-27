@@ -130,6 +130,30 @@ public static class ControlledTask
     public static Task<Task<TResult>> WhenAny<TResult>(IEnumerable<Task<TResult>> tasks) => Task.WhenAny(tasks);
 
     /// <summary>
+    /// Controlled <c>TaskExtensions.Unwrap(this Task&lt;Task&gt;)</c>. Like the combinators this delegates
+    /// to the real BCL: the outer and inner tasks both complete on the simulation's single logical
+    /// thread, so the unwrapped proxy's completion is already driven deterministically and awaiting it
+    /// through a controlled awaiter needs no further scheduling.
+    /// </summary>
+    /// <param name="task">The nested task to unwrap.</param>
+    /// <returns>A task representing the completion of the inner task.</returns>
+    public static Task Unwrap(Task<Task> task)
+    {
+        ArgumentNullException.ThrowIfNull(task);
+        return task.Unwrap();
+    }
+
+    /// <summary>Controlled <c>TaskExtensions.Unwrap&lt;TResult&gt;(this Task&lt;Task&lt;TResult&gt;&gt;)</c>.</summary>
+    /// <typeparam name="TResult">The inner task result type.</typeparam>
+    /// <param name="task">The nested task to unwrap.</param>
+    /// <returns>A task representing the completion (and result) of the inner task.</returns>
+    public static Task<TResult> Unwrap<TResult>(Task<Task<TResult>> task)
+    {
+        ArgumentNullException.ThrowIfNull(task);
+        return task.Unwrap();
+    }
+
+    /// <summary>
     /// Controlled instance <c>task.Wait()</c>. Pumps the coordinator until the task completes (never
     /// blocking a physical thread) then delegates to the real <see cref="Task.Wait()"/> so the exact
     /// <see cref="AggregateException"/> semantics are preserved.

@@ -128,9 +128,10 @@ public static class RuleInventoryDocument
             "Production security semantics are never changed.",
         BuiltInRuleFamily.TaskCombinators =>
             "`Task.WhenAll`/`WhenAny` (the non-generic `Task[]`, `IEnumerable<Task>`, .NET 9+ params " +
-            "`ReadOnlySpan<Task>`, and two-argument overloads) redirect to controlled combinators. " +
-            "Completion and the returned winner become a deterministic function of when the antecedents " +
-            "complete on the logical thread instead of a physical thread-pool race.",
+            "`ReadOnlySpan<Task>`, and two-argument overloads, plus their generic `Task<TResult>` " +
+            "counterparts) and the `TaskExtensions.Unwrap` extension methods redirect to controlled " +
+            "combinators. Completion and the returned winner become a deterministic function of when the " +
+            "antecedents complete on the logical thread instead of a physical thread-pool race.",
         BuiltInRuleFamily.TaskSynchronization =>
             "Blocking `Task.Wait()`, `Task.WaitAll`, and `Task.WaitAny` redirect to controlled waits that pump " +
             "the deterministic loop rather than blocking a physical thread; a never-satisfiable wait surfaces " +

@@ -7,7 +7,8 @@ namespace Clockwork.Conformance.Tests;
 /// End-to-end conformance for the generic <see cref="Task{TResult}"/> surface that the controlled-task
 /// rule set now covers: the generic <c>WhenAll&lt;T&gt;</c>/<c>WhenAny&lt;T&gt;</c> combinator overloads
 /// (span, array, and enumerable bindings), the blocking <c>Task&lt;T&gt;.Result</c> accessor draining the
-/// controlled loop instead of dead-locking a physical thread, and the controlled <see cref="TaskFactory"/>
+/// controlled loop instead of dead-locking a physical thread, the <c>TaskExtensions.Unwrap</c> extension
+/// methods, and the controlled <see cref="TaskFactory"/>
 /// scheduling surface. Each probe is compiled from ordinary source, rewritten, and executed inside a live
 /// single-logical-thread <see cref="SimulationHost"/>, so any escape to the thread pool would hang.
 /// </summary>
@@ -54,6 +55,13 @@ public sealed class GenericTaskConformanceTests : IDisposable
 
             // ---- TaskFactory scheduling is controlled under simulation (Phase 6B) ----
             public static Task<int> FactoryStartNew() => System.Threading.Tasks.Task.Factory.StartNew(() => 5);
+
+            // ---- TaskExtensions.Unwrap: inner+outer both complete on the logical thread ----
+            public static Task<int> UnwrapGeneric(Task<Task<int>> outer) => UnwrapGenericImpl(outer);
+            private static async Task<int> UnwrapGenericImpl(Task<Task<int>> outer) => await outer.Unwrap();
+
+            public static Task UnwrapNonGeneric(Task<Task> outer) => UnwrapNonGenericImpl(outer);
+            private static async Task UnwrapNonGenericImpl(Task<Task> outer) => await outer.Unwrap();
         } }
         """;
 
@@ -196,6 +204,39 @@ public sealed class GenericTaskConformanceTests : IDisposable
         int value = await task;
 
         Assert.Equal(5, value);
+    }
+
+    [Fact]
+    public void UnwrapGenericResolvesTheInnerTaskResultThroughTheControlledLoop()
+    {
+        using var host = new SimulationHost(Start);
+        var outer = new TaskCompletionSource<Task<int>>();
+        var inner = new TaskCompletionSource<int>();
+
+        // outer yields the inner task, then the inner task completes; both on the logical thread.
+        var task = (Task<int>)host.InvokeWithWork(
+            Method("UnwrapGeneric"),
+            [outer.Task],
+            () => outer.SetResult(inner.Task),
+            () => inner.SetResult(99))!;
+
+        Assert.Equal(99, Result<int>(task));
+    }
+
+    [Fact]
+    public void UnwrapNonGenericResolvesTheInnerTaskCompletion()
+    {
+        using var host = new SimulationHost(Start);
+        var outer = new TaskCompletionSource<Task>();
+        var inner = new TaskCompletionSource<int>();
+
+        var task = (Task)host.InvokeWithWork(
+            Method("UnwrapNonGeneric"),
+            [outer.Task],
+            () => outer.SetResult(inner.Task),
+            () => inner.SetResult(1))!;
+
+        Assert.True(task.IsCompletedSuccessfully);
     }
 
     private MethodInfo Method(string name) => _probe.Value.Method(name);
