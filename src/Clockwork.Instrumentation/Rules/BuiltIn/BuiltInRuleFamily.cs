@@ -152,4 +152,48 @@ public enum BuiltInRuleFamily
     /// such call sites to throw rather than run.
     /// </summary>
     UncontrolledInvocation,
+
+    /// <summary>
+    /// <see cref="System.Threading.Monitor"/> surface, and therefore every C# <c>lock (object)</c>
+    /// statement (which the compiler lowers to <c>Monitor.Enter(obj, ref bool)</c> +
+    /// <c>finally Monitor.Exit(obj)</c>). Classified <c>Controlled</c> (Phase 7A): the shim models each
+    /// monitored object's ownership, recursion count, and condition-variable wait set on the cooperative
+    /// logical thread. <c>Enter</c>/<c>TryEnter</c> acquire (a contended acquire pumps the deterministic
+    /// loop until the owner releases), <c>Exit</c> unwinds one recursion level, <c>Wait</c> atomically
+    /// releases the full recursion count and re-acquires it after being pulsed, and <c>Pulse</c>/
+    /// <c>PulseAll</c> move waiters to the ready set with replayable ordering. A never-satisfiable acquire
+    /// or wait surfaces as the loop-model deadlock diagnostic. Zero timeouts are faithful non-blocking
+    /// tries; finite positive timeouts are modelled as infinite under simulation (virtual-time timeouts
+    /// are Phase 8). Ownership/argument/timeout errors throw exactly as the BCL. Outside a simulation every
+    /// shim delegates to the real <see cref="System.Threading.Monitor"/>.
+    /// </summary>
+    Monitor,
+
+    /// <summary>
+    /// <see cref="System.Threading.Lock"/> (the .NET 9+ dedicated lock type) and its C# <c>lock (Lock)</c>
+    /// lowering (<c>Lock.Scope scope = obj.EnterScope(); try { ... } finally { scope.Dispose(); }</c>).
+    /// Classified <c>Controlled</c> (Phase 7A) via <c>SubstituteType</c>: every reference to
+    /// <see cref="System.Threading.Lock"/> and its nested <c>Scope</c> ref struct is retargeted onto the
+    /// controlled equivalents, so <c>Enter</c>/<c>Exit</c>/<c>EnterScope</c>/<c>TryEnter</c>/
+    /// <c>IsHeldByCurrentThread</c> and the scope's <c>Dispose</c> run on the controlled monitor kernel
+    /// with the same reentrancy and mutual-exclusion semantics. Outside a simulation the controlled type
+    /// delegates to a real wrapped <see cref="System.Threading.Lock"/>.
+    /// </summary>
+    Lock,
+
+    /// <summary>
+    /// <see cref="System.Threading.SemaphoreSlim"/> surface: construction, <c>CurrentCount</c>, the
+    /// synchronous <c>Wait</c> overloads, the asynchronous <c>WaitAsync</c> overloads, <c>Release</c>, and
+    /// <c>Dispose</c>. Classified <c>Controlled</c> (Phase 7A): the permit count and waiter set are
+    /// modelled on the cooperative logical thread. A synchronous <c>Wait</c> with no permit pumps the loop
+    /// until a permit is released (a never-satisfiable wait surfaces as the loop-model deadlock diagnostic);
+    /// <c>WaitAsync</c> returns a task completed when a permit is released; <c>Release</c> enforces the
+    /// maximum count (<see cref="System.Threading.SemaphoreFullException"/>) and serves waiters in a
+    /// deterministic, replayable order; cancellation is honoured on the logical thread. Zero timeouts are
+    /// faithful non-blocking tries; finite positive timeouts are modelled as infinite (virtual-time
+    /// timeouts are Phase 8). <c>AvailableWaitHandle</c> depends on the Phase 7B wait-handle surface and is
+    /// classified <c>Rejected</c>: the rewritten call site fails precisely under simulation until then.
+    /// Outside a simulation every shim delegates to the real <see cref="System.Threading.SemaphoreSlim"/>.
+    /// </summary>
+    Semaphore,
 }

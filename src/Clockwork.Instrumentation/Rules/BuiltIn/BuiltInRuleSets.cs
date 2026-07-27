@@ -53,6 +53,8 @@ public static class BuiltInRuleSets
     private const string ThreadShim = "Clockwork.Runtime.Threading.ControlledThread";
     private const string ThreadPoolShim = "Clockwork.Runtime.Threading.ControlledThreadPool";
     private const string ParallelShim = "Clockwork.Runtime.Threading.ControlledParallel";
+    private const string MonitorShim = "Clockwork.Runtime.Threading.ControlledMonitor";
+    private const string SemaphoreSlimShim = "Clockwork.Runtime.Threading.ControlledSemaphoreSlim";
 
     // Cecil full names for the exact overload parameters (from the net10 reference assemblies).
     private const string Int32 = "System.Int32";
@@ -189,6 +191,20 @@ public static class BuiltInRuleSets
     private const string ExceptionType = "System.Exception";
     private const string UncontrolledInvocationShim = "Clockwork.Runtime.UncontrolledInvocationGuard";
 
+    // Cecil full names for the controlled Phase 7A synchronization surface. Monitor is entirely static, so
+    // the shim signatures match the BCL targets exactly. `ref bool` renders as `System.Boolean&`.
+    // System.Threading.Lock (and its nested Scope ref struct) is retargeted by type substitution, so the
+    // C# `lock (Lock)` lowering (EnterScope/Scope.Dispose) is redirected wholesale. SemaphoreSlim is a
+    // sealed class whose controlled shim is receiver-first: each instance member's shim prepends the
+    // SemaphoreSlim receiver, and the two constructors are redirected to Create factories.
+    private const string MonitorType = "System.Threading.Monitor";
+    private const string BooleanRef = "System.Boolean&";
+    private const string LockType = "System.Threading.Lock";
+    private const string LockScopeType = "System.Threading.Lock/Scope";
+    private const string ControlledLockType = "Clockwork.Runtime.Threading.ControlledLock";
+    private const string ControlledLockScopeType = "Clockwork.Runtime.Threading.ControlledLock/Scope";
+    private const string SemaphoreSlimType = "System.Threading.SemaphoreSlim";
+
 
     // Cecil full names for the compiler-generated async machinery (BCL) and their controlled substitutes.
     // Nested awaiter types use Cecil's '/' separator; generic arities carry the backtick.
@@ -255,6 +271,9 @@ public static class BuiltInRuleSets
         BuiltInRuleFamily.Thread,
         BuiltInRuleFamily.ThreadPool,
         BuiltInRuleFamily.Parallel,
+        BuiltInRuleFamily.Monitor,
+        BuiltInRuleFamily.Lock,
+        BuiltInRuleFamily.Semaphore,
         BuiltInRuleFamily.UncontrolledInvocation,
     ];
 
@@ -613,6 +632,101 @@ public static class BuiltInRuleSets
         UncontrolledRejection(builder, "clockwork.environment.exit", EnvironmentType, "Exit", Int32);
         UncontrolledRejection(builder, "clockwork.environment.failfast.message", EnvironmentType, "FailFast", String);
         UncontrolledRejection(builder, "clockwork.environment.failfast.exception", EnvironmentType, "FailFast", String, ExceptionType);
+
+        // ---- Monitor (Phase 7A): the entire static Monitor surface is redirected to ControlledMonitor,
+        // which models ownership/recursion/condition-wait on the cooperative logical thread. Because the C#
+        // `lock (object)` statement lowers to Monitor.Enter(obj, ref bool) + finally Monitor.Exit(obj),
+        // redirecting these members controls every `lock` automatically - no separate lock rule is needed.
+        // Monitor is static, so each shim signature matches the BCL target exactly. ----
+        TaskRule(builder, BuiltInRuleFamily.Monitor, "clockwork.monitor.enter",
+            MemberSignature.Method(MonitorType, "Enter", ObjectType), Shim(MonitorShim, "Enter", ObjectType));
+        TaskRule(builder, BuiltInRuleFamily.Monitor, "clockwork.monitor.enter.locktaken",
+            MemberSignature.Method(MonitorType, "Enter", ObjectType, BooleanRef), Shim(MonitorShim, "Enter", ObjectType, BooleanRef));
+        TaskRule(builder, BuiltInRuleFamily.Monitor, "clockwork.monitor.exit",
+            MemberSignature.Method(MonitorType, "Exit", ObjectType), Shim(MonitorShim, "Exit", ObjectType));
+        TaskRule(builder, BuiltInRuleFamily.Monitor, "clockwork.monitor.isentered",
+            MemberSignature.Method(MonitorType, "IsEntered", ObjectType), Shim(MonitorShim, "IsEntered", ObjectType));
+        TaskRule(builder, BuiltInRuleFamily.Monitor, "clockwork.monitor.tryenter",
+            MemberSignature.Method(MonitorType, "TryEnter", ObjectType), Shim(MonitorShim, "TryEnter", ObjectType));
+        TaskRule(builder, BuiltInRuleFamily.Monitor, "clockwork.monitor.tryenter.locktaken",
+            MemberSignature.Method(MonitorType, "TryEnter", ObjectType, BooleanRef), Shim(MonitorShim, "TryEnter", ObjectType, BooleanRef));
+        TaskRule(builder, BuiltInRuleFamily.Monitor, "clockwork.monitor.tryenter.milliseconds",
+            MemberSignature.Method(MonitorType, "TryEnter", ObjectType, Int32), Shim(MonitorShim, "TryEnter", ObjectType, Int32));
+        TaskRule(builder, BuiltInRuleFamily.Monitor, "clockwork.monitor.tryenter.milliseconds.locktaken",
+            MemberSignature.Method(MonitorType, "TryEnter", ObjectType, Int32, BooleanRef), Shim(MonitorShim, "TryEnter", ObjectType, Int32, BooleanRef));
+        TaskRule(builder, BuiltInRuleFamily.Monitor, "clockwork.monitor.tryenter.timespan",
+            MemberSignature.Method(MonitorType, "TryEnter", ObjectType, TimeSpan), Shim(MonitorShim, "TryEnter", ObjectType, TimeSpan));
+        TaskRule(builder, BuiltInRuleFamily.Monitor, "clockwork.monitor.tryenter.timespan.locktaken",
+            MemberSignature.Method(MonitorType, "TryEnter", ObjectType, TimeSpan, BooleanRef), Shim(MonitorShim, "TryEnter", ObjectType, TimeSpan, BooleanRef));
+        TaskRule(builder, BuiltInRuleFamily.Monitor, "clockwork.monitor.wait",
+            MemberSignature.Method(MonitorType, "Wait", ObjectType), Shim(MonitorShim, "Wait", ObjectType));
+        TaskRule(builder, BuiltInRuleFamily.Monitor, "clockwork.monitor.wait.milliseconds",
+            MemberSignature.Method(MonitorType, "Wait", ObjectType, Int32), Shim(MonitorShim, "Wait", ObjectType, Int32));
+        TaskRule(builder, BuiltInRuleFamily.Monitor, "clockwork.monitor.wait.milliseconds.exitcontext",
+            MemberSignature.Method(MonitorType, "Wait", ObjectType, Int32, Boolean), Shim(MonitorShim, "Wait", ObjectType, Int32, Boolean));
+        TaskRule(builder, BuiltInRuleFamily.Monitor, "clockwork.monitor.wait.timespan",
+            MemberSignature.Method(MonitorType, "Wait", ObjectType, TimeSpan), Shim(MonitorShim, "Wait", ObjectType, TimeSpan));
+        TaskRule(builder, BuiltInRuleFamily.Monitor, "clockwork.monitor.wait.timespan.exitcontext",
+            MemberSignature.Method(MonitorType, "Wait", ObjectType, TimeSpan, Boolean), Shim(MonitorShim, "Wait", ObjectType, TimeSpan, Boolean));
+        TaskRule(builder, BuiltInRuleFamily.Monitor, "clockwork.monitor.pulse",
+            MemberSignature.Method(MonitorType, "Pulse", ObjectType), Shim(MonitorShim, "Pulse", ObjectType));
+        TaskRule(builder, BuiltInRuleFamily.Monitor, "clockwork.monitor.pulseall",
+            MemberSignature.Method(MonitorType, "PulseAll", ObjectType), Shim(MonitorShim, "PulseAll", ObjectType));
+
+        // ---- System.Threading.Lock (Phase 7A): type substitution retargets the dedicated lock type and its
+        // nested Scope ref struct onto the controlled equivalents. This remaps `new Lock()`, every field/
+        // local/parameter typed as Lock or Lock.Scope, and the C# `lock (Lock)` lowering
+        // (EnterScope/Scope.Dispose) wholesale, so no per-member call rules are required. ----
+        Sub(builder, BuiltInRuleFamily.Lock, "clockwork.lock.type", LockType, ControlledLockType);
+        Sub(builder, BuiltInRuleFamily.Lock, "clockwork.lock.scope.type", LockScopeType, ControlledLockScopeType);
+
+        // ---- SemaphoreSlim (Phase 7A): SemaphoreSlim is a sealed class, so the controlled object is a real
+        // SemaphoreSlim identity handle whose count/waiter state lives in a weak-keyed side table. The two
+        // constructors redirect to Create factories; every instance member is receiver-first (the shim
+        // prepends the SemaphoreSlim receiver). AvailableWaitHandle depends on the Phase 7B wait-handle
+        // surface and is rejected precisely until then. ----
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Semaphore, RewriteRule.RedirectNewObj(
+            "clockwork.semaphoreslim.ctor.initial",
+            MemberSignature.Constructor(SemaphoreSlimType, Int32), Shim(SemaphoreSlimShim, "Create", Int32))));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Semaphore, RewriteRule.RedirectNewObj(
+            "clockwork.semaphoreslim.ctor.initial.max",
+            MemberSignature.Constructor(SemaphoreSlimType, Int32, Int32), Shim(SemaphoreSlimShim, "Create", Int32, Int32))));
+
+        TaskRule(builder, BuiltInRuleFamily.Semaphore, "clockwork.semaphoreslim.get_currentcount",
+            MemberSignature.Method(SemaphoreSlimType, "get_CurrentCount"), Shim(SemaphoreSlimShim, "CurrentCount", SemaphoreSlimType));
+        TaskRule(builder, BuiltInRuleFamily.Semaphore, "clockwork.semaphoreslim.wait",
+            MemberSignature.Method(SemaphoreSlimType, "Wait"), Shim(SemaphoreSlimShim, "Wait", SemaphoreSlimType));
+        TaskRule(builder, BuiltInRuleFamily.Semaphore, "clockwork.semaphoreslim.wait.cancellationtoken",
+            MemberSignature.Method(SemaphoreSlimType, "Wait", CancellationToken), Shim(SemaphoreSlimShim, "Wait", SemaphoreSlimType, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.Semaphore, "clockwork.semaphoreslim.wait.milliseconds",
+            MemberSignature.Method(SemaphoreSlimType, "Wait", Int32), Shim(SemaphoreSlimShim, "Wait", SemaphoreSlimType, Int32));
+        TaskRule(builder, BuiltInRuleFamily.Semaphore, "clockwork.semaphoreslim.wait.milliseconds.cancellationtoken",
+            MemberSignature.Method(SemaphoreSlimType, "Wait", Int32, CancellationToken), Shim(SemaphoreSlimShim, "Wait", SemaphoreSlimType, Int32, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.Semaphore, "clockwork.semaphoreslim.wait.timespan",
+            MemberSignature.Method(SemaphoreSlimType, "Wait", TimeSpan), Shim(SemaphoreSlimShim, "Wait", SemaphoreSlimType, TimeSpan));
+        TaskRule(builder, BuiltInRuleFamily.Semaphore, "clockwork.semaphoreslim.wait.timespan.cancellationtoken",
+            MemberSignature.Method(SemaphoreSlimType, "Wait", TimeSpan, CancellationToken), Shim(SemaphoreSlimShim, "Wait", SemaphoreSlimType, TimeSpan, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.Semaphore, "clockwork.semaphoreslim.waitasync",
+            MemberSignature.Method(SemaphoreSlimType, "WaitAsync"), Shim(SemaphoreSlimShim, "WaitAsync", SemaphoreSlimType));
+        TaskRule(builder, BuiltInRuleFamily.Semaphore, "clockwork.semaphoreslim.waitasync.cancellationtoken",
+            MemberSignature.Method(SemaphoreSlimType, "WaitAsync", CancellationToken), Shim(SemaphoreSlimShim, "WaitAsync", SemaphoreSlimType, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.Semaphore, "clockwork.semaphoreslim.waitasync.milliseconds",
+            MemberSignature.Method(SemaphoreSlimType, "WaitAsync", Int32), Shim(SemaphoreSlimShim, "WaitAsync", SemaphoreSlimType, Int32));
+        TaskRule(builder, BuiltInRuleFamily.Semaphore, "clockwork.semaphoreslim.waitasync.milliseconds.cancellationtoken",
+            MemberSignature.Method(SemaphoreSlimType, "WaitAsync", Int32, CancellationToken), Shim(SemaphoreSlimShim, "WaitAsync", SemaphoreSlimType, Int32, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.Semaphore, "clockwork.semaphoreslim.waitasync.timespan",
+            MemberSignature.Method(SemaphoreSlimType, "WaitAsync", TimeSpan), Shim(SemaphoreSlimShim, "WaitAsync", SemaphoreSlimType, TimeSpan));
+        TaskRule(builder, BuiltInRuleFamily.Semaphore, "clockwork.semaphoreslim.waitasync.timespan.cancellationtoken",
+            MemberSignature.Method(SemaphoreSlimType, "WaitAsync", TimeSpan, CancellationToken), Shim(SemaphoreSlimShim, "WaitAsync", SemaphoreSlimType, TimeSpan, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.Semaphore, "clockwork.semaphoreslim.release",
+            MemberSignature.Method(SemaphoreSlimType, "Release"), Shim(SemaphoreSlimShim, "Release", SemaphoreSlimType));
+        TaskRule(builder, BuiltInRuleFamily.Semaphore, "clockwork.semaphoreslim.release.count",
+            MemberSignature.Method(SemaphoreSlimType, "Release", Int32), Shim(SemaphoreSlimShim, "Release", SemaphoreSlimType, Int32));
+        TaskRule(builder, BuiltInRuleFamily.Semaphore, "clockwork.semaphoreslim.dispose",
+            MemberSignature.Method(SemaphoreSlimType, "Dispose"), Shim(SemaphoreSlimShim, "Dispose", SemaphoreSlimType));
+
+        RejectedRule(builder, BuiltInRuleFamily.Semaphore, "clockwork.semaphoreslim.get_availablewaithandle",
+            MemberSignature.Method(SemaphoreSlimType, "get_AvailableWaitHandle"), Shim(SemaphoreSlimShim, "AvailableWaitHandle", SemaphoreSlimType));
 
         return builder.ToImmutable();
     }

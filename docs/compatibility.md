@@ -463,6 +463,69 @@ Each mode is intended to be strictly additive: an application written for
 cooperative mode should continue to work unmodified under controlled, race
 exploration, or deep instrumentation mode.
 
+#### Monitors, locks, and semaphores (Phase 7A)
+
+Phase 7A puts the highest-value synchronization primitives on the same cooperative logical-thread
+kernel: `System.Threading.Monitor` (and therefore every C# `lock (object)` statement),
+`System.Threading.Lock` (and the C# `lock (Lock)` statement), and `System.Threading.SemaphoreSlim`.
+The exhaustive controlled/rejected signature list is regenerated into
+[`rule-inventory.md`](rule-inventory.md); the per-member Coyote parity ledger is
+[`coyote-parity.md`](coyote-parity.md).
+
+What is now **controlled**: the entire `Monitor` static surface — `Enter`/`Exit`/`IsEntered`, all six
+`TryEnter` overloads, all five `Wait` overloads, `Pulse`/`PulseAll` — modelling per-object ownership, a
+reentrancy count, and a condition-variable wait set on the logical thread. Because the C# compiler lowers
+`lock (object)` to `Monitor.Enter(obj, ref bool)` + `finally Monitor.Exit(obj)`, redirecting `Monitor`
+controls every `lock` automatically (verified against both Debug and Release lowering, nested/reentrant
+locks, third-party assemblies, and lock release through exceptions/finally). `System.Threading.Lock` and
+its nested `Scope` ref struct are controlled by **type substitution**, which covers the C# `lock (Lock)`
+scope lowering (`EnterScope`/`Scope.Dispose`) as well as the explicit
+`Enter`/`Exit`/`TryEnter`/`IsHeldByCurrentThread` members. `SemaphoreSlim` is controlled across its
+constructors, `CurrentCount`, the synchronous `Wait` overloads, the asynchronous `WaitAsync` overloads,
+`Release`, and `Dispose`, enforcing the maximum count and serving waiters in deterministic FIFO order.
+
+**Finite positive timeouts are honoured exactly in virtual time.** `Monitor.TryEnter(obj, 250)`,
+`Monitor.Wait(obj, 250)`, `Lock.TryEnter(250)`, `SemaphoreSlim.Wait(250)`, and `SemaphoreSlim.WaitAsync(250)`
+wait until acquisition/signal or a **simulated** deadline, then return/set `false` on timeout — never
+consuming wall-clock time. Zero timeouts stay faithful non-blocking tries and infinite timeouts stay
+indefinite. The deadline is a `PausedUntilTime` state driven by the cluster clock, so it is *not* a
+deadlock cycle edge; advancing the cluster clock fires it. Because modelled time only advances when
+nothing else is runnable, any release, pulse, or cancellation possible at the current instant beats a
+same-instant timeout (Phase 3B's deterministic first-winner policy), and ties between two deadlines at
+the same instant resolve by registration order. Cancellation is honoured faithfully — a
+`CancellationToken` fires synchronously on the logical thread and throws `OperationCanceledException`.
+
+**Deliberate deviations from real BCL semantics** (documented here, tested, and revisited when the
+physical-gate backend lands):
+
+- **A never-satisfiable acquire or *indefinite* wait surfaces as a deadlock diagnostic, not a hang.**
+  A finite wait times out (above); an infinite one with no possible progress is reported. Instead of
+  blocking a physical thread forever, an unsatisfiable contended `Enter`, `Monitor.Wait`, or
+  `SemaphoreSlim.Wait` throws the loop-model `ControlledSynchronousWaitDeadlockException`. One
+  consequence: a `Monitor.Wait` that deadlocks has already released the monitor to wait, so a
+  compiler-generated `lock` `finally` that then runs `Monitor.Exit` would observe no ownership — the
+  deadlock is a terminal diagnostic for the run, not a recoverable exception to catch inside a `lock`.
+- **Ownership is by logical strand, not physical thread.** All controlled work shares one cooperative
+  thread, so ownership/reentrancy is tracked by the ambient logical-strand id assigned at the single
+  new-strand choke point. This is faithful for the async-first concurrency Clockwork targets; a purely
+  synchronous CPU loop that never yields does not interleave the way real preemptive threads would.
+- **Waiter selection is deterministic and replayable, but does not promise BCL fairness.** `Pulse`,
+  `PulseAll`, and `SemaphoreSlim.Release` serve waiters in arrival (FIFO) order for reproducibility; the
+  real BCL makes no such guarantee, so code that depends on a specific non-FIFO wakeup order is not a
+  target.
+- **`SemaphoreSlim.AvailableWaitHandle` is rejected precisely.** It exposes a `WaitHandle`, a **Phase 7B**
+  primitive; the rewritten call site throws a `ControlledSemaphoreSlimUnsupportedException` under
+  simulation until then rather than handing back an uncontrolled handle.
+- **Lock objects are never kept alive by the model.** Monitor/semaphore association state lives in a
+  `ConditionalWeakTable` keyed weakly by the lock/semaphore object, so a controlled association never
+  roots an otherwise-collectible object.
+
+The three-state contract still holds for every Phase 7A shim: outside a simulation each is a transparent
+pass-through to the real BCL primitive; inside a simulation the operation routes through the coordinator;
+inside a simulation with no registered coordinator the shim throws rather than silently escaping.
+**Phase 7B** owns wait handles / events / `Interlocked` / `Volatile` / `SpinWait`; **Phase 8** owns
+`ReaderWriterLockSlim`/`Mutex`/`Semaphore`/`SpinLock` and timers/`Task.Delay`/cancellation timers.
+
 ## Platform and deployment contract
 
 ### Supported today
@@ -484,8 +547,10 @@ exploration, or deep instrumentation mode.
   (`QueueUserWorkItem`/`UnsafeQueueUserWorkItem`), and `Parallel` under control (see the Coyote
   parity matrix, [`coyote-parity.md`](coyote-parity.md)). Control is claimed **only** for those
   exact signatures; `Task.Delay` stays rejected (Phase 8), synchronous `ValueTask` blocking remains
-  a documented hole, and `Monitor`/semaphore/wait-handle primitives (with the `ThreadPool`
-  registered-wait APIs) are deferred to Phase 7.
+  a documented hole. **Phase 7A** additionally brings `Monitor` (and the C# `lock (object)`
+  statement), `System.Threading.Lock` (and the C# `lock (Lock)` statement), and `SemaphoreSlim` under
+  control; `SemaphoreSlim.AvailableWaitHandle`, wait handles, and the `ThreadPool` registered-wait
+  APIs stay rejected until **Phase 7B**.
 - **ReadyToRun (R2R) published assemblies** are expected to work for the existing
   kernel and for cooperative/controlled/race-exploration modes, since none of those
   modes require rewriting already-compiled method bodies at load time. This is a

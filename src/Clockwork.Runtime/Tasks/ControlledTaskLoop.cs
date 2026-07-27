@@ -23,11 +23,24 @@ public sealed class ControlledTaskLoop
     private readonly Queue<Action> _ready = new();
     private readonly List<WaitEntry> _waits = [];
 
+    // Virtual-time deadline registry. Modelled time only ever advances forward, and only when the loop has
+    // no ready work and no wait can advance - never on the wall clock - so a finite timeout is a pure,
+    // replayable function of the scheduling order rather than a real-time race.
+    private readonly List<Deadline> _deadlines = [];
+    private TimeSpan _virtualNow;
+    private long _deadlineSequence;
+
     /// <summary>Gets the number of continuations currently runnable (already promoted to the ready queue).</summary>
     public int ReadyCount => _ready.Count;
 
     /// <summary>Gets the number of readiness-gated continuations still waiting to become runnable.</summary>
     public int WaitingCount => _waits.Count;
+
+    /// <summary>
+    /// Gets the loop's modelled time measured from the start of the simulation. It advances only when the
+    /// loop drives a virtual-time deadline (see <see cref="RegisterDeadline"/>), never on the wall clock.
+    /// </summary>
+    public TimeSpan VirtualNow => _virtualNow;
 
     /// <summary>Gets a value indicating whether the loop has no ready and no waiting work left.</summary>
     public bool IsIdle => _ready.Count == 0 && _waits.Count == 0;
@@ -55,6 +68,85 @@ public sealed class ControlledTaskLoop
     }
 
     /// <summary>
+    /// Registers a virtual-time deadline that elapses <paramref name="delay"/> of modelled time from now.
+    /// The deadline never consumes real time or a physical timer: it fires only when the loop has nothing
+    /// else to run and advances modelled time to it (see <see cref="RunUntil"/> and
+    /// <see cref="AdvanceTimeTo"/>). When it fires, <paramref name="onElapsed"/> - if supplied - runs on the
+    /// logical thread so a finite wait can record its timeout deterministically.
+    /// </summary>
+    /// <param name="delay">The strictly positive modelled delay before the deadline elapses.</param>
+    /// <param name="onElapsed">An optional callback invoked once when the deadline elapses.</param>
+    /// <returns>A handle used to observe elapse or cancel the deadline.</returns>
+    public IControlledTimeout RegisterDeadline(TimeSpan delay, Action? onElapsed = null)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(delay, TimeSpan.Zero);
+        var deadline = new Deadline(_virtualNow + delay, ++_deadlineSequence, onElapsed);
+        deadline.BindCanceller(d => _deadlines.Remove(d));
+        _deadlines.Add(deadline);
+        return deadline;
+    }
+
+    /// <summary>
+    /// Gets the earliest modelled due time (measured from the start of the simulation) among all pending
+    /// deadlines, or <see langword="null"/> when none are pending. A host drive loop uses this to fold the
+    /// loop's virtual-time deadlines into its cross-queue "advance to the next due time" decision.
+    /// </summary>
+    /// <returns>The earliest pending deadline's due time, or <see langword="null"/>.</returns>
+    public TimeSpan? NextDeadlineDue()
+    {
+        TimeSpan? earliest = null;
+        foreach (var deadline in _deadlines)
+        {
+            if (earliest is null || deadline.Due < earliest.Value)
+            {
+                earliest = deadline.Due;
+            }
+        }
+
+        return earliest;
+    }
+
+    /// <summary>
+    /// Advances the loop's modelled time forward to <paramref name="target"/> (never backwards) and fires
+    /// every deadline that is now due, in ascending (due time, registration) order for determinism. Each
+    /// fired deadline's callback runs on the logical thread; a callback may complete a controlled task or
+    /// enqueue ready work, which the next pump promotes as usual.
+    /// </summary>
+    /// <param name="target">The modelled time (from the start of the simulation) to advance to.</param>
+    public void AdvanceTimeTo(TimeSpan target)
+    {
+        if (target > _virtualNow)
+        {
+            _virtualNow = target;
+        }
+
+        while (true)
+        {
+            Deadline? next = null;
+            foreach (var deadline in _deadlines)
+            {
+                if (deadline.Due > _virtualNow)
+                {
+                    continue;
+                }
+
+                if (next is null || deadline.Due < next.Due || (deadline.Due == next.Due && deadline.Sequence < next.Sequence))
+                {
+                    next = deadline;
+                }
+            }
+
+            if (next is null)
+            {
+                return;
+            }
+
+            _deadlines.Remove(next);
+            next.MarkElapsed();
+        }
+    }
+
+    /// <summary>
     /// Pumps the loop until <paramref name="completed"/> returns <see langword="true"/>. Each iteration
     /// promotes newly-ready waits and runs one ready continuation. If the ready queue empties and no wait
     /// can advance yet <paramref name="completed"/> is still <see langword="false"/>, the wait can never be
@@ -79,6 +171,18 @@ public sealed class ControlledTaskLoop
                 if (completed())
                 {
                     return;
+                }
+
+                // No ready work and nothing can advance yet. If a virtual-time deadline is pending, this is
+                // a finite wait paused until a modelled instant, not a deadlock: advance modelled time to the
+                // next deadline (firing it, which typically records a timeout or completes a waiter) and
+                // re-check. Only a wait with no ready work AND no pending deadline can never be satisfied on
+                // this single logical thread, so that alone is the deadlock signature.
+                var due = NextDeadlineDue();
+                if (due is not null)
+                {
+                    AdvanceTimeTo(due.Value);
+                    continue;
                 }
 
                 throw new ControlledSynchronousWaitDeadlockException(apiName);
@@ -140,4 +244,39 @@ public sealed class ControlledTaskLoop
     }
 
     private readonly record struct WaitEntry(Func<bool> IsReady, Action Continuation);
+
+    /// <summary>
+    /// A pending virtual-time deadline. Immutable except for its elapsed flag; the owning loop removes it
+    /// from the registry when it elapses or is cancelled, so a cancelled deadline never lingers or fires.
+    /// </summary>
+    private sealed class Deadline(TimeSpan due, long sequence, Action? onElapsed) : IControlledTimeout
+    {
+        private Action? _onElapsed = onElapsed;
+        private bool _elapsed;
+
+        public TimeSpan Due { get; } = due;
+
+        public long Sequence { get; } = sequence;
+
+        public bool IsElapsed => _elapsed;
+
+        public void MarkElapsed()
+        {
+            if (_elapsed)
+            {
+                return;
+            }
+
+            _elapsed = true;
+            var callback = _onElapsed;
+            _onElapsed = null;
+            callback?.Invoke();
+        }
+
+        public void Cancel() => _canceller?.Invoke(this);
+
+        internal void BindCanceller(Action<Deadline> canceller) => _canceller = canceller;
+
+        private Action<Deadline>? _canceller;
+    }
 }

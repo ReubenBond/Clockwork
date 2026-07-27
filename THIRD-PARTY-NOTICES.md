@@ -93,6 +93,24 @@ must be updated in the same change with:
   `TaskFactory`, `ThreadPool`, and `Parallel` runtime surfaces are original Clockwork
   code informed by Coyote's model but not copied from its source.
 
+- **Adapted material (Phase 7A):** Phase 7A's controlled `Monitor`, `System.Threading.Lock`,
+  and `SemaphoreSlim` runtime surfaces
+  (`src/Clockwork.Runtime/Threading/ControlledMonitor.cs`, `ControlledLock.cs`,
+  `ControlledSemaphoreSlim.cs`) are a **design-level adaptation** of Coyote's controlled
+  synchronization model — its `Microsoft.Coyote.Rewriting.Types.Threading.Monitor` and
+  `SemaphoreSlim` wrappers and their tests informed the surface (ownership/recursion counts,
+  the atomic wait/pulse condition-variable protocol, and max-count enforcement). **No Coyote
+  source was copied verbatim into these files:** unlike Coyote's scheduler-backed wrappers,
+  Clockwork's primitives are built on the cooperative logical-thread coordinator
+  (`ControlledTaskRuntime`) with an ambient logical-strand identity, model "blocking" as loop
+  pumping via `DrainUntil`, and associate per-object state through a weak-keyed
+  `ConditionalWeakTable`. Because the approach — not literal source — was adapted, these files
+  do not carry a Coyote copyright header; this entry records the design lineage. The per-member
+  parity ledger (every Coyote `Monitor`/`SemaphoreSlim` entry classified controlled, rejected
+  with a tested reason, or non-applicable on .NET 10) is enumerated in
+  [docs/coyote-parity.md](docs/coyote-parity.md); the exact controlled/rejected signature list
+  is in [docs/rule-inventory.md](docs/rule-inventory.md).
+
 ### Mono.Cecil
 
 - **License:** MIT

@@ -1,11 +1,11 @@
-# Coyote parity matrix — threads, tasks, thread pool, Parallel
+# Coyote parity matrix — threads, tasks, thread pool, Parallel, monitors & semaphores
 
-This document is the explicit parity ledger for Clockwork's Phase 6A/6B controlled-concurrency
+This document is the explicit parity ledger for Clockwork's Phase 6A/6B/7A controlled-concurrency
 surface against **[Microsoft Coyote](https://github.com/microsoft/coyote)** (MIT-licensed prior
 art). Coyote's controlled rewriting types live under
 [`Source/Test/Rewriting/Types/Threading`](https://github.com/microsoft/coyote/tree/main/Source/Test/Rewriting/Types/Threading)
-(and its `Tasks` subfolder). Every Coyote thread / task / thread-pool / Parallel surface is
-classified here as one of:
+(and its `Tasks` subfolder). Every Coyote thread / task / thread-pool / Parallel / monitor / semaphore
+surface is classified here as one of:
 
 | Status | Meaning |
 | --- | --- |
@@ -184,19 +184,125 @@ not — matching the BCL contract exactly, and covered by conformance tests.
 
 ---
 
-## Coyote surfaces intentionally deferred (Phase 7 / Phase 8)
+## `System.Threading.Monitor` — Coyote `…Types.Threading.Monitor` (Phase 7A)
 
-These Coyote controlled types are **out of Phase 6B scope** by the phase plan. Where a Phase 6B
-surface would otherwise need them (the `ThreadPool` registered-wait APIs need controlled wait
-handles), Phase 6B **rejects** the call with a tested diagnostic until the owning phase lands.
+Coyote's controlled `Monitor` mirrors the BCL static surface (`Enter`, `Exit`, `IsEntered`, `TryEnter`,
+`Wait`, `Pulse`, `PulseAll`) on its scheduler. Clockwork mirrors the **entire** .NET 10 static surface on
+the cooperative logical-thread kernel. Because the C# `lock (object)` statement lowers to
+`Monitor.Enter(obj, ref bool)` + `finally Monitor.Exit(obj)`, redirecting these members controls **every**
+`lock` automatically — no separate lock rule is needed (verified for both Debug and Release lowering).
 
-| Coyote type(s) | Owning phase | Phase 6B posture |
+| .NET 10 signature | Clockwork status | Rule / reason |
 | --- | --- | --- |
-| `Monitor`, `SemaphoreSlim` | Phase 7 | not rewritten (real BCL calls) |
-| `WaitHandle`, `EventWaitHandle`, `AutoResetEvent`, `ManualResetEvent` | Phase 7 | not rewritten; unblocks `ThreadPool` registered-wait APIs, which stay rejected until then |
-| `Interlocked`, `Volatile` | Phase 7 (race instrumentation) | not rewritten |
-| `SpinWait` (struct) | Phase 7 | not rewritten (`Thread.SpinWait(int)` *static* **is** controlled — `clockwork.thread.spinwait`) |
-| `Timer` / `PeriodicTimer` / `Task.Delay` / cancellation timers | Phase 8 | `Task.Delay` rejected; `Thread.Sleep` **is** a controlled virtual wait in Phase 6B |
+| `Monitor.Enter(object)` | ✅ Controlled | `clockwork.monitor.enter` |
+| `Monitor.Enter(object, ref bool)` | ✅ Controlled | `clockwork.monitor.enter.locktaken` (the `lock` lowering target) |
+| `Monitor.Exit(object)` | ✅ Controlled | `clockwork.monitor.exit` |
+| `Monitor.IsEntered(object)` | ✅ Controlled | `clockwork.monitor.isentered` |
+| `Monitor.TryEnter(object)` | ✅ Controlled | `clockwork.monitor.tryenter` |
+| `Monitor.TryEnter(object, ref bool)` | ✅ Controlled | `clockwork.monitor.tryenter.locktaken` |
+| `Monitor.TryEnter(object, int)` | ✅ Controlled | `clockwork.monitor.tryenter.milliseconds` |
+| `Monitor.TryEnter(object, int, ref bool)` | ✅ Controlled | `clockwork.monitor.tryenter.milliseconds.locktaken` |
+| `Monitor.TryEnter(object, TimeSpan)` | ✅ Controlled | `clockwork.monitor.tryenter.timespan` |
+| `Monitor.TryEnter(object, TimeSpan, ref bool)` | ✅ Controlled | `clockwork.monitor.tryenter.timespan.locktaken` |
+| `Monitor.Wait(object)` | ✅ Controlled | `clockwork.monitor.wait` |
+| `Monitor.Wait(object, int)` | ✅ Controlled | `clockwork.monitor.wait.milliseconds` |
+| `Monitor.Wait(object, int, bool)` | ✅ Controlled | `clockwork.monitor.wait.milliseconds.exitcontext` |
+| `Monitor.Wait(object, TimeSpan)` | ✅ Controlled | `clockwork.monitor.wait.timespan` |
+| `Monitor.Wait(object, TimeSpan, bool)` | ✅ Controlled | `clockwork.monitor.wait.timespan.exitcontext` |
+| `Monitor.Pulse(object)` | ✅ Controlled | `clockwork.monitor.pulse` |
+| `Monitor.PulseAll(object)` | ✅ Controlled | `clockwork.monitor.pulseall` |
+
+**Semantics:** ownership and reentrancy are tracked per monitored object by the acquiring logical strand
+and a recursion count; `Enter`/`TryEnter` acquire (a contended acquire pumps the loop until the owner
+releases); `Wait` atomically releases the **full** recursion count, parks in the object's wait set, and
+re-acquires the same count after being pulsed; `Pulse` moves one waiter (and `PulseAll` all waiters) to
+the ready set with arrival-ordered, replayable scheduling (no lost pulses). Ownership/argument/timeout
+errors throw exactly as the BCL (`SynchronizationLockException`, `ArgumentNullException`,
+`ArgumentOutOfRangeException`). **Timeouts:** zero timeouts are faithful non-blocking tries; a finite
+positive timeout waits until acquisition/signal or a **simulated** deadline (driven by the cluster clock)
+and then returns/sets `false` — a same-instant pulse or release beats the timeout, and the finite wait is
+`PausedUntilTime`, never a deadlock edge; an infinite / never-satisfiable acquire or wait surfaces as the
+loop-model `ControlledSynchronousWaitDeadlockException`. Monitor
+associations are held in a `ConditionalWeakTable` (weak keys) so lock objects are never kept alive.
+
+---
+
+## `System.Threading.Lock` — **beyond Coyote** (Phase 7A)
+
+`System.Threading.Lock` is the .NET 9+ dedicated lock type; it postdates Coyote's rewriter and has **no
+Coyote equivalent**. Clockwork controls it by **type substitution**: the type and its nested `Scope` ref
+struct are retargeted onto `ControlledLock`/`ControlledLock.Scope`, so `new Lock()`, every field/local/
+parameter typed as `Lock` or `Lock.Scope`, and the C# `lock (Lock)` lowering
+(`Lock.Scope scope = obj.EnterScope(); try { … } finally { scope.Dispose(); }`) are redirected wholesale
+onto the controlled monitor kernel (verified for both Debug and Release lowering).
+
+| .NET 10 surface | Clockwork status | Rule / reason |
+| --- | --- | --- |
+| `System.Threading.Lock` (type) | ✅ Controlled | `clockwork.lock.type` (type substitution → `ControlledLock`) |
+| `System.Threading.Lock.Scope` (nested ref struct) | ✅ Controlled | `clockwork.lock.scope.type` (type substitution → `ControlledLock.Scope`) |
+| `new Lock()`, `Enter()`, `Exit()`, `EnterScope()`, `TryEnter()`, `TryEnter(int)`, `TryEnter(TimeSpan)`, `IsHeldByCurrentThread`, `Scope.Dispose()` | ✅ Controlled | reached through the two type substitutions above |
+
+**Semantics:** identical to the controlled `Monitor` (ownership, reentrancy, contended-acquire pumping,
+finite virtual-time timeouts). No member of `System.Threading.Lock` needs a rejection — the whole
+surface is safely representable by type substitution.
+
+---
+
+## `System.Threading.SemaphoreSlim` — Coyote `…Types.Threading.SemaphoreSlim` (Phase 7A)
+
+Coyote wraps `SemaphoreSlim` to control its waits on the scheduler. Clockwork models the permit count and
+waiter set on the cooperative logical thread. `SemaphoreSlim` is `sealed`, so the controlled handle **is**
+a real `SemaphoreSlim` instance whose count/waiter state lives in a weak-keyed side table; the two
+constructors redirect to `Create` factories and every instance member is a receiver-first shim.
+
+| .NET 10 signature | Clockwork status | Rule / reason |
+| --- | --- | --- |
+| `new SemaphoreSlim(int)` | ✅ Controlled | `clockwork.semaphoreslim.ctor.initial` |
+| `new SemaphoreSlim(int, int)` | ✅ Controlled | `clockwork.semaphoreslim.ctor.initial.max` |
+| `SemaphoreSlim.CurrentCount` | ✅ Controlled | `clockwork.semaphoreslim.get_currentcount` |
+| `Wait()` | ✅ Controlled | `clockwork.semaphoreslim.wait` |
+| `Wait(CancellationToken)` | ✅ Controlled | `clockwork.semaphoreslim.wait.cancellationtoken` |
+| `Wait(int)` | ✅ Controlled | `clockwork.semaphoreslim.wait.milliseconds` |
+| `Wait(int, CancellationToken)` | ✅ Controlled | `clockwork.semaphoreslim.wait.milliseconds.cancellationtoken` |
+| `Wait(TimeSpan)` | ✅ Controlled | `clockwork.semaphoreslim.wait.timespan` |
+| `Wait(TimeSpan, CancellationToken)` | ✅ Controlled | `clockwork.semaphoreslim.wait.timespan.cancellationtoken` |
+| `WaitAsync()` | ✅ Controlled | `clockwork.semaphoreslim.waitasync` |
+| `WaitAsync(CancellationToken)` | ✅ Controlled | `clockwork.semaphoreslim.waitasync.cancellationtoken` |
+| `WaitAsync(int)` | ✅ Controlled | `clockwork.semaphoreslim.waitasync.milliseconds` |
+| `WaitAsync(int, CancellationToken)` | ✅ Controlled | `clockwork.semaphoreslim.waitasync.milliseconds.cancellationtoken` |
+| `WaitAsync(TimeSpan)` | ✅ Controlled | `clockwork.semaphoreslim.waitasync.timespan` |
+| `WaitAsync(TimeSpan, CancellationToken)` | ✅ Controlled | `clockwork.semaphoreslim.waitasync.timespan.cancellationtoken` |
+| `Release()` | ✅ Controlled | `clockwork.semaphoreslim.release` |
+| `Release(int)` | ✅ Controlled | `clockwork.semaphoreslim.release.count` |
+| `Dispose()` | ✅ Controlled | `clockwork.semaphoreslim.dispose` |
+| `SemaphoreSlim.AvailableWaitHandle` | ⛔ Rejected (tested) | `clockwork.semaphoreslim.get_availablewaithandle` — exposes a `WaitHandle` (Phase 7B); rejected precisely until then |
+
+**Semantics:** a synchronous `Wait` with no permit pumps the loop until a permit is released; `WaitAsync`
+returns a task completed when a permit is released (driven by the controlled awaiter when awaited);
+`Release` enforces the maximum count (`SemaphoreFullException`) and serves waiters in a deterministic,
+replayable FIFO order (matching arrival, not promising BCL fairness); cancellation is honoured
+synchronously on the logical thread (`OperationCanceledException`). **Timeouts:** zero timeouts are
+faithful non-blocking tries; a finite positive timeout (sync `Wait` or async `WaitAsync`) completes with
+`false` on a **simulated** deadline driven by the cluster clock — a same-instant release or cancellation
+wins over the timeout (Phase 3B first-winner), no wall-clock time is used; a never-satisfiable *infinite*
+`Wait` surfaces as the loop-model deadlock diagnostic.
+
+---
+
+## Coyote surfaces intentionally deferred (Phase 7B / Phase 8)
+
+These Coyote controlled types are **out of Phase 7A scope** by the phase plan. Where a surface would
+otherwise need them (the `ThreadPool` registered-wait APIs and `SemaphoreSlim.AvailableWaitHandle` need
+controlled wait handles), Clockwork **rejects** the call with a tested diagnostic until the owning phase
+lands.
+
+| Coyote type(s) | Owning phase | Current posture |
+| --- | --- | --- |
+| `WaitHandle`, `EventWaitHandle`, `AutoResetEvent`, `ManualResetEvent`, `WaitAny`/`WaitAll` | Phase 7B | not rewritten; unblocks `ThreadPool` registered-wait APIs and `SemaphoreSlim.AvailableWaitHandle`, which stay rejected until then |
+| `Interlocked`, `Volatile` | Phase 7B (race instrumentation) | not rewritten |
+| `SpinWait` (struct) | Phase 7B | not rewritten (`Thread.SpinWait(int)` *static* **is** controlled — `clockwork.thread.spinwait`) |
+| `ReaderWriterLockSlim`, `Mutex`, `Semaphore`, `SpinLock`, `ManualResetEventSlim` | Phase 8 | not rewritten (real BCL calls) |
+| `Timer` / `PeriodicTimer` / `Task.Delay` / cancellation timers | Phase 8 | `Task.Delay` rejected; `Thread.Sleep` **is** a controlled virtual wait |
 
 ---
 
@@ -213,9 +319,15 @@ handles), Phase 6B **rejects** the call with a tested diagnostic until the ownin
 - **Coyote `Parallel`:** simple-body overloads controlled; loop-state / thread-local / partitioner
   overloads rejected with tested diagnostics.
 - **`ThreadPool`:** modelled by Clockwork **beyond Coyote**; native-overlapped and registered-wait
-  APIs rejected (registered waits pending Phase 7).
-- **Deferred by phase plan:** `Monitor`/`SemaphoreSlim`/wait handles/`Interlocked`/`Volatile`
-  (Phase 7); timers/`Task.Delay` (Phase 8).
+  APIs rejected (registered waits pending Phase 7B).
+- **Coyote `Monitor`:** 17/17 .NET 10 static overloads controlled (Phase 7A), which also controls every
+  C# `lock (object)` statement in both Debug and Release lowering.
+- **`System.Threading.Lock`:** controlled by type substitution **beyond Coyote** (Phase 7A), covering the
+  C# `lock (Lock)` scope lowering; nothing rejected.
+- **Coyote `SemaphoreSlim`:** every constructor, `CurrentCount`, sync `Wait`, async `WaitAsync`,
+  `Release`, and `Dispose` controlled (Phase 7A); `AvailableWaitHandle` rejected pending Phase 7B.
+- **Deferred by phase plan:** wait handles / events / `Interlocked` / `Volatile` / `SpinWait` struct
+  (Phase 7B); `ReaderWriterLockSlim`/`Mutex`/`Semaphore`/`SpinLock` and timers/`Task.Delay` (Phase 8).
 
 Every Coyote entry above is therefore **controlled** (with a cited rule id or by architecture),
 **deliberately rejected with a tested reason**, or **explicitly deferred to a named later phase** —

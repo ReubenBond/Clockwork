@@ -252,6 +252,65 @@ Policy: **Controlled**. `Parallel.Invoke`, `Parallel.For` (`int`/`long`, with an
 | `clockwork.parallel.foreach.loopstate` | `System.Threading.Tasks.Parallel::ForEach(System.Collections.Generic.IEnumerable`1<!!0>,System.Action`2<!!0,System.Threading.Tasks.ParallelLoopState>)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
 | `clockwork.parallel.foreach.loopstate.index` | `System.Threading.Tasks.Parallel::ForEach(System.Collections.Generic.IEnumerable`1<!!0>,System.Action`3<!!0,System.Threading.Tasks.ParallelLoopState,System.Int64>)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
 
+## Monitor family
+
+Policy: **Controlled**. 
+
+| Rule id | BCL target | Shim | Policy |
+| --- | --- | --- | --- |
+| `clockwork.monitor.enter` | `System.Threading.Monitor::Enter(System.Object)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::Enter(System.Object)` | Controlled |
+| `clockwork.monitor.enter.locktaken` | `System.Threading.Monitor::Enter(System.Object,System.Boolean&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::Enter(System.Object,System.Boolean&)` | Controlled |
+| `clockwork.monitor.exit` | `System.Threading.Monitor::Exit(System.Object)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::Exit(System.Object)` | Controlled |
+| `clockwork.monitor.isentered` | `System.Threading.Monitor::IsEntered(System.Object)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::IsEntered(System.Object)` | Controlled |
+| `clockwork.monitor.tryenter` | `System.Threading.Monitor::TryEnter(System.Object)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::TryEnter(System.Object)` | Controlled |
+| `clockwork.monitor.tryenter.locktaken` | `System.Threading.Monitor::TryEnter(System.Object,System.Boolean&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::TryEnter(System.Object,System.Boolean&)` | Controlled |
+| `clockwork.monitor.tryenter.milliseconds` | `System.Threading.Monitor::TryEnter(System.Object,System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::TryEnter(System.Object,System.Int32)` | Controlled |
+| `clockwork.monitor.tryenter.milliseconds.locktaken` | `System.Threading.Monitor::TryEnter(System.Object,System.Int32,System.Boolean&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::TryEnter(System.Object,System.Int32,System.Boolean&)` | Controlled |
+| `clockwork.monitor.tryenter.timespan` | `System.Threading.Monitor::TryEnter(System.Object,System.TimeSpan)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::TryEnter(System.Object,System.TimeSpan)` | Controlled |
+| `clockwork.monitor.tryenter.timespan.locktaken` | `System.Threading.Monitor::TryEnter(System.Object,System.TimeSpan,System.Boolean&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::TryEnter(System.Object,System.TimeSpan,System.Boolean&)` | Controlled |
+| `clockwork.monitor.wait` | `System.Threading.Monitor::Wait(System.Object)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::Wait(System.Object)` | Controlled |
+| `clockwork.monitor.wait.milliseconds` | `System.Threading.Monitor::Wait(System.Object,System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::Wait(System.Object,System.Int32)` | Controlled |
+| `clockwork.monitor.wait.milliseconds.exitcontext` | `System.Threading.Monitor::Wait(System.Object,System.Int32,System.Boolean)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::Wait(System.Object,System.Int32,System.Boolean)` | Controlled |
+| `clockwork.monitor.wait.timespan` | `System.Threading.Monitor::Wait(System.Object,System.TimeSpan)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::Wait(System.Object,System.TimeSpan)` | Controlled |
+| `clockwork.monitor.wait.timespan.exitcontext` | `System.Threading.Monitor::Wait(System.Object,System.TimeSpan,System.Boolean)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::Wait(System.Object,System.TimeSpan,System.Boolean)` | Controlled |
+| `clockwork.monitor.pulse` | `System.Threading.Monitor::Pulse(System.Object)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::Pulse(System.Object)` | Controlled |
+| `clockwork.monitor.pulseall` | `System.Threading.Monitor::PulseAll(System.Object)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::PulseAll(System.Object)` | Controlled |
+
+## Lock family
+
+Policy: **Controlled**. 
+
+| Rule id | BCL target | Shim | Policy |
+| --- | --- | --- | --- |
+| `clockwork.lock.type` | `System.Threading.Lock` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledLock` | Controlled |
+| `clockwork.lock.scope.type` | `System.Threading.Lock/Scope` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledLock/Scope` | Controlled |
+
+## Semaphore family
+
+Policy: **Controlled**. 
+
+| Rule id | BCL target | Shim | Policy |
+| --- | --- | --- | --- |
+| `clockwork.semaphoreslim.ctor.initial` | `new System.Threading.SemaphoreSlim(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphoreSlim::Create(System.Int32)` | Controlled |
+| `clockwork.semaphoreslim.ctor.initial.max` | `new System.Threading.SemaphoreSlim(System.Int32,System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphoreSlim::Create(System.Int32,System.Int32)` | Controlled |
+| `clockwork.semaphoreslim.get_currentcount` | `System.Threading.SemaphoreSlim::get_CurrentCount()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphoreSlim::CurrentCount(System.Threading.SemaphoreSlim)` | Controlled |
+| `clockwork.semaphoreslim.wait` | `System.Threading.SemaphoreSlim::Wait()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphoreSlim::Wait(System.Threading.SemaphoreSlim)` | Controlled |
+| `clockwork.semaphoreslim.wait.cancellationtoken` | `System.Threading.SemaphoreSlim::Wait(System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphoreSlim::Wait(System.Threading.SemaphoreSlim,System.Threading.CancellationToken)` | Controlled |
+| `clockwork.semaphoreslim.wait.milliseconds` | `System.Threading.SemaphoreSlim::Wait(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphoreSlim::Wait(System.Threading.SemaphoreSlim,System.Int32)` | Controlled |
+| `clockwork.semaphoreslim.wait.milliseconds.cancellationtoken` | `System.Threading.SemaphoreSlim::Wait(System.Int32,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphoreSlim::Wait(System.Threading.SemaphoreSlim,System.Int32,System.Threading.CancellationToken)` | Controlled |
+| `clockwork.semaphoreslim.wait.timespan` | `System.Threading.SemaphoreSlim::Wait(System.TimeSpan)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphoreSlim::Wait(System.Threading.SemaphoreSlim,System.TimeSpan)` | Controlled |
+| `clockwork.semaphoreslim.wait.timespan.cancellationtoken` | `System.Threading.SemaphoreSlim::Wait(System.TimeSpan,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphoreSlim::Wait(System.Threading.SemaphoreSlim,System.TimeSpan,System.Threading.CancellationToken)` | Controlled |
+| `clockwork.semaphoreslim.waitasync` | `System.Threading.SemaphoreSlim::WaitAsync()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphoreSlim::WaitAsync(System.Threading.SemaphoreSlim)` | Controlled |
+| `clockwork.semaphoreslim.waitasync.cancellationtoken` | `System.Threading.SemaphoreSlim::WaitAsync(System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphoreSlim::WaitAsync(System.Threading.SemaphoreSlim,System.Threading.CancellationToken)` | Controlled |
+| `clockwork.semaphoreslim.waitasync.milliseconds` | `System.Threading.SemaphoreSlim::WaitAsync(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphoreSlim::WaitAsync(System.Threading.SemaphoreSlim,System.Int32)` | Controlled |
+| `clockwork.semaphoreslim.waitasync.milliseconds.cancellationtoken` | `System.Threading.SemaphoreSlim::WaitAsync(System.Int32,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphoreSlim::WaitAsync(System.Threading.SemaphoreSlim,System.Int32,System.Threading.CancellationToken)` | Controlled |
+| `clockwork.semaphoreslim.waitasync.timespan` | `System.Threading.SemaphoreSlim::WaitAsync(System.TimeSpan)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphoreSlim::WaitAsync(System.Threading.SemaphoreSlim,System.TimeSpan)` | Controlled |
+| `clockwork.semaphoreslim.waitasync.timespan.cancellationtoken` | `System.Threading.SemaphoreSlim::WaitAsync(System.TimeSpan,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphoreSlim::WaitAsync(System.Threading.SemaphoreSlim,System.TimeSpan,System.Threading.CancellationToken)` | Controlled |
+| `clockwork.semaphoreslim.release` | `System.Threading.SemaphoreSlim::Release()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphoreSlim::Release(System.Threading.SemaphoreSlim)` | Controlled |
+| `clockwork.semaphoreslim.release.count` | `System.Threading.SemaphoreSlim::Release(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphoreSlim::Release(System.Threading.SemaphoreSlim,System.Int32)` | Controlled |
+| `clockwork.semaphoreslim.dispose` | `System.Threading.SemaphoreSlim::Dispose()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphoreSlim::Dispose(System.Threading.SemaphoreSlim)` | Controlled |
+| `clockwork.semaphoreslim.get_availablewaithandle` | `System.Threading.SemaphoreSlim::get_AvailableWaitHandle()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphoreSlim::AvailableWaitHandle(System.Threading.SemaphoreSlim)` | Rejected |
+
 ## UncontrolledInvocation family
 
 Policy: **Rejected**. Process control and abrupt-termination APIs (`Process.Start`/`Start` instance/`Kill`/`WaitForExit`/`WaitForExitAsync`, `Environment.Exit`/`FailFast`) cannot be modelled inside a single simulated process at all. A throwing guard is injected before each call site so a rewritten assembly can never launch, kill, wait on, or terminate a real OS process; unlike the controlled shims the rejection is unconditional (it fires whether or not a simulation is active).

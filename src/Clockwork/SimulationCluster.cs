@@ -84,7 +84,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
             () => _timeProvider.GetUtcNow(),
             RunOneTaskRoundRobin,
             GetNextWaitingDueTime,
-            Clock.Advance,
+            AdvanceClock,
             CapturePendingWorkSummary,
             TeardownCancellationToken);
 
@@ -429,12 +429,40 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     }
 
     /// <summary>
-    /// Gets the earliest due time across all queues (node contexts + cluster queue).
+    /// Gets the earliest due time across all queues (node contexts + cluster queue) and the controlled
+    /// loop's virtual-time deadlines (finite <c>Monitor</c>/<c>SemaphoreSlim</c> waits), so a finite wait
+    /// is driven to its simulated deadline by the same advance-to-next-due machinery as every timer.
     /// </summary>
     protected DateTimeOffset? GetNextWaitingDueTime()
     {
         using var _ = Guard.Enter();
-        return Nodes.Select(n => n.Context.NextWaitingDueTime).Concat([TaskQueue.NextWaitingDueTime]).Min();
+        var earliest = Nodes.Select(n => n.Context.NextWaitingDueTime).Concat([TaskQueue.NextWaitingDueTime]).Min();
+
+        // Fold in the controlled loop's next virtual-time deadline (measured from StartDateTime). Null-safe:
+        // with no pending deadline this is a no-op, so existing advance behaviour is completely unchanged.
+        var loopDue = _taskCoordinator.Loop.NextDeadlineDue();
+        if (loopDue is not null)
+        {
+            var loopAbsolute = StartDateTime + loopDue.Value;
+            if (earliest is null || loopAbsolute < earliest.Value)
+            {
+                earliest = loopAbsolute;
+            }
+        }
+
+        return earliest;
+    }
+
+    /// <summary>
+    /// Advances the shared simulation clock, then steps the controlled loop's modelled time to match and
+    /// fires any virtual-time deadlines that are now due (finite <c>Monitor</c>/<c>SemaphoreSlim</c> waits).
+    /// Forward-only and null-safe: with no pending deadlines the loop step is a cheap no-op.
+    /// </summary>
+    /// <param name="delta">The non-negative amount to advance.</param>
+    private void AdvanceClock(TimeSpan delta)
+    {
+        Clock.Advance(delta);
+        _taskCoordinator.Loop.AdvanceTimeTo(_timeProvider.GetUtcNow() - StartDateTime);
     }
 
     /// <summary>
