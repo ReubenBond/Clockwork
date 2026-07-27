@@ -38,6 +38,11 @@ public static class ControlledThread
 {
     private const string StartApi = "System.Threading.Thread.Start";
     private const string JoinApi = "System.Threading.Thread.Join";
+    private const string SleepApi = "System.Threading.Thread.Sleep";
+
+    private sealed class InfiniteSleepException : Exception
+    {
+    }
 
     private sealed class Registration
     {
@@ -109,7 +114,7 @@ public static class ControlledThread
             return;
         }
 
-        StartControlled(instance, parameter: null);
+        StartControlled(instance, parameter: null, parameterSupplied: false);
     }
 
     /// <summary>Controlled <c>thread.Start(object)</c>.</summary>
@@ -124,7 +129,7 @@ public static class ControlledThread
             return;
         }
 
-        StartControlled(instance, parameter);
+        StartControlled(instance, parameter, parameterSupplied: true);
     }
 
     /// <summary>Controlled <c>thread.Join()</c>.</summary>
@@ -153,8 +158,8 @@ public static class ControlledThread
             return instance.Join(millisecondsTimeout);
         }
 
-        JoinControlled(instance);
-        return true;
+        ValidateTimeout(millisecondsTimeout, nameof(millisecondsTimeout));
+        return JoinControlled(instance, millisecondsTimeout);
     }
 
     /// <summary>Controlled <c>thread.Join(TimeSpan)</c>.</summary>
@@ -169,8 +174,8 @@ public static class ControlledThread
             return instance.Join(timeout);
         }
 
-        JoinControlled(instance);
-        return true;
+        int millisecondsTimeout = ValidateTimeout(timeout, nameof(timeout));
+        return JoinControlled(instance, millisecondsTimeout);
     }
 
     /// <summary>Controlled <c>Thread.Sleep(int)</c>: cooperatively yields without blocking or using real time.</summary>
@@ -180,12 +185,11 @@ public static class ControlledThread
         if (!ControlledTaskRuntime.IsSimulationActive)
         {
             Thread.Sleep(millisecondsTimeout);
+            return;
         }
 
-        // Inside a simulation Sleep must never block or consume wall-clock time. The duration itself is a
-        // virtual-time concern owned by Phase 8; here the call is a no-op cooperative hint, so the logical
-        // thread keeps making progress deterministically. Interleaving still happens at await / Start /
-        // Join scheduling points.
+        ValidateTimeout(millisecondsTimeout, nameof(millisecondsTimeout));
+        SleepControlled(millisecondsTimeout);
     }
 
     /// <summary>Controlled <c>Thread.Sleep(TimeSpan)</c>: cooperatively yields without blocking or using real time.</summary>
@@ -195,7 +199,10 @@ public static class ControlledThread
         if (!ControlledTaskRuntime.IsSimulationActive)
         {
             Thread.Sleep(timeout);
+            return;
         }
+
+        SleepControlled(ValidateTimeout(timeout, nameof(timeout)));
     }
 
     /// <summary>Controlled <c>Thread.SpinWait(int)</c>: a no-op cooperative hint inside a simulation.</summary>
@@ -221,7 +228,7 @@ public static class ControlledThread
             return Thread.Yield();
         }
 
-        return false;
+        return ControlledTaskRuntime.RunOne("System.Threading.Thread.Yield");
     }
 
     // ---- OS-specific surface that cannot be modelled faithfully: rejected precisely under simulation ----
@@ -299,7 +306,7 @@ public static class ControlledThread
             "COM apartment state is an OS-thread concept with no analogue for a controlled operation.");
     }
 
-    private static void StartControlled(Thread instance, object? parameter)
+    private static void StartControlled(Thread instance, object? parameter, bool parameterSupplied)
     {
         if (!Registry.TryGetValue(instance, out Registration? registration))
         {
@@ -313,6 +320,12 @@ public static class ControlledThread
         if (registration.Started)
         {
             throw new ThreadStateException("The controlled thread has already been started.");
+        }
+
+        if (parameterSupplied && registration.Body is not ParameterizedThreadStart)
+        {
+            throw new InvalidOperationException(
+                "The thread was created with a ThreadStart delegate and cannot be started with a parameter.");
         }
 
         registration.Started = true;
@@ -335,6 +348,10 @@ public static class ControlledThread
 
             registration.Completion.TrySetResult();
         }
+        catch (InfiniteSleepException)
+        {
+            // The strand remains represented by the never-ready wait registered by Sleep.
+        }
         catch (Exception exception)
         {
             // A real thread's unhandled exception terminates the process. Inside a simulation the fault is
@@ -354,10 +371,111 @@ public static class ControlledThread
                 "tracked by the simulation coordinator.");
         }
 
+        if (!registration.Started)
+        {
+            throw new ThreadStateException("Thread has not been started.");
+        }
+
         // Pumps the deterministic loop until the thread's body completes. If the thread was never started
         // (or its body can never complete) this surfaces as the standard controlled deadlock diagnostic
         // rather than a real-time hang.
         ControlledTaskRuntime.DrainUntilCompleted(registration.Completion.Task, JoinApi);
+    }
+
+    private static bool JoinControlled(Thread instance, int millisecondsTimeout)
+    {
+        Registration registration = GetStartedRegistration(instance);
+        if (millisecondsTimeout == 0)
+        {
+            return registration.Completion.Task.IsCompleted;
+        }
+
+        if (millisecondsTimeout == Timeout.Infinite)
+        {
+            ControlledTaskRuntime.DrainUntilCompleted(registration.Completion.Task, JoinApi);
+            return true;
+        }
+
+        IControlledTimeout timeout = ControlledTaskRuntime.RegisterTimeout(
+            TimeSpan.FromMilliseconds(millisecondsTimeout),
+            onElapsed: null,
+            JoinApi);
+        try
+        {
+            ControlledTaskRuntime.DrainUntil(
+                () => registration.Completion.Task.IsCompleted || timeout.IsElapsed,
+                JoinApi);
+            return registration.Completion.Task.IsCompleted;
+        }
+        finally
+        {
+            timeout.Cancel();
+        }
+    }
+
+    private static Registration GetStartedRegistration(Thread instance)
+    {
+        if (!Registry.TryGetValue(instance, out Registration? registration))
+        {
+            throw Unsupported(
+                JoinApi,
+                "the thread was not created through the controlled Thread surface, so its completion is not " +
+                "tracked by the simulation coordinator.");
+        }
+
+        if (!registration.Started)
+        {
+            throw new ThreadStateException("Thread has not been started.");
+        }
+
+        return registration;
+    }
+
+    private static void SleepControlled(int millisecondsTimeout)
+    {
+        if (millisecondsTimeout == 0)
+        {
+            ControlledTaskRuntime.RunOne(SleepApi);
+            return;
+        }
+
+        if (millisecondsTimeout == Timeout.Infinite)
+        {
+            ControlledTaskRuntime.ParkIndefinitely(SleepApi);
+            throw new InfiniteSleepException();
+        }
+
+        IControlledTimeout timeout = ControlledTaskRuntime.RegisterTimeout(
+            TimeSpan.FromMilliseconds(millisecondsTimeout),
+            onElapsed: null,
+            SleepApi);
+        try
+        {
+            ControlledTaskRuntime.DrainUntil(() => timeout.IsElapsed, SleepApi);
+        }
+        finally
+        {
+            timeout.Cancel();
+        }
+    }
+
+    private static int ValidateTimeout(TimeSpan timeout, string paramName)
+    {
+        long millisecondsTimeout = (long)timeout.TotalMilliseconds;
+        if (millisecondsTimeout < Timeout.Infinite || millisecondsTimeout > int.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(paramName);
+        }
+
+        return (int)millisecondsTimeout;
+    }
+
+    private static void ValidateTimeout(int millisecondsTimeout, string paramName)
+    {
+        if (millisecondsTimeout < Timeout.Infinite)
+        {
+            throw new ArgumentOutOfRangeException(paramName);
+        }
     }
 
     private static ControlledThreadUnsupportedException Unsupported(string apiName, string reason) =>
