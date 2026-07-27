@@ -409,6 +409,37 @@ public sealed class ControlledOperationSchedulerTests
     }
 
     [Fact]
+    public void TerminalListenerDisposeDefersRegistrationCleanupUntilPublicationGateIsReleased()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var listener = new DisposeWithInFlightCancellationListener(
+            cancellation,
+            TestContext.Current.CancellationToken);
+        using var scheduler = SchedulerTestHarness.NewScheduler(listener);
+        listener.Scheduler = scheduler;
+        var resource = scheduler.CreateResource(
+            Clockwork.Runtime.Scheduling.Resources.ControlledResourceKind.Semaphore,
+            "pending-cancellation");
+        var victim = scheduler.Schedule(
+            "victim",
+            () => scheduler.WaitOnResource(
+                resource,
+                Timeout.InfiniteTimeSpan,
+                ControlledOperationPauseReason.ResourceWait("pending-cancellation"),
+                cancellation.Token));
+        Assert.True(scheduler.RunStep());
+        Assert.Equal(ControlledOperationState.Paused, victim.State);
+
+        using var probeRegistration = cancellation.Token.Register(listener.CancellationStarted.Set);
+        scheduler.Schedule("dispose-trigger", () => { });
+
+        Assert.True(scheduler.RunStep());
+        Assert.NotNull(listener.CancellationThread);
+        Assert.True(listener.CancellationThread!.Join(TimeSpan.FromSeconds(5)));
+        Assert.Equal(ControlledOperationState.Canceled, victim.State);
+    }
+
+    [Fact]
     public void CaptureStatusReturnsOperationsInStableIdOrder()
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();
@@ -468,6 +499,32 @@ public sealed class ControlledOperationSchedulerTests
             {
                 Scheduler.Dispose();
             }
+        }
+    }
+
+    private sealed class DisposeWithInFlightCancellationListener(
+        CancellationTokenSource cancellation,
+        CancellationToken testCancellation) : IControlledOperationListener
+    {
+        public ManualResetEventSlim CancellationStarted { get; } = new();
+
+        public ControlledOperationScheduler Scheduler { get; set; } = null!;
+
+        public Thread? CancellationThread { get; private set; }
+
+        public void OnStateChanged(ControlledOperation operation, ControlledOperationState newState)
+        {
+            if (newState != ControlledOperationState.Completed ||
+                !string.Equals(operation.WorkDescription, "dispose-trigger", StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            CancellationThread = new Thread(cancellation.Cancel) { IsBackground = true };
+            CancellationThread.Start();
+            Assert.True(CancellationStarted.Wait(TimeSpan.FromSeconds(5), testCancellation));
+            Thread.SpinWait(100_000);
+            Scheduler.Dispose();
         }
     }
 }

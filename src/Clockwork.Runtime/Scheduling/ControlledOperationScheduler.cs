@@ -77,6 +77,8 @@ public sealed class ControlledOperationScheduler : IDisposable
     private bool _controlThreadBusy;
     private bool _disposed;
     private ControlledOperation? _pendingTerminalNotification;
+    private int _transitionPublicationDepth;
+    private List<CancellationTokenRegistration>? _deferredRegistrationDisposals;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ControlledOperationScheduler"/> class.
@@ -249,9 +251,8 @@ public sealed class ControlledOperationScheduler : IDisposable
 
         var capturedContext = ExecutionContext.Capture();
         ControlledOperation operation;
-        lock (_transitionPublicationGate)
+        using (EnterTransitionPublicationScope())
         {
-            WaitForPendingTerminalNotificationUnderLock();
             lock (_gate)
             {
                 ThrowIfDisposed();
@@ -370,9 +371,8 @@ public sealed class ControlledOperationScheduler : IDisposable
     {
         ArgumentNullException.ThrowIfNull(operation);
         ValidateOwnership(operation);
-        lock (_transitionPublicationGate)
+        using (EnterTransitionPublicationScope())
         {
-            WaitForPendingTerminalNotificationUnderLock();
             lock (_gate)
             {
                 ThrowIfDisposed();
@@ -402,9 +402,8 @@ public sealed class ControlledOperationScheduler : IDisposable
     public bool RunStep()
     {
         ControlledOperation operation;
-        lock (_transitionPublicationGate)
+        using (EnterTransitionPublicationScope())
         {
-            WaitForPendingTerminalNotificationUnderLock();
             lock (_gate)
             {
                 ThrowIfDisposed();
@@ -515,9 +514,8 @@ public sealed class ControlledOperationScheduler : IDisposable
     {
         List<ControlledOperation> timedOut = [];
         List<CancellationTokenRegistration> registrations = [];
-        lock (_transitionPublicationGate)
+        using (EnterTransitionPublicationScope())
         {
-            WaitForPendingTerminalNotificationUnderLock();
             lock (_gate)
             {
                 ThrowIfDisposed();
@@ -580,9 +578,8 @@ public sealed class ControlledOperationScheduler : IDisposable
     {
         ArgumentNullException.ThrowIfNull(operation);
         ValidateOwnership(operation);
-        lock (_transitionPublicationGate)
+        using (EnterTransitionPublicationScope())
         {
-            WaitForPendingTerminalNotificationUnderLock();
             lock (_gate)
             {
                 ThrowIfDisposed();
@@ -609,9 +606,8 @@ public sealed class ControlledOperationScheduler : IDisposable
 
         bool needsUnwind;
         CancellationTokenRegistration registration;
-        lock (_transitionPublicationGate)
+        using (EnterTransitionPublicationScope())
         {
-            WaitForPendingTerminalNotificationUnderLock();
             lock (_gate)
             {
                 if (operation.IsTerminal)
@@ -634,7 +630,7 @@ public sealed class ControlledOperationScheduler : IDisposable
             Notify(operation, ControlledOperationState.Canceled);
         }
 
-        registration.Dispose();
+        DisposeRegistration(registration);
         if (needsUnwind)
         {
             UnwindParkedThread(operation);
@@ -653,9 +649,8 @@ public sealed class ControlledOperationScheduler : IDisposable
     {
         ArgumentNullException.ThrowIfNull(reason);
         var operation = RequireCurrentOperation();
-        lock (_transitionPublicationGate)
+        using (EnterTransitionPublicationScope())
         {
-            WaitForPendingTerminalNotificationUnderLock();
             lock (_gate)
             {
                 operation.ApplyTransition(ControlledOperationState.Paused, pauseReason: reason);
@@ -675,9 +670,8 @@ public sealed class ControlledOperationScheduler : IDisposable
     public void Yield()
     {
         var operation = RequireCurrentOperation();
-        lock (_transitionPublicationGate)
+        using (EnterTransitionPublicationScope())
         {
-            WaitForPendingTerminalNotificationUnderLock();
             lock (_gate)
             {
                 operation.ApplyTransition(ControlledOperationState.Runnable);
@@ -825,9 +819,8 @@ public sealed class ControlledOperationScheduler : IDisposable
 
         ControlledResourceWaiter waiter;
         CancellationTokenRegistration detachedRegistration = default;
-        lock (_transitionPublicationGate)
+        using (EnterTransitionPublicationScope())
         {
-            WaitForPendingTerminalNotificationUnderLock();
             lock (_gate)
             {
                 ThrowIfDisposed();
@@ -872,7 +865,7 @@ public sealed class ControlledOperationScheduler : IDisposable
             }
         }
 
-        detachedRegistration.Dispose();
+        DisposeRegistration(detachedRegistration);
         HandBackAndPark(operation);
 
         return FinishWait(operation, waiter);
@@ -889,9 +882,8 @@ public sealed class ControlledOperationScheduler : IDisposable
     private void OnWaiterCanceled(ControlledResourceWaiter waiter)
     {
         ControlledOperation? runnable = null;
-        lock (_transitionPublicationGate)
+        using (EnterTransitionPublicationScope())
         {
-            WaitForPendingTerminalNotificationUnderLock();
             lock (_gate)
             {
                 if (_disposed)
@@ -941,9 +933,8 @@ public sealed class ControlledOperationScheduler : IDisposable
 
         ControlledOperation? woken = null;
         CancellationTokenRegistration registration = default;
-        lock (_transitionPublicationGate)
+        using (EnterTransitionPublicationScope())
         {
-            WaitForPendingTerminalNotificationUnderLock();
             lock (_gate)
             {
                 ThrowIfDisposed();
@@ -964,7 +955,7 @@ public sealed class ControlledOperationScheduler : IDisposable
             }
         }
 
-        registration.Dispose();
+        DisposeRegistration(registration);
         return woken;
     }
 
@@ -983,9 +974,8 @@ public sealed class ControlledOperationScheduler : IDisposable
 
         List<ControlledOperation> woken = [];
         List<CancellationTokenRegistration> registrations = [];
-        lock (_transitionPublicationGate)
+        using (EnterTransitionPublicationScope())
         {
-            WaitForPendingTerminalNotificationUnderLock();
             lock (_gate)
             {
                 ThrowIfDisposed();
@@ -1036,7 +1026,7 @@ public sealed class ControlledOperationScheduler : IDisposable
             }
         }
 
-        registration.Dispose();
+        DisposeRegistration(registration);
         return resolution;
     }
 
@@ -1080,12 +1070,28 @@ public sealed class ControlledOperationScheduler : IDisposable
         return registration;
     }
 
-    private static void DisposeRegistrations(List<CancellationTokenRegistration> registrations)
+    private void DisposeRegistrations(List<CancellationTokenRegistration> registrations)
     {
         foreach (var registration in registrations)
         {
-            registration.Dispose();
+            DisposeRegistration(registration);
         }
+    }
+
+    private void DisposeRegistration(CancellationTokenRegistration registration)
+    {
+        if (registration.Equals(default(CancellationTokenRegistration)))
+        {
+            return;
+        }
+
+        if (Monitor.IsEntered(_transitionPublicationGate))
+        {
+            (_deferredRegistrationDisposals ??= []).Add(registration);
+            return;
+        }
+
+        registration.Dispose();
     }
 
     private void ValidateResourceOwnership(ControlledResource resource)
@@ -1403,9 +1409,8 @@ public sealed class ControlledOperationScheduler : IDisposable
     {
         List<ControlledOperation> victims;
         List<CancellationTokenRegistration> registrations;
-        lock (_transitionPublicationGate)
+        using (EnterTransitionPublicationScope())
         {
-            WaitForPendingTerminalNotificationUnderLock();
             lock (_gate)
             {
                 if (_disposed)
@@ -1686,9 +1691,8 @@ public sealed class ControlledOperationScheduler : IDisposable
 
     private void HandOffTerminal(ControlledOperation operation, ControlledOperationState terminal, Exception? terminalException)
     {
-        lock (_transitionPublicationGate)
+        using (EnterTransitionPublicationScope())
         {
-            WaitForPendingTerminalNotificationUnderLock();
             lock (_gate)
             {
                 // Only apply if a controlling thread is still waiting for this operation (it holds the
@@ -1714,7 +1718,7 @@ public sealed class ControlledOperationScheduler : IDisposable
         // terminal transition from the controlling thread.
         operation.Thread?.Join(ThreadJoinTimeout);
         operation.DisposeSignals();
-        lock (_transitionPublicationGate)
+        using (EnterTransitionPublicationScope(waitForPendingTerminal: false))
         {
             if (!ReferenceEquals(_pendingTerminalNotification, operation))
             {
@@ -1736,11 +1740,64 @@ public sealed class ControlledOperationScheduler : IDisposable
         }
     }
 
+    private TransitionPublicationScope EnterTransitionPublicationScope(bool waitForPendingTerminal = true)
+    {
+        Monitor.Enter(_transitionPublicationGate);
+        try
+        {
+            if (waitForPendingTerminal)
+            {
+                WaitForPendingTerminalNotificationUnderLock();
+            }
+
+            _transitionPublicationDepth++;
+            return new TransitionPublicationScope(this);
+        }
+        catch
+        {
+            Monitor.Exit(_transitionPublicationGate);
+            throw;
+        }
+    }
+
+    private void ExitTransitionPublicationScope()
+    {
+        List<CancellationTokenRegistration>? deferred = null;
+        _transitionPublicationDepth--;
+        if (_transitionPublicationDepth == 0 && _deferredRegistrationDisposals is { Count: > 0 })
+        {
+            deferred = _deferredRegistrationDisposals;
+            _deferredRegistrationDisposals = null;
+        }
+
+        Monitor.Exit(_transitionPublicationGate);
+        if (deferred is not null)
+        {
+            foreach (var registration in deferred)
+            {
+                registration.Dispose();
+            }
+        }
+    }
+
     private void WaitForPendingTerminalNotificationUnderLock()
     {
         while (_pendingTerminalNotification is not null)
         {
             Monitor.Wait(_transitionPublicationGate);
+        }
+    }
+
+    private sealed class TransitionPublicationScope(ControlledOperationScheduler scheduler) : IDisposable
+    {
+        private int _disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+            {
+                scheduler.ExitTransitionPublicationScope();
+            }
         }
     }
 
