@@ -40,6 +40,18 @@ public sealed class BuiltInSelectionTests
     }
 
     [Fact]
+    public void ControlledTaskSelectionParsesAndActivatesPhase8AFamilies()
+    {
+        RewriteRuleSet resolved = Assert.Single(RuleSetMerge.ResolveBuiltIns(
+            WithBuiltIns(ids: [BuiltInRuleSets.ControlledTasksId], include: ["ReaderWriterLockSlim"])));
+
+        Assert.Equal(BuiltInRuleSets.ControlledTasksId, resolved.Id);
+        Assert.Equal(BuiltInRuleSets.ControlledTasksVersion, resolved.Version);
+        Assert.NotEmpty(resolved.Rules);
+        Assert.All(resolved.Rules, rule => Assert.StartsWith("clockwork.readerwriterlockslim.", rule.Id, StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void IncludeSelectsOnlyNamedFamilies()
     {
         RewriteRuleSet resolved = Assert.Single(RuleSetMerge.ResolveBuiltIns(WithBuiltIns(include: ["Clock"])));

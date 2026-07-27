@@ -31,6 +31,14 @@ public static class ControlledMutex
         return CreateCore(initiallyOwned);
     }
 
+    /// <summary>Controlled <c>new Mutex(string, NamedWaitHandleOptions)</c>. Non-null names are not supported.</summary>
+    public static Mutex CreateNamed(string? name, NamedWaitHandleOptions options)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation(NamedCtorApi);
+        RejectIfNamed(name);
+        return CreateCore(initiallyOwned: false);
+    }
+
     /// <summary>Controlled <c>new Mutex(bool, string)</c>. Non-null names are not supported.</summary>
     public static Mutex CreateNamed(bool initiallyOwned, string? name)
     {

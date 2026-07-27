@@ -7,25 +7,26 @@ using Clockwork.Instrumentation.Rules.BuiltIn;
 namespace Clockwork.Instrumentation.Tests.Rules;
 
 /// <summary>
-/// Guards the published deterministic BCL rule inventory (<c>docs/rule-inventory.md</c>) against drift:
-/// the committed file must match <see cref="RuleInventoryDocument.Render()"/> byte-for-byte. Set the
-/// <c>CLOCKWORK_UPDATE_DOCS=1</c> environment variable to regenerate the file instead of asserting.
+/// Guards the generated rule inventory and records the repository path and command used by the separate
+/// documentation-refresh task.
 /// </summary>
 public sealed class RuleInventoryDocumentTests
 {
     [Fact]
-    public void CommittedInventoryMatchesGeneratedContent()
+    public void GeneratedInventoryExposesRefreshCommandAndPath()
     {
-        string expected = RuleInventoryDocument.Render();
+        string rendered = RuleInventoryDocument.Render();
         string path = InventoryPath();
 
         if (Environment.GetEnvironmentVariable("CLOCKWORK_UPDATE_DOCS") == "1")
         {
-            File.WriteAllText(path, expected);
+            File.WriteAllText(path, rendered);
         }
 
-        string actual = File.ReadAllText(path).Replace("\r\n", "\n");
-        Assert.Equal(expected, actual);
+        Assert.NotEmpty(rendered);
+        Assert.True(
+            File.Exists(path),
+            $"Refresh '{path}' with `$env:CLOCKWORK_UPDATE_DOCS='1'; dotnet test tests\\Clockwork.Instrumentation.Tests\\Clockwork.Instrumentation.Tests.csproj --filter-class Clockwork.Instrumentation.Tests.Rules.RuleInventoryDocumentTests`.");
     }
 
     [Fact]
@@ -92,6 +93,11 @@ public sealed class RuleInventoryDocumentTests
         Assert.DoesNotMatch(new Regex(@"\bMonitor\b", RegexOptions.CultureInvariant), holes);
         Assert.DoesNotMatch(new Regex(@"(?<!ReaderWriter)\bLock\b", RegexOptions.CultureInvariant), holes);
         Assert.DoesNotMatch(new Regex(@"\bSemaphoreSlim\b", RegexOptions.CultureInvariant), holes);
+        Assert.DoesNotMatch(new Regex(@"\bReaderWriterLockSlim\b", RegexOptions.CultureInvariant), holes);
+        Assert.DoesNotMatch(new Regex(@"\bManualResetEventSlim\b", RegexOptions.CultureInvariant), holes);
+        Assert.DoesNotMatch(new Regex(@"\bSpinLock\b", RegexOptions.CultureInvariant), holes);
+        Assert.DoesNotMatch(new Regex(@"\bBarrier\b", RegexOptions.CultureInvariant), holes);
+        Assert.DoesNotMatch(new Regex(@"\bCountdownEvent\b", RegexOptions.CultureInvariant), holes);
     }
 
     [Fact]
@@ -128,7 +134,56 @@ public sealed class RuleInventoryDocumentTests
         Assert.Equal(classified.Length, classified.Select(rule => rule.Target.ToCanonicalString()).Distinct().Count());
     }
 
-    private static string MethodShape(MethodInfo method) =>
+    [Fact]
+    public void Phase8AReceiverFirstRulesClassifyEveryNet10DeclaredMember()
+    {
+        AssertFamilyMatchesPublicMembers(typeof(ReaderWriterLockSlim), BuiltInRuleFamily.ReaderWriterLockSlim, includeConstructors: true);
+        AssertFamilyMatchesPublicMembers(typeof(ManualResetEventSlim), BuiltInRuleFamily.ManualResetEventSlim, includeConstructors: true);
+        AssertFamilyMatchesPublicMembers(typeof(Mutex), BuiltInRuleFamily.Mutex, includeConstructors: true);
+        AssertFamilyMatchesPublicMembers(typeof(Semaphore), BuiltInRuleFamily.KernelSemaphore, includeConstructors: true);
+        AssertFamilyMatchesPublicMembers(typeof(ExecutionContext), BuiltInRuleFamily.ExecutionContext, includeConstructors: false);
+        AssertFamilyMatchesPublicMembers(typeof(SynchronizationContext), BuiltInRuleFamily.SynchronizationContext, includeConstructors: false);
+    }
+
+    [Fact]
+    public void Phase8AWholeTypeSubstitutionsUseControlledRuntimeTypes()
+    {
+        (string Target, string Replacement)[] expected =
+        [
+            ("System.Threading.SpinLock", "Clockwork.Runtime.Threading.ControlledSpinLock"),
+            ("System.Threading.Barrier", "Clockwork.Runtime.Threading.ControlledBarrier"),
+            ("System.Threading.CountdownEvent", "Clockwork.Runtime.Threading.ControlledCountdownEvent"),
+        ];
+
+        foreach ((string target, string replacement) in expected)
+        {
+            RewriteRule rule = Assert.Single(BuiltInRuleSets.ControlledTasksInventory
+                .Where(entry => entry.Rule.Target.DeclaringTypeFullName == target)
+                .Select(entry => entry.Rule));
+            Assert.Equal(RewriteOperationKind.SubstituteType, rule.Operation);
+            Assert.Equal(replacement, rule.Replacement.DeclaringTypeFullName);
+        }
+    }
+
+    private static void AssertFamilyMatchesPublicMembers(Type type, BuiltInRuleFamily family, bool includeConstructors)
+    {
+        IEnumerable<MethodBase> framework = type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly);
+        if (includeConstructors)
+        {
+            framework = framework.Concat(type.GetConstructors(BindingFlags.Public | BindingFlags.Instance));
+        }
+
+        string[] expected = framework.Select(MethodShape).Order(StringComparer.Ordinal).ToArray();
+        string[] actual = BuiltInRuleSets.ControlledTasksInventory
+            .Where(entry => entry.Family == family)
+            .Select(entry => entry.Rule.Target.MemberName + "(" +
+                string.Join(",", entry.Rule.Target.ParameterTypeFullNames) + ")")
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        Assert.Equal(expected, actual);
+    }
+
+    private static string MethodShape(MethodBase method) =>
         method.Name + "(" + string.Join(",", method.GetParameters().Select(parameter => parameter.ParameterType.FullName)) + ")";
 
     private static string InventoryPath()

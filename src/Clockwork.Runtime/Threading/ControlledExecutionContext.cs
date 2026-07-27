@@ -85,15 +85,13 @@ public static class ControlledExecutionContext
         instance.Dispose();
     }
 
-    /// <summary>Forwards the legacy serialization member to the BCL implementation.</summary>
+    /// <summary>Rejects the legacy serialization member before it can invoke BCL serialization behavior.</summary>
     [Obsolete("ExecutionContext serialization is legacy. This member exists only for rewritten legacy callers.")]
     public static void GetObjectData(ExecutionContext instance, SerializationInfo info, StreamingContext context)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(GetObjectDataApi);
-        ArgumentNullException.ThrowIfNull(instance);
-        ArgumentNullException.ThrowIfNull(info);
-#pragma warning disable SYSLIB0051
-        instance.GetObjectData(info, context);
-#pragma warning restore SYSLIB0051
+        throw new ControlledExecutionContextUnsupportedException(
+            GetObjectDataApi,
+            "legacy ExecutionContext serialization can invoke uncontrolled BCL serialization behavior.");
     }
 }

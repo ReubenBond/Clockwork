@@ -56,7 +56,6 @@ public static class RuleInventoryDocument
         Line("- `DateTime`/`DateTimeOffset` parsing/formatting and any culture-, timezone-, or kind-conversion helpers other than the `Now`/`UtcNow`/`Today` clocks above.");
         Line("- Synchronous blocking on `ValueTask`/`ValueTask<T>` (`.Result`/`.GetResult()` outside an awaiter): a value task may be consumed only once, so a blocking drain is unsafe. `await` is the supported controlled path.");
         Line("- Named/cross-process synchronization (named `EventWaitHandle`/`Mutex`/`Semaphore` and their `OpenExisting`/`TryOpenExisting` APIs): a single-process simulation cannot model kernel-object sharing, so these are rejected.");
-        Line("- `ReaderWriterLockSlim`, `Mutex`, the kernel `Semaphore`, `SpinLock`, and `ManualResetEventSlim` remain unrewritten Phase 8 scope.");
         Line("- `Timer`, `PeriodicTimer`, and cancellation timers remain unrewritten Phase 8 scope.");
         Line();
         Line("Determinism is claimed **only** for the exact rules tabulated above.");
@@ -262,6 +261,40 @@ public static class RuleInventoryDocument
             "cross-process APIs (named constructors, `OpenExisting`, `TryOpenExisting`) and the raw " +
             "native-handle accessors (`Handle`, `SafeWaitHandle`) cannot be modelled in a single simulated " +
             "process and are rejected with a precise diagnostic.",
+        BuiltInRuleFamily.ReaderWriterLockSlim =>
+            "Every public .NET 10 `ReaderWriterLockSlim` constructor, property, enter/try-enter/exit overload, " +
+            "and `Dispose` member redirects to receiver-first controlled shims. The real BCL instance is only " +
+            "an identity key; logical-strand ownership, recursion, wait queues, and deadlines are modelled " +
+            "without blocking a physical thread.",
+        BuiltInRuleFamily.ManualResetEventSlim =>
+            "Every public .NET 10 `ManualResetEventSlim` constructor, property, set/reset/wait overload, and " +
+            "`Dispose` redirects to receiver-first controlled shims. Signal state, waiters, cancellation, " +
+            "deadlines, and the exposed wait-handle bridge are modelled in side state.",
+        BuiltInRuleFamily.Mutex =>
+            "Unnamed `Mutex` construction and `ReleaseMutex` are controlled through the wait-handle kernel. " +
+            "Named constructors (including null-name forms that the shim conditionally treats as unnamed) and " +
+            "`OpenExisting`/`TryOpenExisting` are classified Rejected because a non-null name is cross-process " +
+            "kernel state.",
+        BuiltInRuleFamily.KernelSemaphore =>
+            "The unnamed kernel `Semaphore` constructor and both `Release` overloads are controlled through " +
+            "the wait-handle kernel. Named constructors and `OpenExisting`/`TryOpenExisting` are Rejected " +
+            "because cross-process semaphore state cannot be represented by one simulation.",
+        BuiltInRuleFamily.SpinLock =>
+            "`SpinLock` is wholly substituted with `ControlledSpinLock`, preserving its value-type surface " +
+            "while replacing CPU spinning with deterministic scheduler pumping.",
+        BuiltInRuleFamily.ExecutionContext =>
+            "`ExecutionContext` capture, run, flow-control, copy, and disposal members redirect to controlled " +
+            "shims. The legacy `GetObjectData` serialization surface is Rejected before it can invoke BCL " +
+            "serialization behavior.",
+        BuiltInRuleFamily.SynchronizationContext =>
+            "`SynchronizationContext` ambient-context and callback-dispatch members redirect to controlled " +
+            "shims; its raw native-handle `Wait` member is Rejected before it can block a physical thread.",
+        BuiltInRuleFamily.Barrier =>
+            "`Barrier` is wholly substituted with `ControlledBarrier`, including generic occurrences such as " +
+            "`Action<Barrier>`, so participant state and post-phase callbacks remain under simulation.",
+        BuiltInRuleFamily.CountdownEvent =>
+            "`CountdownEvent` is wholly substituted with `ControlledCountdownEvent`, so all count updates, " +
+            "waits, bridge handles, and disposal run under the deterministic scheduler.",
         _ => string.Empty,
     };
 

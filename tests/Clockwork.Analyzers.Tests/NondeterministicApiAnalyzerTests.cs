@@ -48,6 +48,12 @@ public sealed class NondeterministicApiAnalyzerTests
     [InlineData("System.Threading.Tasks.Parallel.Invoke(() => { });", "CW1001")]
     [InlineData("System.Threading.Monitor.Enter(new object());", "CW1001")]
     [InlineData("using var semaphore = new System.Threading.SemaphoreSlim(1);", "CW1001")]
+    [InlineData("using var readerWriter = new System.Threading.ReaderWriterLockSlim();", "CW1001")]
+    [InlineData("using var reset = new System.Threading.ManualResetEventSlim();", "CW1001")]
+    [InlineData("using var mutex = new System.Threading.Mutex();", "CW1001")]
+    [InlineData("using var semaphore = new System.Threading.Semaphore(1, 1);", "CW1001")]
+    [InlineData("var barrier = new System.Threading.Barrier(1);", "CW1001")]
+    [InlineData("var countdown = new System.Threading.CountdownEvent(1);", "CW1001")]
     public async Task ReportsExpectedDiagnostic(string statement, string expectedId)
     {
         ImmutableArray<Diagnostic> diagnostics = await AnalyzeAsync(Wrap(statement));
@@ -171,6 +177,15 @@ public sealed class NondeterministicApiAnalyzerTests
             BuiltInRuleFamily.Monitor,
             BuiltInRuleFamily.Lock,
             BuiltInRuleFamily.Semaphore,
+            BuiltInRuleFamily.ReaderWriterLockSlim,
+            BuiltInRuleFamily.ManualResetEventSlim,
+            BuiltInRuleFamily.Mutex,
+            BuiltInRuleFamily.KernelSemaphore,
+            BuiltInRuleFamily.SpinLock,
+            BuiltInRuleFamily.ExecutionContext,
+            BuiltInRuleFamily.SynchronizationContext,
+            BuiltInRuleFamily.Barrier,
+            BuiltInRuleFamily.CountdownEvent,
         ];
 
         foreach ((BuiltInRuleFamily family, Clockwork.Instrumentation.Rules.RewriteRule rule) in

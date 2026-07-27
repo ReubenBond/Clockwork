@@ -39,7 +39,7 @@ public static class BuiltInRuleSets
     public const string ControlledTasksId = "clockwork.tasks.controlled";
 
     /// <summary>The version of the controlled task rule set.</summary>
-    public const string ControlledTasksVersion = "1.0.0";
+    public const string ControlledTasksVersion = "2.0.0";
 
     /// <summary>The simple name of the assembly declaring every built-in shim.</summary>
     public const string ShimAssemblyName = "Clockwork.Runtime";
@@ -60,6 +60,12 @@ public static class BuiltInRuleSets
     private const string SemaphoreSlimShim = "Clockwork.Runtime.Threading.ControlledSemaphoreSlim";
     private const string InterlockedShim = "Clockwork.Runtime.Threading.ControlledInterlocked";
     private const string VolatileShim = "Clockwork.Runtime.Threading.ControlledVolatile";
+    private const string ReaderWriterLockSlimShim = "Clockwork.Runtime.Threading.ControlledReaderWriterLockSlim";
+    private const string ManualResetEventSlimShim = "Clockwork.Runtime.Threading.ControlledManualResetEventSlim";
+    private const string MutexShim = "Clockwork.Runtime.Threading.ControlledMutex";
+    private const string KernelSemaphoreShim = "Clockwork.Runtime.Threading.ControlledSemaphore";
+    private const string ExecutionContextShim = "Clockwork.Runtime.Threading.ControlledExecutionContext";
+    private const string SynchronizationContextShim = "Clockwork.Runtime.Threading.ControlledSynchronizationContext";
 
     // Cecil full names for the exact overload parameters (from the net10 reference assemblies).
     private const string Int32 = "System.Int32";
@@ -287,6 +293,31 @@ public static class BuiltInRuleSets
     private const string WaitHandleShim = "Clockwork.Runtime.Threading.ControlledWaitHandle";
     private const string EventWaitHandleShim = "Clockwork.Runtime.Threading.ControlledEventWaitHandle";
 
+    // Cecil full names for the Phase 8A synchronization families. ReaderWriterLockSlim and
+    // ManualResetEventSlim retain BCL identity objects and use receiver-first static shims. Mutex and the
+    // kernel Semaphore do the same, while SpinLock, Barrier, and CountdownEvent are complete substitutions.
+    private const string ReaderWriterLockSlimType = "System.Threading.ReaderWriterLockSlim";
+    private const string LockRecursionPolicyType = "System.Threading.LockRecursionPolicy";
+    private const string ManualResetEventSlimType = "System.Threading.ManualResetEventSlim";
+    private const string MutexType = "System.Threading.Mutex";
+    private const string MutexRef = "System.Threading.Mutex&";
+    private const string KernelSemaphoreType = "System.Threading.Semaphore";
+    private const string KernelSemaphoreRef = "System.Threading.Semaphore&";
+    private const string ExecutionContextType = "System.Threading.ExecutionContext";
+    private const string ContextCallbackType = "System.Threading.ContextCallback";
+    private const string AsyncFlowControlType = "System.Threading.AsyncFlowControl";
+    private const string SerializationInfoType = "System.Runtime.Serialization.SerializationInfo";
+    private const string StreamingContextType = "System.Runtime.Serialization.StreamingContext";
+    private const string SynchronizationContextType = "System.Threading.SynchronizationContext";
+    private const string SendOrPostCallbackType = "System.Threading.SendOrPostCallback";
+    private const string IntPtrArray = "System.IntPtr[]";
+    private const string BarrierType = "System.Threading.Barrier";
+    private const string ControlledBarrierType = "Clockwork.Runtime.Threading.ControlledBarrier";
+    private const string CountdownEventType = "System.Threading.CountdownEvent";
+    private const string ControlledCountdownEventType = "Clockwork.Runtime.Threading.ControlledCountdownEvent";
+    private const string SpinLockType = "System.Threading.SpinLock";
+    private const string ControlledSpinLockType = "Clockwork.Runtime.Threading.ControlledSpinLock";
+
 
     // Cecil full names for the compiler-generated async machinery (BCL) and their controlled substitutes.
     // Nested awaiter types use Cecil's '/' separator; generic arities carry the backtick.
@@ -360,6 +391,15 @@ public static class BuiltInRuleSets
         BuiltInRuleFamily.Volatile,
         BuiltInRuleFamily.SpinWait,
         BuiltInRuleFamily.WaitHandle,
+        BuiltInRuleFamily.ReaderWriterLockSlim,
+        BuiltInRuleFamily.ManualResetEventSlim,
+        BuiltInRuleFamily.Mutex,
+        BuiltInRuleFamily.KernelSemaphore,
+        BuiltInRuleFamily.SpinLock,
+        BuiltInRuleFamily.ExecutionContext,
+        BuiltInRuleFamily.SynchronizationContext,
+        BuiltInRuleFamily.Barrier,
+        BuiltInRuleFamily.CountdownEvent,
         BuiltInRuleFamily.UncontrolledInvocation,
     ];
 
@@ -902,8 +942,217 @@ public static class BuiltInRuleSets
         Sub(builder, BuiltInRuleFamily.SpinWait, "clockwork.spinwait.type", SpinWaitType, ControlledSpinWaitType);
 
         BuildWaitHandleEntries(builder);
+        BuildPhase8ASynchronizationEntries(builder);
 
         return builder.ToImmutable();
+    }
+
+    // Phase 8A: the remaining modern synchronization surface. ReaderWriterLockSlim and
+    // ManualResetEventSlim use BCL instances strictly as identity handles, so constructors are redirected
+    // to factories and all declared instance members are receiver-first shims. Mutex and Semaphore use the
+    // same identity-handle model; inherited WaitHandle operations are already handled by BuildWaitHandleEntries.
+    // SpinLock, Barrier, and CountdownEvent have self-contained controlled types and are substituted wholly.
+    private static void BuildPhase8ASynchronizationEntries(ImmutableArray<BuiltInRuleEntry>.Builder builder)
+    {
+        BuildReaderWriterLockSlimEntries(builder);
+        BuildManualResetEventSlimEntries(builder);
+        BuildKernelMutexEntries(builder);
+        BuildKernelSemaphoreEntries(builder);
+        BuildContextEntries(builder);
+
+        Sub(builder, BuiltInRuleFamily.SpinLock, "clockwork.spinlock.type", SpinLockType, ControlledSpinLockType);
+        Sub(builder, BuiltInRuleFamily.Barrier, "clockwork.barrier.type", BarrierType, ControlledBarrierType);
+        Sub(builder, BuiltInRuleFamily.CountdownEvent, "clockwork.countdownevent.type", CountdownEventType, ControlledCountdownEventType);
+    }
+
+    private static void BuildReaderWriterLockSlimEntries(ImmutableArray<BuiltInRuleEntry>.Builder builder)
+    {
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.ReaderWriterLockSlim, RewriteRule.RedirectNewObj(
+            "clockwork.readerwriterlockslim.ctor",
+            MemberSignature.Constructor(ReaderWriterLockSlimType),
+            Shim(ReaderWriterLockSlimShim, "Create"))));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.ReaderWriterLockSlim, RewriteRule.RedirectNewObj(
+            "clockwork.readerwriterlockslim.ctor.recursionpolicy",
+            MemberSignature.Constructor(ReaderWriterLockSlimType, LockRecursionPolicyType),
+            Shim(ReaderWriterLockSlimShim, "Create", LockRecursionPolicyType))));
+
+        ReaderWriterRule("get_recursionpolicy", "get_RecursionPolicy", [], "RecursionPolicy");
+        ReaderWriterRule("get_currentreadcount", "get_CurrentReadCount", [], "CurrentReadCount");
+        ReaderWriterRule("get_isreadlockheld", "get_IsReadLockHeld", [], "IsReadLockHeld");
+        ReaderWriterRule("get_isupgradeablereadlockheld", "get_IsUpgradeableReadLockHeld", [], "IsUpgradeableReadLockHeld");
+        ReaderWriterRule("get_iswritelockheld", "get_IsWriteLockHeld", [], "IsWriteLockHeld");
+        ReaderWriterRule("get_recursivereadcount", "get_RecursiveReadCount", [], "RecursiveReadCount");
+        ReaderWriterRule("get_recursiveupgradecount", "get_RecursiveUpgradeCount", [], "RecursiveUpgradeCount");
+        ReaderWriterRule("get_recursivewritecount", "get_RecursiveWriteCount", [], "RecursiveWriteCount");
+        ReaderWriterRule("get_waitingreadcount", "get_WaitingReadCount", [], "WaitingReadCount");
+        ReaderWriterRule("get_waitingupgradecount", "get_WaitingUpgradeCount", [], "WaitingUpgradeCount");
+        ReaderWriterRule("get_waitingwritecount", "get_WaitingWriteCount", [], "WaitingWriteCount");
+        ReaderWriterRule("enterreadlock", "EnterReadLock", [], "EnterReadLock");
+        ReaderWriterRule("tryenterreadlock.milliseconds", "TryEnterReadLock", [Int32], "TryEnterReadLock", Int32);
+        ReaderWriterRule("tryenterreadlock.timespan", "TryEnterReadLock", [TimeSpan], "TryEnterReadLock", TimeSpan);
+        ReaderWriterRule("exitreadlock", "ExitReadLock", [], "ExitReadLock");
+        ReaderWriterRule("enterupgradeablereadlock", "EnterUpgradeableReadLock", [], "EnterUpgradeableReadLock");
+        ReaderWriterRule("tryenterupgradeablereadlock.milliseconds", "TryEnterUpgradeableReadLock", [Int32], "TryEnterUpgradeableReadLock", Int32);
+        ReaderWriterRule("tryenterupgradeablereadlock.timespan", "TryEnterUpgradeableReadLock", [TimeSpan], "TryEnterUpgradeableReadLock", TimeSpan);
+        ReaderWriterRule("exitupgradeablereadlock", "ExitUpgradeableReadLock", [], "ExitUpgradeableReadLock");
+        ReaderWriterRule("enterwritelock", "EnterWriteLock", [], "EnterWriteLock");
+        ReaderWriterRule("tryenterwritelock.milliseconds", "TryEnterWriteLock", [Int32], "TryEnterWriteLock", Int32);
+        ReaderWriterRule("tryenterwritelock.timespan", "TryEnterWriteLock", [TimeSpan], "TryEnterWriteLock", TimeSpan);
+        ReaderWriterRule("exitwritelock", "ExitWriteLock", [], "ExitWriteLock");
+        ReaderWriterRule("dispose", "Dispose", [], "Dispose");
+
+        void ReaderWriterRule(string id, string targetMember, string[] targetParameters, string shimMember, params string[] shimParameters) =>
+            TaskRule(
+                builder,
+                BuiltInRuleFamily.ReaderWriterLockSlim,
+                "clockwork.readerwriterlockslim." + id,
+                MemberSignature.Method(ReaderWriterLockSlimType, targetMember, targetParameters),
+                Shim(ReaderWriterLockSlimShim, shimMember, [ReaderWriterLockSlimType, .. shimParameters]));
+    }
+
+    private static void BuildManualResetEventSlimEntries(ImmutableArray<BuiltInRuleEntry>.Builder builder)
+    {
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.ManualResetEventSlim, RewriteRule.RedirectNewObj(
+            "clockwork.manualreseteventslim.ctor",
+            MemberSignature.Constructor(ManualResetEventSlimType),
+            Shim(ManualResetEventSlimShim, "Create"))));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.ManualResetEventSlim, RewriteRule.RedirectNewObj(
+            "clockwork.manualreseteventslim.ctor.initialstate",
+            MemberSignature.Constructor(ManualResetEventSlimType, Boolean),
+            Shim(ManualResetEventSlimShim, "Create", Boolean))));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.ManualResetEventSlim, RewriteRule.RedirectNewObj(
+            "clockwork.manualreseteventslim.ctor.initialstate.spincount",
+            MemberSignature.Constructor(ManualResetEventSlimType, Boolean, Int32),
+            Shim(ManualResetEventSlimShim, "Create", Boolean, Int32))));
+
+        ManualResetEventSlimRule("get_isset", "get_IsSet", [], "IsSet");
+        ManualResetEventSlimRule("get_spincount", "get_SpinCount", [], "SpinCount");
+        ManualResetEventSlimRule("get_waithandle", "get_WaitHandle", [], "WaitHandle");
+        ManualResetEventSlimRule("set", "Set", [], "Set");
+        ManualResetEventSlimRule("reset", "Reset", [], "Reset");
+        ManualResetEventSlimRule("wait", "Wait", [], "Wait");
+        ManualResetEventSlimRule("wait.cancellationtoken", "Wait", [CancellationToken], "Wait", CancellationToken);
+        ManualResetEventSlimRule("wait.milliseconds", "Wait", [Int32], "Wait", Int32);
+        ManualResetEventSlimRule("wait.milliseconds.cancellationtoken", "Wait", [Int32, CancellationToken], "Wait", Int32, CancellationToken);
+        ManualResetEventSlimRule("wait.timespan", "Wait", [TimeSpan], "Wait", TimeSpan);
+        ManualResetEventSlimRule("wait.timespan.cancellationtoken", "Wait", [TimeSpan, CancellationToken], "Wait", TimeSpan, CancellationToken);
+        ManualResetEventSlimRule("dispose", "Dispose", [], "Dispose");
+
+        void ManualResetEventSlimRule(
+            string id,
+            string targetMember,
+            string[] targetParameters,
+            string shimMember,
+            params string[] shimParameters) =>
+            TaskRule(
+                builder,
+                BuiltInRuleFamily.ManualResetEventSlim,
+                "clockwork.manualreseteventslim." + id,
+                MemberSignature.Method(ManualResetEventSlimType, targetMember, targetParameters),
+                Shim(ManualResetEventSlimShim, shimMember, [ManualResetEventSlimType, .. shimParameters]));
+    }
+
+    private static void BuildKernelMutexEntries(ImmutableArray<BuiltInRuleEntry>.Builder builder)
+    {
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Mutex, RewriteRule.RedirectNewObj(
+            "clockwork.mutex.ctor", MemberSignature.Constructor(MutexType), Shim(MutexShim, "Create"))));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Mutex, RewriteRule.RedirectNewObj(
+            "clockwork.mutex.ctor.initiallyowned", MemberSignature.Constructor(MutexType, Boolean), Shim(MutexShim, "Create", Boolean))));
+        TaskRule(builder, BuiltInRuleFamily.Mutex, "clockwork.mutex.release",
+            MemberSignature.Method(MutexType, "ReleaseMutex"), Shim(MutexShim, "ReleaseMutex", MutexType));
+
+        RejectedNewObjRule(builder, BuiltInRuleFamily.Mutex, "clockwork.mutex.ctor.named",
+            MemberSignature.Constructor(MutexType, Boolean, String), Shim(MutexShim, "CreateNamed", Boolean, String));
+        RejectedNewObjRule(builder, BuiltInRuleFamily.Mutex, "clockwork.mutex.ctor.named.creatednew",
+            MemberSignature.Constructor(MutexType, Boolean, String, BooleanRef), Shim(MutexShim, "CreateNamed", Boolean, String, BooleanRef));
+        RejectedNewObjRule(builder, BuiltInRuleFamily.Mutex, "clockwork.mutex.ctor.named.options",
+            MemberSignature.Constructor(MutexType, Boolean, String, NamedWaitHandleOptionsType), Shim(MutexShim, "CreateNamed", Boolean, String, NamedWaitHandleOptionsType));
+        RejectedNewObjRule(builder, BuiltInRuleFamily.Mutex, "clockwork.mutex.ctor.named.options.creatednew",
+            MemberSignature.Constructor(MutexType, Boolean, String, NamedWaitHandleOptionsType, BooleanRef), Shim(MutexShim, "CreateNamed", Boolean, String, NamedWaitHandleOptionsType, BooleanRef));
+        RejectedNewObjRule(builder, BuiltInRuleFamily.Mutex, "clockwork.mutex.ctor.name.options",
+            MemberSignature.Constructor(MutexType, String, NamedWaitHandleOptionsType), Shim(MutexShim, "CreateNamed", String, NamedWaitHandleOptionsType));
+        RejectedRule(builder, BuiltInRuleFamily.Mutex, "clockwork.mutex.openexisting",
+            MemberSignature.Method(MutexType, "OpenExisting", String), Shim(MutexShim, "OpenExisting", String));
+        RejectedRule(builder, BuiltInRuleFamily.Mutex, "clockwork.mutex.openexisting.options",
+            MemberSignature.Method(MutexType, "OpenExisting", String, NamedWaitHandleOptionsType), Shim(MutexShim, "OpenExisting", String, NamedWaitHandleOptionsType));
+        RejectedRule(builder, BuiltInRuleFamily.Mutex, "clockwork.mutex.tryopenexisting",
+            MemberSignature.Method(MutexType, "TryOpenExisting", String, MutexRef), Shim(MutexShim, "TryOpenExisting", String, MutexRef));
+        RejectedRule(builder, BuiltInRuleFamily.Mutex, "clockwork.mutex.tryopenexisting.options",
+            MemberSignature.Method(MutexType, "TryOpenExisting", String, NamedWaitHandleOptionsType, MutexRef), Shim(MutexShim, "TryOpenExisting", String, NamedWaitHandleOptionsType, MutexRef));
+    }
+
+    private static void BuildKernelSemaphoreEntries(ImmutableArray<BuiltInRuleEntry>.Builder builder)
+    {
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.KernelSemaphore, RewriteRule.RedirectNewObj(
+            "clockwork.semaphore.ctor", MemberSignature.Constructor(KernelSemaphoreType, Int32, Int32), Shim(KernelSemaphoreShim, "Create", Int32, Int32))));
+        TaskRule(builder, BuiltInRuleFamily.KernelSemaphore, "clockwork.semaphore.release",
+            MemberSignature.Method(KernelSemaphoreType, "Release"), Shim(KernelSemaphoreShim, "Release", KernelSemaphoreType));
+        TaskRule(builder, BuiltInRuleFamily.KernelSemaphore, "clockwork.semaphore.release.count",
+            MemberSignature.Method(KernelSemaphoreType, "Release", Int32), Shim(KernelSemaphoreShim, "Release", KernelSemaphoreType, Int32));
+
+        RejectedNewObjRule(builder, BuiltInRuleFamily.KernelSemaphore, "clockwork.semaphore.ctor.named",
+            MemberSignature.Constructor(KernelSemaphoreType, Int32, Int32, String), Shim(KernelSemaphoreShim, "CreateNamed", Int32, Int32, String));
+        RejectedNewObjRule(builder, BuiltInRuleFamily.KernelSemaphore, "clockwork.semaphore.ctor.named.creatednew",
+            MemberSignature.Constructor(KernelSemaphoreType, Int32, Int32, String, BooleanRef), Shim(KernelSemaphoreShim, "CreateNamed", Int32, Int32, String, BooleanRef));
+        RejectedNewObjRule(builder, BuiltInRuleFamily.KernelSemaphore, "clockwork.semaphore.ctor.named.options",
+            MemberSignature.Constructor(KernelSemaphoreType, Int32, Int32, String, NamedWaitHandleOptionsType), Shim(KernelSemaphoreShim, "CreateNamed", Int32, Int32, String, NamedWaitHandleOptionsType));
+        RejectedNewObjRule(builder, BuiltInRuleFamily.KernelSemaphore, "clockwork.semaphore.ctor.named.options.creatednew",
+            MemberSignature.Constructor(KernelSemaphoreType, Int32, Int32, String, NamedWaitHandleOptionsType, BooleanRef), Shim(KernelSemaphoreShim, "CreateNamed", Int32, Int32, String, NamedWaitHandleOptionsType, BooleanRef));
+        RejectedRule(builder, BuiltInRuleFamily.KernelSemaphore, "clockwork.semaphore.openexisting",
+            MemberSignature.Method(KernelSemaphoreType, "OpenExisting", String), Shim(KernelSemaphoreShim, "OpenExisting", String));
+        RejectedRule(builder, BuiltInRuleFamily.KernelSemaphore, "clockwork.semaphore.openexisting.options",
+            MemberSignature.Method(KernelSemaphoreType, "OpenExisting", String, NamedWaitHandleOptionsType), Shim(KernelSemaphoreShim, "OpenExisting", String, NamedWaitHandleOptionsType));
+        RejectedRule(builder, BuiltInRuleFamily.KernelSemaphore, "clockwork.semaphore.tryopenexisting",
+            MemberSignature.Method(KernelSemaphoreType, "TryOpenExisting", String, KernelSemaphoreRef), Shim(KernelSemaphoreShim, "TryOpenExisting", String, KernelSemaphoreRef));
+        RejectedRule(builder, BuiltInRuleFamily.KernelSemaphore, "clockwork.semaphore.tryopenexisting.options",
+            MemberSignature.Method(KernelSemaphoreType, "TryOpenExisting", String, NamedWaitHandleOptionsType, KernelSemaphoreRef), Shim(KernelSemaphoreShim, "TryOpenExisting", String, NamedWaitHandleOptionsType, KernelSemaphoreRef));
+    }
+
+    private static void BuildContextEntries(ImmutableArray<BuiltInRuleEntry>.Builder builder)
+    {
+        TaskRule(builder, BuiltInRuleFamily.ExecutionContext, "clockwork.executioncontext.capture",
+            MemberSignature.Method(ExecutionContextType, "Capture"), Shim(ExecutionContextShim, "Capture"));
+        TaskRule(builder, BuiltInRuleFamily.ExecutionContext, "clockwork.executioncontext.run",
+            MemberSignature.Method(ExecutionContextType, "Run", ExecutionContextType, ContextCallbackType, ObjectType),
+            Shim(ExecutionContextShim, "Run", ExecutionContextType, ContextCallbackType, ObjectType));
+        TaskRule(builder, BuiltInRuleFamily.ExecutionContext, "clockwork.executioncontext.suppressflow",
+            MemberSignature.Method(ExecutionContextType, "SuppressFlow"), Shim(ExecutionContextShim, "SuppressFlow"));
+        TaskRule(builder, BuiltInRuleFamily.ExecutionContext, "clockwork.executioncontext.restoreflow",
+            MemberSignature.Method(ExecutionContextType, "RestoreFlow"), Shim(ExecutionContextShim, "RestoreFlow"));
+        TaskRule(builder, BuiltInRuleFamily.ExecutionContext, "clockwork.executioncontext.isflowsuppressed",
+            MemberSignature.Method(ExecutionContextType, "IsFlowSuppressed"), Shim(ExecutionContextShim, "IsFlowSuppressed"));
+        TaskRule(builder, BuiltInRuleFamily.ExecutionContext, "clockwork.executioncontext.restore",
+            MemberSignature.Method(ExecutionContextType, "Restore", ExecutionContextType), Shim(ExecutionContextShim, "Restore", ExecutionContextType));
+        TaskRule(builder, BuiltInRuleFamily.ExecutionContext, "clockwork.executioncontext.createcopy",
+            MemberSignature.Method(ExecutionContextType, "CreateCopy"), Shim(ExecutionContextShim, "CreateCopy", ExecutionContextType));
+        TaskRule(builder, BuiltInRuleFamily.ExecutionContext, "clockwork.executioncontext.dispose",
+            MemberSignature.Method(ExecutionContextType, "Dispose"), Shim(ExecutionContextShim, "Dispose", ExecutionContextType));
+        RejectedRule(builder, BuiltInRuleFamily.ExecutionContext, "clockwork.executioncontext.getobjectdata",
+            MemberSignature.Method(ExecutionContextType, "GetObjectData", SerializationInfoType, StreamingContextType),
+            Shim(ExecutionContextShim, "GetObjectData", ExecutionContextType, SerializationInfoType, StreamingContextType));
+
+        TaskRule(builder, BuiltInRuleFamily.SynchronizationContext, "clockwork.synchronizationcontext.get_current",
+            MemberSignature.Method(SynchronizationContextType, "get_Current"), Shim(SynchronizationContextShim, "Current"));
+        TaskRule(builder, BuiltInRuleFamily.SynchronizationContext, "clockwork.synchronizationcontext.set_current",
+            MemberSignature.Method(SynchronizationContextType, "SetSynchronizationContext", SynchronizationContextType),
+            Shim(SynchronizationContextShim, "SetSynchronizationContext", SynchronizationContextType));
+        TaskRule(builder, BuiltInRuleFamily.SynchronizationContext, "clockwork.synchronizationcontext.createcopy",
+            MemberSignature.Method(SynchronizationContextType, "CreateCopy"), Shim(SynchronizationContextShim, "CreateCopy", SynchronizationContextType));
+        TaskRule(builder, BuiltInRuleFamily.SynchronizationContext, "clockwork.synchronizationcontext.iswaitnotificationrequired",
+            MemberSignature.Method(SynchronizationContextType, "IsWaitNotificationRequired"), Shim(SynchronizationContextShim, "IsWaitNotificationRequired", SynchronizationContextType));
+        TaskRule(builder, BuiltInRuleFamily.SynchronizationContext, "clockwork.synchronizationcontext.operationstarted",
+            MemberSignature.Method(SynchronizationContextType, "OperationStarted"), Shim(SynchronizationContextShim, "OperationStarted", SynchronizationContextType));
+        TaskRule(builder, BuiltInRuleFamily.SynchronizationContext, "clockwork.synchronizationcontext.operationcompleted",
+            MemberSignature.Method(SynchronizationContextType, "OperationCompleted"), Shim(SynchronizationContextShim, "OperationCompleted", SynchronizationContextType));
+        TaskRule(builder, BuiltInRuleFamily.SynchronizationContext, "clockwork.synchronizationcontext.post",
+            MemberSignature.Method(SynchronizationContextType, "Post", SendOrPostCallbackType, ObjectType),
+            Shim(SynchronizationContextShim, "Post", SynchronizationContextType, SendOrPostCallbackType, ObjectType));
+        TaskRule(builder, BuiltInRuleFamily.SynchronizationContext, "clockwork.synchronizationcontext.send",
+            MemberSignature.Method(SynchronizationContextType, "Send", SendOrPostCallbackType, ObjectType),
+            Shim(SynchronizationContextShim, "Send", SynchronizationContextType, SendOrPostCallbackType, ObjectType));
+        RejectedRule(builder, BuiltInRuleFamily.SynchronizationContext, "clockwork.synchronizationcontext.wait",
+            MemberSignature.Method(SynchronizationContextType, "Wait", IntPtrArray, Boolean, Int32),
+            Shim(SynchronizationContextShim, "Wait", SynchronizationContextType, IntPtrArray, Boolean, Int32));
     }
 
     // Phase 7B: the full .NET 10 System.Threading.Interlocked surface. Every call site is redirected to a
@@ -1189,6 +1438,16 @@ public static class BuiltInRuleSets
         RewriteReplacement replacement)
     {
         builder.Add(new BuiltInRuleEntry(family, RewriteRule.RedirectCall(id, target, replacement, SimulationApiPolicy.Rejected)));
+    }
+
+    private static void RejectedNewObjRule(
+        ImmutableArray<BuiltInRuleEntry>.Builder builder,
+        BuiltInRuleFamily family,
+        string id,
+        MemberSignature target,
+        RewriteReplacement replacement)
+    {
+        builder.Add(new BuiltInRuleEntry(family, RewriteRule.RedirectNewObj(id, target, replacement, SimulationApiPolicy.Rejected)));
     }
 
     // Redirects a registered-wait factory overload to its controlled shim. The BCL method is static, so the
