@@ -100,7 +100,7 @@ public sealed class ControlledTaskRuntimeTests
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var completed = System.Threading.Tasks.Task.CompletedTask;
-            ControlledTaskRuntime.ScheduleContinuation(completed, () => ran = true, "test.await");
+            ControlledTaskRuntime.ScheduleContinuation(completed, () => ran = true, "test.await", flowExecutionContext: false);
 
             // The continuation must not run inline - it is queued on the coordinator's loop.
             Assert.False(ran);
@@ -117,7 +117,7 @@ public sealed class ControlledTaskRuntimeTests
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            ControlledTaskRuntime.ScheduleYield(() => ran = true, "test.yield");
+            ControlledTaskRuntime.ScheduleYield(() => ran = true, "test.yield", flowExecutionContext: false);
             Assert.False(ran);
             coordinator.Loop.RunUntilIdle();
             Assert.True(ran);

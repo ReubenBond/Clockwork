@@ -75,12 +75,24 @@ public static class ControlledTaskRuntime
     /// continuation is never invoked inline, never captured onto a captured
     /// <see cref="System.Threading.SynchronizationContext"/>, and never handed to the physical thread
     /// pool - it always lands on the coordinator, which is exactly why <c>ConfigureAwait(false)</c> still
-    /// stays controlled. Assumes a simulation is active (callers gate on <see cref="IsSimulationActive"/>).
+    /// stays controlled.
     /// </summary>
     /// <param name="antecedent">The task whose completion makes the continuation runnable.</param>
     /// <param name="continuation">The continuation to schedule.</param>
     /// <param name="apiName">The controlled API, for diagnostics.</param>
-    public static void ScheduleContinuation(System.Threading.Tasks.Task antecedent, Action continuation, string apiName)
+    /// <param name="flowExecutionContext">
+    /// Only consulted outside a simulation, where it selects the real awaiter's context-flowing
+    /// <see cref="System.Runtime.CompilerServices.INotifyCompletion.OnCompleted"/> (<see langword="true"/>)
+    /// versus the non-flowing
+    /// <see cref="System.Runtime.CompilerServices.ICriticalNotifyCompletion.UnsafeOnCompleted"/>
+    /// (<see langword="false"/>), preserving normal BCL behaviour. Inside a simulation every continuation
+    /// runs on the single logical thread, so the distinction is moot and ignored.
+    /// </param>
+    public static void ScheduleContinuation(
+        System.Threading.Tasks.Task antecedent,
+        Action continuation,
+        string apiName,
+        bool flowExecutionContext)
     {
         ArgumentNullException.ThrowIfNull(antecedent);
         ArgumentNullException.ThrowIfNull(continuation);
@@ -89,30 +101,42 @@ public static class ControlledTaskRuntime
         {
             coordinator.ScheduleWhenReady(node, () => antecedent.IsCompleted, continuation);
         }
+        else if (flowExecutionContext)
+        {
+            antecedent.GetAwaiter().OnCompleted(continuation);
+        }
         else
         {
-            // No simulation active: preserve real behaviour by completing the continuation the normal
-            // (unsafe, non-capturing) way.
             antecedent.GetAwaiter().UnsafeOnCompleted(continuation);
         }
     }
 
     /// <summary>
     /// Schedules <paramref name="continuation"/> to run as immediately-runnable controlled work (the
-    /// backing for <c>Task.Yield</c>). Assumes a simulation is active.
+    /// backing for <c>Task.Yield</c>). Outside a simulation it falls back to a real
+    /// <see cref="System.Runtime.CompilerServices.YieldAwaitable"/>, preserving the normal "resume
+    /// asynchronously" semantics rather than running the continuation inline.
     /// </summary>
     /// <param name="continuation">The continuation to schedule.</param>
     /// <param name="apiName">The controlled API, for diagnostics.</param>
-    public static void ScheduleYield(Action continuation, string apiName)
+    /// <param name="flowExecutionContext">
+    /// Only consulted outside a simulation; selects the real yield awaiter's context-flowing versus
+    /// non-flowing completion registration.
+    /// </param>
+    public static void ScheduleYield(Action continuation, string apiName, bool flowExecutionContext)
     {
         ArgumentNullException.ThrowIfNull(continuation);
         if (TryGetCoordinator(apiName, out var coordinator, out var node))
         {
             coordinator.Schedule(node, continuation);
         }
+        else if (flowExecutionContext)
+        {
+            default(System.Runtime.CompilerServices.YieldAwaitable).GetAwaiter().OnCompleted(continuation);
+        }
         else
         {
-            continuation();
+            default(System.Runtime.CompilerServices.YieldAwaitable).GetAwaiter().UnsafeOnCompleted(continuation);
         }
     }
 
