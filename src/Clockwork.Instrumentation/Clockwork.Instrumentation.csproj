@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Future home of deterministic instrumentation: IL rewriting contracts and runtime hooks used to observe or influence scheduling decisions (e.g., for race exploration). Placeholder for now - no Mono.Cecil or rewriting logic yet.</Description>
+    <RootNamespace>Clockwork.Instrumentation</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Clockwork.Runtime\Clockwork.Runtime.csproj" />
+  </ItemGroup>
+
+</Project>

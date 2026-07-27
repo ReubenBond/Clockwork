@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Future home of the Clockwork CLI tool, used to drive deterministic replays, race exploration sweeps, and instrumentation from the command line. Placeholder for now - the tool does not yet do anything.</Description>
+    <RootNamespace>Clockwork.Tool</RootNamespace>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Clockwork.Instrumentation\Clockwork.Instrumentation.csproj" />
+  </ItemGroup>
+
+</Project>

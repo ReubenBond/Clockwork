@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Future home of the deterministic simulation kernel (clock, task queue, scheduler, network, node lifecycle). Currently a placeholder project boundary; the kernel still lives in the root Clockwork.csproj (packaged as Clockwork.Simulation) until it migrates here in a later phase.</Description>
+    <RootNamespace>Clockwork.Runtime</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+</Project>
