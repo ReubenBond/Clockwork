@@ -273,13 +273,33 @@ internal sealed class CallSiteRewritingPass : RewritePass
         string? error)
     {
         if (error is null
-            && ReplacementContractValidator.TryValidate(rule.Operation, method, replacement, out error))
+            && ReplacementContractValidator.TryValidate(
+                rule.Operation,
+                method,
+                replacement,
+                IsSubstitutedTypePair,
+                out error))
         {
             return true;
         }
 
         ReportContractMismatch(rule, offset, error ?? "The replacement contract is incompatible.");
         return false;
+    }
+
+    private bool IsSubstitutedTypePair(TypeReference original, TypeReference replacement)
+    {
+        string originalName = CecilNames.NormalizedTypeFullName(original);
+        string replacementName = CecilNames.NormalizedTypeFullName(replacement);
+        RewriteRule? substitution = Session.Matcher.TypeSubstitutionRules
+            .Where(entry => string.Equals(entry.Key, originalName, StringComparison.Ordinal))
+            .Select(entry => entry.Value)
+            .FirstOrDefault();
+        return substitution is not null
+            && string.Equals(
+                substitution.Replacement.DeclaringTypeFullName,
+                replacementName,
+                StringComparison.Ordinal);
     }
 
     private void ReportContractMismatch(RewriteRule rule, int offset, string message)

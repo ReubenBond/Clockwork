@@ -10,6 +10,7 @@ internal static class ReplacementContractValidator
         RewriteOperationKind operation,
         MethodReference original,
         MethodReference replacement,
+        Func<TypeReference, TypeReference, bool> additionalTypeCompatibility,
         out string? error)
     {
         if (replacement.HasThis)
@@ -20,9 +21,12 @@ internal static class ReplacementContractValidator
 
         return operation switch
         {
-            RewriteOperationKind.RedirectCall => ValidateRedirect(original, replacement, isConstructor: false, out error),
-            RewriteOperationKind.RedirectNewObj => ValidateRedirect(original, replacement, isConstructor: true, out error),
-            RewriteOperationKind.WrapAfterCall => ValidateWrapper(original, replacement, out error),
+            RewriteOperationKind.RedirectCall => ValidateRedirect(
+                original, replacement, isConstructor: false, additionalTypeCompatibility, out error),
+            RewriteOperationKind.RedirectNewObj => ValidateRedirect(
+                original, replacement, isConstructor: true, additionalTypeCompatibility, out error),
+            RewriteOperationKind.WrapAfterCall => ValidateWrapper(
+                original, replacement, additionalTypeCompatibility, out error),
             RewriteOperationKind.InjectRejection => ValidateRejection(replacement, out error),
             _ => Success(out error),
         };
@@ -32,6 +36,7 @@ internal static class ReplacementContractValidator
         MethodReference original,
         MethodReference replacement,
         bool isConstructor,
+        Func<TypeReference, TypeReference, bool> additionalTypeCompatibility,
         out string? error)
     {
         int receiverCount = !isConstructor && original.HasThis ? 1 : 0;
@@ -46,7 +51,12 @@ internal static class ReplacementContractValidator
 
         int replacementIndex = 0;
         if (receiverCount == 1
-            && !SameType(original.DeclaringType, original, replacement.Parameters[replacementIndex++].ParameterType, replacement))
+            && !SameType(
+                original.DeclaringType,
+                original,
+                replacement.Parameters[replacementIndex++].ParameterType,
+                replacement,
+                additionalTypeCompatibility))
         {
             error = $"Replacement '{replacement.FullName}' has an incompatible receiver parameter for '{original.FullName}'.";
             return false;
@@ -58,7 +68,8 @@ internal static class ReplacementContractValidator
                 original.Parameters[i].ParameterType,
                 original,
                 replacement.Parameters[replacementIndex + i].ParameterType,
-                replacement))
+                replacement,
+                additionalTypeCompatibility))
             {
                 error =
                     $"Replacement '{replacement.FullName}' parameter {replacementIndex + i} is incompatible with " +
@@ -68,7 +79,12 @@ internal static class ReplacementContractValidator
         }
 
         TypeReference expectedReturn = isConstructor ? original.DeclaringType : original.ReturnType;
-        if (!SameType(expectedReturn, original, replacement.ReturnType, replacement))
+        if (!SameType(
+            expectedReturn,
+            original,
+            replacement.ReturnType,
+            replacement,
+            additionalTypeCompatibility))
         {
             error =
                 $"Replacement '{replacement.FullName}' returns '{Shape(replacement.ReturnType, replacement)}', " +
@@ -82,6 +98,7 @@ internal static class ReplacementContractValidator
     private static bool ValidateWrapper(
         MethodReference original,
         MethodReference replacement,
+        Func<TypeReference, TypeReference, bool> additionalTypeCompatibility,
         out string? error)
     {
         if (original.ReturnType.MetadataType == MetadataType.Void)
@@ -91,8 +108,18 @@ internal static class ReplacementContractValidator
         }
 
         if (replacement.Parameters.Count != 1
-            || !SameType(original.ReturnType, original, replacement.Parameters[0].ParameterType, replacement)
-            || !SameType(original.ReturnType, original, replacement.ReturnType, replacement))
+            || !SameType(
+                original.ReturnType,
+                original,
+                replacement.Parameters[0].ParameterType,
+                replacement,
+                additionalTypeCompatibility)
+            || !SameType(
+                original.ReturnType,
+                original,
+                replacement.ReturnType,
+                replacement,
+                additionalTypeCompatibility))
         {
             error =
                 $"Post-call replacement '{replacement.FullName}' must be static and consume and return exactly " +
@@ -121,8 +148,10 @@ internal static class ReplacementContractValidator
         TypeReference left,
         MethodReference leftOwner,
         TypeReference right,
-        MethodReference rightOwner) =>
-        string.Equals(Shape(left, leftOwner), Shape(right, rightOwner), StringComparison.Ordinal);
+        MethodReference rightOwner,
+        Func<TypeReference, TypeReference, bool> additionalTypeCompatibility) =>
+        string.Equals(Shape(left, leftOwner), Shape(right, rightOwner), StringComparison.Ordinal)
+        || additionalTypeCompatibility(left, right);
 
     private static string Shape(TypeReference type, MethodReference owner)
     {
