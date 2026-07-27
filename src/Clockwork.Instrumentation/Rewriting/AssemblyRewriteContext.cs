@@ -265,7 +265,20 @@ internal sealed class AssemblyRewriteContext : IDisposable
     /// Writes the (possibly rewritten) assembly to <paramref name="outputPath"/>, preserving the
     /// detected debug-symbol form where the engine supports it.
     /// </summary>
-    public void Write(string outputPath)
+    public void Write(string outputPath) => Write(outputPath, strongNameKeyBlob: null);
+
+    /// <summary>
+    /// Writes the (possibly rewritten) assembly to <paramref name="outputPath"/>, preserving the
+    /// detected debug-symbol form and, when <paramref name="strongNameKeyBlob"/> is supplied,
+    /// (re-)signing the output with that CryptoAPI key blob.
+    /// </summary>
+    /// <param name="outputPath">The destination path.</param>
+    /// <param name="strongNameKeyBlob">
+    /// The CryptoAPI strong-name key blob to sign the output with, or <see langword="null"/> to write
+    /// the output unsigned. Mono.Cecil does not preserve an existing strong-name signature across a
+    /// write, so a signed assembly must be re-signed here to keep its strong name.
+    /// </param>
+    public void Write(string outputPath, byte[]? strongNameKeyBlob)
     {
         var parameters = new WriterParameters();
         switch (Symbols)
@@ -281,6 +294,11 @@ internal sealed class AssemblyRewriteContext : IDisposable
             default:
                 parameters.WriteSymbols = false;
                 break;
+        }
+
+        if (strongNameKeyBlob is { Length: > 0 })
+        {
+            parameters.StrongNameKeyBlob = strongNameKeyBlob;
         }
 
         Definition.Write(outputPath, parameters);

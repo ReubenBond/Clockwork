@@ -40,7 +40,8 @@ internal static class FixtureCompiler
         string outputDirectory,
         FixtureSymbols symbols,
         bool optimize,
-        IEnumerable<string>? additionalReferencePaths = null)
+        IEnumerable<string>? additionalReferencePaths = null,
+        string? strongNameKeyFile = null)
     {
         SyntaxTree tree = CSharpSyntaxTree.ParseText(
             source,
@@ -62,6 +63,13 @@ internal static class FixtureCompiler
             optimizationLevel: optimize ? OptimizationLevel.Release : OptimizationLevel.Debug,
             allowUnsafe: true,
             deterministic: true);
+
+        if (strongNameKeyFile is not null)
+        {
+            options = options
+                .WithCryptoKeyFile(strongNameKeyFile)
+                .WithStrongNameProvider(new DesktopStrongNameProvider());
+        }
 
         CSharpCompilation compilation = CSharpCompilation.Create(assemblyName, [tree], references, options);
 
