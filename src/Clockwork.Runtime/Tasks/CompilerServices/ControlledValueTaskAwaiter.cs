@@ -17,7 +17,7 @@ public readonly struct ControlledValueTaskAwaiter : ICriticalNotifyCompletion, I
 
     /// <summary>Initializes a new controlled awaiter over <paramref name="valueTask"/>.</summary>
     /// <param name="valueTask">The value task being awaited.</param>
-    public ControlledValueTaskAwaiter(ValueTask valueTask) => _valueTask = valueTask;
+    public ControlledValueTaskAwaiter(in ValueTask valueTask) => _valueTask = valueTask;
 
     /// <summary>Gets a value indicating whether the awaited value task has already completed.</summary>
     public bool IsCompleted => _valueTask.IsCompleted;
@@ -63,7 +63,7 @@ public readonly struct ControlledValueTaskAwaiter<TResult> : ICriticalNotifyComp
 
     /// <summary>Initializes a new controlled awaiter over <paramref name="valueTask"/>.</summary>
     /// <param name="valueTask">The value task being awaited.</param>
-    public ControlledValueTaskAwaiter(ValueTask<TResult> valueTask) => _valueTask = valueTask;
+    public ControlledValueTaskAwaiter(in ValueTask<TResult> valueTask) => _valueTask = valueTask;
 
     /// <summary>Gets a value indicating whether the awaited value task has already completed.</summary>
     public bool IsCompleted => _valueTask.IsCompleted;
