@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Future home of the build-time IL rewriting step (MSBuild task package) that applies Clockwork.Instrumentation to compiled assemblies. Placeholder for now - no Mono.Cecil or MSBuild task implementation yet. Will likely need to multi-target netstandard2.0 for MSBuild task-host compatibility once implemented.</Description>
+    <RootNamespace>Clockwork.Instrumentation.Build</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Clockwork.Instrumentation\Clockwork.Instrumentation.csproj" />
+  </ItemGroup>
+
+</Project>

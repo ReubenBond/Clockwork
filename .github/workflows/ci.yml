@@ -20,7 +20,34 @@ jobs:
           dotnet-version: 10.0.x
       - name: Build
         run: dotnet build Clockwork.slnx --configuration Release
-      - name: Test
+      - name: Test kernel
         run: dotnet run --project tests/Clockwork.Tests/Clockwork.Tests.csproj --configuration Release --no-build -- --timeout 60s
+      - name: Test Runtime scaffold
+        run: dotnet run --project tests/Clockwork.Runtime.Tests/Clockwork.Runtime.Tests.csproj --configuration Release --no-build -- --timeout 60s
+      - name: Test Instrumentation scaffold
+        run: dotnet run --project tests/Clockwork.Instrumentation.Tests/Clockwork.Instrumentation.Tests.csproj --configuration Release --no-build -- --timeout 60s
+      - name: Test Testing scaffold
+        run: dotnet run --project tests/Clockwork.Testing.Tests/Clockwork.Testing.Tests.csproj --configuration Release --no-build -- --timeout 60s
       - name: Pack
         run: dotnet pack Clockwork.csproj --configuration Release --no-build --output artifacts/packages
+
+  cross-platform:
+    # Validates the Windows/Linux/macOS platform claim in docs/compatibility.md by
+    # running the deterministic kernel's own test suite on every supported OS. This
+    # is the "full" lane; the "build" job above stays the fast, single-OS lane that
+    # also covers the scaffold projects and packing.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build
+        run: dotnet build Clockwork.slnx --configuration Release
+      - name: Test kernel
+        run: dotnet run --project tests/Clockwork.Tests/Clockwork.Tests.csproj --configuration Release --no-build -- --timeout 60s

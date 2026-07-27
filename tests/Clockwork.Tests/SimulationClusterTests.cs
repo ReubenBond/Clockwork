@@ -43,6 +43,62 @@ public sealed class SimulationClusterTests
         Assert.True(cluster.Network.CanDeliver("node-1", "node-2"));
     }
 
+    [Fact]
+    public async Task RunUntilReturnsFalseWhenThereIsNoPendingWork()
+    {
+        await using var cluster = new TestCluster(seed: 12345);
+        _ = cluster.AddNode("node-1");
+
+        Assert.False(cluster.RunUntil(() => false, maxIterations: 100));
+    }
+
+    [Fact]
+    public async Task RunUntilReturnsFalseWhenTheNextDueTimeExceedsMaxSimulatedTimeAdvance()
+    {
+        await using var cluster = new TestCluster(seed: 12345)
+        {
+            MaxSimulatedTimeAdvance = TimeSpan.FromSeconds(1),
+        };
+        var node = cluster.AddNode("node-1");
+
+        // Schedule work far beyond the stuck-detection threshold; the condition never becomes true.
+        node.Context.TaskQueue.EnqueueAfter(() => { }, TimeSpan.FromSeconds(10));
+
+        Assert.False(cluster.RunUntil(() => false, maxIterations: 100));
+    }
+
+    [Fact]
+    public async Task RunUntilIdleReturnsTheNumberOfTasksExecutedBeforeGoingIdle()
+    {
+        await using var cluster = new TestCluster(seed: 12345);
+        var node = cluster.AddNode("node-1");
+        var executedCount = 0;
+
+        for (var i = 0; i < 3; i++)
+        {
+            node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => executedCount++));
+        }
+
+        Assert.Equal(3, cluster.RunUntilIdle());
+        Assert.Equal(3, executedCount);
+    }
+
+    [Fact]
+    public async Task CreateDerivedRandomIsReproducibleAcrossClustersWithTheSameSeed()
+    {
+        await using var first = new TestCluster(seed: 42);
+        await using var second = new TestCluster(seed: 42);
+
+        var firstDerived = first.CreateDerivedRandom();
+        var secondDerived = second.CreateDerivedRandom();
+
+        Assert.Equal(firstDerived.Next(), secondDerived.Next());
+        Assert.Equal(firstDerived.NextGuid(), secondDerived.NextGuid());
+
+        // The parent stream must also stay in sync after deriving a child stream.
+        Assert.Equal(first.Random.Next(), second.Random.Next());
+    }
+
     private sealed class TestCluster : SimulationCluster<TestNode>
     {
         public TestCluster(int seed)

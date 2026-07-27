@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Future home of simulated HTTP transport: an HttpMessageHandler that routes requests through SimulationNetwork instead of real sockets, so HTTP-based node communication can be deterministically tested. Placeholder for now.</Description>
+    <RootNamespace>Clockwork.Http</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Clockwork.Runtime\Clockwork.Runtime.csproj" />
+  </ItemGroup>
+
+</Project>

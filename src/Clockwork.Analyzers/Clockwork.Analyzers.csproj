@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <Description>Future home of Roslyn analyzers that flag simulation determinism violations at compile time (e.g., use of Task.Run, Random.Shared, or wall-clock APIs inside simulated code). Placeholder for now - no analyzers or Microsoft.CodeAnalysis dependency yet. Will need to target netstandard2.0 once implemented, for analyzer host compatibility.</Description>
+    <RootNamespace>Clockwork.Analyzers</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+</Project>
