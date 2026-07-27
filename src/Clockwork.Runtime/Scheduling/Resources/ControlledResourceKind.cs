@@ -65,6 +65,12 @@ public enum ControlledResourceKind
     /// </summary>
     Timer,
 
+    /// <summary>
+    /// A reader-writer lock: concurrent readers, a single writer, and a single upgradeable reader. The
+    /// detailed ownership and upgrade rules are modelled by its shim; this label only improves diagnostics.
+    /// </summary>
+    ReaderWriterLock,
+
     /// <summary>Any resource whose primitive is not covered by the other kinds.</summary>
     Custom,
 }
