@@ -103,7 +103,7 @@ Policy: **Controlled**. Blocking `Task.Wait()`, `Task.WaitAll`, and `Task.WaitAn
 
 ## TaskContinuations family
 
-Policy: **Controlled**. `Task.ContinueWith(Action<Task>)` redirects so the continuation is scheduled on the controlled coordinator and runs on the logical thread after the antecedent completes.
+Policy: **Controlled**. `Task.ContinueWith(Action<Task>)`, `Task<T>.ContinueWith(Action<Task<T>>)`, and the result-producing `Task<T>.ContinueWith<TNewResult>(Func<Task<T>,TNewResult>)` redirect so the continuation is scheduled on the controlled coordinator and runs on the logical thread after the antecedent completes.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -113,7 +113,7 @@ Policy: **Controlled**. `Task.ContinueWith(Action<Task>)` redirects so the conti
 
 ## TaskDeferred family
 
-Policy: **Rejected**. `Task.Delay` (virtual timers, Phase 8) and `Task.Run` (thread-pool offload, Phase 6B) are rejected under simulation with a precise diagnostic rather than silently using wall time or a real thread-pool thread. Outside simulation they run the real BCL API unchanged.
+Policy: **Rejected**. `Task.Delay` (virtual timers, Phase 8) is rejected under simulation with a precise diagnostic rather than silently using wall time. Outside simulation it runs the real BCL API unchanged.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -121,7 +121,7 @@ Policy: **Rejected**. `Task.Delay` (virtual timers, Phase 8) and `Task.Run` (thr
 
 ## TaskScheduling family
 
-Policy: **Controlled**. 
+Policy: **Controlled**. `Task.Run` (all `Action`/`Func<TResult>`/`Func<Task>`/`Func<Task<TResult>>` overloads, with and without a `CancellationToken`) offloads work that Phase 6A left uncontrolled onto the thread pool. Each overload redirects to a controlled equivalent that schedules the delegate as a controlled operation on the simulation coordinator, preserving cancellation and unwrap semantics; outside simulation it runs the real BCL API unchanged.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -169,7 +169,7 @@ Policy: **Controlled**. The compiler-generated builder and awaiter types of an `
 
 ## TaskFactory family
 
-Policy: **Controlled**. `TaskFactory.StartNew` and `TaskFactory<T>.StartNew` offload work onto a task scheduler (the thread pool by default), which Phase 6A does not control. They are rejected under simulation with a precise diagnostic at the rewritten call site rather than silently escaping onto a physical thread; outside simulation they run the real BCL API unchanged.
+Policy: **Controlled**. `TaskFactory.StartNew` and `TaskFactory<T>.StartNew` (the `Action`/`Func<TResult>` overloads with and without a `CancellationToken` or `TaskCreationOptions`) offload work onto a task scheduler that Phase 6A left uncontrolled. Each redirects to a controlled equivalent that schedules the delegate as a controlled operation on the simulation coordinator; `TaskCreationOptions` are honoured where they have a controlled meaning and an unsupported combination is rejected with a precise diagnostic. Outside simulation they run the real BCL API unchanged.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -185,7 +185,7 @@ Policy: **Controlled**. `TaskFactory.StartNew` and `TaskFactory<T>.StartNew` off
 
 ## Thread family
 
-Policy: **Controlled**. 
+Policy: **Controlled**. `Thread` construction (`ThreadStart`/`ParameterizedThreadStart`, with and without a stack size), `Start`, `Join` (all overloads), `Sleep`, `Yield`, and `SpinWait` redirect to a controlled thread that maps each thread to a controlled operation on the simulation coordinator; `Join`/`Sleep` yield the logical thread via the deterministic loop rather than blocking a physical thread or consuming real time. OS-specific priority, apartment-state, and `Interrupt` operations cannot be modelled faithfully and are rejected with a precise diagnostic. Outside simulation the shims run the real BCL `Thread` unchanged.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -209,7 +209,7 @@ Policy: **Controlled**.
 
 ## ThreadPool family
 
-Policy: **Controlled**. 
+Policy: **Controlled**. `ThreadPool.QueueUserWorkItem` (the `WaitCallback`, `WaitCallback`+state, and generic `Action<TState>`+state+preferLocal forms) and `UnsafeQueueUserWorkItem` (the `WaitCallback`+state, `IThreadPoolWorkItem`, and generic forms) queue the callback as a controlled operation on the simulation coordinator; the safe variants flow `ExecutionContext` while the unsafe variants do not, matching the BCL. `UnsafeQueueNativeOverlapped` and the registered-wait APIs (`RegisterWaitForSingleObject`/`UnsafeRegisterWaitForSingleObject`) depend on native I/O and wait-handle primitives that arrive in Phase 7, so they are rejected with a precise diagnostic.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -231,7 +231,7 @@ Policy: **Controlled**.
 
 ## Parallel family
 
-Policy: **Controlled**. 
+Policy: **Controlled**. `Parallel.Invoke`, `Parallel.For` (`int`/`long`, with and without `ParallelOptions`), and `Parallel.ForEach(IEnumerable<T>)` run their bodies as controlled operations on the simulation coordinator, preserving results, cancellation, and exception aggregation. The `ParallelLoopState` break/stop overloads cannot be modelled deterministically yet and are rejected with a precise diagnostic.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -252,7 +252,7 @@ Policy: **Controlled**.
 
 ## UncontrolledInvocation family
 
-Policy: **Rejected**. 
+Policy: **Rejected**. Process control and abrupt-termination APIs (`Process.Start`/`Start` instance/`Kill`/`WaitForExit`/`WaitForExitAsync`, `Environment.Exit`/`FailFast`) cannot be modelled inside a single simulated process at all. A throwing guard is injected before each call site so a rewritten assembly can never launch, kill, wait on, or terminate a real OS process; unlike the controlled shims the rejection is unconditional (it fires whether or not a simulation is active).
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -281,8 +281,8 @@ remain real BCL calls even under simulation:
 - `Stopwatch` instance APIs (`Start`/`Stop`/`Restart`/`Elapsed`/`ElapsedMilliseconds`/`ElapsedTicks`) and the `GetElapsedTime(long, long)` overload.
 - Generic cryptographic helpers `RandomNumberGenerator.GetItems<T>` and `Shuffle<T>`, and any `GetString`/`GetHexString` overloads beyond those listed above.
 - `DateTime`/`DateTimeOffset` parsing/formatting and any culture-, timezone-, or kind-conversion helpers other than the `Now`/`UtcNow`/`Today` clocks above.
-- Synchronous blocking on `ValueTask`/`ValueTask<T>` (`.Result`/`.GetResult()` outside an awaiter): a value task may be consumed only once, so a blocking drain is unsafe. `await` is the supported controlled path; deferred to Phase 6B.
-- Generic `Task<TResult>.ContinueWith<TNewResult>` overloads and `TaskFactory`/`TaskFactory<T>` surfaces other than the rejected `StartNew` sites above. Deferred to Phase 6B.
-- Thread/`ThreadPool`/`Parallel`, `Monitor`/semaphores/wait handles, timers and the `Task.Delay` implementation, and cancellation timers. These are Phase 6B / Phase 8 scope.
+- Synchronous blocking on `ValueTask`/`ValueTask<T>` (`.Result`/`.GetResult()` outside an awaiter): a value task may be consumed only once, so a blocking drain is unsafe. `await` is the supported controlled path.
+- `Monitor`, semaphores, and wait handles (including the `ThreadPool` registered-wait APIs, which are rejected until then). These are Phase 7 scope.
+- Timers, `PeriodicTimer`, the `Task.Delay` implementation, and cancellation timers. These are Phase 8 scope (`Thread.Sleep` is a controlled virtual wait now).
 
 Determinism is claimed **only** for the exact rules tabulated above.

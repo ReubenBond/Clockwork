@@ -70,6 +70,29 @@ must be updated in the same change with:
   for the exact signatures enumerated in
   [docs/rule-inventory.md](docs/rule-inventory.md), not for Coyote's full surface.
 
+- **Adapted material (Phase 6B):** Phase 6B's exception-handler hardening pass,
+  `src/Clockwork.Instrumentation/Rewriting/ExceptionHardeningRewritingPass.cs`, is a
+  **source-level adaptation** of Coyote's
+  `Source/Test/Rewriting/Passes/Rewriting/ExceptionFilterRewritingPass.cs` and carries a
+  Coyote copyright/license attribution header at the top of the file, per the policy
+  above. It reuses Coyote's algorithm for deciding which handlers to instrument (only
+  broad `catch (object)`/`catch (Exception)` blocks and exception `filter`s; skipping
+  finally/fault blocks, rethrow-only handlers, and compiler-generated
+  async-state-machine `SetException` handlers) and Coyote's guard-injection shape
+  (`dup; call guard` at the handler start with the adjacent-handler boundary fix-up).
+  Clockwork-specific changes are noted in the file header: the guard is resolved through
+  Clockwork's shared replacement resolver rather than Coyote's `typeof`-based import; the
+  injected guard rethrows Clockwork's internal `ControlledOperationAbortSignal` rather
+  than Coyote's `ExecutionCanceledException`/`ThreadInterruptedException`; the
+  async-state-machine detection also recognises Clockwork's substituted controlled
+  builder types; and every hardened handler is recorded as a manifest transformation.
+  The parity comparison of Clockwork's Phase 6B thread/thread-pool/task/Parallel surface
+  against Coyote is enumerated in [docs/coyote-parity.md](docs/coyote-parity.md). The
+  cross-assembly uncontrolled-task detection pass
+  (`CrossAssemblyTaskDetectionPass.cs`) and the controlled `Thread`, `Task.Run`,
+  `TaskFactory`, `ThreadPool`, and `Parallel` runtime surfaces are original Clockwork
+  code informed by Coyote's model but not copied from its source.
+
 ### Mono.Cecil
 
 - **License:** MIT

@@ -389,6 +389,75 @@ filters/handlers against swallowing scheduler-control flow. Phase 6A already pre
 gate/state transitions over control exceptions, so a user `catch` cannot swallow the scheduler; the
 remaining filter-level hardening is reported to Phase 6B as a boundary.
 
+#### Threads, thread pool, Parallel, and task-parity closure (Phase 6B)
+
+Phase 6B extends `clockwork.tasks.controlled` so every unit of concurrent work an application
+spawns — a `Thread`, a `Task.Run`/`TaskFactory.StartNew` body, a `ThreadPool.QueueUserWorkItem`
+callback, or a `Parallel` branch — is modelled as a **controlled operation scheduled on the same
+single logical thread** the async machinery already uses, instead of escaping onto a physical OS
+thread or the real thread pool. The exhaustive controlled/rejected signature list is regenerated
+into [`rule-inventory.md`](rule-inventory.md); the Coyote parity matrix is
+[`coyote-parity.md`](coyote-parity.md).
+
+What is now **controlled** (was rejected or absent in Phase 6A): the full `Task.Run` family and the
+`TaskFactory`/`TaskFactory<T>.StartNew` family (the Phase 6A `Rejected` rules were replaced now that
+thread-pool work can route to the coordinator); the generic `Task<T>.ContinueWith(Action<Task<T>>)`
+and result-producing `Task<T>.ContinueWith<TNewResult>(Func<Task<T>,TNewResult>)` continuations;
+`Thread` construction/`Start`/`Join`/`Sleep`/`Yield`/`SpinWait`; `ThreadPool.QueueUserWorkItem` and
+`UnsafeQueueUserWorkItem` (including the generic `Action<TState>` and `IThreadPoolWorkItem` forms);
+and `Parallel.Invoke`/`For`/`ForEach`.
+
+**Deliberate deviations from real BCL semantics** (documented here, tested, and revisited when the
+physical-gate backend lands):
+
+- **Cooperative, non-preemptive execution.** A controlled thread/threadpool/Parallel body runs as a
+  single scheduling unit; it interleaves with other controlled work only at explicit yield points
+  (`await`, `Task.Yield`, `Thread.Yield`, `Thread.Sleep`, `Join`, a blocking `Task` wait). This is
+  faithful for the async-first concurrency Clockwork targets, but a purely synchronous CPU loop with
+  no yield point does **not** interleave the way real preemptive threads would. The physical-gate
+  `ControlledOperationScheduler` (built in Phase 3, not yet wired into the live cluster) is the
+  future backend for fully-preemptive synchronous interleaving.
+- **`Thread.Sleep` / `Thread.Join(timeout)` are virtual waits.** They yield the logical thread
+  through the deterministic loop rather than consuming real wall-clock time. (`Thread.Sleep` is the
+  one timer-shaped surface intentionally in Phase 6B scope; every other timer — `Task.Delay`,
+  `Timer`, `PeriodicTimer`, cancellation timers — remains Phase 8.)
+- **Safe vs. unsafe `ExecutionContext` flow is modelled.** `QueueUserWorkItem` captures and flows
+  the caller's `ExecutionContext`; `UnsafeQueueUserWorkItem` does not — matching the BCL contract —
+  so `AsyncLocal` values observed by the callback differ between the two exactly as they do on the
+  real thread pool.
+- **OS-specific and un-modellable surfaces are rejected precisely, not silently ignored.** Thread
+  `Priority`/apartment-state/`Interrupt`, `Parallel` `ParallelLoopState` (break/stop) and
+  thread-local overloads, `ThreadPool.UnsafeQueueNativeOverlapped`, and the registered-wait APIs
+  (`RegisterWaitForSingleObject`/`UnsafeRegisterWaitForSingleObject`) all fail at the rewritten call
+  site with a diagnostic that names the exact API. Registered waits depend on controlled wait
+  handles that arrive in **Phase 7**; they stay rejected until then.
+- **Uncontrolled process/termination APIs are rejected *unconditionally*.** `Process.Start`/`Kill`/
+  `WaitForExit`/`WaitForExitAsync` and `Environment.Exit`/`FailFast` throw whether or not a
+  simulation is active (a rewritten assembly must never launch, kill, or tear down a real OS
+  process). This is a deliberate departure from the three-state pass-through contract the shims
+  otherwise follow, because there is no faithful in-simulation model of spawning or killing a
+  process.
+- **Cross-assembly uncontrolled-task detection is diagnosis, not wrapping.** With
+  `DetectUncontrolledTasks` enabled, a call into an uncontrolled dependency assembly that returns a
+  `Task`/`Task<T>`/`ValueTask`/`ValueTask<T>` or a custom awaitable is flagged with the `CWR0200`
+  warning at the exact call site, so a task whose continuation could escape the coordinator is never
+  silently accepted. Clockwork diagnoses rather than runtime-wraps the foreign task (honest about
+  what it can prove); HttpClient-specific control remains **Phase 10**.
+- **Exception-handler hardening is defence-in-depth.** With `HardenExceptionHandlers` enabled, a
+  `dup; call ControlledExceptionGuard.ThrowIfControlSignal` is injected at the start of every broad
+  `catch (Exception)`/`catch`/filter handler so an internal scheduler control signal cannot be
+  swallowed by application `catch` blocks. Finally blocks, rethrow-only handlers, and async
+  state-machine `SetException` handlers are skipped, and **normal application exception handling is
+  unchanged** — the guard is a no-op for every object that is not the internal control signal. This
+  layers on top of Phase 6A's preference for explicit gate/state transitions over control
+  exceptions.
+
+The three-state contract still holds for every controlled shim: outside a simulation each is a
+transparent pass-through to the real BCL API; inside a simulation the work routes through the
+coordinator; inside a simulation with no registered coordinator the shim throws rather than silently
+escaping. **Phase 7** owns `Monitor`/semaphores/wait handles (and unblocks registered waits);
+**Phase 8** owns timers/`Task.Delay`/cancellation timers.
+
 Each mode is intended to be strictly additive: an application written for
 cooperative mode should continue to work unmodified under controlled, race
 exploration, or deep instrumentation mode.
@@ -407,11 +476,15 @@ exploration, or deep instrumentation mode.
 - **Controlled task rule set** (`clockwork.tasks.controlled`) controls the compiler-generated
   `async Task`/`async ValueTask` machinery and the direct `Task`/`Task<T>` combinator (non-generic
   and generic `WhenAll`/`WhenAny`), synchronous-wait, blocking `Task<T>.Result`, and continuation
-  surface enumerated in [`rule-inventory.md`](rule-inventory.md), routing `async`/`await` and
-  synchronous waits through the simulation coordinator. Control is claimed **only** for those exact
-  signatures; `Task.Delay`/`Task.Run` and `TaskFactory.StartNew` are rejected, and
-  `TaskCompletionSource`, generic `Task<T>.ContinueWith`, synchronous `ValueTask` blocking, and
-  threading primitives are deferred to Phase 6B.
+  surface (including the generic `Task<T>.ContinueWith` and result-producing
+  `ContinueWith<TNewResult>` added in Phase 6B) enumerated in [`rule-inventory.md`](rule-inventory.md),
+  routing `async`/`await` and synchronous waits through the simulation coordinator. Phase 6B also
+  brings `Task.Run`, `TaskFactory`/`TaskFactory<T>.StartNew`, `Thread`, `ThreadPool`
+  (`QueueUserWorkItem`/`UnsafeQueueUserWorkItem`), and `Parallel` under control (see the Coyote
+  parity matrix, [`coyote-parity.md`](coyote-parity.md)). Control is claimed **only** for those
+  exact signatures; `Task.Delay` stays rejected (Phase 8), synchronous `ValueTask` blocking remains
+  a documented hole, and `Monitor`/semaphore/wait-handle primitives (with the `ThreadPool`
+  registered-wait APIs) are deferred to Phase 7.
 - **ReadyToRun (R2R) published assemblies** are expected to work for the existing
   kernel and for cooperative/controlled/race-exploration modes, since none of those
   modes require rewriting already-compiled method bodies at load time. This is a
