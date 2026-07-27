@@ -15,7 +15,8 @@ namespace Clockwork.Instrumentation.Tests.Golden;
 /// sites in a compiled fixture against the real <c>Clockwork.Runtime</c> shim assembly and assert on the
 /// rewritten IL and manifest. This proves the static signatures declared in <c>BuiltInRuleSets</c> line
 /// up with the actual <see cref="Clockwork.Runtime.Threading.ControlledThreadPool"/> members, and that
-/// the native-overlapped overload is rejected at the call site.
+/// the native-overlapped overload is rejected at the call site, while the registered-wait factories are
+/// redirected to controlled shims and the <c>RegisteredWaitHandle</c> type is substituted.
 /// </summary>
 public sealed class ControlledThreadPoolRuleGoldenTests
 {
@@ -120,7 +121,7 @@ public sealed class ControlledThreadPoolRuleGoldenTests
     }
 
     [Fact]
-    public void RegisteredWaitOverloadsAreRejectedAtTheCallSite()
+    public void RegisteredWaitOverloadsAreRedirectedToControlledShim()
     {
         using var context = RewriteTestContext.Create();
         var result = RewriteFixture(context, "Fx.PoolRegisterWait");
@@ -128,18 +129,27 @@ public sealed class ControlledThreadPoolRuleGoldenTests
         using ModuleDefinition module = context.LoadModule(
             Path.Combine(context.Directory, "Fx.PoolRegisterWait.rewritten.dll"));
 
-        foreach (var name in new[] { "RegisterWait", "RegisterWaitTimeSpan", "UnsafeRegisterWait" })
+        foreach (var name in new[] { "RegisterWait", "RegisterWaitTimeSpan" })
         {
             MethodDefinition method = CecilInspect.GetMethod(module, "Fx.PoolUser", name);
-            Assert.True(CecilInspect.CallsAnyContaining(method, "ControlledThreadPool::RejectRegisteredWait"));
+            Assert.True(CecilInspect.CallsAnyContaining(method, "ControlledThreadPool::RegisterWaitForSingleObject"));
+            Assert.False(CecilInspect.CallsAnyContaining(method, "Threading.ThreadPool::RegisterWaitForSingleObject"));
         }
+
+        MethodDefinition unsafeMethod = CecilInspect.GetMethod(module, "Fx.PoolUser", "UnsafeRegisterWait");
+        Assert.True(CecilInspect.CallsAnyContaining(
+            unsafeMethod, "ControlledThreadPool::UnsafeRegisterWaitForSingleObject"));
+
+        // The RegisteredWaitHandle return type is whole-type substituted onto the controlled handle.
+        Assert.True(CecilInspect.CallsAnyContaining(
+            CecilInspect.GetMethod(module, "Fx.PoolUser", "RegisterWait"), "ControlledRegisteredWaitHandle"));
 
         ImmutableArray<ManifestTransformation> transformations = result.Manifest.Transformations;
         Assert.Contains(transformations, t =>
-            t.RuleId == "clockwork.threadpool.registerwait.int32" && t.Policy == SimulationApiPolicy.Rejected);
+            t.RuleId == "clockwork.threadpool.registerwait.int32" && t.Policy == SimulationApiPolicy.Controlled);
         Assert.Contains(transformations, t =>
-            t.RuleId == "clockwork.threadpool.registerwait.timespan" && t.Policy == SimulationApiPolicy.Rejected);
+            t.RuleId == "clockwork.threadpool.registerwait.timespan" && t.Policy == SimulationApiPolicy.Controlled);
         Assert.Contains(transformations, t =>
-            t.RuleId == "clockwork.threadpool.unsaferegisterwait.int32" && t.Policy == SimulationApiPolicy.Rejected);
+            t.RuleId == "clockwork.threadpool.unsaferegisterwait.int32" && t.Policy == SimulationApiPolicy.Controlled);
     }
 }

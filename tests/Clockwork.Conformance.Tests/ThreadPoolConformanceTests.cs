@@ -9,7 +9,10 @@ namespace Clockwork.Conformance.Tests;
 /// <c>ThreadPool.QueueUserWorkItem</c> / <c>UnsafeQueueUserWorkItem</c> queue their callback as a fresh
 /// controlled operation that runs deterministically on the single logical thread under the cluster drive,
 /// callbacks run in FIFO order with exactly one running at a time, and the safe-vs-unsafe
-/// <c>ExecutionContext</c> flow distinction is observable at real call sites.
+/// <c>ExecutionContext</c> flow distinction is observable at real call sites. Phase 7B additionally
+/// controls the registered-wait factories (<c>RegisterWaitForSingleObject</c>/<c>Unsafe…</c>): the
+/// callback fires with <c>timedOut:false</c> on a signal and <c>timedOut:true</c> on the virtual-time
+/// deadline, honours <c>executeOnlyOnce</c>/re-arm, and stops on <c>Unregister</c>.
 /// </summary>
 public sealed class ThreadPoolConformanceTests : IDisposable
 {
@@ -85,12 +88,60 @@ public sealed class ThreadPoolConformanceTests : IDisposable
                 return await tcs.Task;
             }
 
-            // RegisterWaitForSingleObject binds a callback to a WaitHandle, rejected until Phase 7.
-            public static bool RegisterWaitIsRejected()
+            // A registered wait fires its callback with timedOut=false when the handle is signalled.
+            public static async Task<bool> RegisterWaitFiresOnSignal()
             {
-                using var mre = new ManualResetEvent(false);
-                ThreadPool.RegisterWaitForSingleObject(mre, (_, _) => { }, null, 1000, true);
-                return true;
+                using var evt = new AutoResetEvent(false);
+                var tcs = new TaskCompletionSource<bool>();
+                var reg = ThreadPool.RegisterWaitForSingleObject(
+                    evt, (_, timedOut) => tcs.SetResult(timedOut), null, Timeout.Infinite, true);
+                evt.Set();
+                bool timedOut = await tcs.Task;
+                reg.Unregister(null);
+                return !timedOut;
+            }
+
+            // A registered wait fires its callback with timedOut=true when its virtual deadline elapses.
+            public static async Task<bool> RegisterWaitFiresOnTimeout()
+            {
+                using var evt = new AutoResetEvent(false);
+                var tcs = new TaskCompletionSource<bool>();
+                ThreadPool.RegisterWaitForSingleObject(
+                    evt, (_, timedOut) => tcs.SetResult(timedOut), null, 50, true);
+                return await tcs.Task;
+            }
+
+            // A repeating registration (executeOnlyOnce:false) fires once per signal until unregistered.
+            public static async Task<int> RepeatingRegisterWaitFiresPerSignal()
+            {
+                using var evt = new AutoResetEvent(false);
+                int count = 0;
+                var gate = new[] { new TaskCompletionSource(), new TaskCompletionSource() };
+                var reg = ThreadPool.RegisterWaitForSingleObject(
+                    evt, (_, _) => { int n = ++count; gate[n - 1].SetResult(); }, null, Timeout.Infinite, false);
+                evt.Set();
+                await gate[0].Task;
+                evt.Set();
+                await gate[1].Task;
+                reg.Unregister(null);
+                return count;
+            }
+
+            // Unregister stops a repeating registration: a later signal does not fire the callback again.
+            public static async Task<int> UnregisterStopsTheWait()
+            {
+                using var evt = new AutoResetEvent(false);
+                int count = 0;
+                var first = new TaskCompletionSource();
+                var reg = ThreadPool.RegisterWaitForSingleObject(
+                    evt, (_, _) => { count++; first.TrySetResult(); }, null, Timeout.Infinite, false);
+                evt.Set();
+                await first.Task;
+                reg.Unregister(null);
+                evt.Set();
+                await Task.Yield();
+                await Task.Yield();
+                return count;
             }
         } }
         """;
@@ -158,25 +209,35 @@ public sealed class ThreadPoolConformanceTests : IDisposable
     }
 
     [Fact]
-    public void RegisterWaitForSingleObjectIsRejectedUntilPhase7()
+    public void RegisterWaitFiresCallbackOnSignalWithTimedOutFalse()
     {
         using var host = new SimulationHost(Start);
-        var ex = Assert.ThrowsAny<Exception>(() => host.Invoke(Method("RegisterWaitIsRejected")));
-        var unsupported = Unwrap(ex);
-        Assert.Equal(
-            "Clockwork.Runtime.Threading.ControlledThreadPoolUnsupportedException",
-            unsupported.GetType().FullName);
-        Assert.Contains("Phase 7", unsupported.Message, StringComparison.Ordinal);
+        var task = (Task<bool>)host.Invoke(Method("RegisterWaitFiresOnSignal"))!;
+        Assert.True(Result<bool>(task));
     }
 
-    private static Exception Unwrap(Exception ex)
+    [Fact]
+    public void RegisterWaitFiresCallbackOnTimeoutWithTimedOutTrue()
     {
-        while (ex is TargetInvocationException or AggregateException && ex.InnerException is not null)
-        {
-            ex = ex.InnerException;
-        }
+        using var host = new SimulationHost(Start);
+        var task = (Task<bool>)host.Invoke(Method("RegisterWaitFiresOnTimeout"))!;
+        Assert.True(Result<bool>(task));
+    }
 
-        return ex;
+    [Fact]
+    public void RepeatingRegisterWaitFiresOncePerSignal()
+    {
+        using var host = new SimulationHost(Start);
+        var task = (Task<int>)host.Invoke(Method("RepeatingRegisterWaitFiresPerSignal"))!;
+        Assert.Equal(2, Result<int>(task));
+    }
+
+    [Fact]
+    public void UnregisterStopsARepeatingRegisteredWait()
+    {
+        using var host = new SimulationHost(Start);
+        var task = (Task<int>)host.Invoke(Method("UnregisterStopsTheWait"))!;
+        Assert.Equal(1, Result<int>(task));
     }
 
     private MethodInfo Method(string name) => _probe.Value.Method(name);

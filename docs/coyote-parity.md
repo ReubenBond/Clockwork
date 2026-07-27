@@ -175,8 +175,9 @@ queue raw work items are deterministic.
 | `UnsafeQueueUserWorkItem(IThreadPoolWorkItem, bool)` | ✅ Controlled (does **not** flow `ExecutionContext`) | `clockwork.threadpool.unsafequeue.workitem` |
 | `UnsafeQueueUserWorkItem<TState>(Action<TState>, TState, bool)` | ✅ Controlled (does **not** flow `ExecutionContext`) | `clockwork.threadpool.unsafequeue.generic` |
 | `UnsafeQueueNativeOverlapped(NativeOverlapped*)` | ⛔ Rejected (tested) | `clockwork.threadpool.unsafequeuenativeoverlapped` — native overlapped I/O cannot be modelled |
-| `RegisterWaitForSingleObject(…)` (uint32/int32/int64/TimeSpan) | ⛔ Rejected (tested) → 🕗 Phase 7 | `clockwork.threadpool.registerwait.*` — depends on controlled `WaitHandle`s (Phase 7); rejected until then |
-| `UnsafeRegisterWaitForSingleObject(…)` (uint32/int32/int64/TimeSpan) | ⛔ Rejected (tested) → 🕗 Phase 7 | `clockwork.threadpool.unsaferegisterwait.*` |
+| `RegisterWaitForSingleObject(…)` (uint32/int32/int64/TimeSpan) | ✅ Controlled (flows `ExecutionContext`) | `clockwork.threadpool.registerwait.*` — passive event-driven controlled wait; fires `timedOut:false` on signal, `timedOut:true` on the virtual-time deadline |
+| `UnsafeRegisterWaitForSingleObject(…)` (uint32/int32/int64/TimeSpan) | ✅ Controlled (does **not** flow `ExecutionContext`) | `clockwork.threadpool.unsaferegisterwait.*` |
+| `RegisteredWaitHandle` (returned token; `Unregister(WaitHandle)`) | ✅ Controlled (whole-type substitution → `ControlledRegisteredWaitHandle`) | `clockwork.threadpool.registeredwaithandle.type` — `Unregister` stops the wait and signals its completion event |
 
 **ExecutionContext modelling:** the safe `QueueUserWorkItem` variants capture and flow the caller's
 `ExecutionContext` (so `AsyncLocal` values are visible to the callback); the `Unsafe…` variants do
@@ -448,9 +449,8 @@ kernel object outside the scheduler) and are likewise rejected.
 
 ## Coyote surfaces intentionally deferred (Phase 7B / Phase 8)
 
-These Coyote controlled types are **out of Phase 7A scope** by the phase plan. Where a surface would
-otherwise need them (the `ThreadPool` registered-wait APIs need controlled wait handles), Clockwork
-**rejects** the call with a tested diagnostic until the owning slice lands.
+These Coyote controlled types are **out of Phase 7A/7B scope** by the phase plan. They are not
+rewritten and remain real BCL calls under simulation until the owning slice lands.
 
 | Coyote type(s) | Owning phase | Current posture |
 | --- | --- | --- |
@@ -475,8 +475,9 @@ otherwise need them (the `ThreadPool` registered-wait APIs need controlled wait 
   (awaiter substitution) with explicit `Controlled*` types available.
 - **Coyote `Parallel`:** simple-body overloads controlled; loop-state / thread-local / partitioner
   overloads rejected with tested diagnostics.
-- **`ThreadPool`:** modelled by Clockwork **beyond Coyote**; native-overlapped and registered-wait
-  APIs rejected (registered waits pending Phase 7B).
+- **`ThreadPool`:** modelled by Clockwork **beyond Coyote**; the registered-wait APIs
+  (`RegisterWaitForSingleObject`/`UnsafeRegisterWaitForSingleObject`, all four timeout overloads) are
+  controlled (Phase 7B) as passive event-driven waits and `UnsafeQueueNativeOverlapped` is rejected.
 - **Coyote `Monitor`:** 17/17 .NET 10 static overloads controlled (Phase 7A), which also controls every
   C# `lock (object)` statement in both Debug and Release lowering.
 - **`System.Threading.Lock`:** controlled by type substitution **beyond Coyote** (Phase 7A), covering the
@@ -502,8 +503,14 @@ otherwise need them (the `ThreadPool` registered-wait APIs need controlled wait 
   atomic consume) and `SignalAndWait` (atomic signal-then-wait) multi-handle operations are controlled with
   full array validation; named/cross-process open APIs and the raw `Handle`/`SafeWaitHandle` accessors are
   rejected with tested diagnostics.
-- **Deferred by phase plan:** the `ThreadPool` registered-wait APIs (remaining Phase 7B slice);
-  `ReaderWriterLockSlim`/`Mutex`/`Semaphore`/`SpinLock` and timers/`Task.Delay` (Phase 8).
+- **`ThreadPool` registered waits (`RegisterWaitForSingleObject`/`UnsafeRegisterWaitForSingleObject`):**
+  controlled (Phase 7B) — a passive event-driven waiter on the target handle's modelled signalled state
+  that never blocks the logical thread; fires `timedOut:false` on a signal (auto-reset consumes exactly
+  one) or `timedOut:true` on the virtual-time deadline, honours `executeOnlyOnce`/re-arm, flows
+  `ExecutionContext` for the safe family only, and substitutes the returned `RegisteredWaitHandle` so
+  `Unregister` stops the wait and signals its completion event.
+- **Deferred by phase plan:** `ReaderWriterLockSlim`/`Mutex`/`Semaphore`/`SpinLock`/`ManualResetEventSlim`
+  and timers/`Task.Delay`/cancellation timers (Phase 8).
 
 Every Coyote entry above is therefore **controlled** (with a cited rule id or by architecture),
 **deliberately rejected with a tested reason**, or **explicitly deferred to a named later phase** —

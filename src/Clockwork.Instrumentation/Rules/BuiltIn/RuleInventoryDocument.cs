@@ -54,7 +54,7 @@ public static class RuleInventoryDocument
         Line("- Generic cryptographic helpers `RandomNumberGenerator.GetItems<T>` and `Shuffle<T>`, and any `GetString`/`GetHexString` overloads beyond those listed above.");
         Line("- `DateTime`/`DateTimeOffset` parsing/formatting and any culture-, timezone-, or kind-conversion helpers other than the `Now`/`UtcNow`/`Today` clocks above.");
         Line("- Synchronous blocking on `ValueTask`/`ValueTask<T>` (`.Result`/`.GetResult()` outside an awaiter): a value task may be consumed only once, so a blocking drain is unsafe. `await` is the supported controlled path.");
-        Line("- `Monitor`, semaphores, and wait handles (including the `ThreadPool` registered-wait APIs, which are rejected until then). These are Phase 7 scope.");
+        Line("- Named/cross-process synchronization (named `EventWaitHandle`/`Mutex`/`Semaphore` and their `OpenExisting`/`TryOpenExisting` APIs): a single-process simulation cannot model kernel-object sharing, so these are rejected.");
         Line("- Timers, `PeriodicTimer`, the `Task.Delay` implementation, and cancellation timers. These are Phase 8 scope (`Thread.Sleep` is a controlled virtual wait now).");
         Line();
         Line("Determinism is claimed **only** for the exact rules tabulated above.");
@@ -184,9 +184,15 @@ public static class RuleInventoryDocument
             "`Action<TState>`+state+preferLocal forms) and `UnsafeQueueUserWorkItem` (the `WaitCallback`+state, " +
             "`IThreadPoolWorkItem`, and generic forms) queue the callback as a controlled operation on the " +
             "simulation coordinator; the safe variants flow `ExecutionContext` while the unsafe variants do " +
-            "not, matching the BCL. `UnsafeQueueNativeOverlapped` and the registered-wait APIs " +
-            "(`RegisterWaitForSingleObject`/`UnsafeRegisterWaitForSingleObject`) depend on native I/O and " +
-            "wait-handle primitives that arrive in Phase 7, so they are rejected with a precise diagnostic.",
+            "not, matching the BCL. The registered-wait APIs (`RegisterWaitForSingleObject`/" +
+            "`UnsafeRegisterWaitForSingleObject`, across the `uint`/`int`/`long`/`TimeSpan` timeout overloads) " +
+            "run as passive, event-driven controlled waits on the target handle's modelled signalled state: " +
+            "the callback fires with `timedOut: false` on a signal (an auto-reset handle consumes exactly one) " +
+            "or `timedOut: true` on the virtual-time deadline, honouring `executeOnlyOnce`, re-arming " +
+            "otherwise, and flowing `ExecutionContext` for the safe family only; the returned " +
+            "`RegisteredWaitHandle` is substituted with the controlled handle so `Unregister` stops the wait " +
+            "and signals its completion event. `UnsafeQueueNativeOverlapped` depends on native I/O and is " +
+            "rejected with a precise diagnostic.",
         BuiltInRuleFamily.Parallel =>
             "`Parallel.Invoke`, `Parallel.For` (`int`/`long`, with and without `ParallelOptions`), and " +
             "`Parallel.ForEach(IEnumerable<T>)` run their bodies as controlled operations on the simulation " +

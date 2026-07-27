@@ -690,6 +690,72 @@ public static class ControlledWaitHandle
         }
     }
 
+    // ---- registered-wait kernel (ThreadPool.RegisterWaitForSingleObject) ----
+
+    /// <summary>
+    /// Arms one passive, non-blocking registered-wait iteration: adds a waiter to the target event's FIFO
+    /// waiter set (so an auto-reset signal is consumed exactly once, in arrival order, by
+    /// <see cref="ReleaseWaiters"/>) and registers a virtual-time deadline that completes the waiter with
+    /// <see langword="false"/> on elapse. The caller schedules a controlled continuation on the returned
+    /// waiter's completion task rather than blocking the logical thread, so a background registration never
+    /// occupies the cooperative scheduler. A result of <see langword="true"/> means signalled;
+    /// <see langword="false"/> means the deadline elapsed (or the waiter was cancelled by
+    /// <see cref="CancelRegisteredWaiter"/>).
+    /// </summary>
+    /// <param name="state">The controlled target event's modelled state.</param>
+    /// <param name="millisecondsTimeout">The virtual-time timeout, or <see cref="Timeout.Infinite"/>.</param>
+    /// <param name="api">The originating API name, used for diagnostics.</param>
+    /// <returns>The registered waiter, whose completion task the caller continues on.</returns>
+    internal static Waiter ArmRegisteredWaiter(EventState state, int millisecondsTimeout, string api)
+    {
+        var waiter = new Waiter();
+        state.Waiters.Add(waiter);
+        if (millisecondsTimeout != Timeout.Infinite)
+        {
+            waiter.Deadline = ControlledTaskRuntime.RegisterTimeout(
+                TimeSpan.FromMilliseconds(millisecondsTimeout),
+                onElapsed: () =>
+                {
+                    if (state.Waiters.Remove(waiter))
+                    {
+                        waiter.Completion.TrySetResult(false);
+                    }
+                },
+                api);
+        }
+
+        return waiter;
+    }
+
+    /// <summary>
+    /// Cancels a still-pending registered waiter (used by <c>Unregister</c>): removes it from the event's
+    /// waiter set, cancels its virtual-time deadline, and completes it with <see langword="false"/> so the
+    /// caller's scheduled continuation runs and observes the cancellation. Idempotent if already completed.
+    /// </summary>
+    /// <param name="state">The event the waiter is registered on.</param>
+    /// <param name="waiter">The pending waiter to cancel.</param>
+    internal static void CancelRegisteredWaiter(EventState state, Waiter waiter)
+    {
+        state.Waiters.Remove(waiter);
+        waiter.Deadline?.Cancel();
+        waiter.Completion.TrySetResult(false);
+    }
+
+    /// <summary>
+    /// Sets a controlled event's modelled signal and releases eligible waiters, if the handle has modelled
+    /// state and is not disposed. Used to signal an optional <c>Unregister</c> completion handle. No-ops for
+    /// an uncontrolled or disposed handle.
+    /// </summary>
+    /// <param name="handle">The handle to signal, or <see langword="null"/>.</param>
+    internal static void TrySignal(WaitHandle? handle)
+    {
+        if (handle is not null && TryGetState(handle, out EventState state) && !state.Disposed)
+        {
+            state.Signaled = true;
+            ReleaseWaiters(state);
+        }
+    }
+
     // ---- lifecycle ----
 
     /// <summary>Controlled <see cref="WaitHandle.Dispose()"/>.</summary>

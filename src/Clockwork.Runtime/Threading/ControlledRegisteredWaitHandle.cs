@@ -1,0 +1,206 @@
+using System.Threading;
+using System.Threading.Tasks;
+using Clockwork.Runtime.Tasks;
+
+namespace Clockwork.Runtime.Threading;
+
+/// <summary>
+/// <para>
+/// Controlled replacement for <see cref="RegisteredWaitHandle"/>, the token returned by
+/// <see cref="ThreadPool.RegisterWaitForSingleObject(WaitHandle, WaitOrTimerCallback, object, int, bool)"/>
+/// and its unsafe sibling. The rewriter substitutes every <see cref="RegisteredWaitHandle"/> reference with
+/// this type and redirects the eight factory overloads to <see cref="ControlledThreadPool"/>, so a
+/// registered wait runs as a controlled operation on the deterministic scheduler instead of on a physical
+/// thread-pool wait thread.
+/// </para>
+/// <para>
+/// Inside a simulation the registration is a passive, event-driven waiter on the target handle's modelled
+/// signalled state (via <see cref="ControlledWaitHandle"/>): it never blocks the single logical thread, so
+/// other controlled work runs while it is pending. When the handle is signalled the callback fires with
+/// <c>timedOut: false</c> (an auto-reset handle consumes exactly one signal, in FIFO order); when the
+/// virtual-time deadline elapses it fires with <c>timedOut: true</c>. A registration created with
+/// <c>executeOnlyOnce: true</c> fires once; otherwise it re-arms until <see cref="Unregister(WaitHandle)"/>
+/// cancels it. The safe factory flows the caller's <see cref="ExecutionContext"/> to the callback; the unsafe
+/// factory does not. If <see cref="Unregister(WaitHandle)"/> is passed a controlled event it is signalled once
+/// the registration has stopped firing. Outside a simulation every operation delegates to the real
+/// <see cref="RegisteredWaitHandle"/>.
+/// </para>
+/// <para>
+/// Adapted for Clockwork from the Microsoft Coyote (MIT) controlled-synchronization model, extended to the
+/// thread-pool registered-wait surface that Coyote does not intercept.
+/// </para>
+/// </summary>
+public sealed class ControlledRegisteredWaitHandle
+{
+    private const string RegisterApi = "System.Threading.ThreadPool.RegisterWaitForSingleObject";
+
+    // Set for the out-of-simulation wrapper; null for a controlled registration.
+    private readonly RegisteredWaitHandle? _real;
+
+    private readonly WaitHandle _waitObject = null!;
+    private readonly WaitOrTimerCallback _callback = null!;
+    private readonly object? _state;
+    private readonly int _timeoutMs;
+    private readonly bool _executeOnlyOnce;
+    private readonly ExecutionContext? _context;
+
+    private bool _unregistered;
+    private bool _finished;
+    private WaitHandle? _completion;
+
+    // The current pending waiter and the event it is registered on, or null between iterations.
+    private ControlledWaitHandle.Waiter? _pending;
+    private ControlledWaitHandle.EventState? _pendingState;
+
+    /// <summary>Wraps a real registered wait handle for the out-of-simulation pass-through.</summary>
+    internal ControlledRegisteredWaitHandle(RegisteredWaitHandle real) => _real = real;
+
+    /// <summary>Creates a controlled registration and arms the first passive wait iteration.</summary>
+    internal ControlledRegisteredWaitHandle(
+        WaitHandle waitObject,
+        WaitOrTimerCallback callback,
+        object? state,
+        int timeoutMs,
+        bool executeOnlyOnce,
+        ExecutionContext? context)
+    {
+        _waitObject = waitObject;
+        _callback = callback;
+        _state = state;
+        _timeoutMs = timeoutMs;
+        _executeOnlyOnce = executeOnlyOnce;
+        _context = context;
+        Arm();
+    }
+
+    /// <summary>Controlled <see cref="RegisteredWaitHandle.Unregister(WaitHandle)"/>.</summary>
+    /// <param name="waitObject">
+    /// An optional controlled event signalled once the registration has stopped firing, or
+    /// <see langword="null"/>. Uncontrolled handles are ignored (best-effort completion signalling).
+    /// </param>
+    /// <returns><see langword="true"/> when this call cancelled the registration.</returns>
+    public bool Unregister(WaitHandle? waitObject)
+    {
+        if (_real is not null)
+        {
+            return _real.Unregister(waitObject!);
+        }
+
+        if (_unregistered)
+        {
+            return false;
+        }
+
+        _unregistered = true;
+        if (_finished)
+        {
+            // The registration already stopped firing (executeOnlyOnce fired); signal completion now.
+            ControlledWaitHandle.TrySignal(waitObject);
+            return true;
+        }
+
+        _completion = waitObject;
+
+        // Cancel any pending waiter so its already-scheduled continuation runs and observes the cancellation.
+        if (_pending is not null && _pendingState is not null)
+        {
+            ControlledWaitHandle.CancelRegisteredWaiter(_pendingState, _pending);
+        }
+
+        return true;
+    }
+
+    private void Arm()
+    {
+        if (_unregistered)
+        {
+            Finish();
+            return;
+        }
+
+        ControlledWaitHandle.EventState target = ControlledWaitHandle.StateForOperation(_waitObject, RegisterApi);
+
+        // Fast paths schedule the resume as controlled work (never inline): an already-set handle consumes
+        // its signal immediately; a zero timeout resolves to an immediate timeout.
+        if (ControlledWaitHandle.TryConsume(target))
+        {
+            ScheduleResume(signaled: true);
+            return;
+        }
+
+        if (_timeoutMs == 0)
+        {
+            ScheduleResume(signaled: false);
+            return;
+        }
+
+        _pendingState = target;
+        _pending = ControlledWaitHandle.ArmRegisteredWaiter(target, _timeoutMs, RegisterApi);
+        ControlledTaskRuntime.ScheduleContinuation(
+            _pending.Completion.Task, OnWaiterCompleted, RegisterApi, flowExecutionContext: false);
+    }
+
+    private void ScheduleResume(bool signaled) =>
+        ControlledTaskRuntime.ScheduleContinuation(
+            Task.CompletedTask, () => OnWaitCompleted(signaled), RegisterApi, flowExecutionContext: false);
+
+    private void OnWaiterCompleted()
+    {
+        ControlledWaitHandle.Waiter pending = _pending!;
+        _pending = null;
+        _pendingState = null;
+
+        // A successful completion with result true means the handle was signalled; false means the deadline
+        // elapsed or Unregister cancelled the waiter (disambiguated by the _unregistered flag below).
+        bool signaled = pending.Completion.Task.IsCompletedSuccessfully && pending.Completion.Task.Result;
+        OnWaitCompleted(signaled);
+    }
+
+    private void OnWaitCompleted(bool signaled)
+    {
+        if (_unregistered)
+        {
+            Finish();
+            return;
+        }
+
+        Invoke(timedOut: !signaled);
+
+        if (_executeOnlyOnce)
+        {
+            Finish();
+            return;
+        }
+
+        Arm();
+    }
+
+    private void Finish()
+    {
+        if (_finished)
+        {
+            return;
+        }
+
+        _finished = true;
+        ControlledWaitHandle.TrySignal(_completion);
+    }
+
+    private void Invoke(bool timedOut)
+    {
+        if (_context is null)
+        {
+            _callback(_state, timedOut);
+            return;
+        }
+
+        ExecutionContext.Run(
+            _context,
+            static s =>
+            {
+                (ControlledRegisteredWaitHandle self, bool t) = ((ControlledRegisteredWaitHandle, bool))s!;
+                self._callback(self._state, t);
+            },
+            (this, timedOut));
+    }
+}
