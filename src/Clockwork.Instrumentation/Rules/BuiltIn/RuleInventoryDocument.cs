@@ -141,6 +141,13 @@ public static class RuleInventoryDocument
             "`Task.Delay` (virtual timers, Phase 8) and `Task.Run` (thread-pool offload, Phase 6B) are " +
             "rejected under simulation with a precise diagnostic rather than silently using wall time or a " +
             "real thread-pool thread. Outside simulation they run the real BCL API unchanged.",
+        BuiltInRuleFamily.AsyncMachinery =>
+            "The compiler-generated builder and awaiter types of an `async` state machine " +
+            "(`AsyncTaskMethodBuilder`, `TaskAwaiter`, `ConfiguredTaskAwaitable`/`YieldAwaitable` and their " +
+            "awaiters, generic and non-generic) are substituted onto Clockwork's controlled equivalents by " +
+            "the member-aware pass, and `Task.Yield()` redirects to the controlled yield. Every awaited " +
+            "continuation is scheduled through the simulation coordinator instead of the thread pool, and " +
+            "`ConfigureAwait(false)` stays controlled while preserving normal semantics outside simulation.",
         _ => string.Empty,
     };
 

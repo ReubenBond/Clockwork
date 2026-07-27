@@ -54,4 +54,15 @@ public enum BuiltInRuleFamily
     /// time or a real thread-pool thread, and runs the real BCL API unchanged outside simulation.
     /// </summary>
     TaskDeferred,
+
+    /// <summary>
+    /// Compiler-generated async machinery: the <c>SubstituteType</c> rules that retarget an
+    /// <c>async</c> state machine's builder and awaiter types
+    /// (<see cref="System.Runtime.CompilerServices.AsyncTaskMethodBuilder"/>, <c>TaskAwaiter</c>,
+    /// <c>ConfiguredTaskAwaitable</c>/<c>YieldAwaitable</c> and their awaiters, generic and non-generic)
+    /// onto Clockwork's controlled equivalents, plus the <c>Task.Yield()</c> redirect. Applied by the
+    /// member-aware substitution pass so every awaited continuation is scheduled through the simulation
+    /// coordinator instead of the thread pool, while <c>ConfigureAwait(false)</c> stays controlled.
+    /// </summary>
+    AsyncMachinery,
 }

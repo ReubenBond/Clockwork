@@ -68,6 +68,31 @@ public static class BuiltInRuleSets
     private const string ActionOfTask = "System.Action`1<System.Threading.Tasks.Task>";
     private const string Action = "System.Action";
 
+    // Cecil full names for the compiler-generated async machinery (BCL) and their controlled substitutes.
+    // Nested awaiter types use Cecil's '/' separator; generic arities carry the backtick.
+    private const string CompilerNs = "System.Runtime.CompilerServices.";
+    private const string ControlledNs = "Clockwork.Runtime.Tasks.CompilerServices.";
+    private const string BclBuilder = CompilerNs + "AsyncTaskMethodBuilder";
+    private const string BclBuilderT = CompilerNs + "AsyncTaskMethodBuilder`1";
+    private const string BclTaskAwaiter = CompilerNs + "TaskAwaiter";
+    private const string BclTaskAwaiterT = CompilerNs + "TaskAwaiter`1";
+    private const string BclConfigured = CompilerNs + "ConfiguredTaskAwaitable";
+    private const string BclConfiguredT = CompilerNs + "ConfiguredTaskAwaitable`1";
+    private const string BclConfiguredAwaiter = CompilerNs + "ConfiguredTaskAwaitable/ConfiguredTaskAwaiter";
+    private const string BclConfiguredAwaiterT = CompilerNs + "ConfiguredTaskAwaitable`1/ConfiguredTaskAwaiter";
+    private const string BclYieldAwaitable = CompilerNs + "YieldAwaitable";
+    private const string BclYieldAwaiter = CompilerNs + "YieldAwaitable/YieldAwaiter";
+    private const string ControlledBuilder = ControlledNs + "ControlledAsyncTaskMethodBuilder";
+    private const string ControlledBuilderT = ControlledNs + "ControlledAsyncTaskMethodBuilder`1";
+    private const string ControlledTaskAwaiter = ControlledNs + "ControlledTaskAwaiter";
+    private const string ControlledTaskAwaiterT = ControlledNs + "ControlledTaskAwaiter`1";
+    private const string ControlledConfigured = ControlledNs + "ControlledConfiguredTaskAwaitable";
+    private const string ControlledConfiguredT = ControlledNs + "ControlledConfiguredTaskAwaitable`1";
+    private const string ControlledConfiguredAwaiter = ControlledNs + "ControlledConfiguredTaskAwaiter";
+    private const string ControlledConfiguredAwaiterT = ControlledNs + "ControlledConfiguredTaskAwaiter`1";
+    private const string ControlledYieldAwaitable = ControlledNs + "ControlledYieldAwaitable";
+    private const string ControlledYieldAwaiter = ControlledNs + "ControlledYieldAwaiter";
+
     private static readonly ImmutableArray<BuiltInRuleEntry> DeterministicBcl = BuildDeterministicBclEntries();
     private static readonly ImmutableArray<BuiltInRuleEntry> ControlledTasks = BuildControlledTasksEntries();
 
@@ -85,6 +110,7 @@ public static class BuiltInRuleSets
         BuiltInRuleFamily.TaskSynchronization,
         BuiltInRuleFamily.TaskContinuations,
         BuiltInRuleFamily.TaskDeferred,
+        BuiltInRuleFamily.AsyncMachinery,
     ];
 
     /// <summary>Gets the (family, rule) entries of the deterministic BCL rule set, for documentation and inventory generation.</summary>
@@ -185,7 +211,34 @@ public static class BuiltInRuleSets
             Shim(TaskShim, "Run", Action),
             SimulationApiPolicy.Rejected)));
 
+        // ---- Async machinery: retarget the compiler-generated builder/awaiter types of an async state
+        // machine onto controlled equivalents (member-aware SubstituteType), plus the Task.Yield redirect.
+        Sub(builder, "clockwork.tasks.builder.task", BclBuilder, ControlledBuilder);
+        Sub(builder, "clockwork.tasks.builder.task.generic", BclBuilderT, ControlledBuilderT);
+        Sub(builder, "clockwork.tasks.awaiter.task", BclTaskAwaiter, ControlledTaskAwaiter);
+        Sub(builder, "clockwork.tasks.awaiter.task.generic", BclTaskAwaiterT, ControlledTaskAwaiterT);
+        Sub(builder, "clockwork.tasks.configured.awaitable", BclConfigured, ControlledConfigured);
+        Sub(builder, "clockwork.tasks.configured.awaitable.generic", BclConfiguredT, ControlledConfiguredT);
+        Sub(builder, "clockwork.tasks.configured.awaiter", BclConfiguredAwaiter, ControlledConfiguredAwaiter);
+        Sub(builder, "clockwork.tasks.configured.awaiter.generic", BclConfiguredAwaiterT, ControlledConfiguredAwaiterT);
+        Sub(builder, "clockwork.tasks.yield.awaitable", BclYieldAwaitable, ControlledYieldAwaitable);
+        Sub(builder, "clockwork.tasks.yield.awaiter", BclYieldAwaiter, ControlledYieldAwaiter);
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.AsyncMachinery, RewriteRule.RedirectCall(
+            "clockwork.tasks.yield.call",
+            MemberSignature.Method(Task, "Yield"),
+            Shim(TaskShim, "Yield"))));
+
         return builder.ToImmutable();
+    }
+
+    private static void Sub(
+        ImmutableArray<BuiltInRuleEntry>.Builder builder,
+        string id,
+        string targetTypeFullName,
+        string controlledTypeFullName)
+    {
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.AsyncMachinery, RewriteRule.SubstituteType(
+            id, targetTypeFullName, RewriteReplacement.Type(ShimAssemblyName, controlledTypeFullName))));
     }
 
     private static void TaskRule(
