@@ -192,6 +192,28 @@ public sealed class ControlledOperationSchedulerTests
     }
 
     [Fact]
+    public void ResumeRejectsAnActiveResourceWaiter()
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        var resource = scheduler.CreateResource(
+            Clockwork.Runtime.Scheduling.Resources.ControlledResourceKind.Semaphore,
+            "resource-wait");
+        var operation = scheduler.Schedule(
+            "waiter",
+            () => scheduler.WaitOnResource(
+                resource,
+                ControlledOperationPauseReason.ResourceWait("resource-wait")));
+        Assert.True(scheduler.RunStep());
+
+        var exception = Assert.Throws<ControlledOperationException>(() => scheduler.Resume(operation));
+
+        Assert.Contains("active resource waiter", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(ControlledOperationState.Paused, operation.State);
+        scheduler.SignalOne(resource);
+        scheduler.Drain();
+    }
+
+    [Fact]
     public void YieldKeepsOperationRunnableAndItCompletesOnNextStep()
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();
@@ -352,6 +374,161 @@ public sealed class ControlledOperationSchedulerTests
     }
 
     [Fact]
+    public void ListenerSerializesPausedBeforeExternalCancellationMakesOperationRunnable()
+    {
+        var listener = new BlockingPauseListener(TestContext.Current.CancellationToken);
+        using var scheduler = SchedulerTestHarness.NewScheduler(listener);
+        listener.Scheduler = scheduler;
+        using var cancellation = new CancellationTokenSource();
+        var resource = scheduler.CreateResource(
+            Clockwork.Runtime.Scheduling.Resources.ControlledResourceKind.Semaphore,
+            "listener-race");
+        scheduler.Schedule(
+            "waiter",
+            () => scheduler.WaitOnResource(
+                resource,
+                Timeout.InfiniteTimeSpan,
+                ControlledOperationPauseReason.ResourceWait("listener-race"),
+                cancellation.Token));
+
+        var driver = new Thread(() => scheduler.RunStep()) { IsBackground = true };
+        driver.Start();
+        Assert.True(listener.PausedEntered.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+
+        var canceler = new Thread(cancellation.Cancel) { IsBackground = true };
+        canceler.Start();
+        canceler.Join(TimeSpan.FromMilliseconds(200));
+
+        listener.ReleasePaused.Set();
+        Assert.True(canceler.Join(TimeSpan.FromSeconds(5)));
+        Assert.True(driver.Join(TimeSpan.FromSeconds(5)));
+        scheduler.Drain();
+
+        Assert.Equal(
+            [
+                ControlledOperationState.Created,
+                ControlledOperationState.Runnable,
+                ControlledOperationState.Running,
+                ControlledOperationState.Paused,
+                ControlledOperationState.Runnable,
+            ],
+            listener.Events.Take(5).Select(e => e.EventState));
+        Assert.All(listener.Events.Take(5), e => Assert.Equal(e.EventState, e.SnapshotState));
+    }
+
+    [Fact]
+    public void TerminalListenerCanDisposeSchedulerAfterHandback()
+    {
+        var listener = new DisposeOnCompletionListener();
+        using var scheduler = SchedulerTestHarness.NewScheduler(listener);
+        listener.Scheduler = scheduler;
+        var operation = scheduler.Schedule("complete", () => { });
+
+        Assert.True(scheduler.RunStep());
+
+        Assert.Equal(ControlledOperationState.Completed, operation.State);
+        Assert.Contains(ControlledOperationState.Completed, listener.Events);
+    }
+
+    [Fact]
+    public void TerminalListenerDisposeDefersRegistrationCleanupUntilPublicationGateIsReleased()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var listener = new DisposeWithInFlightCancellationListener(
+            cancellation,
+            TestContext.Current.CancellationToken);
+        using var scheduler = SchedulerTestHarness.NewScheduler(listener);
+        listener.Scheduler = scheduler;
+        var resource = scheduler.CreateResource(
+            Clockwork.Runtime.Scheduling.Resources.ControlledResourceKind.Semaphore,
+            "pending-cancellation");
+        var victim = scheduler.Schedule(
+            "victim",
+            () => scheduler.WaitOnResource(
+                resource,
+                Timeout.InfiniteTimeSpan,
+                ControlledOperationPauseReason.ResourceWait("pending-cancellation"),
+                cancellation.Token));
+        Assert.True(scheduler.RunStep());
+        Assert.Equal(ControlledOperationState.Paused, victim.State);
+
+        using var probeRegistration = cancellation.Token.Register(listener.CancellationStarted.Set);
+        scheduler.Schedule("dispose-trigger", () => { });
+
+        Assert.True(scheduler.RunStep());
+        Assert.NotNull(listener.CancellationThread);
+        Assert.True(listener.CancellationThread!.Join(TimeSpan.FromSeconds(5)));
+        Assert.Equal(ControlledOperationState.Canceled, victim.State);
+    }
+
+    [Fact]
+    public void ListenerReentrantDrivingIsRejectedInsteadOfDeadlocking()
+    {
+        var listener = new ReentrantDriveListener();
+        using var scheduler = SchedulerTestHarness.NewScheduler(listener);
+        listener.Scheduler = scheduler;
+        scheduler.Schedule("work", () => { });
+
+        var exception = Assert.IsType<ControlledOperationException>(listener.Exception);
+        Assert.Contains("reentrantly", exception.Message, StringComparison.Ordinal);
+        scheduler.Drain();
+    }
+
+    [Fact]
+    public void ListenerCannotCancelCurrentOperationBeforeHandback()
+    {
+        var listener = new CancelCurrentOnPausedListener();
+        using var scheduler = SchedulerTestHarness.NewScheduler(listener);
+        listener.Scheduler = scheduler;
+        var operation = scheduler.Schedule(
+            "pause",
+            () => scheduler.Pause(ControlledOperationPauseReason.ResourceWait("pause")));
+
+        Assert.True(scheduler.RunStep());
+
+        var exception = Assert.IsType<ControlledOperationException>(listener.Exception);
+        Assert.Contains("before it hands control back", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(ControlledOperationState.Paused, operation.State);
+        scheduler.Cancel(operation);
+    }
+
+    [Fact]
+    public void SignalAllPublishesEachRunnableBeforeReentrantCancellationOfLaterWaiter()
+    {
+        var listener = new CancelLaterWaiterListener();
+        using var scheduler = SchedulerTestHarness.NewScheduler(listener);
+        listener.Scheduler = scheduler;
+        var resource = scheduler.CreateResource(
+            Clockwork.Runtime.Scheduling.Resources.ControlledResourceKind.Semaphore,
+            "signal-all");
+        var first = scheduler.Schedule(
+            "first",
+            () => scheduler.WaitOnResource(resource, ControlledOperationPauseReason.ResourceWait("signal-all")));
+        var second = scheduler.Schedule(
+            "second",
+            () => scheduler.WaitOnResource(resource, ControlledOperationPauseReason.ResourceWait("signal-all")));
+        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep());
+        listener.TriggerId = first.Id;
+        listener.Target = second;
+
+        var woken = scheduler.SignalAll(resource);
+        scheduler.Drain();
+
+        Assert.Equal([first], woken);
+        Assert.Equal(
+            [
+                ControlledOperationState.Created,
+                ControlledOperationState.Runnable,
+                ControlledOperationState.Running,
+                ControlledOperationState.Paused,
+                ControlledOperationState.Canceled,
+            ],
+            listener.Events.Where(e => e.Id == second.Id).Select(e => e.EventState));
+        Assert.All(listener.Events, e => Assert.Equal(e.EventState, e.SnapshotState));
+    }
+
+    [Fact]
     public void CaptureStatusReturnsOperationsInStableIdOrder()
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();
@@ -369,4 +546,147 @@ public sealed class ControlledOperationSchedulerTests
     }
 
     private static bool SpinUntil(Func<bool> condition) => SpinWait.SpinUntil(condition, TimeSpan.FromSeconds(5));
+
+    private sealed class BlockingPauseListener(CancellationToken cancellationToken) : IControlledOperationListener
+    {
+        private readonly ConcurrentQueue<(ControlledOperationState EventState, ControlledOperationState SnapshotState)> _events = new();
+
+        public ManualResetEventSlim PausedEntered { get; } = new();
+
+        public ManualResetEventSlim ReleasePaused { get; } = new();
+
+        public ControlledOperationScheduler Scheduler { get; set; } = null!;
+
+        public IReadOnlyList<(ControlledOperationState EventState, ControlledOperationState SnapshotState)> Events =>
+            _events.ToArray();
+
+        public void OnStateChanged(ControlledOperation operation, ControlledOperationState newState)
+        {
+            if (newState == ControlledOperationState.Paused)
+            {
+                PausedEntered.Set();
+                ReleasePaused.Wait(cancellationToken);
+            }
+
+            var snapshot = Assert.Single(Scheduler.CaptureStatus(), status => status.Id == operation.Id);
+            _events.Enqueue((newState, snapshot.State));
+        }
+    }
+
+    private sealed class DisposeOnCompletionListener : IControlledOperationListener
+    {
+        private readonly ConcurrentQueue<ControlledOperationState> _events = new();
+
+        public ControlledOperationScheduler Scheduler { get; set; } = null!;
+
+        public IReadOnlyList<ControlledOperationState> Events => _events.ToArray();
+
+        public void OnStateChanged(ControlledOperation operation, ControlledOperationState newState)
+        {
+            _events.Enqueue(newState);
+            if (newState == ControlledOperationState.Completed)
+            {
+                Scheduler.Dispose();
+            }
+        }
+    }
+
+    private sealed class DisposeWithInFlightCancellationListener(
+        CancellationTokenSource cancellation,
+        CancellationToken testCancellation) : IControlledOperationListener
+    {
+        public ManualResetEventSlim CancellationStarted { get; } = new();
+
+        public ControlledOperationScheduler Scheduler { get; set; } = null!;
+
+        public Thread? CancellationThread { get; private set; }
+
+        public void OnStateChanged(ControlledOperation operation, ControlledOperationState newState)
+        {
+            if (newState != ControlledOperationState.Completed ||
+                !string.Equals(operation.WorkDescription, "dispose-trigger", StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            CancellationThread = new Thread(cancellation.Cancel) { IsBackground = true };
+            CancellationThread.Start();
+            Assert.True(CancellationStarted.Wait(TimeSpan.FromSeconds(5), testCancellation));
+            Thread.SpinWait(100_000);
+            Scheduler.Dispose();
+        }
+    }
+
+    private sealed class ReentrantDriveListener : IControlledOperationListener
+    {
+        public ControlledOperationScheduler Scheduler { get; set; } = null!;
+
+        public Exception? Exception { get; private set; }
+
+        public void OnStateChanged(ControlledOperation operation, ControlledOperationState newState)
+        {
+            if (newState != ControlledOperationState.Runnable)
+            {
+                return;
+            }
+
+            try
+            {
+                Scheduler.RunStep();
+            }
+            catch (Exception exception)
+            {
+                Exception = exception;
+            }
+        }
+    }
+
+    private sealed class CancelCurrentOnPausedListener : IControlledOperationListener
+    {
+        public ControlledOperationScheduler Scheduler { get; set; } = null!;
+
+        public Exception? Exception { get; private set; }
+
+        public void OnStateChanged(ControlledOperation operation, ControlledOperationState newState)
+        {
+            if (newState != ControlledOperationState.Paused)
+            {
+                return;
+            }
+
+            try
+            {
+                Scheduler.Cancel(operation);
+            }
+            catch (Exception exception)
+            {
+                Exception = exception;
+            }
+        }
+    }
+
+    private sealed class CancelLaterWaiterListener : IControlledOperationListener
+    {
+        private readonly ConcurrentQueue<(ControlledOperationId Id, ControlledOperationState EventState, ControlledOperationState SnapshotState)> _events = new();
+
+        public ControlledOperationScheduler Scheduler { get; set; } = null!;
+
+        public ControlledOperationId TriggerId { get; set; }
+
+        public ControlledOperation? Target { get; set; }
+
+        public IReadOnlyList<(ControlledOperationId Id, ControlledOperationState EventState, ControlledOperationState SnapshotState)> Events =>
+            _events.ToArray();
+
+        public void OnStateChanged(ControlledOperation operation, ControlledOperationState newState)
+        {
+            _events.Enqueue((operation.Id, newState, operation.State));
+            if (newState == ControlledOperationState.Runnable &&
+                operation.Id == TriggerId &&
+                Target is not null)
+            {
+                Scheduler.Cancel(Target);
+            }
+        }
+    }
 }

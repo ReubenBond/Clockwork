@@ -134,6 +134,7 @@ public sealed class ControlledSchedulingStrategyTests
         using var replay = SchedulerTestHarness.NewScheduler(seed: 999);
         replay.SchedulingStrategy = new ReplaySchedulingStrategy(log.Records);
         var replayedOrder = DriveThreeYieldingOperations(replay);
+        replay.ValidateReplayComplete();
 
         Assert.Equal(recordedOrder, replayedOrder);
     }
@@ -183,6 +184,78 @@ public sealed class ControlledSchedulingStrategyTests
         ScheduleYielding(scheduler, order);
 
         Assert.Throws<SimulationDecisionReplayMismatchException>(() => scheduler.Drain());
+    }
+
+    [Fact]
+    public void ExplicitReplayCompletionRejectsUnconsumedSchedulingRecords()
+    {
+        var records = new[]
+        {
+            SchedulingRecord(0, "1"),
+            SchedulingRecord(1, "2"),
+        };
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        scheduler.SchedulingStrategy = new ReplaySchedulingStrategy(records);
+        scheduler.Schedule("first", () => { });
+        scheduler.Schedule("second", () => { });
+
+        scheduler.Drain();
+        var exception = Assert.Throws<SimulationDecisionReplayMismatchException>(scheduler.ValidateReplayComplete);
+
+        Assert.Contains("unconsumed", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("1", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ExplicitReplayCompletionRejectsUnconsumedDecisionValidationRecords()
+    {
+        var extra = SchedulingRecord(0, "1");
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        scheduler.ReplayValidator = new SimulationDecisionReplayValidator(
+            new SimulationInMemoryDecisionReplayReader([extra]));
+        scheduler.Schedule("only", () => { });
+
+        scheduler.Drain();
+        var exception = Assert.Throws<SimulationDecisionReplayMismatchException>(scheduler.ValidateReplayComplete);
+
+        Assert.Equal(extra, exception.Expected);
+        Assert.Null(exception.Actual);
+    }
+
+    [Fact]
+    public void PartialRunDoesNotRequireReplayCompletion()
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        scheduler.SchedulingStrategy = new ReplaySchedulingStrategy(
+            [
+                SchedulingRecord(0, "1"),
+                SchedulingRecord(1, "2"),
+            ]);
+        scheduler.Schedule("first", () => { });
+        scheduler.Schedule("second", () => { });
+
+        Assert.True(scheduler.RunStep());
+        Assert.Throws<ControlledOperationException>(scheduler.ValidateReplayComplete);
+    }
+
+    [Fact]
+    public void ReusableDrainDoesNotPrematurelyValidateLaterReplayBatches()
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        scheduler.SchedulingStrategy = new ReplaySchedulingStrategy(
+            [
+                SchedulingRecord(0, "1"),
+                SchedulingRecord(1, "3"),
+            ]);
+
+        scheduler.Schedule("phase-one-a", () => { });
+        scheduler.Schedule("phase-one-b", () => { });
+        scheduler.Drain();
+
+        scheduler.Schedule("phase-two-a", () => { });
+        scheduler.Schedule("phase-two-b", () => { });
+        scheduler.Drain();
+        scheduler.ValidateReplayComplete();
     }
 
     [Fact]
@@ -249,4 +322,16 @@ public sealed class ControlledSchedulingStrategyTests
             node: null,
             priority: priority);
     }
+
+    private static SimulationDecisionRecord SchedulingRecord(long sequence, string selectedResult) =>
+        new(
+            new SimulationDecisionId(sequence),
+            SimulationSeedDomain.Scheduler,
+            SimulationDecisionKind.SchedulingOrder,
+            "seeded-random",
+            "1,2",
+            selectedResult,
+            Guid.NewGuid(),
+            NodeId: null,
+            Clockwork.Runtime.Execution.SimulationLogicalExecutionId.None);
 }

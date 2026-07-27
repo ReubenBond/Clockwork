@@ -78,7 +78,12 @@ public sealed record ControlledWaitCycle(IReadOnlyList<ControlledWaitCycleEntry>
 /// hanging.
 /// </summary>
 /// <param name="Liveness">The overall progress classification.</param>
-/// <param name="Cycles">Detected true wait-for cycles (empty unless <see cref="Liveness"/> is <see cref="ControlledLivenessState.Deadlocked"/>).</param>
+/// <param name="Cycles">
+/// Detected wait-for cycles. A cycle can be present while <see cref="Liveness"/> is
+/// <see cref="ControlledLivenessState.PausedUntilTime"/> when another live deadline can still advance
+/// the schedule and break it; it is terminal only when <see cref="Liveness"/> is
+/// <see cref="ControlledLivenessState.Deadlocked"/>.
+/// </param>
 /// <param name="RunnableCount">The number of runnable operations at analysis time.</param>
 /// <param name="BlockedCount">The number of operations paused on a resource at analysis time.</param>
 /// <param name="PendingTimeoutCount">The number of live pending virtual-time timeouts at analysis time.</param>

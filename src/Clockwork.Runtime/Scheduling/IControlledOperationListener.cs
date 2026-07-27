@@ -4,14 +4,18 @@ namespace Clockwork.Runtime.Scheduling;
 /// An optional observer of <see cref="ControlledOperation"/> lifecycle transitions within a
 /// <see cref="ControlledOperationScheduler"/>. The scheduler invokes the listener exactly once per
 /// applied state transition, in the deterministic order those transitions occur - transitions are
-/// serialized by the single permission baton, so a listener never observes two notifications
-/// concurrently, and the sequence it sees is a stable function of the scheduling decisions made.
+/// serialized with their publication, so external cancellation and signaling cannot publish a later
+/// state before an earlier transition. A listener never observes two notifications concurrently, and
+/// the sequence it sees is a stable function of the scheduling decisions made.
 /// </summary>
 /// <remarks>
 /// Notifications are delivered <em>after</em> the transition has been applied and <em>outside</em>
 /// the scheduler's internal lock, so a listener may safely read the operation's public state and
-/// even call back into the scheduler (e.g. to resume another operation). A listener must not throw:
-/// an exception from a listener is a diagnostics bug and would corrupt the scheduling sequence.
+/// call back into the scheduler for non-driving operations (for example, to resume another operation).
+/// Reentrant <see cref="ControlledOperationScheduler.RunStep"/>/<see cref="ControlledOperationScheduler.Drain"/>
+/// is rejected because worker handoff cannot occur until the current transition publication completes.
+/// A listener must not throw: an exception from a listener is a diagnostics bug and would corrupt the
+/// scheduling sequence.
 /// </remarks>
 public interface IControlledOperationListener
 {

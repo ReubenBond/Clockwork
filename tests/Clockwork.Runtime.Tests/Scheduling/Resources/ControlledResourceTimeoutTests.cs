@@ -242,4 +242,27 @@ public sealed class ControlledResourceTimeoutTests
         Assert.False(scheduler.TryAdvanceVirtualTime());
         Assert.Equal(TimeSpan.Zero, scheduler.VirtualTime);
     }
+
+    [Fact]
+    public void SchedulerDeadlineDueTimeSaturatesAtTimeSpanMaxValue()
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        var resource = scheduler.CreateResource(ControlledResourceKind.Timer, "timer");
+        var outcomes = new List<ControlledWaitOutcome>();
+
+        scheduler.Schedule(
+            "to-max",
+            () => outcomes.Add(scheduler.WaitOnResource(resource, TimeSpan.MaxValue, Reason("max"))));
+        scheduler.Drain();
+        Assert.Equal(TimeSpan.MaxValue, scheduler.VirtualTime);
+
+        scheduler.Schedule(
+            "past-max",
+            () => outcomes.Add(scheduler.WaitOnResource(resource, TimeSpan.FromTicks(1), Reason("saturated"))));
+        scheduler.Drain();
+
+        Assert.Equal([ControlledWaitOutcome.TimedOut, ControlledWaitOutcome.TimedOut], outcomes);
+        Assert.Equal(TimeSpan.MaxValue, scheduler.VirtualTime);
+        Assert.Empty(scheduler.CapturePendingTimeouts());
+    }
 }

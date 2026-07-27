@@ -12,8 +12,11 @@ public sealed class SimulationDecisionReplayMismatchException : InvalidOperation
     /// </summary>
     /// <param name="message">The diagnostic message.</param>
     /// <param name="expected">The expected (previously recorded) decision, if any was available.</param>
-    /// <param name="actual">The decision actually observed during replay.</param>
-    public SimulationDecisionReplayMismatchException(string message, SimulationDecisionRecord? expected, SimulationDecisionRecord actual)
+    /// <param name="actual">
+    /// The decision actually observed during replay, or <see langword="null"/> when validation found an
+    /// unconsumed recorded suffix at the successful end of the run.
+    /// </param>
+    public SimulationDecisionReplayMismatchException(string message, SimulationDecisionRecord? expected, SimulationDecisionRecord? actual)
         : base(message)
     {
         Expected = expected;
@@ -130,6 +133,34 @@ public sealed class SimulationDecisionReplayValidator(ISimulationDecisionReplayR
                 $"Replay diverged at decision {actual.Id}: expected {Describe(expected)} but observed {Describe(actual)}.",
                 expected,
                 actual);
+        }
+    }
+
+    /// <summary>
+    /// Verifies that a successful replay consumed the entire recorded decision stream.
+    /// </summary>
+    /// <remarks>
+    /// Call this only at a successful end-of-run boundary. Partial or aborted runs intentionally leave
+    /// records unread and should not be validated as complete.
+    /// </remarks>
+    /// <exception cref="SimulationDecisionReplayMismatchException">
+    /// Thrown when the recorded stream contains a suffix that the replay never produced.
+    /// </exception>
+    public void ValidateComplete()
+    {
+        if (_mismatchAlreadyThrown)
+        {
+            return;
+        }
+
+        if (_reader.TryGetNext(out var expected) && expected is not null)
+        {
+            _mismatchAlreadyThrown = true;
+            throw new SimulationDecisionReplayMismatchException(
+                $"Replay diverged at end of run: recorded decision {expected.Id} ({Describe(expected)}) " +
+                "and possibly additional records remain unconsumed.",
+                expected,
+                actual: null);
         }
     }
 

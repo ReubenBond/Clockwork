@@ -14,16 +14,15 @@ namespace Clockwork.Runtime.Threading;
 /// and each instance member to a static method here whose first parameter is the receiver.
 /// </para>
 /// <para>
-/// Inside a simulation the count and waiter set are modelled directly on the single cooperative logical
-/// thread: <see cref="CurrentCount"/> reads the modelled count, a synchronous <c>Wait</c> pumps the
-/// deterministic loop until a permit is available (or the wait is cancelled), and <c>WaitAsync</c>
-/// returns a task that a <c>Release</c> completes on the logical thread. Waiters are served in
-/// deterministic arrival (FIFO) order - a replayable selection, though the BCL makes no fairness promise.
-/// Cancellation is honoured synchronously through
-/// <see cref="CancellationToken.Register(System.Action)"/> (whose callback runs on the cancelling logical
-/// thread). No permit wait ever blocks a physical thread or consumes real time; a wait that can never be
-/// satisfied surfaces as the standard controlled deadlock diagnostic. Outside a simulation every shim
-/// delegates to the real <see cref="SemaphoreSlim"/>.
+/// Inside a simulation the count and waiter set are modelled under a per-semaphore gate: a synchronous
+/// <c>Wait</c> pumps the deterministic loop until a permit is available (or the wait is cancelled), and
+/// <c>WaitAsync</c> returns a task completed by the first serialized release, timeout, cancellation, or
+/// disposal. Waiters are served in deterministic arrival (FIFO) order - a replayable selection, though
+/// the BCL makes no fairness promise. Cancellation is honoured synchronously through
+/// <see cref="CancellationToken.Register(System.Action)"/>; callbacks may arrive on external threads, so
+/// waiter mutation is serialized and cancellation registrations are always disposed outside the gate.
+/// No permit wait consumes real time. Outside a simulation every shim delegates to the real
+/// <see cref="SemaphoreSlim"/>.
 /// </para>
 /// <para>
 /// <see cref="SemaphoreSlim.AvailableWaitHandle"/> is bridged to a controlled manual-reset wait handle
@@ -53,6 +52,8 @@ public static class ControlledSemaphoreSlim
         // waiter completes for any other reason (permit served or cancellation) so a stale timeout cannot
         // fire; when it elapses it completes the waiter with false.
         public IControlledTimeout? Deadline;
+
+        public WaiterOutcome Outcome;
     }
 
     private sealed class State
@@ -89,8 +90,34 @@ public static class ControlledSemaphoreSlim
         // until first observed. Kept for the lifetime of the semaphore's modelled state.
         public WaitHandle? AvailableHandle { get; set; }
 
+        public object Gate { get; } = new();
+
         // Waiters blocked for a permit, in arrival order. Release serves the front waiters.
         public List<Waiter> Waiters { get; } = new();
+    }
+
+    private enum WaiterOutcome
+    {
+        Pending,
+        Signaled,
+        TimedOut,
+        Canceled,
+        Disposed,
+    }
+
+    private readonly record struct WaiterCleanup(
+        Waiter Waiter,
+        WaiterOutcome Outcome,
+        CancellationTokenRegistration Registration,
+        IControlledTimeout? Deadline,
+        CancellationToken CancellationToken);
+
+    private static readonly AsyncLocal<Action?> CancellationRegistrationHook = new();
+
+    internal static Action? BeforeCancellationRegistrationForTesting
+    {
+        get => CancellationRegistrationHook.Value;
+        set => CancellationRegistrationHook.Value = value;
     }
 
     private static readonly ConditionalWeakTable<SemaphoreSlim, State> States = new();
@@ -130,7 +157,11 @@ public static class ControlledSemaphoreSlim
             return instance.CurrentCount;
         }
 
-        return StateOf(instance).Count;
+        var state = StateOf(instance);
+        lock (state.Gate)
+        {
+            return state.Count;
+        }
     }
 
     /// <summary>Controlled <see cref="SemaphoreSlim.Wait()"/>.</summary>
@@ -338,28 +369,38 @@ public static class ControlledSemaphoreSlim
         }
 
         var state = StateOf(instance);
-        ThrowIfDisposed(state);
-
-        var previous = state.Count;
-        if ((long)state.Count + releaseCount > state.MaxCount)
+        List<WaiterCleanup> completed = [];
+        int previous;
+        lock (state.Gate)
         {
-            throw new SemaphoreFullException();
+            ThrowIfDisposed(state);
+            previous = state.Count;
+            if ((long)state.Count + releaseCount > state.MaxCount)
+            {
+                throw new SemaphoreFullException();
+            }
+
+            state.Count += releaseCount;
+
+            // Serve waiters in arrival order. Resolving/removing each waiter and consuming its permit
+            // happen atomically under the resource gate; callbacks and task continuations run afterward.
+            while (state.Waiters.Count > 0 && state.Count > 0)
+            {
+                var waiter = state.Waiters[0];
+                if (TryResolveUnderLock(
+                    state,
+                    waiter,
+                    WaiterOutcome.Signaled,
+                    CancellationToken.None,
+                    out var cleanup))
+                {
+                    completed.Add(cleanup);
+                    state.Count--;
+                }
+            }
         }
 
-        state.Count += releaseCount;
-
-        // Serve waiters in arrival order: each served waiter consumes one permit and completes its task
-        // synchronously on this logical thread, which the deterministic loop observes to resume it.
-        while (state.Waiters.Count > 0 && state.Count > 0)
-        {
-            var waiter = state.Waiters[0];
-            state.Waiters.RemoveAt(0);
-            waiter.Registration.Dispose();
-            waiter.Deadline?.Cancel();
-            state.Count--;
-            waiter.Completion.TrySetResult(true);
-        }
-
+        CompleteWaiters(completed);
         return previous;
     }
 
@@ -375,10 +416,34 @@ public static class ControlledSemaphoreSlim
         }
 
         var state = StateOf(instance);
-        state.Disposed = true;
+        List<WaiterCleanup> completed = [];
+        WaitHandle? availableHandle;
+        lock (state.Gate)
+        {
+            if (state.Disposed)
+            {
+                return;
+            }
 
-        // A materialised AvailableWaitHandle bridge is disposed with its semaphore so a later wait faults.
-        ControlledWaitHandle.DisposeBridge(state.AvailableHandle);
+            state.Disposed = true;
+            availableHandle = state.AvailableHandle;
+            foreach (var waiter in state.Waiters.ToArray())
+            {
+                if (TryResolveUnderLock(
+                    state,
+                    waiter,
+                    WaiterOutcome.Disposed,
+                    CancellationToken.None,
+                    out var cleanup))
+                {
+                    completed.Add(cleanup);
+                }
+            }
+        }
+
+        // Cleanup can run callbacks or acquire other resource gates, so none of it runs under State.Gate.
+        CompleteWaiters(completed);
+        ControlledWaitHandle.DisposeBridge(availableHandle);
     }
 
     /// <summary>
@@ -398,29 +463,38 @@ public static class ControlledSemaphoreSlim
         }
 
         var state = StateOf(instance);
-        ThrowIfDisposed(state);
-        return state.AvailableHandle ??= ControlledWaitHandle.CreateBridge(state.Count > 0);
+        lock (state.Gate)
+        {
+            ThrowIfDisposed(state);
+            return state.AvailableHandle ??= ControlledWaitHandle.CreateBridge(state.Count > 0);
+        }
     }
 
     private static bool WaitControlled(SemaphoreSlim instance, int millisecondsTimeout, CancellationToken cancellationToken)
     {
         ValidateTimeout(millisecondsTimeout);
         var state = StateOf(instance);
-        ThrowIfDisposed(state);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        if (state.Count > 0)
+        Waiter waiter;
+        lock (state.Gate)
         {
-            state.Count--;
-            return true;
+            ThrowIfDisposed(state);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (state.Count > 0)
+            {
+                state.Count--;
+                return true;
+            }
+
+            if (millisecondsTimeout == 0)
+            {
+                return false;
+            }
+
+            waiter = EnqueueUnderLock(state, millisecondsTimeout);
         }
 
-        if (millisecondsTimeout == 0)
-        {
-            return false;
-        }
-
-        var waiter = Enqueue(state, millisecondsTimeout, cancellationToken);
+        AttachCancellation(state, waiter, cancellationToken);
         ControlledTaskRuntime.DrainUntil(() => waiter.Completion.Task.IsCompleted, WaitApi);
 
         // The waiter completes as served (true), timed-out (false), or cancelled. GetResult rethrows the
@@ -441,48 +515,41 @@ public static class ControlledSemaphoreSlim
         }
 
         var state = StateOf(instance);
-        if (state.Disposed)
+        Waiter waiter;
+        lock (state.Gate)
         {
-            return Task.FromException<bool>(new ObjectDisposedException(nameof(SemaphoreSlim)));
+            if (state.Disposed)
+            {
+                return Task.FromException<bool>(new ObjectDisposedException(nameof(SemaphoreSlim)));
+            }
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return Task.FromCanceled<bool>(cancellationToken);
+            }
+
+            if (state.Count > 0)
+            {
+                state.Count--;
+                return Task.FromResult(true);
+            }
+
+            if (millisecondsTimeout == 0)
+            {
+                return Task.FromResult(false);
+            }
+
+            waiter = EnqueueUnderLock(state, millisecondsTimeout);
         }
 
-        if (cancellationToken.IsCancellationRequested)
-        {
-            return Task.FromCanceled<bool>(cancellationToken);
-        }
-
-        if (state.Count > 0)
-        {
-            state.Count--;
-            return Task.FromResult(true);
-        }
-
-        if (millisecondsTimeout == 0)
-        {
-            return Task.FromResult(false);
-        }
-
-        var waiter = Enqueue(state, millisecondsTimeout, cancellationToken);
+        AttachCancellation(state, waiter, cancellationToken);
         return waiter.Completion.Task;
     }
 
-    private static Waiter Enqueue(State state, int millisecondsTimeout, CancellationToken cancellationToken)
+    private static Waiter EnqueueUnderLock(State state, int millisecondsTimeout)
     {
         var waiter = new Waiter();
         state.Waiters.Add(waiter);
-        if (cancellationToken.CanBeCanceled)
-        {
-            // The registration fires synchronously on whichever logical strand cancels the token, so a
-            // still-queued waiter is removed and cancelled deterministically without any real timer.
-            waiter.Registration = cancellationToken.Register(() =>
-            {
-                if (state.Waiters.Remove(waiter))
-                {
-                    waiter.Deadline?.Cancel();
-                    waiter.Completion.TrySetCanceled(cancellationToken);
-                }
-            });
-        }
 
         if (millisecondsTimeout != Timeout.Infinite)
         {
@@ -492,18 +559,140 @@ public static class ControlledSemaphoreSlim
             // policy - and a timeout completes the waiter with false.
             waiter.Deadline = ControlledTaskRuntime.RegisterTimeout(
                 TimeSpan.FromMilliseconds(millisecondsTimeout),
-                onElapsed: () =>
-                {
-                    if (state.Waiters.Remove(waiter))
-                    {
-                        waiter.Registration.Dispose();
-                        waiter.Completion.TrySetResult(false);
-                    }
-                },
+                onElapsed: () => ResolveTimedOut(state, waiter),
                 WaitApi);
         }
 
         return waiter;
+    }
+
+    private static void AttachCancellation(State state, Waiter waiter, CancellationToken cancellationToken)
+    {
+        if (!cancellationToken.CanBeCanceled)
+        {
+            return;
+        }
+
+        BeforeCancellationRegistrationForTesting?.Invoke();
+        var registration = cancellationToken.Register(
+            static callbackState =>
+            {
+                var (semaphoreState, canceledWaiter, token) =
+                    ((State, Waiter, CancellationToken))callbackState!;
+                ResolveCanceled(semaphoreState, canceledWaiter, token);
+            },
+            (state, waiter, cancellationToken));
+
+        CancellationTokenRegistration detachedRegistration = default;
+        lock (state.Gate)
+        {
+            if (waiter.Outcome == WaiterOutcome.Pending && state.Waiters.Contains(waiter))
+            {
+                waiter.Registration = registration;
+            }
+            else
+            {
+                detachedRegistration = registration;
+            }
+        }
+
+        detachedRegistration.Dispose();
+    }
+
+    private static void ResolveCanceled(State state, Waiter waiter, CancellationToken cancellationToken)
+    {
+        WaiterCleanup cleanup;
+        lock (state.Gate)
+        {
+            if (!TryResolveUnderLock(
+                state,
+                waiter,
+                WaiterOutcome.Canceled,
+                cancellationToken,
+                out cleanup))
+            {
+                return;
+            }
+        }
+
+        CompleteWaiter(cleanup);
+    }
+
+    private static void ResolveTimedOut(State state, Waiter waiter)
+    {
+        WaiterCleanup cleanup;
+        lock (state.Gate)
+        {
+            if (!TryResolveUnderLock(
+                state,
+                waiter,
+                WaiterOutcome.TimedOut,
+                CancellationToken.None,
+                out cleanup,
+                cancelDeadline: false))
+            {
+                return;
+            }
+        }
+
+        CompleteWaiter(cleanup);
+    }
+
+    private static bool TryResolveUnderLock(
+        State state,
+        Waiter waiter,
+        WaiterOutcome outcome,
+        CancellationToken cancellationToken,
+        out WaiterCleanup cleanup,
+        bool cancelDeadline = true)
+    {
+        if (waiter.Outcome != WaiterOutcome.Pending || !state.Waiters.Remove(waiter))
+        {
+            cleanup = default;
+            return false;
+        }
+
+        waiter.Outcome = outcome;
+        var registration = waiter.Registration;
+        waiter.Registration = default;
+        var deadline = waiter.Deadline;
+        waiter.Deadline = null;
+        cleanup = new WaiterCleanup(
+            waiter,
+            outcome,
+            registration,
+            cancelDeadline ? deadline : null,
+            cancellationToken);
+        return true;
+    }
+
+    private static void CompleteWaiters(List<WaiterCleanup> completed)
+    {
+        foreach (var cleanup in completed)
+        {
+            CompleteWaiter(cleanup);
+        }
+    }
+
+    private static void CompleteWaiter(WaiterCleanup cleanup)
+    {
+        cleanup.Deadline?.Cancel();
+        cleanup.Registration.Dispose();
+        switch (cleanup.Outcome)
+        {
+            case WaiterOutcome.Signaled:
+                cleanup.Waiter.Completion.TrySetResult(true);
+                break;
+            case WaiterOutcome.TimedOut:
+                cleanup.Waiter.Completion.TrySetResult(false);
+                break;
+            case WaiterOutcome.Canceled:
+                cleanup.Waiter.Completion.TrySetCanceled(cleanup.CancellationToken);
+                break;
+            case WaiterOutcome.Disposed:
+                cleanup.Waiter.Completion.TrySetException(new ObjectDisposedException(nameof(SemaphoreSlim)));
+                break;
+        }
     }
 
     private static void ThrowIfDisposed(State state)

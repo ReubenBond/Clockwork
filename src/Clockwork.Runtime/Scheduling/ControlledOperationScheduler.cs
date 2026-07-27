@@ -53,6 +53,7 @@ public sealed class ControlledOperationScheduler : IDisposable
     private static ControlledOperation? t_currentOperation;
 
     private readonly object _gate = new();
+    private readonly object _transitionPublicationGate = new();
     private readonly SortedDictionary<ControlledOperationId, ControlledOperation> _operations = new();
     private readonly SortedDictionary<ControlledResourceId, ControlledResource> _resources = new();
     private readonly SemaphoreSlim _handback = new(0, 1);
@@ -65,7 +66,7 @@ public sealed class ControlledOperationScheduler : IDisposable
     private IControlledSchedulingStrategy _strategy = new RoundRobinSchedulingStrategy();
     private ISimulationDecisionLog? _decisionLog;
     private SimulationDecisionReplayValidator? _replayValidator;
-    private long _nextSelectionDecisionId;
+    private long _nextReplayDecisionId;
 
     private long _nextOperationId;
     private long _nextResourceId;
@@ -75,6 +76,9 @@ public sealed class ControlledOperationScheduler : IDisposable
     private int _controlThreadId;
     private bool _controlThreadBusy;
     private bool _disposed;
+    private ControlledOperation? _pendingTerminalNotification;
+    private int _transitionPublicationDepth;
+    private List<CancellationTokenRegistration>? _deferredRegistrationDisposals;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ControlledOperationScheduler"/> class.
@@ -247,28 +251,32 @@ public sealed class ControlledOperationScheduler : IDisposable
 
         var capturedContext = ExecutionContext.Capture();
         ControlledOperation operation;
-        lock (_gate)
+        using (EnterTransitionPublicationScope())
         {
-            ThrowIfDisposed();
-            var parentId = t_currentOperation is { } parent && ReferenceEquals(parent.Scheduler, this)
-                ? parent.Id
-                : ControlledOperationId.None;
-            var id = new ControlledOperationId(++_nextOperationId);
-            operation = new ControlledOperation(
-                this,
-                id,
-                parentId,
-                _runtime,
-                node,
-                _logicalIds.Next(),
-                workDescription,
-                body,
-                capturedContext,
-                priority);
-            _operations.Add(id, operation);
+            lock (_gate)
+            {
+                ThrowIfDisposed();
+                var parentId = t_currentOperation is { } parent && ReferenceEquals(parent.Scheduler, this)
+                    ? parent.Id
+                    : ControlledOperationId.None;
+                var id = new ControlledOperationId(++_nextOperationId);
+                operation = new ControlledOperation(
+                    this,
+                    id,
+                    parentId,
+                    _runtime,
+                    node,
+                    _logicalIds.Next(),
+                    workDescription,
+                    body,
+                    capturedContext,
+                    priority);
+                _operations.Add(id, operation);
+            }
+
+            Notify(operation, ControlledOperationState.Created);
         }
 
-        Notify(operation, ControlledOperationState.Created);
         return operation;
     }
 
@@ -363,13 +371,16 @@ public sealed class ControlledOperationScheduler : IDisposable
     {
         ArgumentNullException.ThrowIfNull(operation);
         ValidateOwnership(operation);
-        lock (_gate)
+        using (EnterTransitionPublicationScope())
         {
-            ThrowIfDisposed();
-            operation.ApplyTransition(ControlledOperationState.Runnable);
-        }
+            lock (_gate)
+            {
+                ThrowIfDisposed();
+                operation.ApplyTransition(ControlledOperationState.Runnable);
+            }
 
-        Notify(operation, ControlledOperationState.Runnable);
+            Notify(operation, ControlledOperationState.Runnable);
+        }
     }
 
     /// <summary>
@@ -390,29 +401,40 @@ public sealed class ControlledOperationScheduler : IDisposable
     /// <returns><see langword="true"/> if an operation ran; <see langword="false"/> if none was runnable.</returns>
     public bool RunStep()
     {
-        ControlledOperation operation;
-        lock (_gate)
+        if (Monitor.IsEntered(_transitionPublicationGate))
         {
-            ThrowIfDisposed();
-            if (_controlThreadBusy)
-            {
-                throw new ControlledOperationException(
-                    "The scheduler is already being driven by another thread. RunStep/Drain must be driven by a single controlling thread at a time.");
-            }
-
-            var next = SelectRunnable();
-            if (next is null)
-            {
-                return false;
-            }
-
-            operation = next;
-            operation.ApplyTransition(ControlledOperationState.Running);
-            _current = operation;
-            _controlThreadBusy = true;
+            throw new ControlledOperationException(
+                "RunStep/Drain cannot be driven reentrantly from an operation listener callback. " +
+                "Listeners may inspect state or request non-driving transitions, but the controlling thread must resume scheduler driving after the callback returns.");
         }
 
-        Notify(operation, ControlledOperationState.Running);
+        ControlledOperation operation;
+        using (EnterTransitionPublicationScope())
+        {
+            lock (_gate)
+            {
+                ThrowIfDisposed();
+                if (_controlThreadBusy)
+                {
+                    throw new ControlledOperationException(
+                        "The scheduler is already being driven by another thread. RunStep/Drain must be driven by a single controlling thread at a time.");
+                }
+
+                var next = SelectRunnable();
+                if (next is null)
+                {
+                    return false;
+                }
+
+                operation = next;
+                operation.ApplyTransition(ControlledOperationState.Running);
+                _current = operation;
+                _controlThreadBusy = true;
+            }
+
+            Notify(operation, ControlledOperationState.Running);
+        }
+
         EnsureThreadStarted(operation);
 
         // Grant the baton and block until the operation hands control back. Only the granted
@@ -465,6 +487,37 @@ public sealed class ControlledOperationScheduler : IDisposable
     }
 
     /// <summary>
+    /// Validates that decision and scheduling replay streams were consumed completely at an explicit
+    /// successful end-of-run boundary.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Drain"/> does not call this automatically because a scheduler is reusable: a quiescent
+    /// batch can be followed by more scheduled work whose replay records remain unread. Call this once
+    /// the overall run is known to be complete. Partial or aborted runs must omit this call.
+    /// </remarks>
+    public void ValidateReplayComplete()
+    {
+        lock (_gate)
+        {
+            foreach (var operation in _operations.Values)
+            {
+                if (!operation.IsTerminal)
+                {
+                    throw new ControlledOperationException(
+                        "Replay completion cannot be validated while non-terminal operations remain. " +
+                        "Finish the run first, or omit completion validation for a partial or aborted run.");
+                }
+            }
+        }
+
+        _replayValidator?.ValidateComplete();
+        if (_strategy is ReplaySchedulingStrategy replay)
+        {
+            replay.ValidateComplete();
+        }
+    }
+
+    /// <summary>
     /// Advances modeled virtual time to the earliest pending timeout and fires every timeout due at
     /// that instant, resolving each affected waiter as <see cref="ControlledWaitOutcome.TimedOut"/>
     /// and making its operation runnable. Advancing is only legal when no operation is currently
@@ -476,40 +529,54 @@ public sealed class ControlledOperationScheduler : IDisposable
     /// <returns><see langword="true"/> if time advanced and at least one waiter timed out; otherwise <see langword="false"/>.</returns>
     public bool TryAdvanceVirtualTime()
     {
-        List<ControlledOperation> timedOut = [];
-        lock (_gate)
+        IReadOnlyList<ControlledTimeoutRegistration> due;
+        var timedOut = 0;
+        using (EnterTransitionPublicationScope())
         {
-            ThrowIfDisposed();
-            if (_controlThreadBusy)
+            lock (_gate)
             {
-                throw new ControlledOperationException(
-                    "Cannot advance virtual time while an operation is running; drive RunStep to quiescence first.");
-            }
-
-            if (HasRunnableUnderLock() || !_clock.HasPending)
-            {
-                return false;
-            }
-
-            foreach (var registration in _clock.AdvanceToNextDue())
-            {
-                var waiter = registration.Waiter;
-                if (waiter.TryResolve(ControlledWaitOutcome.TimedOut))
+                ThrowIfDisposed();
+                if (_controlThreadBusy)
                 {
-                    DisposeWaiterRegistrations(waiter);
-                    waiter.Resource.RemoveWaiter(waiter);
-                    waiter.Operation.ApplyTransition(ControlledOperationState.Runnable);
-                    timedOut.Add(waiter.Operation);
+                    throw new ControlledOperationException(
+                        "Cannot advance virtual time while an operation is running; drive RunStep to quiescence first.");
+                }
+
+                if (HasRunnableUnderLock() || !_clock.HasPending)
+                {
+                    return false;
+                }
+
+                due = _clock.AdvanceToNextDue();
+            }
+
+            foreach (var timeoutRegistration in due)
+            {
+                ControlledOperation? operation = null;
+                CancellationTokenRegistration cancellationRegistration = default;
+                lock (_gate)
+                {
+                    var waiter = timeoutRegistration.Waiter;
+                    if (waiter.TryResolve(ControlledWaitOutcome.TimedOut))
+                    {
+                        RecordWaitResolution(waiter, ControlledWaitOutcome.TimedOut);
+                        cancellationRegistration = DetachWaiterRegistrationsUnderLock(waiter);
+                        waiter.Resource.RemoveWaiter(waiter);
+                        waiter.Operation.ApplyTransition(ControlledOperationState.Runnable);
+                        operation = waiter.Operation;
+                    }
+                }
+
+                if (operation is not null)
+                {
+                    Notify(operation, ControlledOperationState.Runnable);
+                    DisposeRegistration(cancellationRegistration);
+                    timedOut++;
                 }
             }
         }
 
-        foreach (var operation in timedOut)
-        {
-            Notify(operation, ControlledOperationState.Runnable);
-        }
-
-        return timedOut.Count > 0;
+        return timedOut > 0;
     }
 
     private bool HasRunnableUnderLock()
@@ -535,13 +602,24 @@ public sealed class ControlledOperationScheduler : IDisposable
     {
         ArgumentNullException.ThrowIfNull(operation);
         ValidateOwnership(operation);
-        lock (_gate)
+        using (EnterTransitionPublicationScope())
         {
-            ThrowIfDisposed();
-            operation.ApplyTransition(ControlledOperationState.Runnable);
-        }
+            lock (_gate)
+            {
+                ThrowIfDisposed();
+                if (operation.Waiter is not null)
+                {
+                    throw new ControlledOperationException(
+                        string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"Cannot resume operation {operation.Id} directly while it has an active resource waiter. Resolve it through SignalOne/SignalAll, timeout, or cancellation so the wait receives exactly one outcome."));
+                }
 
-        Notify(operation, ControlledOperationState.Runnable);
+                operation.ApplyTransition(ControlledOperationState.Runnable);
+            }
+
+            Notify(operation, ControlledOperationState.Runnable);
+        }
     }
 
     /// <summary>
@@ -559,31 +637,39 @@ public sealed class ControlledOperationScheduler : IDisposable
         ValidateOwnership(operation);
 
         bool needsUnwind;
-        lock (_gate)
+        CancellationTokenRegistration registration;
+        using (EnterTransitionPublicationScope())
         {
-            if (operation.IsTerminal)
+            lock (_gate)
             {
-                return;
+                if (operation.IsTerminal)
+                {
+                    return;
+                }
+
+                if (ReferenceEquals(operation, _current))
+                {
+                    throw new ControlledOperationException(
+                        string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"Cannot externally cancel in-flight operation {operation.Id} before it hands control back to the scheduler; retry after RunStep returns or use cooperative cancellation from within its body."));
+                }
+
+                operation.RequestTermination();
+                registration = DetachWaiterUnderLock(operation);
+                operation.ApplyTransition(ControlledOperationState.Canceled);
+                needsUnwind = operation.Thread is not null;
             }
 
-            if (ReferenceEquals(operation, _current) && operation.State == ControlledOperationState.Running)
-            {
-                throw new ControlledOperationException(
-                    string.Create(CultureInfo.InvariantCulture, $"Cannot externally cancel the currently-running operation {operation.Id}; it must observe cooperative cancellation from within its own body."));
-            }
-
-            operation.RequestTermination();
-            DetachWaiterUnderLock(operation);
-            operation.ApplyTransition(ControlledOperationState.Canceled);
-            needsUnwind = operation.Thread is not null;
+            Notify(operation, ControlledOperationState.Canceled);
         }
 
+        DisposeRegistration(registration);
         if (needsUnwind)
         {
             UnwindParkedThread(operation);
         }
 
-        Notify(operation, ControlledOperationState.Canceled);
     }
 
     /// <summary>
@@ -597,12 +683,16 @@ public sealed class ControlledOperationScheduler : IDisposable
     {
         ArgumentNullException.ThrowIfNull(reason);
         var operation = RequireCurrentOperation();
-        lock (_gate)
+        using (EnterTransitionPublicationScope())
         {
-            operation.ApplyTransition(ControlledOperationState.Paused, pauseReason: reason);
+            lock (_gate)
+            {
+                operation.ApplyTransition(ControlledOperationState.Paused, pauseReason: reason);
+            }
+
+            Notify(operation, ControlledOperationState.Paused);
         }
 
-        Notify(operation, ControlledOperationState.Paused);
         HandBackAndPark(operation);
     }
 
@@ -614,12 +704,16 @@ public sealed class ControlledOperationScheduler : IDisposable
     public void Yield()
     {
         var operation = RequireCurrentOperation();
-        lock (_gate)
+        using (EnterTransitionPublicationScope())
         {
-            operation.ApplyTransition(ControlledOperationState.Runnable);
+            lock (_gate)
+            {
+                operation.ApplyTransition(ControlledOperationState.Runnable);
+            }
+
+            Notify(operation, ControlledOperationState.Runnable);
         }
 
-        Notify(operation, ControlledOperationState.Runnable);
         HandBackAndPark(operation);
     }
 
@@ -758,37 +852,54 @@ public sealed class ControlledOperationScheduler : IDisposable
         }
 
         ControlledResourceWaiter waiter;
-        lock (_gate)
+        CancellationTokenRegistration detachedRegistration = default;
+        using (EnterTransitionPublicationScope())
         {
-            ThrowIfDisposed();
-            waiter = new ControlledResourceWaiter(operation, resource, ++_nextWaiterSequence, reason);
-            resource.EnqueueWaiter(waiter);
-            operation.Waiter = waiter;
-            if (!infinite)
+            lock (_gate)
             {
-                waiter.Timeout = _clock.Schedule(timeout, waiter);
+                ThrowIfDisposed();
+                waiter = new ControlledResourceWaiter(operation, resource, ++_nextWaiterSequence, reason);
+                resource.EnqueueWaiter(waiter);
+                operation.Waiter = waiter;
+                if (!infinite)
+                {
+                    waiter.Timeout = _clock.Schedule(timeout, waiter);
+                }
+
+                operation.ApplyTransition(ControlledOperationState.Paused, pauseReason: reason);
             }
 
-            operation.ApplyTransition(ControlledOperationState.Paused, pauseReason: reason);
+            Notify(operation, ControlledOperationState.Paused);
 
-            // Register cancellation while still holding the lock so a concurrent cancel is serialized
-            // against enqueue/park. If the token is canceled between the fast-path check above and
-            // here, Register invokes the callback synchronously on this thread; the lock is reentrant,
-            // the waiter is resolved Canceled, and the operation is moved back to Runnable - it will
-            // simply be re-granted the baton and observe the Canceled resolution in FinishWait.
+            // The publication gate keeps external signal/cancel transitions behind the Paused event.
+            // Register can still invoke synchronously on this thread if cancellation arrived after the
+            // fast-path check; that callback re-enters the publication gate and publishes Runnable only
+            // after Paused. Assign the returned registration under the scheduler gate, or dispose it
+            // afterward if a listener reentrantly detached the waiter during Paused publication.
             if (cancellationToken.CanBeCanceled)
             {
-                waiter.CancellationRegistration = cancellationToken.Register(
+                var registration = cancellationToken.Register(
                     static state =>
                     {
                         var (scheduler, canceledWaiter) = ((ControlledOperationScheduler, ControlledResourceWaiter))state!;
                         scheduler.OnWaiterCanceled(canceledWaiter);
                     },
                     (this, waiter));
+                lock (_gate)
+                {
+                    if (ReferenceEquals(operation.Waiter, waiter))
+                    {
+                        waiter.CancellationRegistration = registration;
+                    }
+                    else
+                    {
+                        detachedRegistration = registration;
+                    }
+                }
             }
         }
 
-        Notify(operation, ControlledOperationState.Paused);
+        DisposeRegistration(detachedRegistration);
         HandBackAndPark(operation);
 
         return FinishWait(operation, waiter);
@@ -805,34 +916,38 @@ public sealed class ControlledOperationScheduler : IDisposable
     private void OnWaiterCanceled(ControlledResourceWaiter waiter)
     {
         ControlledOperation? runnable = null;
-        lock (_gate)
+        using (EnterTransitionPublicationScope())
         {
-            if (_disposed)
+            lock (_gate)
             {
-                return;
+                if (_disposed)
+                {
+                    return;
+                }
+
+                if (!waiter.TryResolve(ControlledWaitOutcome.Canceled))
+                {
+                    return;
+                }
+
+                RecordWaitResolution(waiter, ControlledWaitOutcome.Canceled);
+                if (waiter.Timeout is { } timeout)
+                {
+                    timeout.IsCanceled = true;
+                }
+
+                waiter.Resource.RemoveWaiter(waiter);
+                if (waiter.Operation.State == ControlledOperationState.Paused)
+                {
+                    waiter.Operation.ApplyTransition(ControlledOperationState.Runnable);
+                    runnable = waiter.Operation;
+                }
             }
 
-            if (!waiter.TryResolve(ControlledWaitOutcome.Canceled))
+            if (runnable is not null)
             {
-                return;
+                Notify(runnable, ControlledOperationState.Runnable);
             }
-
-            if (waiter.Timeout is { } timeout)
-            {
-                timeout.IsCanceled = true;
-            }
-
-            waiter.Resource.RemoveWaiter(waiter);
-            if (waiter.Operation.State == ControlledOperationState.Paused)
-            {
-                waiter.Operation.ApplyTransition(ControlledOperationState.Runnable);
-                runnable = waiter.Operation;
-            }
-        }
-
-        if (runnable is not null)
-        {
-            Notify(runnable, ControlledOperationState.Runnable);
         }
     }
 
@@ -851,24 +966,30 @@ public sealed class ControlledOperationScheduler : IDisposable
         ValidateResourceOwnership(resource);
 
         ControlledOperation? woken = null;
-        lock (_gate)
+        CancellationTokenRegistration registration = default;
+        using (EnterTransitionPublicationScope())
         {
-            ThrowIfDisposed();
-            var next = resource.PeekNextPending();
-            if (next is not null && next.TryResolve(ControlledWaitOutcome.Signaled))
+            lock (_gate)
             {
-                DisposeWaiterRegistrations(next);
-                resource.RemoveWaiter(next);
-                next.Operation.ApplyTransition(ControlledOperationState.Runnable);
-                woken = next.Operation;
+                ThrowIfDisposed();
+                var next = resource.PeekNextPending();
+                if (next is not null && next.TryResolve(ControlledWaitOutcome.Signaled))
+                {
+                    RecordWaitResolution(next, ControlledWaitOutcome.Signaled);
+                    registration = DetachWaiterRegistrationsUnderLock(next);
+                    resource.RemoveWaiter(next);
+                    next.Operation.ApplyTransition(ControlledOperationState.Runnable);
+                    woken = next.Operation;
+                }
+            }
+
+            if (woken is not null)
+            {
+                Notify(woken, ControlledOperationState.Runnable);
             }
         }
 
-        if (woken is not null)
-        {
-            Notify(woken, ControlledOperationState.Runnable);
-        }
-
+        DisposeRegistration(registration);
         return woken;
     }
 
@@ -886,24 +1007,38 @@ public sealed class ControlledOperationScheduler : IDisposable
         ValidateResourceOwnership(resource);
 
         List<ControlledOperation> woken = [];
-        lock (_gate)
+        ControlledResourceWaiter[] pending;
+        using (EnterTransitionPublicationScope())
         {
-            ThrowIfDisposed();
-            foreach (var waiter in resource.SnapshotPendingWaiters())
+            lock (_gate)
             {
-                if (waiter.TryResolve(ControlledWaitOutcome.Signaled))
+                ThrowIfDisposed();
+                pending = resource.SnapshotPendingWaiters();
+            }
+
+            foreach (var waiter in pending)
+            {
+                ControlledOperation? operation = null;
+                CancellationTokenRegistration registration = default;
+                lock (_gate)
                 {
-                    DisposeWaiterRegistrations(waiter);
-                    resource.RemoveWaiter(waiter);
-                    waiter.Operation.ApplyTransition(ControlledOperationState.Runnable);
-                    woken.Add(waiter.Operation);
+                    if (waiter.TryResolve(ControlledWaitOutcome.Signaled))
+                    {
+                        RecordWaitResolution(waiter, ControlledWaitOutcome.Signaled);
+                        registration = DetachWaiterRegistrationsUnderLock(waiter);
+                        resource.RemoveWaiter(waiter);
+                        waiter.Operation.ApplyTransition(ControlledOperationState.Runnable);
+                        operation = waiter.Operation;
+                    }
+                }
+
+                if (operation is not null)
+                {
+                    woken.Add(operation);
+                    Notify(operation, ControlledOperationState.Runnable);
+                    DisposeRegistration(registration);
                 }
             }
-        }
-
-        foreach (var operation in woken)
-        {
-            Notify(operation, ControlledOperationState.Runnable);
         }
 
         return woken;
@@ -919,56 +1054,86 @@ public sealed class ControlledOperationScheduler : IDisposable
     /// </summary>
     private ControlledWaitOutcome FinishWait(ControlledOperation operation, ControlledResourceWaiter waiter)
     {
+        ControlledWaitOutcome resolution;
+        CancellationTokenRegistration registration;
         lock (_gate)
         {
-            var resolution = waiter.Resolution ?? throw new ControlledOperationException(
+            resolution = waiter.Resolution ?? throw new ControlledOperationException(
                 string.Create(CultureInfo.InvariantCulture, $"Controlled operation {operation.Id} resumed from a resource wait with no resolution recorded."));
-            DisposeWaiterRegistrations(waiter);
+            registration = DetachWaiterRegistrationsUnderLock(waiter);
             waiter.Resource.RemoveWaiter(waiter);
             if (ReferenceEquals(operation.Waiter, waiter))
             {
                 operation.Waiter = null;
             }
-
-            return resolution;
         }
+
+        DisposeRegistration(registration);
+        return resolution;
     }
 
     /// <summary>
     /// Detaches a paused operation's waiter (if any) during cancellation/teardown: resolves it as
     /// <see cref="ControlledWaitOutcome.Canceled"/> so a later signal never tries to wake a terminal
-    /// operation, disposes its timeout/cancellation registrations, removes it from the resource queue,
-    /// and clears the operation's waiter slot. Caller must hold the lock.
+    /// operation, cancels its timeout, captures its cancellation registration for disposal after the
+    /// scheduler lock is released, removes it from the resource queue, and clears the operation's waiter
+    /// slot. Caller must hold the lock.
     /// </summary>
-    private static void DetachWaiterUnderLock(ControlledOperation operation)
+    private static CancellationTokenRegistration DetachWaiterUnderLock(ControlledOperation operation)
     {
         var waiter = operation.Waiter;
         if (waiter is null)
         {
-            return;
+            return default;
         }
 
         waiter.TryResolve(ControlledWaitOutcome.Canceled);
-        DisposeWaiterRegistrations(waiter);
+        var registration = DetachWaiterRegistrationsUnderLock(waiter);
         waiter.Resource.RemoveWaiter(waiter);
         operation.Waiter = null;
+        return registration;
     }
 
     /// <summary>
-    /// Releases the timeout and cancellation registrations attached to a waiter so no virtual-time
-    /// item or cancellation callback outlives the wait. A no-op for waits that had neither. Timeout
-    /// and cancellation wiring are added in later Phase 3B increments; this is the single release point
-    /// they hook into.
+    /// Cancels and detaches the timeout and cancellation registrations attached to a waiter. The caller
+    /// disposes the returned cancellation registration only after releasing the scheduler lock, since
+    /// disposal can wait for an in-flight callback that is itself waiting to acquire that lock.
     /// </summary>
-    private static void DisposeWaiterRegistrations(ControlledResourceWaiter waiter)
+    private static CancellationTokenRegistration DetachWaiterRegistrationsUnderLock(ControlledResourceWaiter waiter)
     {
         if (waiter.Timeout is { } timeout)
         {
             timeout.IsCanceled = true;
+            waiter.Timeout = null;
         }
 
-        waiter.CancellationRegistration.Dispose();
+        var registration = waiter.CancellationRegistration;
         waiter.CancellationRegistration = default;
+        return registration;
+    }
+
+    private void DisposeRegistrations(List<CancellationTokenRegistration> registrations)
+    {
+        foreach (var registration in registrations)
+        {
+            DisposeRegistration(registration);
+        }
+    }
+
+    private void DisposeRegistration(CancellationTokenRegistration registration)
+    {
+        if (registration.Equals(default(CancellationTokenRegistration)))
+        {
+            return;
+        }
+
+        if (Monitor.IsEntered(_transitionPublicationGate))
+        {
+            (_deferredRegistrationDisposals ??= []).Add(registration);
+            return;
+        }
+
+        registration.Dispose();
     }
 
     private void ValidateResourceOwnership(ControlledResource resource)
@@ -1103,7 +1268,7 @@ public sealed class ControlledOperationScheduler : IDisposable
                     continue;
                 }
 
-                if (waiter.Resource.Owner is { } owner && !owner.IsTerminal && owner.Id != operation.Id)
+                if (waiter.Resource.Owner is { } owner && !owner.IsTerminal)
                 {
                     edges[operation.Id] = new DeadlockEdge(owner.Id, waiter);
                 }
@@ -1258,14 +1423,20 @@ public sealed class ControlledOperationScheduler : IDisposable
             return ControlledLivenessState.Progressing;
         }
 
+        // A live deadline means the scheduler can still advance modeled time. Preserve any cycle in
+        // the report for diagnostics, but do not classify it as terminal until all finite escape paths
+        // have been exhausted.
+        if (pendingTimeouts > 0)
+        {
+            return ControlledLivenessState.PausedUntilTime;
+        }
+
         if (cycleCount > 0)
         {
             return ControlledLivenessState.Deadlocked;
         }
 
-        return pendingTimeouts > 0
-            ? ControlledLivenessState.PausedUntilTime
-            : ControlledLivenessState.ExternallyCompletable;
+        return ControlledLivenessState.ExternallyCompletable;
     }
 
     /// <summary>A single wait-for edge used during deadlock analysis: the owner to follow and the waiter that drew it.</summary>
@@ -1279,40 +1450,51 @@ public sealed class ControlledOperationScheduler : IDisposable
     public void Dispose()
     {
         List<ControlledOperation> victims;
-        lock (_gate)
+        List<CancellationTokenRegistration> registrations;
+        using (EnterTransitionPublicationScope())
         {
-            if (_disposed)
+            lock (_gate)
             {
-                return;
-            }
-
-            _disposed = true;
-            victims = new List<ControlledOperation>();
-            foreach (var operation in _operations.Values)
-            {
-                if (operation.IsTerminal)
+                if (_disposed)
                 {
-                    continue;
+                    return;
                 }
 
-                operation.RequestTermination();
+                _disposed = true;
+                victims = new List<ControlledOperation>();
+                registrations = new List<CancellationTokenRegistration>();
+                foreach (var operation in _operations.Values)
+                {
+                    if (operation.IsTerminal)
+                    {
+                        continue;
+                    }
 
-                // Detach any resource wait first so a resolved-Canceled waiter is removed from its
-                // resource queue and never wakes a terminal operation.
-                DetachWaiterUnderLock(operation);
+                    operation.RequestTermination();
 
-                // Force every non-terminal operation to Canceled. Running is not expected here
-                // because Dispose must not race an in-flight step; the Created/Runnable/Paused ->
-                // Canceled and Running -> Canceled edges are all legal, so a single transition call
-                // handles every non-terminal source state.
-                operation.ApplyTransition(ControlledOperationState.Canceled);
-                victims.Add(operation);
+                    // Detach any resource wait first so a resolved-Canceled waiter is removed from its
+                    // resource queue and never wakes a terminal operation.
+                    registrations.Add(DetachWaiterUnderLock(operation));
+
+                    // Force every non-terminal operation to Canceled. Running is not expected here
+                    // because Dispose must not race an in-flight step; the Created/Runnable/Paused ->
+                    // Canceled and Running -> Canceled edges are all legal, so a single transition call
+                    // handles every non-terminal source state.
+                    operation.ApplyTransition(ControlledOperationState.Canceled);
+                    victims.Add(operation);
+                }
+
+                // Drop any pending virtual-time timeouts; their waiters were just detached and canceled.
+                _clock.Clear();
             }
 
-            // Drop any pending virtual-time timeouts; their waiters were just detached and canceled.
-            _clock.Clear();
+            foreach (var victim in victims)
+            {
+                Notify(victim, ControlledOperationState.Canceled);
+            }
         }
 
+        DisposeRegistrations(registrations);
         foreach (var victim in victims)
         {
             if (victim.Thread is not null)
@@ -1328,10 +1510,6 @@ public sealed class ControlledOperationScheduler : IDisposable
 
         _handback.Dispose();
 
-        foreach (var victim in victims)
-        {
-            Notify(victim, ControlledOperationState.Canceled);
-        }
     }
 
     private ControlledOperation? SelectRunnable()
@@ -1399,7 +1577,42 @@ public sealed class ControlledOperationScheduler : IDisposable
         var record = _decisionLog is not null
             ? _decisionLog.Record(request)
             : new SimulationDecisionRecord(
-                new SimulationDecisionId(_nextSelectionDecisionId++),
+                new SimulationDecisionId(_nextReplayDecisionId++),
+                request.Domain,
+                request.Kind,
+                request.SourceId,
+                request.InputMetadata,
+                request.SelectedResult,
+                request.RuntimeId,
+                request.NodeId,
+                request.LogicalExecutionId);
+
+        _replayValidator?.Validate(record);
+    }
+
+    private void RecordWaitResolution(ControlledResourceWaiter waiter, ControlledWaitOutcome outcome)
+    {
+        if (_decisionLog is null && _replayValidator is null)
+        {
+            return;
+        }
+
+        var request = new SimulationDecisionRequest(
+            SimulationSeedDomain.Scheduler,
+            SimulationDecisionKind.Choice,
+            "resource-wait-resolution",
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"operation={waiter.Operation.Id.Value};resource={waiter.Resource.Id.Value};outcomes=Signaled,TimedOut,Canceled"),
+            outcome.ToString(),
+            _runtime.Id,
+            waiter.Operation.Node?.Address,
+            waiter.Operation.LogicalExecutionId);
+
+        var record = _decisionLog is not null
+            ? _decisionLog.Record(request)
+            : new SimulationDecisionRecord(
+                new SimulationDecisionId(_nextReplayDecisionId++),
                 request.Domain,
                 request.Kind,
                 request.SourceId,
@@ -1520,17 +1733,21 @@ public sealed class ControlledOperationScheduler : IDisposable
 
     private void HandOffTerminal(ControlledOperation operation, ControlledOperationState terminal, Exception? terminalException)
     {
-        lock (_gate)
+        using (EnterTransitionPublicationScope())
         {
-            // Only apply if a controlling thread is still waiting for this operation (it holds the
-            // baton). If teardown already forced a terminal state, skip.
-            if (operation.IsTerminal)
+            lock (_gate)
             {
-                _handback.Release();
-                return;
-            }
+                // Only apply if a controlling thread is still waiting for this operation (it holds the
+                // baton). If teardown already forced a terminal state, skip.
+                if (operation.IsTerminal)
+                {
+                    _handback.Release();
+                    return;
+                }
 
-            operation.ApplyTransition(terminal, terminalException: terminalException);
+                operation.ApplyTransition(terminal, terminalException: terminalException);
+                _pendingTerminalNotification = operation;
+            }
         }
 
         _handback.Release();
@@ -1539,10 +1756,91 @@ public sealed class ControlledOperationScheduler : IDisposable
     private void FinalizeTerminal(ControlledOperation operation)
     {
         // The worker thread released the handback and is returning from its loop; join it so no
-        // physical thread outlives the operation, then release its signal and notify.
+        // physical thread outlives the operation, then release its signal and publish the deferred
+        // terminal transition from the controlling thread.
         operation.Thread?.Join(ThreadJoinTimeout);
         operation.DisposeSignals();
-        Notify(operation, operation.State);
+        using (EnterTransitionPublicationScope(waitForPendingTerminal: false))
+        {
+            if (!ReferenceEquals(_pendingTerminalNotification, operation))
+            {
+                throw new ControlledOperationException(
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"Controlled operation {operation.Id} reached {operation.State} without its terminal listener notification being pending."));
+            }
+
+            _pendingTerminalNotification = null;
+            try
+            {
+                Notify(operation, operation.State);
+            }
+            finally
+            {
+                Monitor.PulseAll(_transitionPublicationGate);
+            }
+        }
+    }
+
+    private TransitionPublicationScope EnterTransitionPublicationScope(bool waitForPendingTerminal = true)
+    {
+        Monitor.Enter(_transitionPublicationGate);
+        try
+        {
+            if (waitForPendingTerminal)
+            {
+                WaitForPendingTerminalNotificationUnderLock();
+            }
+
+            _transitionPublicationDepth++;
+            return new TransitionPublicationScope(this);
+        }
+        catch
+        {
+            Monitor.Exit(_transitionPublicationGate);
+            throw;
+        }
+    }
+
+    private void ExitTransitionPublicationScope()
+    {
+        List<CancellationTokenRegistration>? deferred = null;
+        _transitionPublicationDepth--;
+        if (_transitionPublicationDepth == 0 && _deferredRegistrationDisposals is { Count: > 0 })
+        {
+            deferred = _deferredRegistrationDisposals;
+            _deferredRegistrationDisposals = null;
+        }
+
+        Monitor.Exit(_transitionPublicationGate);
+        if (deferred is not null)
+        {
+            foreach (var registration in deferred)
+            {
+                registration.Dispose();
+            }
+        }
+    }
+
+    private void WaitForPendingTerminalNotificationUnderLock()
+    {
+        while (_pendingTerminalNotification is not null)
+        {
+            Monitor.Wait(_transitionPublicationGate);
+        }
+    }
+
+    private sealed class TransitionPublicationScope(ControlledOperationScheduler scheduler) : IDisposable
+    {
+        private int _disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+            {
+                scheduler.ExitTransitionPublicationScope();
+            }
+        }
     }
 
     private static void UnwindParkedThread(ControlledOperation operation)

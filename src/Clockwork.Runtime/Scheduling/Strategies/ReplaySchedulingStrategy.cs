@@ -24,6 +24,7 @@ public sealed class ReplaySchedulingStrategy : IControlledSchedulingStrategy
 {
     private readonly List<SimulationDecisionRecord> _scheduling;
     private int _index;
+    private bool _mismatchAlreadyThrown;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ReplaySchedulingStrategy"/> class from a recorded
@@ -66,6 +67,8 @@ public sealed class ReplaySchedulingStrategy : IControlledSchedulingStrategy
 
         if (_index >= _scheduling.Count)
         {
+            _mismatchAlreadyThrown = true;
+            _mismatchAlreadyThrown = true;
             throw new SimulationDecisionReplayMismatchException(
                 "Replay diverged: the recorded scheduling log is exhausted, but the scheduler still has " +
                 $"a choice among {context.Runnable.Count} runnable operations to make.");
@@ -84,6 +87,31 @@ public sealed class ReplaySchedulingStrategy : IControlledSchedulingStrategy
             $"Replay diverged at scheduling decision {expected.Id}: the recorded run selected operation " +
             $"'{expected.SelectedResult}', but it is not among the currently runnable operations " +
             $"[{FormatCandidates(context.Runnable)}].");
+    }
+
+    /// <summary>
+    /// Verifies that a successful replay consumed every recorded scheduling choice.
+    /// </summary>
+    /// <remarks>
+    /// Partial or aborted runs must not call this method; unread choices are expected until the scheduler
+    /// reaches a successful quiescent boundary.
+    /// </remarks>
+    /// <exception cref="SimulationDecisionReplayMismatchException">
+    /// Thrown when one or more recorded scheduling choices remain unconsumed.
+    /// </exception>
+    public void ValidateComplete()
+    {
+        if (_mismatchAlreadyThrown || _index >= _scheduling.Count)
+        {
+            return;
+        }
+
+        var expected = _scheduling[_index];
+        var remaining = _scheduling.Count - _index;
+        _mismatchAlreadyThrown = true;
+        throw new SimulationDecisionReplayMismatchException(
+            $"Replay diverged at end of run: {remaining} recorded scheduling decision(s) remain unconsumed; " +
+            $"the next is {expected.Id}, which selected operation '{expected.SelectedResult}'.");
     }
 
     internal static string FormatId(ControlledOperationId id) =>
