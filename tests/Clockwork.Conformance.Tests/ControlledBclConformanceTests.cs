@@ -5,12 +5,11 @@ using Clockwork.Runtime.Shims;
 namespace Clockwork.Conformance.Tests;
 
 /// <summary>
-/// End-to-end semantic conformance for the Phase&#160;5 built-in deterministic BCL rule set: ordinary
-/// source is rewritten and then observed to be deterministic under a live simulation and to fall back
-/// to real BCL behaviour outside one. See <see cref="RewriteFixture"/> for the rewrite-and-load
-/// harness.
+/// End-to-end semantic conformance for the built-in controlled BCL rule set: ordinary source is
+/// rewritten, deterministic under a live simulation, and rejected before real BCL work outside one.
+/// See <see cref="RewriteFixture"/> for the rewrite-and-load harness.
 /// </summary>
-public sealed class DeterministicBclConformanceTests : IDisposable
+public sealed class ControlledBclConformanceTests : IDisposable
 {
     private static readonly DateTimeOffset Start =
         new(2024, 6, 15, 12, 30, 45, 123, TimeSpan.Zero);
@@ -156,15 +155,49 @@ public sealed class DeterministicBclConformanceTests : IDisposable
     }
 
     [Fact]
-    public void RewrittenCodeIsPassThroughOutsideSimulation()
+    public void OnlyRewrittenBclShimsRequireAnActiveSimulation()
     {
-        StagedProbe probe = _fixture.Stage("Conf.Passthrough", "Conf.ClockProbe", ClockSource, [BuiltInRuleFamily.Clock]);
+        StagedProbe clock = _fixture.Stage(
+            "Conf.RequiresClock",
+            "Conf.ClockProbe",
+            ClockSource,
+            [BuiltInRuleFamily.Clock]);
+        StagedProbe guid = _fixture.Stage(
+            "Conf.RequiresGuid",
+            "Conf.GuidProbe",
+            GuidSource,
+            [BuiltInRuleFamily.Identity]);
+        StagedProbe random = _fixture.Stage(
+            "Conf.RequiresRandom",
+            "Conf.RandomProbe",
+            RandomSource,
+            [BuiltInRuleFamily.Random]);
+        StagedProbe crypto = _fixture.Stage(
+            "Conf.RequiresCrypto",
+            "Conf.CryptoProbe",
+            CryptoSource,
+            [BuiltInRuleFamily.Crypto]);
+        UninstrumentedProbe uninstrumented = _fixture.CompileUninstrumented(
+            "Conf.UninstrumentedClock",
+            "Conf.ClockProbe",
+            ClockSource);
 
         long before = DateTime.UtcNow.Ticks;
-        long shimmed = (long)probe.Method("UtcNowTicks").Invoke(null, null)!;
+        long actual = (long)uninstrumented.Method("UtcNowTicks").Invoke(null, null)!;
         long after = DateTime.UtcNow.Ticks;
 
-        Assert.InRange(shimmed, before - TimeSpan.TicksPerSecond, after + TimeSpan.TicksPerSecond);
+        Assert.InRange(actual, before - TimeSpan.TicksPerSecond, after + TimeSpan.TicksPerSecond);
+        Assert.Equal(
+            "System.DateTime.UtcNow",
+            SimulationNotActiveExceptionAssert.Throws(clock.Method("UtcNowTicks")).ApiName);
+        SimulationNotActiveExceptionAssert.Throws(clock.Method("OffsetUtcNowTicks"));
+        SimulationNotActiveExceptionAssert.Throws(clock.Method("Timestamp"));
+        SimulationNotActiveExceptionAssert.Throws(clock.Method("TickCount64"));
+        SimulationNotActiveExceptionAssert.Throws(guid.Method("New"));
+        SimulationNotActiveExceptionAssert.Throws(random.Method("Shared"));
+        SimulationNotActiveExceptionAssert.Throws(random.Method("Unseeded"));
+        SimulationNotActiveExceptionAssert.Throws(random.Method("Seeded"), 4242);
+        SimulationNotActiveExceptionAssert.Throws(crypto.Method("Bytes"), 16);
     }
 
     [Fact]
@@ -230,4 +263,165 @@ public sealed class DeterministicBclConformanceTests : IDisposable
     }
 
     public void Dispose() => _fixture.Dispose();
+
+    [Fact]
+    public void CryptoValidationMatchesBclThroughRewrittenCalls()
+    {
+        StagedProbe probe = _fixture.Stage(
+            "Conf.CryptoContracts",
+            "Conf.CryptoContractProbe",
+            CryptoContractSource,
+            [BuiltInRuleFamily.Crypto]);
+        using var host = new SimulationHost(
+            Start,
+            cryptoPolicy: SimulationCryptoRandomnessPolicy.DeterministicInsecureForTesting);
+
+        var byteErrors = new List<Exception?>();
+        foreach (int count in new[] { -1, int.MinValue })
+        {
+            byteErrors.Add(Record.Exception(() => { _ = host.Invoke(probe.Method("Bytes"), count); }));
+        }
+
+        var singleBoundErrors = new List<Exception?>();
+        foreach (int toExclusive in new[] { 0, -1, int.MinValue })
+        {
+            singleBoundErrors.Add(Record.Exception(() => { _ = host.Invoke(probe.Method("Int"), toExclusive); }));
+        }
+
+        var rangeErrors = new List<Exception?>();
+        foreach ((int fromInclusive, int toExclusive) in new[]
+                 {
+                     (0, 0),
+                     (1, 0),
+                     (int.MaxValue, int.MinValue),
+                 })
+        {
+            rangeErrors.Add(Record.Exception(
+                () => { _ = host.Invoke(probe.Method("Range"), fromInclusive, toExclusive); }));
+        }
+
+        Assert.All(
+            byteErrors,
+            error => AssertArgumentExceptionShape<ArgumentOutOfRangeException>(error, "count"));
+        Assert.All(
+            singleBoundErrors,
+            error => AssertArgumentExceptionShape<ArgumentOutOfRangeException>(error, "toExclusive"));
+        Assert.All(
+            rangeErrors,
+            error => AssertArgumentExceptionShape<ArgumentException>(error, expectedParamName: null));
+    }
+
+    [Fact]
+    public void NamedCryptoFactoryHonorsKnownAndUnknownNames()
+    {
+        const string KnownName = "RandomNumberGenerator";
+        const string UnknownName =
+            "Clockwork.Tests.Unknown.RandomNumberGenerator.7f9c7706-3f19-42a8-b8f2-20af41a52d68";
+        StagedProbe probe = _fixture.Stage(
+            "Conf.NamedCryptoContracts",
+            "Conf.CryptoContractProbe",
+            CryptoContractSource,
+            [BuiltInRuleFamily.Crypto]);
+
+        (string TypeName, byte[] Bytes) DrawKnown()
+        {
+            using var host = new SimulationHost(
+                Start,
+                seed: 71,
+                cryptoPolicy: SimulationCryptoRandomnessPolicy.DeterministicInsecureForTesting);
+            string typeName = (string)host.Invoke(probe.Method("NamedType"), KnownName)!;
+            byte[] bytes = (byte[])host.Invoke(probe.Method("NamedBytes"), KnownName, 24)!;
+            return (typeName, bytes);
+        }
+
+        (string TypeName, byte[] Bytes) first = DrawKnown();
+        (string TypeName, byte[] Bytes) replay = DrawKnown();
+
+        Assert.Equal(typeof(ControlledInsecureRandomNumberGenerator).FullName, first.TypeName);
+        Assert.Equal(24, first.Bytes.Length);
+        Assert.Equal(first.TypeName, replay.TypeName);
+        Assert.Equal(first.Bytes, replay.Bytes);
+        Assert.Contains(first.Bytes, static value => value != 0);
+
+        using var unknownHost = new SimulationHost(
+            Start,
+            cryptoPolicy: SimulationCryptoRandomnessPolicy.DeterministicInsecureForTesting);
+        Assert.Null(unknownHost.Invoke(probe.Method("NamedType"), UnknownName));
+    }
+
+    [Fact]
+    public void GuidVersion7RejectsPreEpochThroughRewrittenCall()
+    {
+        StagedProbe probe = _fixture.Stage(
+            "Conf.GuidPreEpoch",
+            "Conf.GuidProbe",
+            GuidSource,
+            [BuiltInRuleFamily.Identity]);
+        using var host = new SimulationHost(Start);
+        DateTimeOffset[] timestamps =
+        [
+            DateTimeOffset.UnixEpoch.AddTicks(-1),
+            DateTimeOffset.MinValue,
+        ];
+        Exception?[] errors = timestamps
+            .Select(timestamp => Record.Exception(
+                () => { _ = host.Invoke(probe.Method("V7At"), timestamp); }))
+            .ToArray();
+
+        Assert.All(
+            errors,
+            error => AssertArgumentExceptionShape<ArgumentOutOfRangeException>(error, "timestamp"));
+    }
+
+    [Fact]
+    public void GuidVersion7UnixEpochBitsAreWellFormed()
+    {
+        StagedProbe probe = _fixture.Stage(
+            "Conf.GuidUnixEpoch",
+            "Conf.GuidProbe",
+            GuidSource,
+            [BuiltInRuleFamily.Identity]);
+        using var host = new SimulationHost(Start);
+
+        var guid = (Guid)host.Invoke(probe.Method("V7At"), DateTimeOffset.UnixEpoch)!;
+        byte[] bytes = guid.ToByteArray(bigEndian: true);
+
+        Assert.Equal(new byte[6], bytes[..6]);
+        Assert.Equal(0x70, bytes[6] & 0xF0);
+        Assert.Equal(7, guid.Version);
+        Assert.Equal(0x80, bytes[8] & 0xC0);
+    }
+
+    private static void AssertArgumentExceptionShape<TException>(
+        Exception? error,
+        string? expectedParamName)
+        where TException : ArgumentException
+    {
+        var exception = Assert.IsType<TException>(error);
+        Assert.Equal(expectedParamName, exception.ParamName);
+    }
+
+    private const string CryptoContractSource = """
+        using System;
+        using System.Security.Cryptography;
+        namespace Conf { public static class CryptoContractProbe {
+            public static byte[] Bytes(int n) => RandomNumberGenerator.GetBytes(n);
+            public static int Int(int max) => RandomNumberGenerator.GetInt32(max);
+            public static int Range(int min, int max) => RandomNumberGenerator.GetInt32(min, max);
+
+        #pragma warning disable SYSLIB0045
+            public static string NamedType(string name) {
+                using var rng = RandomNumberGenerator.Create(name);
+                return rng?.GetType().FullName;
+            }
+            public static byte[] NamedBytes(string name, int count) {
+                using var rng = RandomNumberGenerator.Create(name);
+                if (rng is null) return null;
+                var bytes = new byte[count];
+                rng.GetBytes(bytes);
+                return bytes;
+            }
+        #pragma warning restore SYSLIB0045
+        } }
+        """;
 }

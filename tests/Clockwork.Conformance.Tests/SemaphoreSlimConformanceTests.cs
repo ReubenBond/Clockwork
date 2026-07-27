@@ -40,6 +40,12 @@ public sealed class SemaphoreSlimConformanceTests : IDisposable
                 return Task.FromResult(first && !second);
             }
 
+            public static void CreateOnly(int[] sink)
+            {
+                using var s = new SemaphoreSlim(1, 1);
+                sink[0] = s.CurrentCount;
+            }
+
             // WaitAsync completes once a controlled thread releases a permit.
             public static async Task<int> WaitAsyncCompletesOnRelease()
             {
@@ -260,10 +266,18 @@ public sealed class SemaphoreSlimConformanceTests : IDisposable
     }
 
     [Fact]
-    public async Task RewrittenSemaphoreDelegatesToRealBclOutsideAnySimulation()
+    public async Task OnlyRewrittenSemaphoreRequiresActiveSimulationWithoutMutatingState()
     {
-        var task = (Task<bool>)Method("ZeroTimeoutTry").Invoke(null, null)!;
+        UninstrumentedProbe uninstrumented = _fixture.CompileUninstrumented(
+            "Conf.UninstrumentedSemaphore",
+            "Conf.SemaphoreProbe",
+            Source);
+        var task = (Task<bool>)uninstrumented.Method("ZeroTimeoutTry").Invoke(null, null)!;
         Assert.True(await task);
+
+        int[] sink = [0];
+        SimulationNotActiveExceptionAssert.Throws(Method("CreateOnly"), sink);
+        Assert.Equal(0, sink[0]);
     }
 
     private MethodInfo Method(string name) => _release.Value.Method(name);

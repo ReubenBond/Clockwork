@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
+using Clockwork.Runtime.Shims;
 
 namespace Clockwork.Runtime.Tasks.CompilerServices;
 
@@ -11,8 +12,7 @@ namespace Clockwork.Runtime.Tasks.CompilerServices;
 /// continuation goes: instead of the awaited task's real completion callback (which may run inline or on
 /// the thread pool, and honours a captured <see cref="System.Threading.SynchronizationContext"/>), the
 /// continuation is handed to the ambient <see cref="ISimulationTaskCoordinator"/> so it always resumes
-/// on the simulation's single logical thread. Outside a simulation it is a transparent pass-through to
-/// the real awaiter.
+/// on the simulation's single logical thread.
 /// </summary>
 public readonly struct ControlledTaskAwaiter : ICriticalNotifyCompletion, INotifyCompletion
 {
@@ -23,18 +23,23 @@ public readonly struct ControlledTaskAwaiter : ICriticalNotifyCompletion, INotif
     /// <param name="task">The task being awaited.</param>
     public ControlledTaskAwaiter(Task task)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(ApiName);
         ArgumentNullException.ThrowIfNull(task);
         _task = task;
     }
 
     /// <summary>Gets a value indicating whether the awaited task has already completed.</summary>
-    public bool IsCompleted => _task.IsCompleted;
+    public bool IsCompleted => (SimulationRuntimeDispatch.RequireActiveSimulation(ApiName), _task.IsCompleted).Item2;
 
     /// <summary>
     /// Completes the await, throwing the task's fault or cancellation exactly as the real awaiter would
     /// (the first exception unwrapped for a fault, <see cref="TaskCanceledException"/> for cancellation).
     /// </summary>
-    public void GetResult() => _task.GetAwaiter().GetResult();
+    public void GetResult()
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation(ApiName);
+        _task.GetAwaiter().GetResult();
+    }
 
     /// <inheritdoc />
     public void OnCompleted(Action continuation) =>
@@ -59,16 +64,18 @@ public readonly struct ControlledTaskAwaiter<TResult> : ICriticalNotifyCompletio
     /// <param name="task">The task being awaited.</param>
     public ControlledTaskAwaiter(Task<TResult> task)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(ApiName);
         ArgumentNullException.ThrowIfNull(task);
         _task = task;
     }
 
     /// <summary>Gets a value indicating whether the awaited task has already completed.</summary>
-    public bool IsCompleted => _task.IsCompleted;
+    public bool IsCompleted => (SimulationRuntimeDispatch.RequireActiveSimulation(ApiName), _task.IsCompleted).Item2;
 
     /// <summary>Completes the await, returning the result or throwing the task's fault/cancellation.</summary>
     /// <returns>The awaited task's result.</returns>
-    public TResult GetResult() => _task.GetAwaiter().GetResult();
+    public TResult GetResult() =>
+        (SimulationRuntimeDispatch.RequireActiveSimulation(ApiName), _task.GetAwaiter().GetResult()).Item2;
 
     /// <inheritdoc />
     public void OnCompleted(Action continuation) =>

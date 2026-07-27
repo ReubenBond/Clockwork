@@ -33,6 +33,11 @@ public sealed class LockConformanceTests : IDisposable
                 return Task.FromResult(counter);
             }
 
+            public static void EnterActionOnly(int[] sink)
+            {
+                lock (new Lock()) { sink[0] = 42; }
+            }
+
             // Explicit Enter/IsHeldByCurrentThread/Exit round-trips.
             public static Task<bool> ExplicitEnterExit()
             {
@@ -145,10 +150,18 @@ public sealed class LockConformanceTests : IDisposable
     }
 
     [Fact]
-    public async Task RewrittenLockDelegatesToRealBclOutsideAnySimulation()
+    public async Task OnlyRewrittenLockRequiresActiveSimulationWithoutEnteringItsAction()
     {
-        var task = (Task<int>)Method("LockStatementGuardsCriticalSection", optimize: true).Invoke(null, null)!;
+        UninstrumentedProbe uninstrumented = _fixture.CompileUninstrumented(
+            "Conf.UninstrumentedLock",
+            "Conf.LockProbe",
+            Source);
+        var task = (Task<int>)uninstrumented.Method("LockStatementGuardsCriticalSection").Invoke(null, null)!;
         Assert.Equal(6, await task);
+
+        int[] sink = [0];
+        SimulationNotActiveExceptionAssert.Throws(Method("EnterActionOnly", optimize: true), sink);
+        Assert.Equal(0, sink[0]);
     }
 
     private MethodInfo Method(string name, bool optimize) =>

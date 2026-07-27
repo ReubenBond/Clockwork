@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
+using Clockwork.Runtime.Shims;
 
 namespace Clockwork.Runtime.Tasks.CompilerServices;
 
@@ -10,8 +11,7 @@ namespace Clockwork.Runtime.Tasks.CompilerServices;
 /// "<c>ConfigureAwait(false)</c> stays controlled" true: inside a simulation the
 /// <c>continueOnCapturedContext</c> flag is deliberately ignored because there is no captured
 /// <see cref="System.Threading.SynchronizationContext"/> to honour or discard - every continuation is
-/// routed through the coordinator onto the one logical thread regardless. Outside a simulation the flag
-/// is honoured exactly, delegating to the real configured awaiter so production behaviour is unchanged.
+/// routed through the coordinator onto the one logical thread regardless.
 /// </summary>
 public readonly struct ControlledConfiguredTaskAwaitable
 {
@@ -20,9 +20,10 @@ public readonly struct ControlledConfiguredTaskAwaitable
 
     /// <summary>Initializes a new controlled configured awaitable.</summary>
     /// <param name="task">The task being awaited.</param>
-    /// <param name="continueOnCapturedContext">The requested continuation-context behaviour (honoured only outside simulation).</param>
+    /// <param name="continueOnCapturedContext">The requested continuation-context behaviour (ignored by controlled scheduling).</param>
     public ControlledConfiguredTaskAwaitable(Task task, bool continueOnCapturedContext)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.ConfigureAwait");
         ArgumentNullException.ThrowIfNull(task);
         _task = task;
         _continueOnCapturedContext = continueOnCapturedContext;
@@ -30,7 +31,11 @@ public readonly struct ControlledConfiguredTaskAwaitable
 
     /// <summary>Gets the awaiter for this configured awaitable.</summary>
     /// <returns>A <see cref="ControlledConfiguredTaskAwaiter"/>.</returns>
-    public ControlledConfiguredTaskAwaiter GetAwaiter() => new(_task, _continueOnCapturedContext);
+    public ControlledConfiguredTaskAwaiter GetAwaiter()
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.ConfigureAwait");
+        return new(_task, _continueOnCapturedContext);
+    }
 }
 
 /// <summary>The awaiter for <see cref="ControlledConfiguredTaskAwaitable"/>.</summary>
@@ -47,10 +52,14 @@ public readonly struct ControlledConfiguredTaskAwaiter : ICriticalNotifyCompleti
     }
 
     /// <summary>Gets a value indicating whether the awaited task has already completed.</summary>
-    public bool IsCompleted => _task.IsCompleted;
+    public bool IsCompleted => (SimulationRuntimeDispatch.RequireActiveSimulation(ApiName), _task.IsCompleted).Item2;
 
     /// <summary>Completes the await, throwing the task's fault or cancellation.</summary>
-    public void GetResult() => _task.GetAwaiter().GetResult();
+    public void GetResult()
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation(ApiName);
+        _task.GetAwaiter().GetResult();
+    }
 
     /// <inheritdoc />
     public void OnCompleted(Action continuation) => Register(continuation, flowExecutionContext: true);
@@ -60,20 +69,10 @@ public readonly struct ControlledConfiguredTaskAwaiter : ICriticalNotifyCompleti
 
     private void Register(Action continuation, bool flowExecutionContext)
     {
+        var (coordinator, node) = ControlledTaskRuntime.RequireCoordinator(ApiName);
         ArgumentNullException.ThrowIfNull(continuation);
-        if (ControlledTaskRuntime.TryGetCoordinator(ApiName, out var coordinator, out var node))
-        {
-            var task = _task;
-            coordinator.ScheduleWhenReady(node, () => task.IsCompleted, continuation);
-        }
-        else if (flowExecutionContext)
-        {
-            _task.ConfigureAwait(_continueOnCapturedContext).GetAwaiter().OnCompleted(continuation);
-        }
-        else
-        {
-            _task.ConfigureAwait(_continueOnCapturedContext).GetAwaiter().UnsafeOnCompleted(continuation);
-        }
+        var task = _task;
+        coordinator.ScheduleWhenReady(node, () => task.IsCompleted, continuation);
     }
 }
 
@@ -90,9 +89,10 @@ public readonly struct ControlledConfiguredTaskAwaitable<TResult>
 
     /// <summary>Initializes a new controlled configured awaitable.</summary>
     /// <param name="task">The task being awaited.</param>
-    /// <param name="continueOnCapturedContext">The requested continuation-context behaviour (honoured only outside simulation).</param>
+    /// <param name="continueOnCapturedContext">The requested continuation-context behaviour (ignored by controlled scheduling).</param>
     public ControlledConfiguredTaskAwaitable(Task<TResult> task, bool continueOnCapturedContext)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task`1.ConfigureAwait");
         ArgumentNullException.ThrowIfNull(task);
         _task = task;
         _continueOnCapturedContext = continueOnCapturedContext;
@@ -100,7 +100,11 @@ public readonly struct ControlledConfiguredTaskAwaitable<TResult>
 
     /// <summary>Gets the awaiter for this configured awaitable.</summary>
     /// <returns>A <see cref="ControlledConfiguredTaskAwaiter{TResult}"/>.</returns>
-    public ControlledConfiguredTaskAwaiter<TResult> GetAwaiter() => new(_task, _continueOnCapturedContext);
+    public ControlledConfiguredTaskAwaiter<TResult> GetAwaiter()
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task`1.ConfigureAwait");
+        return new(_task, _continueOnCapturedContext);
+    }
 }
 
 /// <summary>The awaiter for <see cref="ControlledConfiguredTaskAwaitable{TResult}"/>.</summary>
@@ -118,11 +122,12 @@ public readonly struct ControlledConfiguredTaskAwaiter<TResult> : ICriticalNotif
     }
 
     /// <summary>Gets a value indicating whether the awaited task has already completed.</summary>
-    public bool IsCompleted => _task.IsCompleted;
+    public bool IsCompleted => (SimulationRuntimeDispatch.RequireActiveSimulation(ApiName), _task.IsCompleted).Item2;
 
     /// <summary>Completes the await, returning the result or throwing the task's fault/cancellation.</summary>
     /// <returns>The awaited task's result.</returns>
-    public TResult GetResult() => _task.GetAwaiter().GetResult();
+    public TResult GetResult() =>
+        (SimulationRuntimeDispatch.RequireActiveSimulation(ApiName), _task.GetAwaiter().GetResult()).Item2;
 
     /// <inheritdoc />
     public void OnCompleted(Action continuation) => Register(continuation, flowExecutionContext: true);
@@ -132,19 +137,9 @@ public readonly struct ControlledConfiguredTaskAwaiter<TResult> : ICriticalNotif
 
     private void Register(Action continuation, bool flowExecutionContext)
     {
+        var (coordinator, node) = ControlledTaskRuntime.RequireCoordinator(ApiName);
         ArgumentNullException.ThrowIfNull(continuation);
-        if (ControlledTaskRuntime.TryGetCoordinator(ApiName, out var coordinator, out var node))
-        {
-            var task = _task;
-            coordinator.ScheduleWhenReady(node, () => task.IsCompleted, continuation);
-        }
-        else if (flowExecutionContext)
-        {
-            _task.ConfigureAwait(_continueOnCapturedContext).GetAwaiter().OnCompleted(continuation);
-        }
-        else
-        {
-            _task.ConfigureAwait(_continueOnCapturedContext).GetAwaiter().UnsafeOnCompleted(continuation);
-        }
+        var task = _task;
+        coordinator.ScheduleWhenReady(node, () => task.IsCompleted, continuation);
     }
 }

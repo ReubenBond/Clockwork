@@ -19,7 +19,7 @@ namespace Clockwork;
 /// <para>
 /// Instead, the seed is derived by SHA-256 hashing the UTF-8 bytes of the input and interpreting
 /// the first four bytes of the digest as a big-endian, signed <see cref="int"/> - see
-/// <see cref="DeterministicHash"/>, the shared primitive this type delegates to (also used by
+/// <see cref="SimulationStableHash"/>, the shared primitive this type delegates to (also used by
 /// <see cref="Clockwork.Runtime.Random.SimulationSeedAuthority"/>'s per-domain derivation, so
 /// "derive a stable seed from a string" has exactly one implementation across the codebase).
 /// SHA-256 is a fixed, versioned algorithm with no process- or platform-specific behavior, and
@@ -41,7 +41,7 @@ public static class SimulationSeed
     /// The same <paramref name="value"/> always produces the same result, on any machine, .NET
     /// version, or process.
     /// </returns>
-    public static int FromString(string value) => DeterministicHash.ToInt32(value);
+    public static int FromString(string value) => SimulationStableHash.ToInt32(value);
 
     /// <summary>
     /// Derives a single deterministic seed from multiple string components (for example, a test
@@ -50,7 +50,7 @@ public static class SimulationSeed
     /// </summary>
     /// <param name="values">The components to combine, in order.</param>
     /// <returns>A deterministic seed derived from all of <paramref name="values"/>; see <see cref="FromString(string)"/> for the underlying algorithm.</returns>
-    public static int FromStrings(IEnumerable<string> values) => DeterministicHash.ToInt32(values);
+    public static int FromStrings(IEnumerable<string> values) => SimulationStableHash.ToInt32(values);
 
     /// <summary>
     /// Derives a single deterministic seed from multiple string components (for example, a test

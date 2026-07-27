@@ -4,6 +4,8 @@ namespace Clockwork.Instrumentation.Rules.BuiltIn;
 /// The API family a built-in <see cref="RewriteRule"/> belongs to. Families are the unit of granular
 /// include/exclude selection for the built-in deterministic BCL rule set: a caller can opt a whole
 /// family in or out, but never edit individual signatures, so the shipped inventory stays coherent.
+/// Instrumented closures are simulation/test artifacts whose Controlled entry points require an active
+/// Clockwork simulation; uninstrumented production binaries retain ordinary BCL behavior.
 /// </summary>
 public enum BuiltInRuleFamily
 {
@@ -50,7 +52,7 @@ public enum BuiltInRuleFamily
     /// <summary>
     /// Task surfaces deferred to later phases: <c>Task.Delay</c> (virtual timers, Phase 8). Classified
     /// <c>Rejected</c>: the shim fails the call with a precise diagnostic under simulation rather than
-    /// silently using wall time, and runs the real BCL API unchanged outside simulation.
+    /// silently using wall time. The instrumented entry point requires an active simulation.
     /// </summary>
     TaskDeferred,
 
@@ -92,8 +94,7 @@ public enum BuiltInRuleFamily
     /// Classified <c>Controlled</c> (Phase 6B) - the shim queues the delegate body as a fresh controlled
     /// operation on the coordinator (honouring state, cancellation, and results) instead of escaping onto
     /// a physical thread. The complete .NET 10 overload set is classified; custom schedulers and every
-    /// non-<c>None</c> option are rejected, and every form runs the real BCL API
-    /// unchanged outside simulation.
+    /// non-<c>None</c> option are rejected.
     /// </summary>
     TaskFactory,
 
@@ -105,7 +106,7 @@ public enum BuiltInRuleFamily
     /// <c>Yield</c>, and <c>SpinWait</c> hints yield cooperatively without blocking or using real time.
     /// The OS-specific surface (<c>Priority</c>, apartment state, <c>Interrupt</c>) is classified
     /// <c>Rejected</c>: it cannot be modelled faithfully by the cooperative scheduler, so the rewritten
-    /// call site fails precisely under simulation and runs the real API unchanged outside one.
+    /// call site fails precisely under simulation.
     /// </summary>
     Thread,
 
@@ -118,8 +119,7 @@ public enum BuiltInRuleFamily
     /// The native-I/O surface (<c>UnsafeQueueNativeOverlapped</c>) and, until Phase 7 provides controlled
     /// wait handles, the registered-wait surface (<c>RegisterWaitForSingleObject</c> and its unsafe
     /// variant) are <c>Rejected</c>: they cannot be modelled by the deterministic scheduler, so the
-    /// rewritten call site fails precisely under simulation. Outside a simulation every shim delegates to
-    /// the real BCL API unchanged. This goes beyond Coyote, which routes thread-pool work through its
+    /// rewritten call site fails precisely under simulation. This goes beyond Coyote, which routes thread-pool work through its
     /// controlled task types.
     /// </summary>
     ThreadPool,
@@ -135,8 +135,7 @@ public enum BuiltInRuleFamily
     /// whose body receives a <see cref="System.Threading.Tasks.ParallelLoopState"/> (break/stop), the
     /// thread-local (<c>TLocal</c>) overloads, and the <c>Partitioner</c> overloads are <c>Rejected</c>:
     /// they cannot be modelled without constructing framework types that have no public surface, so the
-    /// rewritten call site fails precisely under simulation. Outside a simulation every shim delegates to
-    /// the real BCL API unchanged.
+    /// rewritten call site fails precisely under simulation.
     /// </summary>
     Parallel,
 
@@ -165,8 +164,7 @@ public enum BuiltInRuleFamily
     /// <c>PulseAll</c> move waiters to the ready set with replayable ordering. A never-satisfiable acquire
     /// or wait surfaces as the loop-model deadlock diagnostic. Zero timeouts are faithful non-blocking
     /// tries; finite positive timeouts use deterministic simulated deadlines. Ownership/argument/timeout
-    /// errors throw exactly as the BCL. Outside a simulation every
-    /// shim delegates to the real <see cref="System.Threading.Monitor"/>.
+    /// errors throw exactly as the BCL under the active simulation.
     /// </summary>
     Monitor,
 
@@ -177,8 +175,7 @@ public enum BuiltInRuleFamily
     /// <see cref="System.Threading.Lock"/> and its nested <c>Scope</c> ref struct is retargeted onto the
     /// controlled equivalents, so <c>Enter</c>/<c>Exit</c>/<c>EnterScope</c>/<c>TryEnter</c>/
     /// <c>IsHeldByCurrentThread</c> and the scope's <c>Dispose</c> run on the controlled monitor kernel
-    /// with the same reentrancy and mutual-exclusion semantics. Outside a simulation the controlled type
-    /// delegates to a real wrapped <see cref="System.Threading.Lock"/>.
+    /// with the same reentrancy and mutual-exclusion semantics.
     /// </summary>
     Lock,
 
@@ -195,8 +192,7 @@ public enum BuiltInRuleFamily
     /// faithful non-blocking tries; finite positive timeouts use deterministic simulated deadlines.
     /// <c>AvailableWaitHandle</c> is completed by the Phase 7B controlled wait-handle bridge: it returns a
     /// controlled <see cref="System.Threading.ManualResetEvent"/> whose signaled state tracks the permit
-    /// count and disposal. Outside a simulation every shim delegates to the real
-    /// <see cref="System.Threading.SemaphoreSlim"/>.
+    /// count and disposal.
     /// </summary>
     Semaphore,
 
@@ -208,8 +204,8 @@ public enum BuiltInRuleFamily
     /// each call site is redirected to a shim with the identical <c>ref</c>-first signature. Clockwork's
     /// cooperative single-logical-thread scheduler makes every interlocked read-modify-write an indivisible
     /// step - it is never split and never interleaved mid-operation - so the shim delegates to the real
-    /// primitive, preserving exact atomic return, overflow, and reference-write semantics inside and
-    /// outside a simulation. The documented exploration policy adds no mid-operation scheduling point (the
+    /// primitive, preserving exact atomic return, overflow, and reference-write semantics under the active
+    /// simulation. The documented exploration policy adds no mid-operation scheduling point (the
     /// natural points remain the surrounding await/yield boundaries), and the single delegation site is
     /// where a future Phase 9 race-access hook attaches without ever splitting an atomic operation.
     /// </summary>
@@ -232,7 +228,6 @@ public enum BuiltInRuleFamily
     /// <c>Controlled</c> (Phase 7B): a controlled spin yields cooperatively to the deterministic scheduler
     /// instead of burning CPU, <c>SpinUntil</c> pumps the loop until its predicate holds, and its finite
     /// overload uses a virtual-time deadline so a spin timeout consumes modelled - never real - time.
-    /// Outside a simulation the controlled struct delegates to a real wrapped <see cref="System.Threading.SpinWait"/>.
     /// </summary>
     SpinWait,
 
@@ -246,8 +241,7 @@ public enum BuiltInRuleFamily
     /// the loop-model deadlock diagnostic); an auto-reset event wakes and consumes exactly one eligible
     /// waiter while a manual-reset event releases all and stays signaled; finite timeouts use virtual time;
     /// <c>WaitAny</c>/<c>WaitAll</c> register across multiple handles with no lost signals. Named/cross-process
-    /// event APIs cannot be modelled in a single simulated process and are rejected precisely. Outside a
-    /// simulation every shim delegates to the real BCL primitive.
+    /// event APIs cannot be modelled in a single simulated process and are rejected precisely.
     /// </summary>
     WaitHandle,
 }

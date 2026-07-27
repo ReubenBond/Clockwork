@@ -41,7 +41,7 @@ are historical implementation notes.
   the `ThreadPool` registered-wait APIs
   (`RegisterWaitForSingleObject`/`UnsafeRegisterWaitForSingleObject`) are all controlled.
 - All six .NET 10 `Task.Delay` overloads are rejected during simulation until virtual delays are
-  implemented, and pass through unchanged outside simulation. Custom `TaskScheduler` instances and
+  implemented. Instrumented calls require an active Clockwork simulation. Custom `TaskScheduler` instances and
   unsupported `TaskCreationOptions` are likewise rejected rather than ignored.
 - Exact limitations: `ReaderWriterLockSlim`, `Mutex`, kernel `Semaphore`, struct `SpinLock`,
   `ManualResetEventSlim`, timers/cancellation timers, and synchronous `ValueTask` blocking are not
@@ -382,7 +382,7 @@ is either newly ambient/observable data or an explicit, additive constructor par
   address) rather than construction/fork order, so reordering or adding unrelated nodes never
   reseeds an existing one. `SimulationCluster<TNode>.SeedAuthority` exposes this per-cluster; the
   root `SimulationSeed.FromString(s)`/`FromStrings(...)` now delegate to the same underlying
-  `DeterministicHash` algorithm (byte-identical output - this is a pure refactor).
+  `SimulationStableHash` algorithm (byte-identical output - this is a pure refactor).
 - **Typed deterministic decision log.** `Clockwork.Runtime.Decisions.SimulationDecisionLog` records
   `SimulationDecisionRecord`s (domain, kind, optional stable source/site id, input metadata,
   selected result, plus the runtime/node/logical-execution identity active at the time) under a
@@ -582,7 +582,7 @@ package smoke tests that pack, install, and run the real targets and tool.
 
 ## First deterministic BCL rule set (Phase 5)
 
-The first production built-in rule set, **`clockwork.bcl.deterministic`** (version `1.0.0`),
+The built-in simulation rule set **`clockwork.bcl.deterministic`** (version `2.0.0`),
 makes ordinary source that calls the direct **static** time / identity / random BCL surface
 deterministic - with no dependency injection, no `TimeProvider` threading, and no manual shim
 wiring. Enabling it rewrites those call sites to Cecil-free runtime shims in `Clockwork.Runtime`.
@@ -608,15 +608,22 @@ clockwork rewrite --input <dir-or-assembly> --output <dir> --builtin clockwork.b
 #   --builtin-strict false        relax strict validation (strict is the default)
 ```
 
-**Three-state contract (never a silent fallback).** Each shim checks whether a simulation is
-active:
+**Simulation-only contract (never a silent fallback).** Instrumented closure binaries are
+simulation/test artifacts, not production replacements. Every Controlled entry point requires an
+active Clockwork simulation; invoking one without an active simulation throws
+`SimulationNotActiveException` before any real BCL operation runs. With an active simulation:
 
-- **Outside a simulation** - runs the real BCL API unchanged (production pass-through).
-- **Inside a simulation with a registered runtime environment** - dispatches to the current
+- **With a registered runtime environment** - dispatches to the current
   node's simulated clock and the correct independent seed domain (Application/Identity only;
   the scheduler, network, and Buggify seed streams are never perturbed).
-- **Inside a simulation with no registered environment** - throws
+- **With no registered environment** - throws
   `SimulationServiceMissingException` rather than read real wall-clock time or OS entropy.
+
+Production binaries remain uninstrumented and therefore retain ordinary BCL behavior. The renamed
+runtime inventory uses `ControlledDateTime`, `ControlledDateTimeOffset`, `ControlledStopwatch`,
+`ControlledEnvironment`, `ControlledGuid`, `ControlledRandom`,
+`ControlledRandomNumberGenerator`, `ControlledInsecureRandomNumberGenerator`, and
+`SimulationStableHash`.
 
 **Semantics.** Local-time clocks (`DateTime.Now`/`Today`, `DateTimeOffset.Now`) honour the
 configured simulation time zone, while UTC clocks return the node's virtual UTC time.
@@ -640,14 +647,14 @@ and `CW1002` flags cryptographic randomness that is rejected under simulation.
 
 Verified end to end by a conformance test project that compiles unmodified BCL-calling source,
 rewrites it with the built-in rule set, and observes deterministic behaviour under a live
-simulation (and normal BCL behaviour outside one). Determinism is claimed **only** for the exact
-rules tabulated in the [rule inventory](docs/rule-inventory.md); see
+simulation. Separate uninstrumented binaries retain normal BCL behaviour. Determinism is claimed
+**only** for the exact rules tabulated in the [rule inventory](docs/rule-inventory.md); see
 [compatibility](docs/compatibility.md) for the documented holes.
 
 
 ## Controlled task and async rule set (Phase 6A/6B)
 
-The second production built-in rule set, **`clockwork.tasks.controlled`** (version `1.0.0`),
+The second built-in simulation rule set, **`clockwork.tasks.controlled`** (version `1.0.0`),
 makes ordinary `async`/`await` code and the direct `Task` surface run on the simulation's single
 logical thread instead of the physical thread pool — again with no dependency injection or manual
 wiring. It is selected independently of the BCL rule set:
@@ -666,8 +673,8 @@ awaiter types of an `async` state machine onto controlled value-type equivalents
 every field, local, member reference, and closed-generic type operand so both Debug and Release
 state machines are controlled. The controlled awaiter hands each continuation to the simulation
 coordinator, so **`ConfigureAwait(false)` stays controlled** inside a simulation (for both `Task`
-and `ValueTask`) while still delegating to normal BCL semantics outside one. Alongside it, call-site
-redirects route the `Task.WhenAll`/`Task.WhenAny` combinators — non-generic **and their generic
+and `ValueTask`). Uninstrumented production binaries retain the normal BCL async machinery.
+Alongside it, call-site redirects route the `Task.WhenAll`/`Task.WhenAny` combinators — non-generic **and their generic
 `Task<T>` overloads** — the synchronous `Task.Wait()`/`WaitAll`/`WaitAny(Task[])` waits, the
 blocking generic `Task<T>.Result` accessor, the `TaskExtensions.Unwrap` extension methods, and
 `Task.ContinueWith(Action<Task>)` to
@@ -675,9 +682,9 @@ blocking generic `Task<T>.Result` accessor, the `TaskExtensions.Unwrap` extensio
 **pump the coordinator loop until completion instead of blocking a physical thread**, so they never
 deadlock the scheduler, then delegate to the real API for its exact `AggregateException` semantics.
 
-**Three-state contract.** As with the BCL rule set: outside a simulation everything is a
-transparent pass-through to the real BCL; inside a simulation continuations and waits route through
-the coordinator; inside a simulation with no registered task coordinator the shim throws
+**Simulation-only contract.** As with the BCL rule set, instrumented Controlled entry points require
+an active Clockwork simulation. Continuations and waits route through the coordinator; when an active
+simulation has no registered task coordinator, the shim throws
 `ControlledTaskServiceMissingException` rather than escaping to the thread pool. `Task.Run`, every
 .NET 10 `TaskFactory.StartNew` state/options/scheduler form, `Thread`, `ThreadPool`, and `Parallel`
 are controlled. Every .NET 10 `Task.Delay` overload is **rejected** under simulation until virtual

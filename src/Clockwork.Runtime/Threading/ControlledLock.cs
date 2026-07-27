@@ -1,4 +1,5 @@
 using System.Threading;
+using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks;
 
 namespace Clockwork.Runtime.Threading;
@@ -16,9 +17,7 @@ namespace Clockwork.Runtime.Threading;
 /// <para>
 /// Inside a simulation the lock is modelled on the controlled monitor kernel
 /// (<see cref="ControlledMonitor"/>) against a private key object, so acquisition, mutual exclusion,
-/// reentrancy and deadlock detection all behave exactly as a controlled <c>Monitor</c>. Outside a
-/// simulation every operation delegates to a real wrapped <see cref="System.Threading.Lock"/>, so
-/// production behaviour (including the real type's thread-affinity and reentrancy) is preserved.
+/// reentrancy and deadlock detection all behave exactly as a controlled <c>Monitor</c>.
 /// </para>
 /// <para>
 /// <see cref="System.Threading.Lock"/> exposes no OS-only members, so the whole surface is controlled;
@@ -27,9 +26,6 @@ namespace Clockwork.Runtime.Threading;
 /// </summary>
 public sealed class ControlledLock
 {
-    // Delegated to outside a simulation so production keeps the real dedicated-lock semantics.
-    private readonly Lock _real = new();
-
     // The controlled-monitor key used inside a simulation. A dedicated private object keeps the lock's
     // identity distinct from the ControlledLock instance itself.
     private readonly object _key = new();
@@ -37,33 +33,30 @@ public sealed class ControlledLock
     /// <summary>Initializes a new controlled lock, mirroring <c>new System.Threading.Lock()</c>.</summary>
     public ControlledLock()
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Lock..ctor");
     }
 
     /// <summary>Gets a value indicating whether the current strand holds the lock.</summary>
-    public bool IsHeldByCurrentThread =>
-        ControlledTaskRuntime.IsSimulationActive ? ControlledMonitor.IsEntered(_key) : _real.IsHeldByCurrentThread;
+    public bool IsHeldByCurrentThread
+    {
+        get
+        {
+            SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Lock.get_IsHeldByCurrentThread");
+            return ControlledMonitor.IsEntered(_key);
+        }
+    }
 
     /// <summary>Controlled <see cref="System.Threading.Lock.Enter()"/>.</summary>
     public void Enter()
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            _real.Enter();
-            return;
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Lock.Enter");
         ControlledMonitor.Enter(_key);
     }
 
     /// <summary>Controlled <see cref="System.Threading.Lock.Exit()"/>.</summary>
     public void Exit()
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            _real.Exit();
-            return;
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Lock.Exit");
         ControlledMonitor.Exit(_key);
     }
 
@@ -82,11 +75,7 @@ public sealed class ControlledLock
     /// <returns><see langword="true"/> if the lock was acquired.</returns>
     public bool TryEnter()
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return _real.TryEnter();
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Lock.TryEnter");
         return ControlledMonitor.TryEnter(_key);
     }
 
@@ -95,11 +84,7 @@ public sealed class ControlledLock
     /// <returns><see langword="true"/> if the lock was acquired.</returns>
     public bool TryEnter(int millisecondsTimeout)
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return _real.TryEnter(millisecondsTimeout);
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Lock.TryEnter");
         return ControlledMonitor.TryEnter(_key, millisecondsTimeout);
     }
 
@@ -108,11 +93,7 @@ public sealed class ControlledLock
     /// <returns><see langword="true"/> if the lock was acquired.</returns>
     public bool TryEnter(TimeSpan timeout)
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return _real.TryEnter(timeout);
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Lock.TryEnter");
         return ControlledMonitor.TryEnter(_key, timeout);
     }
 
@@ -133,6 +114,7 @@ public sealed class ControlledLock
         /// <summary>Releases the lock acquired by <see cref="EnterScope"/>. Idempotent.</summary>
         public void Dispose()
         {
+            SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Lock.Scope.Dispose");
             var owner = _owner;
             _owner = null;
             owner?.Exit();

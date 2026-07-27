@@ -196,14 +196,17 @@ public sealed class GenericTaskConformanceTests : IDisposable
     }
 
     [Fact]
-    public async Task TaskFactoryStartNewDelegatesToRealBclOutsideAnySimulation()
+    public async Task OnlyRewrittenTaskFactoryStartNewRequiresActiveSimulation()
     {
-        // No SimulationHost: the ambient runtime is inactive, so the controlled shim must fall through to
-        // the real BCL TaskFactory and schedule the work on the thread pool.
-        var task = (Task<int>)Method("FactoryStartNew").Invoke(null, null)!;
+        UninstrumentedProbe uninstrumented = _fixture.CompileUninstrumented(
+            "Conf.UninstrumentedGenericTask",
+            "Conf.GenericTaskProbe",
+            Source);
+        var task = (Task<int>)uninstrumented.Method("FactoryStartNew").Invoke(null, null)!;
         int value = await task;
 
         Assert.Equal(5, value);
+        SimulationNotActiveExceptionAssert.Throws(Method("FactoryStartNew"));
     }
 
     [Fact]

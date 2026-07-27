@@ -6,18 +6,16 @@ namespace Clockwork.Runtime.Shims;
 /// <para>
 /// The deterministic replacements for <see cref="System.Random.Shared"/> and the <see cref="System.Random"/>
 /// constructors. Instrumented code has <c>Random.Shared</c>, <c>new Random()</c>, and
-/// <c>new Random(int)</c> redirected here. Outside a simulation each method reproduces the exact BCL
-/// behaviour; inside a simulation with no registered environment the stream-backed methods throw
-/// <see cref="SimulationServiceMissingException"/>.
+/// <c>new Random(int)</c> redirected here. Each method requires an active simulation.
 /// </para>
 /// <para><b>Stream lifetime and isolation semantics.</b></para>
 /// <list type="bullet">
 /// <item><description>
 /// <see cref="GetShared"/> (<c>Random.Shared</c>): one stable <see cref="System.Random"/> per node for the
 /// life of the simulation, seeded from the application seed domain. Successive draws advance that one
-/// per-node stream; the instance is isolated per node so nodes never share mutable state. (Unlike the
-/// real <c>Random.Shared</c> it is not thread-safe, which is safe here because a simulated node runs
-/// single-threaded under the scheduler.)
+/// per-node stream; the instance is isolated per node so nodes never share mutable state. The returned
+/// wrapper synchronizes every mutable draw so an accidentally escaped concurrent caller cannot corrupt
+/// the deterministic stream.
 /// </description></item>
 /// <item><description>
 /// <see cref="CreateUnseeded"/> (<c>new Random()</c>): a fresh independent <see cref="System.Random"/> per
@@ -37,48 +35,40 @@ namespace Clockwork.Runtime.Shims;
 /// </para>
 /// </summary>
 [EditorBrowsable(EditorBrowsableState.Never)]
-public static class DeterministicRandom
+public static class ControlledRandom
 {
     /// <summary>Deterministic replacement for <see cref="System.Random.Shared"/>.</summary>
-    /// <returns>The node's shared deterministic stream when simulating; otherwise <see cref="System.Random.Shared"/>.</returns>
+    /// <returns>The node's shared deterministic stream.</returns>
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static System.Random GetShared()
     {
-        if (!SimulationRuntimeDispatch.TryGetEnvironment("System.Random.Shared", out var env, out var node))
-        {
-            return System.Random.Shared;
-        }
-
+        var (_, env, node) = SimulationRuntimeDispatch.RequireEnvironment("System.Random.Shared");
         return env.GetSharedRandom(node);
     }
 
     /// <summary>Deterministic replacement for the parameterless <see cref="System.Random"/> constructor.</summary>
-    /// <returns>A fresh deterministic stream when simulating; otherwise <c>new Random()</c>.</returns>
+    /// <returns>A fresh deterministic stream.</returns>
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static System.Random CreateUnseeded()
     {
-        if (!SimulationRuntimeDispatch.TryGetEnvironment("System.Random..ctor()", out var env, out var node))
-        {
-            return new System.Random();
-        }
-
+        var (_, env, node) = SimulationRuntimeDispatch.RequireEnvironment("System.Random..ctor()");
         return env.CreateUnseededRandom(node);
     }
 
     /// <summary>
     /// Deterministic replacement for the seeded <see cref="System.Random"/> constructor. The caller's
-    /// seed is preserved exactly, in and out of simulation, per the documented compatibility policy.
+    /// seed is preserved exactly per the documented compatibility policy.
     /// </summary>
     /// <param name="seed">The seed supplied by the caller.</param>
     /// <returns>A <see cref="System.Random"/> seeded with <paramref name="seed"/>.</returns>
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static System.Random CreateSeeded(int seed)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Random..ctor(Int32)");
         // An explicitly-seeded Random is already deterministic and reproducible, so it draws no ambient
         // time or randomness: the deterministic contract only requires that we not perturb the caller's
-        // chosen seed. We therefore honour the seed verbatim in and out of simulation, and deliberately
+        // chosen seed. We therefore honour the seed verbatim and deliberately
         // do not require a registered environment (there is nothing irreproducible to guard against).
         return new System.Random(seed);
     }
 }
-

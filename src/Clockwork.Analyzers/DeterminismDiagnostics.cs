@@ -32,7 +32,7 @@ public static class DeterminismDiagnostics
         category: Category,
         defaultSeverity: DiagnosticSeverity.Info,
         isEnabledByDefault: true,
-        description: "Nondeterministic BCL, task, thread, and synchronization members are controlled or rejected under simulation only after the containing assembly is instrumented. Outside a simulation rewritten calls preserve normal BCL behaviour.");
+        description: "Nondeterministic BCL, task, thread, and synchronization members are controlled or rejected after the containing assembly is instrumented. Instrumented closure binaries are simulation/test artifacts whose Controlled entry points require an active Clockwork simulation; uninstrumented production binaries retain ordinary BCL behaviour.");
 
     /// <summary>
     /// <c>CW1002</c>: a cryptographic randomness member that obtains OS entropy and is rejected under

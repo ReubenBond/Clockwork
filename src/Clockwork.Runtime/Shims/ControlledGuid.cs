@@ -6,8 +6,7 @@ namespace Clockwork.Runtime.Shims;
 /// <para>
 /// The deterministic replacements for <see cref="Guid.NewGuid"/> and the .NET 10
 /// <see cref="Guid.CreateVersion7()"/> overloads. Instrumented code has its direct calls redirected
-/// here; outside a simulation each method calls the real BCL API, and inside a simulation with no
-/// registered environment it throws <see cref="SimulationServiceMissingException"/>.
+/// here; each method requires an active simulation and a registered environment.
 /// </para>
 /// <para>
 /// Both shims draw their random bytes from the environment's per-node <em>identity</em> stream (see
@@ -19,21 +18,17 @@ namespace Clockwork.Runtime.Shims;
 /// </para>
 /// </summary>
 [EditorBrowsable(EditorBrowsableState.Never)]
-public static class DeterministicGuid
+public static class ControlledGuid
 {
     private const byte VariantMask = 0x3F;
     private const byte VariantRfc4122 = 0x80;
 
     /// <summary>Deterministic replacement for <see cref="Guid.NewGuid"/> (an RFC version 4 GUID).</summary>
-    /// <returns>A deterministic version 4 GUID when simulating; otherwise <see cref="Guid.NewGuid"/>.</returns>
+    /// <returns>A deterministic version 4 GUID.</returns>
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static Guid NewGuid()
     {
-        if (!SimulationRuntimeDispatch.TryGetEnvironment("System.Guid.NewGuid", out var env, out var node))
-        {
-            return Guid.NewGuid();
-        }
-
+        var (_, env, node) = SimulationRuntimeDispatch.RequireEnvironment("System.Guid.NewGuid");
         Span<byte> bytes = stackalloc byte[16];
         env.FillIdentityBytes(node, bytes);
 
@@ -49,11 +44,7 @@ public static class DeterministicGuid
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static Guid CreateVersion7()
     {
-        if (!SimulationRuntimeDispatch.TryGetEnvironment("System.Guid.CreateVersion7", out var env, out var node))
-        {
-            return Guid.CreateVersion7();
-        }
-
+        var (_, env, node) = SimulationRuntimeDispatch.RequireEnvironment("System.Guid.CreateVersion7");
         return BuildVersion7(env.GetUtcNow(node), env, node);
     }
 
@@ -63,11 +54,7 @@ public static class DeterministicGuid
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static Guid CreateVersion7(DateTimeOffset timestamp)
     {
-        if (!SimulationRuntimeDispatch.TryGetEnvironment("System.Guid.CreateVersion7", out var env, out var node))
-        {
-            return Guid.CreateVersion7(timestamp);
-        }
-
+        var (_, env, node) = SimulationRuntimeDispatch.RequireEnvironment("System.Guid.CreateVersion7");
         return BuildVersion7(timestamp, env, node);
     }
 
@@ -76,6 +63,8 @@ public static class DeterministicGuid
         ISimulationRuntimeEnvironment environment,
         Clockwork.Runtime.Execution.SimulationNodeIdentity? node)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(timestamp, DateTimeOffset.UnixEpoch);
+
         // Matches Guid.CreateVersion7: a 48-bit big-endian Unix-millisecond timestamp in bytes 0-5,
         // deterministic random bits elsewhere, version 7 and the RFC variant applied. Repeated calls
         // at the same instant differ in their random bits but carry no monotonicity guarantee - the

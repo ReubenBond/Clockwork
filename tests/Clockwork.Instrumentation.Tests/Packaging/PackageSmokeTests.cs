@@ -3,7 +3,9 @@ using System.IO.Compression;
 using System.Xml.Linq;
 using Clockwork.Instrumentation.Configuration;
 using Clockwork.Instrumentation.Rules;
+using Clockwork.Instrumentation.Rules.BuiltIn;
 using Clockwork.Instrumentation.Tests.Infrastructure;
+using Clockwork.Runtime.Shims;
 
 namespace Clockwork.Instrumentation.Tests.Packaging;
 
@@ -49,6 +51,31 @@ public sealed class PackageSmokeTests
         AppRunResult staged = ProcessAppRunner.Run(consumer.StagedAppPath);
         Assert.Equal(0, staged.ExitCode);
         Assert.Contains("ticks=999", staged.Output);
+    }
+
+    [Fact]
+    public void BuildPackageBuiltInExecutableRequiresActiveSimulation()
+    {
+        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        ConsumerProject consumer = Artifacts.Value.ScaffoldConsumer(
+            "BuiltInApp",
+            instrumentationEnabled: true,
+            useBuiltInRules: true);
+        AppRunResult build = consumer.Build();
+        Assert.True(build.ExitCode == 0, $"Build failed:\n{build.StandardOutput}\n{build.StandardError}");
+
+        AppRunResult normal = ProcessAppRunner.Run(consumer.OutputAppPath);
+        Assert.Equal(0, normal.ExitCode);
+        Assert.Contains("reached-end", normal.Output);
+        Assert.True(File.Exists(ConsumerProject.SideEffectPath(consumer.OutputAppPath)));
+        File.Delete(ConsumerProject.SideEffectPath(consumer.OutputAppPath));
+
+        AppRunResult staged = ProcessAppRunner.Run(consumer.StagedAppPath);
+        Assert.NotEqual(0, staged.ExitCode);
+        Assert.Empty(staged.Output);
+        Assert.Contains(typeof(SimulationNotActiveException).FullName!, staged.StandardError, StringComparison.Ordinal);
+        Assert.Contains(SimulationNotActiveException.DiagnosticMessage, staged.StandardError, StringComparison.Ordinal);
+        Assert.False(File.Exists(ConsumerProject.SideEffectPath(consumer.StagedAppPath)));
     }
 
     [Fact]
@@ -154,6 +181,37 @@ public sealed class PackageSmokeTests
     }
 
     [Fact]
+    public void InstalledToolBuiltInRewriteRequiresActiveSimulation()
+    {
+        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        PackagedArtifacts artifacts = Artifacts.Value;
+        ConsumerProject consumer = artifacts.ScaffoldConsumer(
+            "ToolBuiltInApp",
+            instrumentationEnabled: false,
+            useBuiltInRules: true);
+        AppRunResult build = consumer.Build();
+        Assert.True(build.ExitCode == 0, $"Build failed:\n{build.StandardOutput}\n{build.StandardError}");
+
+        AppRunResult normal = ProcessAppRunner.Run(consumer.OutputAppPath);
+        Assert.Equal(0, normal.ExitCode);
+        Assert.Contains("reached-end", normal.Output);
+        File.Delete(ConsumerProject.SideEffectPath(consumer.OutputAppPath));
+
+        string source = Path.GetDirectoryName(consumer.OutputAppPath)!;
+        string staging = Path.Combine(consumer.ProjectDirectory, "tool-staged");
+        AppRunResult rewrite = artifacts.RunTool(
+            ["rewrite", "--source", source, "--output", staging, "--builtin", BuiltInRuleSets.DeterministicBclId]);
+        Assert.True(rewrite.ExitCode == 0, $"Rewrite failed:\n{rewrite.StandardOutput}\n{rewrite.StandardError}");
+
+        string stagedApp = Path.Combine(staging, "SmokeApp.dll");
+        AppRunResult staged = ProcessAppRunner.Run(stagedApp);
+        Assert.NotEqual(0, staged.ExitCode);
+        Assert.Empty(staged.Output);
+        Assert.Contains(SimulationNotActiveException.DiagnosticMessage, staged.StandardError, StringComparison.Ordinal);
+        Assert.False(File.Exists(ConsumerProject.SideEffectPath(stagedApp)));
+    }
+
+    [Fact]
     public void PackedPackagesCarryLicenseMetadataAndRedistributionNotices()
     {
         Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
@@ -249,7 +307,11 @@ public sealed class PackageSmokeTests
                     packageId + "." + _version,
                     StringComparison.OrdinalIgnoreCase));
 
-        public ConsumerProject ScaffoldConsumer(string name, bool instrumentationEnabled, bool signEntryAssembly = false)
+        public ConsumerProject ScaffoldConsumer(
+            string name,
+            bool instrumentationEnabled,
+            bool signEntryAssembly = false,
+            bool useBuiltInRules = false)
         {
             string rootDir = Path.Combine(Root, name);
             string appDir = Path.Combine(rootDir, "app");
@@ -299,13 +361,34 @@ public sealed class PackageSmokeTests
                 </Project>
                 """);
 
-            File.WriteAllText(Path.Combine(appDir, "Program.cs"), """
-                using SmokeApi;
+            string programSource = useBuiltInRules
+                ? """
+                    _ = System.DateTime.UtcNow;
+                    System.IO.File.WriteAllText("side-effect.txt", "unexpected");
+                    System.Console.WriteLine("reached-end");
+                    """
+                : """
+                    using SmokeApi;
 
-                System.Console.WriteLine("ticks=" + RealClock.UtcNowTicks());
-                """);
+                    System.Console.WriteLine("ticks=" + RealClock.UtcNowTicks());
+                    """;
+            File.WriteAllText(Path.Combine(appDir, "Program.cs"), programSource);
 
             string enabled = instrumentationEnabled ? "true" : "false";
+            string builtIn = useBuiltInRules ? "true" : "false";
+            string runtimeReference = useBuiltInRules
+                ? $"""
+                      <Reference Include="Clockwork.Runtime">
+                        <HintPath>{typeof(SimulationNotActiveException).Assembly.Location}</HintPath>
+                        <Private>true</Private>
+                      </Reference>
+                    """
+                : string.Empty;
+            string ruleSetItem = useBuiltInRules
+                ? string.Empty
+                : """
+                      <ClockworkRuleSet Include="$(MSBuildProjectDirectory)/clockwork.rules.json" />
+                    """;
             string signingProperties = string.Empty;
             if (signEntryAssembly)
             {
@@ -325,16 +408,18 @@ public sealed class PackageSmokeTests
                     <ImplicitUsings>enable</ImplicitUsings>
                     <AssemblyName>SmokeApp</AssemblyName>
                     <ClockworkInstrumentationEnabled>{enabled}</ClockworkInstrumentationEnabled>
+                    <ClockworkUseBuiltInRules>{builtIn}</ClockworkUseBuiltInRules>
                 {signingProperties}
                   </PropertyGroup>
                   <ItemGroup>
                     <PackageReference Include="Clockwork.Instrumentation.Build" Version="{_version}" />
+                {runtimeReference}
                   </ItemGroup>
                   <ItemGroup>
                     <ProjectReference Include="../lib/SmokeApi.csproj" />
                   </ItemGroup>
                   <ItemGroup>
-                    <ClockworkRuleSet Include="$(MSBuildProjectDirectory)/clockwork.rules.json" />
+                {ruleSetItem}
                   </ItemGroup>
                 </Project>
                 """);
@@ -437,6 +522,9 @@ public sealed class PackageSmokeTests
         public string ManifestPath => Path.Combine(ProjectDirectory, ManifestRelative);
 
         public string SuccessPath => Path.Combine(ProjectDirectory, SuccessRelative);
+
+        public static string SideEffectPath(string appPath) =>
+            Path.Combine(Path.GetDirectoryName(appPath)!, "side-effect.txt");
 
         public void ReplaceShimTicks(long ticks)
         {

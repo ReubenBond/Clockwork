@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks;
 
 namespace Clockwork.Runtime.Threading;
@@ -21,8 +22,7 @@ namespace Clockwork.Runtime.Threading;
 /// the BCL makes no fairness promise. Cancellation is honoured synchronously through
 /// <see cref="CancellationToken.Register(System.Action)"/>; callbacks may arrive on external threads, so
 /// waiter mutation is serialized and cancellation registrations are always disposed outside the gate.
-/// No permit wait consumes real time. Outside a simulation every shim delegates to the real
-/// <see cref="SemaphoreSlim"/>.
+/// No permit wait consumes real time.
 /// </para>
 /// <para>
 /// <see cref="SemaphoreSlim.AvailableWaitHandle"/> is bridged to a controlled manual-reset wait handle
@@ -122,14 +122,25 @@ public static class ControlledSemaphoreSlim
 
     private static readonly ConditionalWeakTable<SemaphoreSlim, State> States = new();
 
-    private static State StateOf(SemaphoreSlim instance) =>
-        States.GetValue(instance, s => new State(s.CurrentCount, int.MaxValue));
+    private static State StateOf(SemaphoreSlim instance, string apiName)
+    {
+        if (States.TryGetValue(instance, out State? state))
+        {
+            return state;
+        }
+
+        throw new ControlledSemaphoreSlimUnsupportedException(
+            apiName,
+            "the semaphore was not created through the controlled SemaphoreSlim surface, so its maximum " +
+            "count and controlled waiter state are unknown.");
+    }
 
     /// <summary>Controlled <c>new SemaphoreSlim(int)</c>.</summary>
     /// <param name="initialCount">The initial number of permits.</param>
     /// <returns>A real semaphore object used as the controlled identity handle.</returns>
     public static SemaphoreSlim Create(int initialCount)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.SemaphoreSlim..ctor");
         var instance = new SemaphoreSlim(initialCount);
         States.AddOrUpdate(instance, new State(initialCount, int.MaxValue));
         return instance;
@@ -141,6 +152,7 @@ public static class ControlledSemaphoreSlim
     /// <returns>A real semaphore object used as the controlled identity handle.</returns>
     public static SemaphoreSlim Create(int initialCount, int maxCount)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.SemaphoreSlim..ctor");
         var instance = new SemaphoreSlim(initialCount, maxCount);
         States.AddOrUpdate(instance, new State(initialCount, maxCount));
         return instance;
@@ -151,13 +163,9 @@ public static class ControlledSemaphoreSlim
     /// <returns>The number of permits currently available.</returns>
     public static int CurrentCount(SemaphoreSlim instance)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.SemaphoreSlim.get_CurrentCount");
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return instance.CurrentCount;
-        }
-
-        var state = StateOf(instance);
+        var state = StateOf(instance, "System.Threading.SemaphoreSlim.get_CurrentCount");
         lock (state.Gate)
         {
             return state.Count;
@@ -168,13 +176,8 @@ public static class ControlledSemaphoreSlim
     /// <param name="instance">The receiving semaphore.</param>
     public static void Wait(SemaphoreSlim instance)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(WaitApi);
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            instance.Wait();
-            return;
-        }
-
         WaitControlled(instance, Timeout.Infinite, CancellationToken.None);
     }
 
@@ -183,13 +186,8 @@ public static class ControlledSemaphoreSlim
     /// <param name="cancellationToken">A token that aborts the wait.</param>
     public static void Wait(SemaphoreSlim instance, CancellationToken cancellationToken)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(WaitApi);
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            instance.Wait(cancellationToken);
-            return;
-        }
-
         WaitControlled(instance, Timeout.Infinite, cancellationToken);
     }
 
@@ -199,12 +197,8 @@ public static class ControlledSemaphoreSlim
     /// <returns><see langword="true"/> if a permit was acquired.</returns>
     public static bool Wait(SemaphoreSlim instance, int millisecondsTimeout)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(WaitApi);
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return instance.Wait(millisecondsTimeout);
-        }
-
         return WaitControlled(instance, millisecondsTimeout, CancellationToken.None);
     }
 
@@ -215,12 +209,8 @@ public static class ControlledSemaphoreSlim
     /// <returns><see langword="true"/> if a permit was acquired.</returns>
     public static bool Wait(SemaphoreSlim instance, int millisecondsTimeout, CancellationToken cancellationToken)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(WaitApi);
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return instance.Wait(millisecondsTimeout, cancellationToken);
-        }
-
         return WaitControlled(instance, millisecondsTimeout, cancellationToken);
     }
 
@@ -230,12 +220,8 @@ public static class ControlledSemaphoreSlim
     /// <returns><see langword="true"/> if a permit was acquired.</returns>
     public static bool Wait(SemaphoreSlim instance, TimeSpan timeout)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(WaitApi);
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return instance.Wait(timeout);
-        }
-
         return WaitControlled(instance, ToMilliseconds(timeout), CancellationToken.None);
     }
 
@@ -246,12 +232,8 @@ public static class ControlledSemaphoreSlim
     /// <returns><see langword="true"/> if a permit was acquired.</returns>
     public static bool Wait(SemaphoreSlim instance, TimeSpan timeout, CancellationToken cancellationToken)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(WaitApi);
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return instance.Wait(timeout, cancellationToken);
-        }
-
         return WaitControlled(instance, ToMilliseconds(timeout), cancellationToken);
     }
 
@@ -260,12 +242,8 @@ public static class ControlledSemaphoreSlim
     /// <returns>A task that completes when a permit is acquired.</returns>
     public static Task WaitAsync(SemaphoreSlim instance)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.SemaphoreSlim.WaitAsync");
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return instance.WaitAsync();
-        }
-
         return WaitAsyncControlled(instance, Timeout.Infinite, CancellationToken.None);
     }
 
@@ -275,12 +253,8 @@ public static class ControlledSemaphoreSlim
     /// <returns>A task that completes when a permit is acquired.</returns>
     public static Task WaitAsync(SemaphoreSlim instance, CancellationToken cancellationToken)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.SemaphoreSlim.WaitAsync");
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return instance.WaitAsync(cancellationToken);
-        }
-
         return WaitAsyncControlled(instance, Timeout.Infinite, cancellationToken);
     }
 
@@ -290,12 +264,8 @@ public static class ControlledSemaphoreSlim
     /// <returns>A task whose result indicates whether a permit was acquired.</returns>
     public static Task<bool> WaitAsync(SemaphoreSlim instance, int millisecondsTimeout)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.SemaphoreSlim.WaitAsync");
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return instance.WaitAsync(millisecondsTimeout);
-        }
-
         return WaitAsyncControlled(instance, millisecondsTimeout, CancellationToken.None);
     }
 
@@ -306,12 +276,8 @@ public static class ControlledSemaphoreSlim
     /// <returns>A task whose result indicates whether a permit was acquired.</returns>
     public static Task<bool> WaitAsync(SemaphoreSlim instance, int millisecondsTimeout, CancellationToken cancellationToken)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.SemaphoreSlim.WaitAsync");
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return instance.WaitAsync(millisecondsTimeout, cancellationToken);
-        }
-
         return WaitAsyncControlled(instance, millisecondsTimeout, cancellationToken);
     }
 
@@ -321,12 +287,8 @@ public static class ControlledSemaphoreSlim
     /// <returns>A task whose result indicates whether a permit was acquired.</returns>
     public static Task<bool> WaitAsync(SemaphoreSlim instance, TimeSpan timeout)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.SemaphoreSlim.WaitAsync");
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return instance.WaitAsync(timeout);
-        }
-
         return WaitAsyncControlled(instance, ToMilliseconds(timeout), CancellationToken.None);
     }
 
@@ -337,12 +299,8 @@ public static class ControlledSemaphoreSlim
     /// <returns>A task whose result indicates whether a permit was acquired.</returns>
     public static Task<bool> WaitAsync(SemaphoreSlim instance, TimeSpan timeout, CancellationToken cancellationToken)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.SemaphoreSlim.WaitAsync");
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return instance.WaitAsync(timeout, cancellationToken);
-        }
-
         return WaitAsyncControlled(instance, ToMilliseconds(timeout), cancellationToken);
     }
 
@@ -357,18 +315,14 @@ public static class ControlledSemaphoreSlim
     /// <returns>The permit count before the release.</returns>
     public static int Release(SemaphoreSlim instance, int releaseCount)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.SemaphoreSlim.Release");
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return instance.Release(releaseCount);
-        }
-
         if (releaseCount < 1)
         {
             throw new ArgumentOutOfRangeException(nameof(releaseCount), releaseCount, "The release count must be greater than zero.");
         }
 
-        var state = StateOf(instance);
+        var state = StateOf(instance, "System.Threading.SemaphoreSlim.Release");
         List<WaiterCleanup> completed = [];
         int previous;
         lock (state.Gate)
@@ -408,14 +362,9 @@ public static class ControlledSemaphoreSlim
     /// <param name="instance">The receiving semaphore.</param>
     public static void Dispose(SemaphoreSlim instance)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.SemaphoreSlim.Dispose");
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            instance.Dispose();
-            return;
-        }
-
-        var state = StateOf(instance);
+        var state = StateOf(instance, "System.Threading.SemaphoreSlim.Dispose");
         List<WaiterCleanup> completed = [];
         WaitHandle? availableHandle;
         lock (state.Gate)
@@ -456,13 +405,9 @@ public static class ControlledSemaphoreSlim
     /// <returns>The controlled availability handle.</returns>
     public static WaitHandle AvailableWaitHandle(SemaphoreSlim instance)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.SemaphoreSlim.get_AvailableWaitHandle");
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return instance.AvailableWaitHandle;
-        }
-
-        var state = StateOf(instance);
+        var state = StateOf(instance, "System.Threading.SemaphoreSlim.get_AvailableWaitHandle");
         lock (state.Gate)
         {
             ThrowIfDisposed(state);
@@ -473,7 +418,7 @@ public static class ControlledSemaphoreSlim
     private static bool WaitControlled(SemaphoreSlim instance, int millisecondsTimeout, CancellationToken cancellationToken)
     {
         ValidateTimeout(millisecondsTimeout);
-        var state = StateOf(instance);
+        var state = StateOf(instance, "System.Threading.SemaphoreSlim.Wait");
         Waiter waiter;
         lock (state.Gate)
         {
@@ -514,7 +459,7 @@ public static class ControlledSemaphoreSlim
             return Task.FromException<bool>(exception);
         }
 
-        var state = StateOf(instance);
+        var state = StateOf(instance, "System.Threading.SemaphoreSlim.WaitAsync");
         Waiter waiter;
         lock (state.Gate)
         {

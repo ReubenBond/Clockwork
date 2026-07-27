@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Threading.Tasks;
+using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks.CompilerServices;
 
 namespace Clockwork.Runtime.Tasks;
@@ -29,12 +30,14 @@ public static class ControlledTask
 {
     /// <summary>Controlled <c>Task.Yield()</c>: returns an awaitable that always suspends and resumes via the coordinator.</summary>
     /// <returns>A <see cref="ControlledYieldAwaitable"/>.</returns>
-    public static ControlledYieldAwaitable Yield() => default;
+    public static ControlledYieldAwaitable Yield() =>
+        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.Yield"), default(ControlledYieldAwaitable)).Item2;
 
     /// <summary>Controlled <c>Task.WhenAll(Task[])</c>.</summary>
     /// <param name="tasks">The tasks to await.</param>
     /// <returns>A task that completes when all <paramref name="tasks"/> complete.</returns>
-    public static Task WhenAll(params Task[] tasks) => Task.WhenAll(tasks);
+    public static Task WhenAll(params Task[] tasks) =>
+        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAll"), Task.WhenAll(tasks)).Item2;
 
     /// <summary>
     /// Controlled <c>Task.WhenAll(ReadOnlySpan&lt;Task&gt;)</c>: the .NET 9+ params-span overload that a
@@ -42,18 +45,21 @@ public static class ControlledTask
     /// </summary>
     /// <param name="tasks">The tasks to await.</param>
     /// <returns>A task that completes when all <paramref name="tasks"/> complete.</returns>
-    public static Task WhenAll(params ReadOnlySpan<Task> tasks) => Task.WhenAll(tasks);
+    public static Task WhenAll(params ReadOnlySpan<Task> tasks) =>
+        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAll"), Task.WhenAll(tasks)).Item2;
 
     /// <summary>Controlled <c>Task.WhenAll(IEnumerable&lt;Task&gt;)</c>.</summary>
     /// <param name="tasks">The tasks to await.</param>
     /// <returns>A task that completes when all <paramref name="tasks"/> complete.</returns>
-    public static Task WhenAll(IEnumerable<Task> tasks) => Task.WhenAll(tasks);
+    public static Task WhenAll(IEnumerable<Task> tasks) =>
+        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAll"), Task.WhenAll(tasks)).Item2;
 
     /// <summary>Controlled <c>Task.WhenAll&lt;TResult&gt;(Task&lt;TResult&gt;[])</c>.</summary>
     /// <typeparam name="TResult">The task result type.</typeparam>
     /// <param name="tasks">The tasks to await.</param>
     /// <returns>A task with the ordered results once all complete.</returns>
-    public static Task<TResult[]> WhenAll<TResult>(params Task<TResult>[] tasks) => Task.WhenAll(tasks);
+    public static Task<TResult[]> WhenAll<TResult>(params Task<TResult>[] tasks) =>
+        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAll"), Task.WhenAll(tasks)).Item2;
 
     /// <summary>
     /// Controlled <c>Task.WhenAll&lt;TResult&gt;(ReadOnlySpan&lt;Task&lt;TResult&gt;&gt;)</c>: the .NET 9+
@@ -63,18 +69,21 @@ public static class ControlledTask
     /// <typeparam name="TResult">The task result type.</typeparam>
     /// <param name="tasks">The tasks to await.</param>
     /// <returns>A task with the ordered results once all complete.</returns>
-    public static Task<TResult[]> WhenAll<TResult>(params ReadOnlySpan<Task<TResult>> tasks) => Task.WhenAll(tasks);
+    public static Task<TResult[]> WhenAll<TResult>(params ReadOnlySpan<Task<TResult>> tasks) =>
+        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAll"), Task.WhenAll(tasks)).Item2;
 
     /// <summary>Controlled <c>Task.WhenAll&lt;TResult&gt;(IEnumerable&lt;Task&lt;TResult&gt;&gt;)</c>.</summary>
     /// <typeparam name="TResult">The task result type.</typeparam>
     /// <param name="tasks">The tasks to await.</param>
     /// <returns>A task with the ordered results once all complete.</returns>
-    public static Task<TResult[]> WhenAll<TResult>(IEnumerable<Task<TResult>> tasks) => Task.WhenAll(tasks);
+    public static Task<TResult[]> WhenAll<TResult>(IEnumerable<Task<TResult>> tasks) =>
+        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAll"), Task.WhenAll(tasks)).Item2;
 
     /// <summary>Controlled <c>Task.WhenAny(Task[])</c>. First-completer order is deterministic because tasks complete one loop step at a time.</summary>
     /// <param name="tasks">The candidate tasks.</param>
     /// <returns>A task whose result is the first task to complete.</returns>
-    public static Task<Task> WhenAny(params Task[] tasks) => Task.WhenAny(tasks);
+    public static Task<Task> WhenAny(params Task[] tasks) =>
+        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny"), Task.WhenAny(tasks)).Item2;
 
     /// <summary>
     /// Controlled <c>Task.WhenAny(ReadOnlySpan&lt;Task&gt;)</c>: the .NET 9+ params-span overload that a
@@ -82,7 +91,8 @@ public static class ControlledTask
     /// </summary>
     /// <param name="tasks">The candidate tasks.</param>
     /// <returns>A task whose result is the first task to complete.</returns>
-    public static Task<Task> WhenAny(params ReadOnlySpan<Task> tasks) => Task.WhenAny(tasks);
+    public static Task<Task> WhenAny(params ReadOnlySpan<Task> tasks) =>
+        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny"), Task.WhenAny(tasks)).Item2;
 
     /// <summary>
     /// Controlled <c>Task.WhenAny(Task, Task)</c>: the two-argument overload that <c>Task.WhenAny(a, b)</c>
@@ -91,18 +101,21 @@ public static class ControlledTask
     /// <param name="task1">The first candidate task.</param>
     /// <param name="task2">The second candidate task.</param>
     /// <returns>A task whose result is the first task to complete.</returns>
-    public static Task<Task> WhenAny(Task task1, Task task2) => Task.WhenAny(task1, task2);
+    public static Task<Task> WhenAny(Task task1, Task task2) =>
+        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny"), Task.WhenAny(task1, task2)).Item2;
 
     /// <summary>Controlled <c>Task.WhenAny(IEnumerable&lt;Task&gt;)</c>.</summary>
     /// <param name="tasks">The candidate tasks.</param>
     /// <returns>A task whose result is the first task to complete.</returns>
-    public static Task<Task> WhenAny(IEnumerable<Task> tasks) => Task.WhenAny(tasks);
+    public static Task<Task> WhenAny(IEnumerable<Task> tasks) =>
+        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny"), Task.WhenAny(tasks)).Item2;
 
     /// <summary>Controlled <c>Task.WhenAny&lt;TResult&gt;(Task&lt;TResult&gt;[])</c>.</summary>
     /// <typeparam name="TResult">The task result type.</typeparam>
     /// <param name="tasks">The candidate tasks.</param>
     /// <returns>A task whose result is the first task to complete.</returns>
-    public static Task<Task<TResult>> WhenAny<TResult>(params Task<TResult>[] tasks) => Task.WhenAny(tasks);
+    public static Task<Task<TResult>> WhenAny<TResult>(params Task<TResult>[] tasks) =>
+        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny"), Task.WhenAny(tasks)).Item2;
 
     /// <summary>
     /// Controlled <c>Task.WhenAny&lt;TResult&gt;(ReadOnlySpan&lt;Task&lt;TResult&gt;&gt;)</c>: the .NET 9+
@@ -111,7 +124,8 @@ public static class ControlledTask
     /// <typeparam name="TResult">The task result type.</typeparam>
     /// <param name="tasks">The candidate tasks.</param>
     /// <returns>A task whose result is the first task to complete.</returns>
-    public static Task<Task<TResult>> WhenAny<TResult>(params ReadOnlySpan<Task<TResult>> tasks) => Task.WhenAny(tasks);
+    public static Task<Task<TResult>> WhenAny<TResult>(params ReadOnlySpan<Task<TResult>> tasks) =>
+        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny"), Task.WhenAny(tasks)).Item2;
 
     /// <summary>
     /// Controlled <c>Task.WhenAny&lt;TResult&gt;(Task&lt;TResult&gt;, Task&lt;TResult&gt;)</c>: the
@@ -121,13 +135,15 @@ public static class ControlledTask
     /// <param name="task1">The first candidate task.</param>
     /// <param name="task2">The second candidate task.</param>
     /// <returns>A task whose result is the first task to complete.</returns>
-    public static Task<Task<TResult>> WhenAny<TResult>(Task<TResult> task1, Task<TResult> task2) => Task.WhenAny(task1, task2);
+    public static Task<Task<TResult>> WhenAny<TResult>(Task<TResult> task1, Task<TResult> task2) =>
+        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny"), Task.WhenAny(task1, task2)).Item2;
 
     /// <summary>Controlled <c>Task.WhenAny&lt;TResult&gt;(IEnumerable&lt;Task&lt;TResult&gt;&gt;)</c>.</summary>
     /// <typeparam name="TResult">The task result type.</typeparam>
     /// <param name="tasks">The candidate tasks.</param>
     /// <returns>A task whose result is the first task to complete.</returns>
-    public static Task<Task<TResult>> WhenAny<TResult>(IEnumerable<Task<TResult>> tasks) => Task.WhenAny(tasks);
+    public static Task<Task<TResult>> WhenAny<TResult>(IEnumerable<Task<TResult>> tasks) =>
+        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny"), Task.WhenAny(tasks)).Item2;
 
     /// <summary>
     /// Controlled <c>TaskExtensions.Unwrap(this Task&lt;Task&gt;)</c>. Like the combinators this delegates
@@ -139,6 +155,7 @@ public static class ControlledTask
     /// <returns>A task representing the completion of the inner task.</returns>
     public static Task Unwrap(Task<Task> task)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.TaskExtensions.Unwrap");
         ArgumentNullException.ThrowIfNull(task);
         return task.Unwrap();
     }
@@ -149,6 +166,7 @@ public static class ControlledTask
     /// <returns>A task representing the completion (and result) of the inner task.</returns>
     public static Task<TResult> Unwrap<TResult>(Task<Task<TResult>> task)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.TaskExtensions.Unwrap");
         ArgumentNullException.ThrowIfNull(task);
         return task.Unwrap();
     }
@@ -161,12 +179,9 @@ public static class ControlledTask
     /// <param name="task">The task to wait for.</param>
     public static void Wait(Task task)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.Wait");
         ArgumentNullException.ThrowIfNull(task);
-        if (ControlledTaskRuntime.IsSimulationActive)
-        {
-            ControlledTaskRuntime.DrainUntilCompleted(task, "System.Threading.Tasks.Task.Wait");
-        }
-
+        ControlledTaskRuntime.DrainUntilCompleted(task, "System.Threading.Tasks.Task.Wait");
         task.Wait();
     }
 
@@ -180,12 +195,9 @@ public static class ControlledTask
     /// <returns>The task's result.</returns>
     public static TResult Result<TResult>(Task<TResult> task)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task`1.get_Result");
         ArgumentNullException.ThrowIfNull(task);
-        if (ControlledTaskRuntime.IsSimulationActive)
-        {
-            ControlledTaskRuntime.DrainUntilCompleted(task, "System.Threading.Tasks.Task`1.get_Result");
-        }
-
+        ControlledTaskRuntime.DrainUntilCompleted(task, "System.Threading.Tasks.Task`1.get_Result");
         return task.Result;
     }
 
@@ -193,12 +205,10 @@ public static class ControlledTask
     /// <param name="tasks">The tasks to wait for.</param>
     public static void WaitAll(params Task[] tasks)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WaitAll");
         ArgumentNullException.ThrowIfNull(tasks);
-        if (ControlledTaskRuntime.IsSimulationActive)
-        {
-            ControlledTaskRuntime.DrainUntil(() => AllCompleted(tasks), "System.Threading.Tasks.Task.WaitAll");
-        }
-
+        ValidateNoNullTasks(tasks);
+        ControlledTaskRuntime.DrainUntil(() => AllCompleted(tasks), "System.Threading.Tasks.Task.WaitAll");
         Task.WaitAll(tasks);
     }
 
@@ -207,12 +217,10 @@ public static class ControlledTask
     /// <returns>The index of the first completed task.</returns>
     public static int WaitAny(params Task[] tasks)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WaitAny");
         ArgumentNullException.ThrowIfNull(tasks);
-        if (ControlledTaskRuntime.IsSimulationActive)
-        {
-            ControlledTaskRuntime.DrainUntil(() => AnyCompleted(tasks), "System.Threading.Tasks.Task.WaitAny");
-        }
-
+        ValidateNoNullTasks(tasks);
+        ControlledTaskRuntime.DrainUntil(() => AnyCompleted(tasks), "System.Threading.Tasks.Task.WaitAny");
         return Task.WaitAny(tasks);
     }
 
@@ -226,17 +234,16 @@ public static class ControlledTask
     /// <returns>A task representing the continuation.</returns>
     public static Task ContinueWith(Task antecedent, Action<Task> continuationAction)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.ContinueWith");
         ArgumentNullException.ThrowIfNull(antecedent);
         ArgumentNullException.ThrowIfNull(continuationAction);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return antecedent.ContinueWith(continuationAction, TaskScheduler.Current);
-        }
-
+        ExecutionContext? context = ExecutionContext.Capture();
         var tcs = new TaskCompletionSource();
         ControlledTaskRuntime.ScheduleContinuation(
             antecedent,
-            () => RunContinuation(() => continuationAction(antecedent), tcs),
+            () => ControlledTaskRuntime.RunWithCapturedExecutionContextAsNewStrand(
+                context,
+                () => RunContinuation(() => continuationAction(antecedent), tcs)),
             "System.Threading.Tasks.Task.ContinueWith",
             flowExecutionContext: false);
         return tcs.Task;
@@ -251,17 +258,16 @@ public static class ControlledTask
     /// <returns>A task representing the continuation's result.</returns>
     public static Task<TResult> ContinueWith<TResult>(Task antecedent, Func<Task, TResult> continuationFunction)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.ContinueWith");
         ArgumentNullException.ThrowIfNull(antecedent);
         ArgumentNullException.ThrowIfNull(continuationFunction);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return antecedent.ContinueWith(continuationFunction, TaskScheduler.Current);
-        }
-
+        ExecutionContext? context = ExecutionContext.Capture();
         var tcs = new TaskCompletionSource<TResult>();
         ControlledTaskRuntime.ScheduleContinuation(
             antecedent,
-            () => RunContinuation(() => continuationFunction(antecedent), tcs),
+            () => ControlledTaskRuntime.RunWithCapturedExecutionContextAsNewStrand(
+                context,
+                () => RunContinuation(() => continuationFunction(antecedent), tcs)),
             "System.Threading.Tasks.Task.ContinueWith",
             flowExecutionContext: false);
         return tcs.Task;
@@ -278,17 +284,16 @@ public static class ControlledTask
     /// <returns>A task representing the continuation.</returns>
     public static Task ContinueWith<TResult>(Task<TResult> antecedent, Action<Task<TResult>> continuationAction)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task`1.ContinueWith");
         ArgumentNullException.ThrowIfNull(antecedent);
         ArgumentNullException.ThrowIfNull(continuationAction);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return antecedent.ContinueWith(continuationAction, TaskScheduler.Current);
-        }
-
+        ExecutionContext? context = ExecutionContext.Capture();
         var tcs = new TaskCompletionSource();
         ControlledTaskRuntime.ScheduleContinuation(
             antecedent,
-            () => RunContinuation(() => continuationAction(antecedent), tcs),
+            () => ControlledTaskRuntime.RunWithCapturedExecutionContextAsNewStrand(
+                context,
+                () => RunContinuation(() => continuationAction(antecedent), tcs)),
             "System.Threading.Tasks.Task.ContinueWith",
             flowExecutionContext: false);
         return tcs.Task;
@@ -309,17 +314,16 @@ public static class ControlledTask
         Task<TResult> antecedent,
         Func<Task<TResult>, TNewResult> continuationFunction)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task`1.ContinueWith");
         ArgumentNullException.ThrowIfNull(antecedent);
         ArgumentNullException.ThrowIfNull(continuationFunction);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return antecedent.ContinueWith(continuationFunction, TaskScheduler.Current);
-        }
-
+        ExecutionContext? context = ExecutionContext.Capture();
         var tcs = new TaskCompletionSource<TNewResult>();
         ControlledTaskRuntime.ScheduleContinuation(
             antecedent,
-            () => RunContinuation(() => continuationFunction(antecedent), tcs),
+            () => ControlledTaskRuntime.RunWithCapturedExecutionContextAsNewStrand(
+                context,
+                () => RunContinuation(() => continuationFunction(antecedent), tcs)),
             "System.Threading.Tasks.Task.ContinueWith",
             flowExecutionContext: false);
         return tcs.Task;
@@ -332,6 +336,7 @@ public static class ControlledTask
     /// <param name="task">The task to run.</param>
     public static void RunSynchronously(Task task)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.RunSynchronously");
         ArgumentNullException.ThrowIfNull(task);
         task.RunSynchronously();
     }
@@ -345,67 +350,59 @@ public static class ControlledTask
     /// <exception cref="ControlledTaskUnsupportedException">Always thrown inside a simulation.</exception>
     public static Task Delay(int millisecondsDelay)
     {
-        RejectDelayInsideSimulation();
-
-        return Task.Delay(millisecondsDelay);
+        return RejectDelay();
     }
 
-    /// <summary>Rejects <c>Task.Delay(TimeSpan)</c> inside simulation and passes through otherwise.</summary>
+    /// <summary>Rejects <c>Task.Delay(TimeSpan)</c> during simulation.</summary>
     /// <param name="delay">The delay duration.</param>
-    /// <returns>The real BCL delay task outside simulation.</returns>
+    /// <returns>Never returns.</returns>
     public static Task Delay(TimeSpan delay)
     {
-        RejectDelayInsideSimulation();
-        return Task.Delay(delay);
+        return RejectDelay();
     }
 
-    /// <summary>Rejects <c>Task.Delay(int, CancellationToken)</c> inside simulation and passes through otherwise.</summary>
+    /// <summary>Rejects <c>Task.Delay(int, CancellationToken)</c> during simulation.</summary>
     /// <param name="millisecondsDelay">The delay duration.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>The real BCL delay task outside simulation.</returns>
+    /// <returns>Never returns.</returns>
     public static Task Delay(int millisecondsDelay, CancellationToken cancellationToken)
     {
-        RejectDelayInsideSimulation();
-        return Task.Delay(millisecondsDelay, cancellationToken);
+        return RejectDelay();
     }
 
-    /// <summary>Rejects <c>Task.Delay(TimeSpan, CancellationToken)</c> inside simulation and passes through otherwise.</summary>
+    /// <summary>Rejects <c>Task.Delay(TimeSpan, CancellationToken)</c> during simulation.</summary>
     /// <param name="delay">The delay duration.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>The real BCL delay task outside simulation.</returns>
+    /// <returns>Never returns.</returns>
     public static Task Delay(TimeSpan delay, CancellationToken cancellationToken)
     {
-        RejectDelayInsideSimulation();
-        return Task.Delay(delay, cancellationToken);
+        return RejectDelay();
     }
 
-    /// <summary>Rejects <c>Task.Delay(TimeSpan, TimeProvider)</c> inside simulation and passes through otherwise.</summary>
+    /// <summary>Rejects <c>Task.Delay(TimeSpan, TimeProvider)</c> during simulation.</summary>
     /// <param name="delay">The delay duration.</param>
     /// <param name="timeProvider">The time provider.</param>
-    /// <returns>The real BCL delay task outside simulation.</returns>
+    /// <returns>Never returns.</returns>
     public static Task Delay(TimeSpan delay, TimeProvider timeProvider)
     {
-        RejectDelayInsideSimulation();
-        return Task.Delay(delay, timeProvider);
+        return RejectDelay();
     }
 
-    /// <summary>Rejects <c>Task.Delay(TimeSpan, TimeProvider, CancellationToken)</c> inside simulation and passes through otherwise.</summary>
+    /// <summary>Rejects <c>Task.Delay(TimeSpan, TimeProvider, CancellationToken)</c> during simulation.</summary>
     /// <param name="delay">The delay duration.</param>
     /// <param name="timeProvider">The time provider.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>The real BCL delay task outside simulation.</returns>
+    /// <returns>Never returns.</returns>
     public static Task Delay(TimeSpan delay, TimeProvider timeProvider, CancellationToken cancellationToken)
     {
-        RejectDelayInsideSimulation();
-        return Task.Delay(delay, timeProvider, cancellationToken);
+        return RejectDelay();
     }
 
     /// <summary>
     /// Controlled <c>Task.Run(Action)</c>. Under simulation the work is queued as a fresh controlled
     /// operation on the coordinator - it runs on the single logical thread interleaved with all other
     /// controlled work, never on an uncontrolled physical thread-pool thread - and the returned task
-    /// completes (or faults/cancels) exactly as the real <c>Task.Run</c> would. Outside a simulation it
-    /// delegates to the real <see cref="Task.Run(Action)"/>.
+    /// completes (or faults/cancels) exactly as the real <c>Task.Run</c> would.
     /// </summary>
     /// <param name="action">The work to run.</param>
     /// <returns>A task that completes when the work does.</returns>
@@ -417,36 +414,35 @@ public static class ControlledTask
     /// <returns>A task that completes when the work does.</returns>
     public static Task Run(Action action, CancellationToken cancellationToken)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.Run");
         ArgumentNullException.ThrowIfNull(action);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return Task.Run(action, cancellationToken);
-        }
-
+        ExecutionContext? context = ExecutionContext.Capture();
         var tcs = new TaskCompletionSource();
         ControlledTaskRuntime.QueueWork(
-            () =>
-            {
-                if (cancellationToken.IsCancellationRequested)
+            () => ControlledTaskRuntime.RunWithCapturedExecutionContext(
+                context,
+                () =>
                 {
-                    tcs.TrySetCanceled(cancellationToken);
-                    return;
-                }
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        tcs.TrySetCanceled(cancellationToken);
+                        return;
+                    }
 
-                try
-                {
-                    action();
-                    tcs.TrySetResult();
-                }
-                catch (OperationCanceledException oce)
-                {
-                    tcs.TrySetCanceled(oce.CancellationToken);
-                }
-                catch (Exception ex)
-                {
-                    tcs.TrySetException(ex);
-                }
-            },
+                    try
+                    {
+                        action();
+                        tcs.TrySetResult();
+                    }
+                    catch (OperationCanceledException oce)
+                    {
+                        tcs.TrySetCanceled(oce.CancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        tcs.TrySetException(ex);
+                    }
+                }),
             "System.Threading.Tasks.Task.Run");
         return tcs.Task;
     }
@@ -464,35 +460,34 @@ public static class ControlledTask
     /// <returns>A task with the function's result.</returns>
     public static Task<TResult> Run<TResult>(Func<TResult> function, CancellationToken cancellationToken)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.Run");
         ArgumentNullException.ThrowIfNull(function);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return Task.Run(function, cancellationToken);
-        }
-
+        ExecutionContext? context = ExecutionContext.Capture();
         var tcs = new TaskCompletionSource<TResult>();
         ControlledTaskRuntime.QueueWork(
-            () =>
-            {
-                if (cancellationToken.IsCancellationRequested)
+            () => ControlledTaskRuntime.RunWithCapturedExecutionContext(
+                context,
+                () =>
                 {
-                    tcs.TrySetCanceled(cancellationToken);
-                    return;
-                }
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        tcs.TrySetCanceled(cancellationToken);
+                        return;
+                    }
 
-                try
-                {
-                    tcs.TrySetResult(function());
-                }
-                catch (OperationCanceledException oce)
-                {
-                    tcs.TrySetCanceled(oce.CancellationToken);
-                }
-                catch (Exception ex)
-                {
-                    tcs.TrySetException(ex);
-                }
-            },
+                    try
+                    {
+                        tcs.TrySetResult(function());
+                    }
+                    catch (OperationCanceledException oce)
+                    {
+                        tcs.TrySetCanceled(oce.CancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        tcs.TrySetException(ex);
+                    }
+                }),
             "System.Threading.Tasks.Task.Run");
         return tcs.Task;
     }
@@ -512,51 +507,50 @@ public static class ControlledTask
     /// <returns>A task representing the unwrapped inner task.</returns>
     public static Task Run(Func<Task> function, CancellationToken cancellationToken)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.Run");
         ArgumentNullException.ThrowIfNull(function);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return Task.Run(function, cancellationToken);
-        }
-
+        ExecutionContext? context = ExecutionContext.Capture();
         var tcs = new TaskCompletionSource();
         ControlledTaskRuntime.QueueWork(
-            () =>
-            {
-                if (cancellationToken.IsCancellationRequested)
+            () => ControlledTaskRuntime.RunWithCapturedExecutionContext(
+                context,
+                () =>
                 {
-                    tcs.TrySetCanceled(cancellationToken);
-                    return;
-                }
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        tcs.TrySetCanceled(cancellationToken);
+                        return;
+                    }
 
-                Task inner;
-                try
-                {
-                    inner = function();
-                }
-                catch (OperationCanceledException oce)
-                {
-                    tcs.TrySetCanceled(oce.CancellationToken);
-                    return;
-                }
-                catch (Exception ex)
-                {
-                    tcs.TrySetException(ex);
-                    return;
-                }
+                    Task inner;
+                    try
+                    {
+                        inner = function();
+                    }
+                    catch (OperationCanceledException oce)
+                    {
+                        tcs.TrySetCanceled(oce.CancellationToken);
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        tcs.TrySetException(ex);
+                        return;
+                    }
 
-                if (inner is null)
-                {
-                    tcs.TrySetException(new InvalidOperationException(
-                        "Task.Run(Func<Task>) delegate returned a null task."));
-                    return;
-                }
+                    if (inner is null)
+                    {
+                        tcs.TrySetException(new InvalidOperationException(
+                            "Task.Run(Func<Task>) delegate returned a null task."));
+                        return;
+                    }
 
-                ControlledTaskRuntime.ScheduleContinuation(
-                    inner,
-                    () => PropagateTo(inner, tcs),
-                    "System.Threading.Tasks.Task.Run",
-                    flowExecutionContext: false);
-            },
+                    ControlledTaskRuntime.ScheduleContinuation(
+                        inner,
+                        () => PropagateTo(inner, tcs),
+                        "System.Threading.Tasks.Task.Run",
+                        flowExecutionContext: false);
+                }),
             "System.Threading.Tasks.Task.Run");
         return tcs.Task;
     }
@@ -574,51 +568,50 @@ public static class ControlledTask
     /// <returns>A task representing the unwrapped inner task's result.</returns>
     public static Task<TResult> Run<TResult>(Func<Task<TResult>> function, CancellationToken cancellationToken)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.Run");
         ArgumentNullException.ThrowIfNull(function);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return Task.Run(function, cancellationToken);
-        }
-
+        ExecutionContext? context = ExecutionContext.Capture();
         var tcs = new TaskCompletionSource<TResult>();
         ControlledTaskRuntime.QueueWork(
-            () =>
-            {
-                if (cancellationToken.IsCancellationRequested)
+            () => ControlledTaskRuntime.RunWithCapturedExecutionContext(
+                context,
+                () =>
                 {
-                    tcs.TrySetCanceled(cancellationToken);
-                    return;
-                }
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        tcs.TrySetCanceled(cancellationToken);
+                        return;
+                    }
 
-                Task<TResult> inner;
-                try
-                {
-                    inner = function();
-                }
-                catch (OperationCanceledException oce)
-                {
-                    tcs.TrySetCanceled(oce.CancellationToken);
-                    return;
-                }
-                catch (Exception ex)
-                {
-                    tcs.TrySetException(ex);
-                    return;
-                }
+                    Task<TResult> inner;
+                    try
+                    {
+                        inner = function();
+                    }
+                    catch (OperationCanceledException oce)
+                    {
+                        tcs.TrySetCanceled(oce.CancellationToken);
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        tcs.TrySetException(ex);
+                        return;
+                    }
 
-                if (inner is null)
-                {
-                    tcs.TrySetException(new InvalidOperationException(
-                        "Task.Run(Func<Task<TResult>>) delegate returned a null task."));
-                    return;
-                }
+                    if (inner is null)
+                    {
+                        tcs.TrySetException(new InvalidOperationException(
+                            "Task.Run(Func<Task<TResult>>) delegate returned a null task."));
+                        return;
+                    }
 
-                ControlledTaskRuntime.ScheduleContinuation(
-                    inner,
-                    () => PropagateTo(inner, tcs),
-                    "System.Threading.Tasks.Task.Run",
-                    flowExecutionContext: false);
-            },
+                    ControlledTaskRuntime.ScheduleContinuation(
+                        inner,
+                        () => PropagateTo(inner, tcs),
+                        "System.Threading.Tasks.Task.Run",
+                        flowExecutionContext: false);
+                }),
             "System.Threading.Tasks.Task.Run");
         return tcs.Task;
     }
@@ -636,15 +629,13 @@ public static class ControlledTask
         return true;
     }
 
-    private static void RejectDelayInsideSimulation()
+    private static Task RejectDelay()
     {
-        if (ControlledTaskRuntime.IsSimulationActive)
-        {
-            throw new ControlledTaskUnsupportedException(
-                "System.Threading.Tasks.Task.Delay",
-                "virtual time and timers are owned by Phase 8; using Task.Delay inside a simulation is rejected " +
-                "so no overload can silently consume wall time.");
-        }
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.Delay");
+        throw new ControlledTaskUnsupportedException(
+            "System.Threading.Tasks.Task.Delay",
+            "virtual time and timers are owned by Phase 8; using Task.Delay inside a simulation is rejected " +
+            "so no overload can silently consume wall time.");
     }
 
     private static bool AnyCompleted(Task[] tasks)
@@ -667,10 +658,6 @@ public static class ControlledTask
             body();
             tcs.SetResult();
         }
-        catch (OperationCanceledException oce)
-        {
-            tcs.SetCanceled(oce.CancellationToken);
-        }
         catch (Exception ex)
         {
             tcs.SetException(ex);
@@ -683,10 +670,6 @@ public static class ControlledTask
         {
             tcs.SetResult(body());
         }
-        catch (OperationCanceledException oce)
-        {
-            tcs.SetCanceled(oce.CancellationToken);
-        }
         catch (Exception ex)
         {
             tcs.SetException(ex);
@@ -698,7 +681,7 @@ public static class ControlledTask
     {
         if (inner.IsCanceled)
         {
-            tcs.TrySetCanceled();
+            tcs.TrySetCanceled(GetCancellationToken(inner));
         }
         else if (inner.IsFaulted)
         {
@@ -715,7 +698,7 @@ public static class ControlledTask
     {
         if (inner.IsCanceled)
         {
-            tcs.TrySetCanceled();
+            tcs.TrySetCanceled(GetCancellationToken(inner));
         }
         else if (inner.IsFaulted)
         {
@@ -725,5 +708,30 @@ public static class ControlledTask
         {
             tcs.TrySetResult(inner.Result);
         }
+    }
+
+    private static void ValidateNoNullTasks(Task[] tasks)
+    {
+        foreach (Task? task in tasks)
+        {
+            if (task is null)
+            {
+                throw new ArgumentException("The tasks array included at least one null element.", nameof(tasks));
+            }
+        }
+    }
+
+    private static CancellationToken GetCancellationToken(Task task)
+    {
+        try
+        {
+            task.GetAwaiter().GetResult();
+        }
+        catch (OperationCanceledException exception)
+        {
+            return exception.CancellationToken;
+        }
+
+        return CancellationToken.None;
     }
 }

@@ -12,11 +12,8 @@ namespace Clockwork.Runtime.Shims;
 /// <c>RandomNumberGenerator</c> members redirected here (including the two <see cref="RandomNumberGenerator.Create()"/>
 /// factories, which are the entropy-bearing constructors of concrete algorithm instances).
 /// </para>
-/// <para>
-/// Outside a simulation every method calls the real BCL API unchanged - production security semantics
-/// are never altered. Inside a simulation the behaviour follows the environment's
-/// <see cref="ISimulationRuntimeEnvironment.CryptoPolicy"/>:
-/// </para>
+/// <para>Inside a simulation the behaviour follows the environment's
+/// <see cref="ISimulationRuntimeEnvironment.CryptoPolicy"/>:</para>
 /// <list type="bullet">
 /// <item><description>
 /// <see cref="SimulationCryptoRandomnessPolicy.Reject"/> (the default) throws
@@ -25,42 +22,36 @@ namespace Clockwork.Runtime.Shims;
 /// </description></item>
 /// <item><description>
 /// <see cref="SimulationCryptoRandomnessPolicy.DeterministicInsecureForTesting"/> serves deterministic
-/// <b>non-cryptographic</b> bytes (see <see cref="InsecureDeterministicRandomNumberGenerator"/>). This
-/// is an explicit, test-only opt-in that a simulation host must configure; it never affects
-/// production, which is not a simulation host.
+/// <b>non-cryptographic</b> bytes (see <see cref="ControlledInsecureRandomNumberGenerator"/>). This
+/// is an explicit, test-only opt-in that a simulation host must configure.
 /// </description></item>
 /// </list>
 /// </summary>
 [EditorBrowsable(EditorBrowsableState.Never)]
-public static class DeterministicCryptoRandom
+public static class ControlledRandomNumberGenerator
 {
     /// <summary>Policy shim for <see cref="RandomNumberGenerator.Create()"/>.</summary>
-    /// <returns>A real or deterministic-insecure generator; rejects under the default policy.</returns>
+    /// <returns>A deterministic-insecure generator; rejects under the default policy.</returns>
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static RandomNumberGenerator Create()
     {
-        if (!TryEnterControlled("System.Security.Cryptography.RandomNumberGenerator.Create", out var env, out var node))
-        {
-            return RandomNumberGenerator.Create();
-        }
-
-        return new InsecureDeterministicRandomNumberGenerator(env, node);
+        EnterControlled("System.Security.Cryptography.RandomNumberGenerator.Create", out var env, out var node);
+        return new ControlledInsecureRandomNumberGenerator(env, node);
     }
 
     /// <summary>Policy shim for <see cref="RandomNumberGenerator.Create(string)"/>.</summary>
     /// <param name="name">The algorithm name.</param>
-    /// <returns>A real or deterministic-insecure generator; rejects under the default policy.</returns>
+    /// <returns>A deterministic-insecure generator; rejects under the default policy.</returns>
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static RandomNumberGenerator? Create(string name)
     {
-        if (!TryEnterControlled("System.Security.Cryptography.RandomNumberGenerator.Create", out var env, out var node))
-        {
-#pragma warning disable SYSLIB0045 // Named crypto factory is obsolete; the shim must faithfully forward it.
-            return RandomNumberGenerator.Create(name);
+        EnterControlled("System.Security.Cryptography.RandomNumberGenerator.Create", out var env, out var node);
+#pragma warning disable SYSLIB0045 // Probe the BCL registry so known and unknown names retain its contract.
+        using RandomNumberGenerator? knownAlgorithm = RandomNumberGenerator.Create(name);
 #pragma warning restore SYSLIB0045
-        }
-
-        return new InsecureDeterministicRandomNumberGenerator(env, node);
+        return knownAlgorithm is null
+            ? null
+            : new ControlledInsecureRandomNumberGenerator(env, node);
     }
 
     /// <summary>Policy shim for <see cref="RandomNumberGenerator.Fill(Span{byte})"/>.</summary>
@@ -68,12 +59,7 @@ public static class DeterministicCryptoRandom
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static void Fill(Span<byte> data)
     {
-        if (!TryEnterControlled("System.Security.Cryptography.RandomNumberGenerator.Fill", out var env, out var node))
-        {
-            RandomNumberGenerator.Fill(data);
-            return;
-        }
-
+        EnterControlled("System.Security.Cryptography.RandomNumberGenerator.Fill", out var env, out var node);
         env.FillInsecureCryptoBytes(node, data);
     }
 
@@ -83,11 +69,8 @@ public static class DeterministicCryptoRandom
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static byte[] GetBytes(int count)
     {
-        if (!TryEnterControlled("System.Security.Cryptography.RandomNumberGenerator.GetBytes", out var env, out var node))
-        {
-            return RandomNumberGenerator.GetBytes(count);
-        }
-
+        EnterControlled("System.Security.Cryptography.RandomNumberGenerator.GetBytes", out var env, out var node);
+        ArgumentOutOfRangeException.ThrowIfNegative(count);
         var buffer = new byte[count];
         env.FillInsecureCryptoBytes(node, buffer);
         return buffer;
@@ -99,11 +82,8 @@ public static class DeterministicCryptoRandom
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static int GetInt32(int toExclusive)
     {
-        if (!TryEnterControlled("System.Security.Cryptography.RandomNumberGenerator.GetInt32", out var env, out var node))
-        {
-            return RandomNumberGenerator.GetInt32(toExclusive);
-        }
-
+        EnterControlled("System.Security.Cryptography.RandomNumberGenerator.GetInt32", out var env, out var node);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(toExclusive);
         return GetInt32(0, toExclusive, env, node);
     }
 
@@ -114,11 +94,7 @@ public static class DeterministicCryptoRandom
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static int GetInt32(int fromInclusive, int toExclusive)
     {
-        if (!TryEnterControlled("System.Security.Cryptography.RandomNumberGenerator.GetInt32", out var env, out var node))
-        {
-            return RandomNumberGenerator.GetInt32(fromInclusive, toExclusive);
-        }
-
+        EnterControlled("System.Security.Cryptography.RandomNumberGenerator.GetInt32", out var env, out var node);
         return GetInt32(fromInclusive, toExclusive, env, node);
     }
 
@@ -128,12 +104,7 @@ public static class DeterministicCryptoRandom
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static void GetHexString(Span<char> destination, bool lowercase = false)
     {
-        if (!TryEnterControlled("System.Security.Cryptography.RandomNumberGenerator.GetHexString", out var env, out var node))
-        {
-            RandomNumberGenerator.GetHexString(destination, lowercase);
-            return;
-        }
-
+        EnterControlled("System.Security.Cryptography.RandomNumberGenerator.GetHexString", out var env, out var node);
         FillHex(destination, lowercase, env, node);
     }
 
@@ -144,11 +115,7 @@ public static class DeterministicCryptoRandom
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static string GetHexString(int stringLength, bool lowercase = false)
     {
-        if (!TryEnterControlled("System.Security.Cryptography.RandomNumberGenerator.GetHexString", out var env, out var node))
-        {
-            return RandomNumberGenerator.GetHexString(stringLength, lowercase);
-        }
-
+        EnterControlled("System.Security.Cryptography.RandomNumberGenerator.GetHexString", out var env, out var node);
         if (stringLength == 0)
         {
             return string.Empty;
@@ -165,11 +132,7 @@ public static class DeterministicCryptoRandom
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static string GetString(ReadOnlySpan<char> choices, int length)
     {
-        if (!TryEnterControlled("System.Security.Cryptography.RandomNumberGenerator.GetString", out var env, out var node))
-        {
-            return RandomNumberGenerator.GetString(choices, length);
-        }
-
+        EnterControlled("System.Security.Cryptography.RandomNumberGenerator.GetString", out var env, out var node);
         if (choices.IsEmpty || length < 0)
         {
             // Defer to the BCL's own argument validation for the exact exception shape.
@@ -191,23 +154,19 @@ public static class DeterministicCryptoRandom
     }
 
     /// <summary>
-    /// Resolves the controlled crypto path: returns <see langword="false"/> outside a simulation (run
-    /// the real BCL API); throws <see cref="SimulationRejectedCallException"/> under the reject policy;
-    /// returns <see langword="true"/> with the environment under the insecure test policy.
+    /// Resolves the controlled crypto path and rejects calls under the default policy.
     /// </summary>
-    private static bool TryEnterControlled(
+    private static void EnterControlled(
         string apiName,
         out ISimulationRuntimeEnvironment environment,
         out SimulationNodeIdentity? node)
     {
-        if (!SimulationRuntimeDispatch.TryGetEnvironment(apiName, out environment, out node))
-        {
-            return false;
-        }
+        var (runtime, resolved, resolvedNode) = SimulationRuntimeDispatch.RequireEnvironment(apiName);
+        environment = resolved;
+        node = resolvedNode;
 
         if (environment.CryptoPolicy == SimulationCryptoRandomnessPolicy.Reject)
         {
-            var (runtime, _, _) = SimulationRuntimeDispatch.RequireEnvironment(apiName);
             throw new SimulationRejectedCallException(
                 runtime,
                 apiName,
@@ -215,18 +174,17 @@ public static class DeterministicCryptoRandom
                 "deterministically in a simulation.");
         }
 
-        return true;
     }
 
     private static int GetInt32(int fromInclusive, int toExclusive, ISimulationRuntimeEnvironment environment, SimulationNodeIdentity? node)
     {
         if (fromInclusive >= toExclusive)
         {
-            throw new ArgumentException("fromInclusive must be less than toExclusive.", nameof(fromInclusive));
+            throw new ArgumentException("fromInclusive must be less than toExclusive.");
         }
 
-        var range = (uint)(toExclusive - fromInclusive);
-        return fromInclusive + (int)(NextUInt32(environment, node) % range);
+        var range = (uint)((long)toExclusive - fromInclusive);
+        return (int)(fromInclusive + (long)(NextUInt32(environment, node) % range));
     }
 
     private static void FillHex(Span<char> destination, bool lowercase, ISimulationRuntimeEnvironment environment, SimulationNodeIdentity? node)

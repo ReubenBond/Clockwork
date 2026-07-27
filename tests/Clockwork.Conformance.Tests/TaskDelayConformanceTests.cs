@@ -52,11 +52,17 @@ public sealed class TaskDelayConformanceTests : IDisposable
 
     [Theory]
     [MemberData(nameof(DelayMethods))]
-    public async Task EveryDelayOverloadPassesThroughOutsideSimulation(string methodName)
+    public async Task OnlyRewrittenDelayOverloadsRequireActiveSimulation(string methodName)
     {
-        var task = (Task)Method(methodName).Invoke(null, null)!;
+        UninstrumentedProbe uninstrumented = _fixture.CompileUninstrumented(
+            $"Conf.UninstrumentedTaskDelay.{methodName}",
+            "Conf.DelayProbe",
+            Source);
+        var task = (Task)uninstrumented.Method(methodName).Invoke(null, null)!;
         await task;
+
         Assert.True(task.IsCompletedSuccessfully);
+        SimulationNotActiveExceptionAssert.Throws(Method(methodName));
     }
 
     private MethodInfo Method(string name) => _probe.Value.Method(name);

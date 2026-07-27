@@ -10,7 +10,7 @@ namespace Clockwork.Runtime.Tests.Threading;
 /// <see cref="Thread"/> object whose body is queued as a fresh controlled operation, <c>Join</c> pumps
 /// the deterministic loop instead of blocking, the static <c>Sleep</c>/<c>Yield</c>/<c>SpinWait</c> hints
 /// are cooperative no-ops that never consume real time, and the OS-specific surface (priority, apartment
-/// state, interrupt) is rejected precisely. Outside a simulation every shim delegates to the real API.
+/// state, interrupt) is rejected precisely.
 /// </summary>
 public sealed class ControlledThreadTests
 {
@@ -215,16 +215,594 @@ public sealed class ControlledThreadTests
     }
 
     [Fact]
-    public void OutsideSimulationYieldDelegatesToRealApi()
+    public void OutsideSimulationThreadApisFailBeforeCreatingOrRunningAThread()
     {
-        // No active simulation: the shim must delegate to the real BCL API unchanged.
-        _ = ControlledThread.Yield();
-
+        Thread? thread = null;
         var ran = false;
-        var thread = ControlledThread.Create(() => ran = true);
-        ControlledThread.Start(thread);
-        ControlledThread.Join(thread);
 
-        Assert.True(ran);
+        Exception? createException = Record.Exception(
+            () => thread = ControlledThread.Create(() => ran = true));
+
+        Assert.Null(thread);
+        Assert.False(ran);
+        SimulationNotActiveExceptionAssert.Equal(
+            createException,
+            "System.Threading.Thread..ctor");
+
+        Exception? yieldException = Record.Exception(() => ControlledThread.Yield());
+        SimulationNotActiveExceptionAssert.Equal(
+            yieldException,
+            "System.Threading.Thread.Yield");
+    }
+
+    [Fact]
+    public void JoinOnUnstartedThreadThrowsThreadStateException()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var thread = ControlledThread.Create(() => { });
+
+            var exception = Assert.Throws<ThreadStateException>(() => ControlledThread.Join(thread));
+
+            Assert.IsType<ThreadStateException>(exception);
+            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+            AssertLoopIsEmpty(coordinator);
+        });
+    }
+
+    [Theory]
+    [InlineData(-2)]
+    [InlineData(int.MinValue)]
+    public void JoinIntegerRejectsValuesLessThanInfinite(int millisecondsTimeout)
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var thread = ControlledThread.Create(() => { });
+            ControlledThread.Start(thread);
+            ControlledThread.Join(thread);
+
+            var exception = Assert.Throws<ArgumentOutOfRangeException>(
+                () => ControlledThread.Join(thread, millisecondsTimeout));
+
+            Assert.IsType<ArgumentOutOfRangeException>(exception);
+            Assert.Equal("millisecondsTimeout", exception.ParamName);
+            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+            AssertLoopIsEmpty(coordinator);
+        });
+    }
+
+    [Theory]
+    [InlineData(-2L)]
+    [InlineData((long)int.MaxValue + 1)]
+    public void JoinTimeSpanRejectsOutOfRangeValues(long milliseconds)
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var thread = ControlledThread.Create(() => { });
+            ControlledThread.Start(thread);
+            ControlledThread.Join(thread);
+
+            var exception = Assert.Throws<ArgumentOutOfRangeException>(
+                () => ControlledThread.Join(thread, TimeSpan.FromMilliseconds(milliseconds)));
+
+            Assert.IsType<ArgumentOutOfRangeException>(exception);
+            Assert.Equal("timeout", exception.ParamName);
+            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+            AssertLoopIsEmpty(coordinator);
+        });
+    }
+
+    [Fact]
+    public void JoinZeroDoesNotPumpPendingThreadAndReportsCompletedThread()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var runs = 0;
+            var thread = ControlledThread.Create(() => runs++);
+            ControlledThread.Start(thread);
+
+            Assert.False(ControlledThread.Join(thread, 0));
+            Assert.Equal(0, runs);
+            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+            Assert.Equal(1, coordinator.Loop.ReadyCount);
+            Assert.Equal(0, coordinator.Loop.WaitingCount);
+            Assert.Null(coordinator.Loop.NextDeadlineDue());
+            Assert.False(coordinator.Loop.IsIdle);
+
+            Assert.Equal(1, coordinator.Loop.RunUntilIdle());
+            Assert.Equal(1, runs);
+            Assert.True(ControlledThread.Join(thread, 0));
+            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+            AssertLoopIsEmpty(coordinator);
+        });
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FiniteJoinCompletingBeforeDeadlineReturnsTrue(bool useTimeSpan)
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            TimeSpan? completedAt = null;
+            var thread = ControlledThread.Create(() => completedAt = coordinator.Loop.VirtualNow);
+            ControlledThread.Start(thread);
+
+            var joined = useTimeSpan
+                ? ControlledThread.Join(thread, TimeSpan.FromMilliseconds(100))
+                : ControlledThread.Join(thread, 100);
+
+            Assert.True(joined);
+            Assert.Equal(TimeSpan.Zero, completedAt);
+            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+            AssertLoopIsEmpty(coordinator);
+        });
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FiniteJoinTimesOutAtItsVirtualDeadline(bool useTimeSpan)
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var thread = ControlledThread.Create(() =>
+            {
+                ControlledThread.Sleep(Timeout.Infinite);
+            });
+            ControlledThread.Start(thread);
+
+            var joined = useTimeSpan
+                ? ControlledThread.Join(thread, TimeSpan.FromMilliseconds(100))
+                : ControlledThread.Join(thread, 100);
+
+            Assert.False(joined);
+            Assert.Equal(TimeSpan.FromMilliseconds(100), coordinator.Loop.VirtualNow);
+            Assert.Equal(0, coordinator.Loop.ReadyCount);
+            Assert.Equal(1, coordinator.Loop.WaitingCount);
+            Assert.Null(coordinator.Loop.NextDeadlineDue());
+            Assert.False(coordinator.Loop.IsIdle);
+        });
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void InfiniteJoinOverloadsWaitWithoutRegisteringADeadline(bool useTimeSpan)
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            TimeSpan? deadlineSeenByBody = TimeSpan.MinValue;
+            var thread = ControlledThread.Create(
+                () => deadlineSeenByBody = coordinator.Loop.NextDeadlineDue());
+            ControlledThread.Start(thread);
+
+            var joined = useTimeSpan
+                ? ControlledThread.Join(thread, Timeout.InfiniteTimeSpan)
+                : ControlledThread.Join(thread, Timeout.Infinite);
+
+            Assert.True(joined);
+            Assert.Null(deadlineSeenByBody);
+            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+            AssertLoopIsEmpty(coordinator);
+        });
+    }
+
+    [Theory]
+    [InlineData(false, 125)]
+    [InlineData(true, 250)]
+    public void PositiveSleepAdvancesToExactVirtualTimestamp(bool useTimeSpan, int milliseconds)
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var before = coordinator.Loop.VirtualNow;
+
+            if (useTimeSpan)
+            {
+                ControlledThread.Sleep(TimeSpan.FromMilliseconds(milliseconds));
+            }
+            else
+            {
+                ControlledThread.Sleep(milliseconds);
+            }
+
+            Assert.Equal(TimeSpan.Zero, before);
+            Assert.Equal(TimeSpan.FromMilliseconds(milliseconds), coordinator.Loop.VirtualNow);
+            AssertLoopIsEmpty(coordinator);
+        });
+    }
+
+    [Fact]
+    public void PositiveSleepRunsReadyWorkBeforeAdvancingToWakeDeadline()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var order = new List<string>();
+            var timestamps = new List<TimeSpan>();
+            coordinator.Loop.Schedule(() =>
+            {
+                order.Add("other-work");
+                timestamps.Add(coordinator.Loop.VirtualNow);
+            });
+
+            ControlledThread.Sleep(100);
+            order.Add("sleeper-resume");
+            timestamps.Add(coordinator.Loop.VirtualNow);
+
+            Assert.Equal(["other-work", "sleeper-resume"], order);
+            Assert.Equal(new[] { TimeSpan.Zero, TimeSpan.FromMilliseconds(100) }, timestamps);
+            AssertLoopIsEmpty(coordinator);
+        });
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ZeroSleepYieldsWithoutAdvancingVirtualTime(bool useTimeSpan)
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var order = new List<string>();
+            var timestamps = new List<TimeSpan>();
+            coordinator.Loop.Schedule(() =>
+            {
+                order.Add("ready-work");
+                timestamps.Add(coordinator.Loop.VirtualNow);
+            });
+
+            if (useTimeSpan)
+            {
+                ControlledThread.Sleep(TimeSpan.Zero);
+            }
+            else
+            {
+                ControlledThread.Sleep(0);
+            }
+
+            order.Add("sleep-return");
+            timestamps.Add(coordinator.Loop.VirtualNow);
+
+            Assert.Equal(["ready-work", "sleep-return"], order);
+            Assert.All(timestamps, timestamp => Assert.Equal(TimeSpan.Zero, timestamp));
+            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+            AssertLoopIsEmpty(coordinator);
+        });
+    }
+
+    [Fact]
+    public void YieldRunsOneReadyOperationWithoutAdvancingVirtualTime()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var order = new List<string>();
+            coordinator.Loop.Schedule(() => order.Add("ready-work"));
+
+            var yieldedWithReadyWork = ControlledThread.Yield();
+            order.Add("yield-return");
+            var yieldedWithoutReadyWork = ControlledThread.Yield();
+
+            Assert.True(yieldedWithReadyWork);
+            Assert.False(yieldedWithoutReadyWork);
+            Assert.Equal(["ready-work", "yield-return"], order);
+            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+            AssertLoopIsEmpty(coordinator);
+        });
+    }
+
+    [Theory]
+    [InlineData(-2)]
+    [InlineData(int.MinValue)]
+    public void SleepIntegerRejectsValuesLessThanInfinite(int millisecondsTimeout)
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var exception = Assert.Throws<ArgumentOutOfRangeException>(
+                () => ControlledThread.Sleep(millisecondsTimeout));
+
+            Assert.IsType<ArgumentOutOfRangeException>(exception);
+            Assert.Equal("millisecondsTimeout", exception.ParamName);
+            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+            AssertLoopIsEmpty(coordinator);
+        });
+    }
+
+    [Theory]
+    [InlineData(-2L)]
+    [InlineData((long)int.MaxValue + 1)]
+    public void SleepTimeSpanRejectsOutOfRangeValues(long milliseconds)
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var exception = Assert.Throws<ArgumentOutOfRangeException>(
+                () => ControlledThread.Sleep(TimeSpan.FromMilliseconds(milliseconds)));
+
+            Assert.IsType<ArgumentOutOfRangeException>(exception);
+            Assert.Equal("timeout", exception.ParamName);
+            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+            AssertLoopIsEmpty(coordinator);
+        });
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void InfiniteSleepParksWithoutADeadlineAndAllowsOtherWorkToRun(bool useTimeSpan)
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var sleeperEntered = false;
+            var sleeperResumed = false;
+            var followerRan = false;
+            TimeSpan? followerTimestamp = null;
+            var sleeper = ControlledThread.Create(() =>
+            {
+                sleeperEntered = true;
+                if (useTimeSpan)
+                {
+                    ControlledThread.Sleep(Timeout.InfiniteTimeSpan);
+                }
+                else
+                {
+                    ControlledThread.Sleep(Timeout.Infinite);
+                }
+
+                sleeperResumed = true;
+            });
+            var follower = ControlledThread.Create(() =>
+            {
+                followerRan = true;
+                followerTimestamp = coordinator.Loop.VirtualNow;
+            });
+
+            ControlledThread.Start(sleeper);
+            ControlledThread.Start(follower);
+            coordinator.Loop.RunUntilIdle();
+
+            Assert.True(sleeperEntered);
+            Assert.False(sleeperResumed);
+            Assert.True(followerRan);
+            Assert.Equal(TimeSpan.Zero, followerTimestamp);
+            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+            Assert.Equal(0, coordinator.Loop.ReadyCount);
+            Assert.Equal(1, coordinator.Loop.WaitingCount);
+            Assert.Null(coordinator.Loop.NextDeadlineDue());
+            Assert.False(coordinator.Loop.IsIdle);
+        });
+    }
+
+    [Fact]
+    public void ThreadStartRejectsStartWithParameter()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var runs = 0;
+            var thread = ControlledThread.Create((ThreadStart)(() => runs++));
+
+            var exception = Assert.Throws<InvalidOperationException>(
+                () => ControlledThread.Start(thread, new object()));
+
+            Assert.IsType<InvalidOperationException>(exception);
+            Assert.Equal(0, runs);
+            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+            AssertLoopIsEmpty(coordinator);
+
+            ControlledThread.Start(thread);
+            Assert.Equal(1, coordinator.Loop.ReadyCount);
+            ControlledThread.Join(thread);
+
+            Assert.Equal(1, runs);
+            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+            AssertLoopIsEmpty(coordinator);
+        });
+    }
+
+    private static void AssertLoopIsEmpty(ControlledTaskLoopCoordinator coordinator)
+    {
+        Assert.Equal(0, coordinator.Loop.ReadyCount);
+        Assert.Equal(0, coordinator.Loop.WaitingCount);
+        Assert.Null(coordinator.Loop.NextDeadlineDue());
+        Assert.True(coordinator.Loop.IsIdle);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FiniteJoinWaitsForDelayedCompletionBeforeItsDeadline(bool useTimeSpan)
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            TimeSpan? completedAt = null;
+            var thread = ControlledThread.Create(() =>
+            {
+                ControlledThread.Sleep(50);
+                completedAt = coordinator.Loop.VirtualNow;
+            });
+            ControlledThread.Start(thread);
+
+            var joined = useTimeSpan
+                ? ControlledThread.Join(thread, TimeSpan.FromMilliseconds(100))
+                : ControlledThread.Join(thread, 100);
+
+            Assert.True(joined);
+            Assert.Equal(TimeSpan.FromMilliseconds(50), completedAt);
+            Assert.Equal(TimeSpan.FromMilliseconds(50), coordinator.Loop.VirtualNow);
+            AssertLoopIsEmpty(coordinator);
+        });
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void BothZeroJoinOverloadsLeavePendingBodyQueued(bool useTimeSpan)
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var runs = 0;
+            var thread = ControlledThread.Create(() => runs++);
+            ControlledThread.Start(thread);
+
+            var joined = useTimeSpan
+                ? ControlledThread.Join(thread, TimeSpan.Zero)
+                : ControlledThread.Join(thread, 0);
+
+            Assert.False(joined);
+            Assert.Equal(0, runs);
+            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+            Assert.Equal(1, coordinator.Loop.ReadyCount);
+            Assert.Equal(0, coordinator.Loop.WaitingCount);
+            Assert.Null(coordinator.Loop.NextDeadlineDue());
+            Assert.False(coordinator.Loop.IsIdle);
+
+            Assert.Equal(1, coordinator.Loop.RunUntilIdle());
+            Assert.Equal(1, runs);
+            Assert.True(
+                useTimeSpan
+                    ? ControlledThread.Join(thread, TimeSpan.Zero)
+                    : ControlledThread.Join(thread, 0));
+            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+            AssertLoopIsEmpty(coordinator);
+        });
+    }
+
+    [Fact]
+    public void JoinTimeSpanAcceptsExactMaximumMillisecondsBoundary()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            TimeSpan? completedAt = null;
+            var thread = ControlledThread.Create(() =>
+            {
+                ControlledThread.Sleep(25);
+                completedAt = coordinator.Loop.VirtualNow;
+            });
+            ControlledThread.Start(thread);
+
+            var joined = ControlledThread.Join(
+                thread,
+                TimeSpan.FromMilliseconds(int.MaxValue));
+
+            Assert.True(joined);
+            Assert.Equal(TimeSpan.FromMilliseconds(25), completedAt);
+            Assert.Equal(TimeSpan.FromMilliseconds(25), coordinator.Loop.VirtualNow);
+            AssertLoopIsEmpty(coordinator);
+        });
+    }
+
+    [Fact]
+    public void SleepTimeSpanAcceptsExactMaximumMillisecondsBoundary()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            TimeSpan? completedAt = null;
+            var thread = ControlledThread.Create(() =>
+            {
+                ControlledThread.Sleep(TimeSpan.FromMilliseconds(int.MaxValue));
+                completedAt = coordinator.Loop.VirtualNow;
+            });
+            ControlledThread.Start(thread);
+            ControlledThread.Join(thread);
+
+            var expected = TimeSpan.FromMilliseconds(int.MaxValue);
+            Assert.Equal(expected, completedAt);
+            Assert.Equal(expected, coordinator.Loop.VirtualNow);
+            AssertLoopIsEmpty(coordinator);
+        });
+    }
+
+    [Fact]
+    public void YieldExecutesExactlyOneOfTwoReadyOperations()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var order = new List<string>();
+            coordinator.Loop.Schedule(() => order.Add("first"));
+            coordinator.Loop.Schedule(() => order.Add("second"));
+
+            var yielded = ControlledThread.Yield();
+
+            Assert.True(yielded);
+            Assert.Equal(["first"], order);
+            Assert.Equal(1, coordinator.Loop.ReadyCount);
+            Assert.Equal(0, coordinator.Loop.WaitingCount);
+            Assert.Null(coordinator.Loop.NextDeadlineDue());
+            Assert.False(coordinator.Loop.IsIdle);
+            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+
+            Assert.Equal(1, coordinator.Loop.RunUntilIdle());
+            Assert.Equal(["first", "second"], order);
+            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+            AssertLoopIsEmpty(coordinator);
+        });
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ThreadStartRejectsNullAndNonNullParametersWithoutConsumingStart(bool useNull)
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var runs = 0;
+            var thread = ControlledThread.Create((ThreadStart)(() => runs++));
+            object? parameter = useNull ? null : new object();
+
+            var exception = Assert.Throws<InvalidOperationException>(
+                () => ControlledThread.Start(thread, parameter));
+
+            Assert.IsType<InvalidOperationException>(exception);
+            Assert.Equal(0, runs);
+            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+            AssertLoopIsEmpty(coordinator);
+
+            ControlledThread.Start(thread);
+            Assert.Equal(1, coordinator.Loop.ReadyCount);
+            ControlledThread.Join(thread);
+
+            Assert.Equal(1, runs);
+            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+            AssertLoopIsEmpty(coordinator);
+        });
     }
 }

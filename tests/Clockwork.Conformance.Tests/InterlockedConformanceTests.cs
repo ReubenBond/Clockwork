@@ -8,8 +8,8 @@ namespace Clockwork.Conformance.Tests;
 /// 7B). The rule set redirects every <c>Increment</c>/<c>Decrement</c>/<c>Add</c>/<c>And</c>/<c>Or</c>/
 /// <c>Exchange</c>/<c>CompareExchange</c>/<c>Read</c> call site to a controlled shim with the identical
 /// <c>ref</c>-first signature. Because Clockwork runs on a single cooperative logical thread each
-/// read-modify-write is indivisible, so the rewritten probe must observe exactly the same atomic return
-/// and stored value as the real primitive - both inside and outside a simulation.
+/// read-modify-write is indivisible under simulation; outside simulation, rewritten calls fail before
+/// mutating ref state.
 /// </summary>
 public sealed class InterlockedConformanceTests : IDisposable
 {
@@ -42,6 +42,8 @@ public sealed class InterlockedConformanceTests : IDisposable
                 ok &= Interlocked.Increment(ref l) == 1L && Interlocked.Decrement(ref l) == 0L;
                 return Task.FromResult(ok);
             }
+
+            public static int IncrementRef(ref int value) => Interlocked.Increment(ref value);
 
             // Add returns the new sum and stores it.
             public static Task<bool> AddReturnsSum()
@@ -181,10 +183,18 @@ public sealed class InterlockedConformanceTests : IDisposable
     }
 
     [Fact]
-    public async Task RewrittenInterlockedDelegatesToRealBclOutsideAnySimulation()
+    public async Task OnlyRewrittenInterlockedRequiresActiveSimulationWithoutMutatingRefState()
     {
-        var task = (Task<bool>)Method("IncrementDecrementReturns").Invoke(null, null)!;
+        UninstrumentedProbe uninstrumented = _fixture.CompileUninstrumented(
+            "Conf.UninstrumentedInterlocked",
+            "Conf.InterlockedProbe",
+            Source);
+        var task = (Task<bool>)uninstrumented.Method("IncrementDecrementReturns").Invoke(null, null)!;
         Assert.True(await task);
+
+        object?[] args = [7];
+        SimulationNotActiveExceptionAssert.Throws(Method("IncrementRef"), args);
+        Assert.Equal(7, args[0]);
     }
 
     private MethodInfo Method(string name) => _probe.Value.Method(name);

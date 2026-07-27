@@ -11,12 +11,9 @@ using Microsoft.CodeAnalysis.Emit;
 namespace Clockwork.Conformance.Tests;
 
 /// <summary>
-/// Compiles ordinary C# source whose direct calls target the real .NET&#160;10 BCL time/identity/
-/// random APIs, rewrites it in-process with the versioned built-in rule set, loads the rewritten
-/// assembly, and then invokes it both inside a live <see cref="BuiltSimulation"/> (deterministic
-/// path) and outside any simulation (production pass-through). This proves end to end that unmodified
-/// application code - with no dependency injection or manual shim wiring - becomes deterministic once
-/// rewritten and hosted, and reverts to normal BCL behaviour when no simulation is active.
+/// Compiles ordinary C# source whose direct calls target the real .NET&#160;10 BCL APIs, rewrites it
+/// in-process with a versioned built-in rule set, and loads the rewritten assembly. Rewritten code is
+/// simulation-only, while separately loaded uninstrumented probes continue to use the real BCL.
 /// </summary>
 internal sealed class RewriteFixture : IDisposable
 {
@@ -46,6 +43,19 @@ internal sealed class RewriteFixture : IDisposable
             source,
             BuiltInRuleSets.BuildDeterministicBcl(families ?? BuiltInRuleSets.AllFamilies));
 
+    /// <summary>Compiles and loads an ordinary probe without applying instrumentation.</summary>
+    public UninstrumentedProbe CompileUninstrumented(
+        string assemblyName,
+        string typeName,
+        string source,
+        bool optimize = true)
+    {
+        string sourceDll = Compile(assemblyName, source, optimize);
+        Assembly assembly = Assembly.LoadFrom(sourceDll);
+        Type type = assembly.GetType(typeName, throwOnError: true)!;
+        return new UninstrumentedProbe(type);
+    }
+
     /// <summary>
     /// Compiles, rewrites with the controlled-task rule set, and loads the rewritten probe type. The
     /// <paramref name="optimize"/> flag selects Debug vs Release codegen, which the C# compiler lowers to
@@ -74,7 +84,7 @@ internal sealed class RewriteFixture : IDisposable
         string sourceDll = Compile(assemblyName, source, optimize);
         string stagedDll = Path.Combine(StagingDir, assemblyName + ".dll");
 
-        string runtimeDll = typeof(DeterministicClock).Assembly.Location;
+        string runtimeDll = typeof(ControlledDateTime).Assembly.Location;
         var options = new RewriteOptions
         {
             HardenExceptionHandlers = true,
@@ -146,6 +156,14 @@ internal sealed class RewriteFixture : IDisposable
         {
         }
     }
+}
+
+/// <summary>An ordinary compiled probe which has not been instrumented.</summary>
+internal sealed record UninstrumentedProbe(Type Type)
+{
+    public MethodInfo Method(string name) =>
+        Type.GetMethod(name, BindingFlags.Public | BindingFlags.Static)
+        ?? throw new InvalidOperationException($"Probe method '{name}' not found on '{Type.FullName}'.");
 }
 
 /// <summary>A rewritten, loaded probe type plus the rewrite outcome and inputs that produced it.</summary>

@@ -11,8 +11,7 @@ namespace Clockwork.Runtime.Tests.Threading;
 /// <c>ForEach</c> decompose their work into controlled operations on the coordinator and drain the
 /// deterministic loop until every branch has completed, so all iterations run on the single logical thread;
 /// body faults are aggregated into an <see cref="AggregateException"/>; a cancelled options token is
-/// observed; the loop-state / TLocal / Partitioner overloads are rejected precisely; and outside a
-/// simulation every shim delegates to the real API.
+/// observed; and the loop-state / TLocal / Partitioner overloads are rejected precisely.
 /// </summary>
 public sealed class ControlledParallelTests
 {
@@ -118,18 +117,120 @@ public sealed class ControlledParallelTests
     [Fact]
     public void RejectUnsupportedThrows()
     {
-        var ex = Assert.Throws<ControlledParallelUnsupportedException>(
-            () => ControlledParallel.RejectUnsupported("System.Threading.Tasks.Parallel.For"));
-        Assert.Contains("Parallel.For", ex.Message, StringComparison.Ordinal);
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var ex = Assert.Throws<ControlledParallelUnsupportedException>(
+                () => ControlledParallel.RejectUnsupported("System.Threading.Tasks.Parallel.For"));
+            Assert.Contains("Parallel.For", ex.Message, StringComparison.Ordinal);
+        });
     }
 
     [Fact]
-    public void OutsideSimulationForDelegatesToRealParallel()
+    public void OutsideSimulationForFailsBeforeInvokingBody()
     {
         int count = 0;
-        ParallelLoopResult result = ControlledParallel.For(0, 4, _ => Interlocked.Increment(ref count));
 
-        Assert.True(result.IsCompleted);
-        Assert.Equal(4, count);
+        Exception? exception = Record.Exception(
+            () => ControlledParallel.For(0, 4, _ => Interlocked.Increment(ref count)));
+
+        Assert.Equal(0, count);
+        SimulationNotActiveExceptionAssert.Equal(
+            exception,
+            "System.Threading.Tasks.Parallel.For");
+
+        Exception? nullBodyException = Record.Exception(
+            () => ControlledParallel.For(0, 4, null!));
+        SimulationNotActiveExceptionAssert.Equal(
+            nullBodyException,
+            "System.Threading.Tasks.Parallel.For");
+    }
+
+    private enum InvokeOverload
+    {
+        Actions,
+        OptionsAndActions,
+    }
+
+    [Theory]
+    [InlineData((int)InvokeOverload.Actions)]
+    [InlineData((int)InvokeOverload.OptionsAndActions)]
+    public void InvokeNullActionMatchesBclExceptionShape(int overloadValue)
+    {
+        var overload = (InvokeOverload)overloadValue;
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var sideEffectCount = 0;
+            Action[] actions = [() => sideEffectCount++, null!];
+
+            Exception? exception = Record.Exception(() =>
+            {
+                switch (overload)
+                {
+                    case InvokeOverload.Actions:
+                        ControlledParallel.Invoke(actions);
+                        break;
+                    case InvokeOverload.OptionsAndActions:
+                        ControlledParallel.Invoke(new ParallelOptions(), actions);
+                        break;
+                    default:
+                        throw new ArgumentOutOfRangeException(nameof(overloadValue), overloadValue, null);
+                }
+            });
+
+            Assert.Equal(0, sideEffectCount);
+            var argument = Assert.IsType<ArgumentException>(exception);
+            Assert.Null(argument.ParamName);
+        });
+    }
+
+    [Theory]
+    [InlineData((int)InvokeOverload.Actions)]
+    [InlineData((int)InvokeOverload.OptionsAndActions)]
+    public void InvokeNullActionLeavesEveryPublicLoopDiagnosticUnchanged(int overloadValue)
+    {
+        var overload = (InvokeOverload)overloadValue;
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var before = (
+                coordinator.Loop.VirtualNow,
+                coordinator.Loop.ReadyCount,
+                coordinator.Loop.WaitingCount,
+                NextDeadline: coordinator.Loop.NextDeadlineDue(),
+                coordinator.Loop.IsIdle);
+            var sideEffectCount = 0;
+            Action[] actions = [() => sideEffectCount++, null!];
+
+            Exception? exception = Record.Exception(() =>
+            {
+                if (overload == InvokeOverload.Actions)
+                {
+                    ControlledParallel.Invoke(actions);
+                }
+                else
+                {
+                    ControlledParallel.Invoke(new ParallelOptions(), actions);
+                }
+            });
+
+            Assert.Equal(0, sideEffectCount);
+            Assert.Equal(before.VirtualNow, coordinator.Loop.VirtualNow);
+            Assert.Equal(before.ReadyCount, coordinator.Loop.ReadyCount);
+            Assert.Equal(before.WaitingCount, coordinator.Loop.WaitingCount);
+            Assert.Equal(before.NextDeadline, coordinator.Loop.NextDeadlineDue());
+            Assert.Equal(before.IsIdle, coordinator.Loop.IsIdle);
+            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+            Assert.Equal(0, coordinator.Loop.ReadyCount);
+            Assert.Equal(0, coordinator.Loop.WaitingCount);
+            Assert.Null(coordinator.Loop.NextDeadlineDue());
+            Assert.True(coordinator.Loop.IsIdle);
+
+            var argument = Assert.IsType<ArgumentException>(exception);
+            Assert.Null(argument.ParamName);
+        });
     }
 }

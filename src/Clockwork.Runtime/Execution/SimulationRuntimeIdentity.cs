@@ -17,4 +17,11 @@ namespace Clockwork.Runtime.Execution;
 /// <param name="Id">A process-unique identifier for this runtime instance.</param>
 /// <param name="Seed">The deterministic root seed the runtime was created with, for diagnostics.</param>
 /// <param name="Description">An optional human-readable description, for diagnostics only.</param>
-public sealed record SimulationRuntimeIdentity(Guid Id, int Seed, string? Description = null);
+public sealed record SimulationRuntimeIdentity(Guid Id, int Seed, string? Description = null)
+{
+    /// <inheritdoc />
+    public bool Equals(SimulationRuntimeIdentity? other) => other is not null && Id == other.Id;
+
+    /// <inheritdoc />
+    public override int GetHashCode() => Id.GetHashCode();
+}

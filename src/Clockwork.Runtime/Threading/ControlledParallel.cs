@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Threading.Tasks;
+using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks;
 
 namespace Clockwork.Runtime.Threading;
@@ -10,8 +11,7 @@ namespace Clockwork.Runtime.Threading;
 /// sites here. Instead of dispatching the loop body across physical thread-pool threads, each branch is
 /// queued as a fresh controlled operation on the simulation coordinator and the call drains the
 /// deterministic loop until every branch has completed, so the work runs on the single logical thread and
-/// interleaves with all other controlled work at explicit yield points. Outside a simulation every shim
-/// delegates to the real BCL API unchanged.
+/// interleaves with all other controlled work at explicit yield points.
 /// </para>
 /// <para>
 /// <b>Parity with Microsoft Coyote.</b> Coyote (MIT-licensed) controls only the simple-body overloads -
@@ -43,25 +43,31 @@ public static class ControlledParallel
 
     /// <summary>Controlled <see cref="Parallel.Invoke(System.Action[])"/>.</summary>
     /// <param name="actions">The actions to execute as controlled operations.</param>
-    public static void Invoke(params Action[] actions) => Invoke(new ParallelOptions(), actions);
+    public static void Invoke(params Action[] actions)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation(InvokeApi);
+        Invoke(new ParallelOptions(), actions);
+    }
 
     /// <summary>Controlled <see cref="Parallel.Invoke(ParallelOptions, System.Action[])"/>.</summary>
     /// <param name="parallelOptions">The options; only <see cref="ParallelOptions.CancellationToken"/> is observed under simulation.</param>
     /// <param name="actions">The actions to execute as controlled operations.</param>
     public static void Invoke(ParallelOptions parallelOptions, params Action[] actions)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(InvokeApi);
         ArgumentNullException.ThrowIfNull(parallelOptions);
         ArgumentNullException.ThrowIfNull(actions);
-        if (!ControlledTaskRuntime.IsSimulationActive)
+        foreach (Action? action in actions)
         {
-            Parallel.Invoke(parallelOptions, actions);
-            return;
+            if (action is null)
+            {
+                throw new ArgumentException("An action in the actions array was null.");
+            }
         }
 
         var bodies = new List<Action>(actions.Length);
         foreach (Action action in actions)
         {
-            ArgumentNullException.ThrowIfNull(action);
             bodies.Add(action);
         }
 
@@ -73,8 +79,11 @@ public static class ControlledParallel
     /// <param name="toExclusive">The end index, exclusive.</param>
     /// <param name="body">The per-iteration body.</param>
     /// <returns>A completed <see cref="ParallelLoopResult"/>.</returns>
-    public static ParallelLoopResult For(int fromInclusive, int toExclusive, Action<int> body) =>
-        For(fromInclusive, toExclusive, new ParallelOptions(), body);
+    public static ParallelLoopResult For(int fromInclusive, int toExclusive, Action<int> body)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation(ForApi);
+        return For(fromInclusive, toExclusive, new ParallelOptions(), body);
+    }
 
     /// <summary>Controlled <see cref="Parallel.For(int, int, ParallelOptions, System.Action{int})"/>.</summary>
     /// <param name="fromInclusive">The start index, inclusive.</param>
@@ -84,13 +93,9 @@ public static class ControlledParallel
     /// <returns>A completed <see cref="ParallelLoopResult"/>.</returns>
     public static ParallelLoopResult For(int fromInclusive, int toExclusive, ParallelOptions parallelOptions, Action<int> body)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(ForApi);
         ArgumentNullException.ThrowIfNull(parallelOptions);
         ArgumentNullException.ThrowIfNull(body);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return Parallel.For(fromInclusive, toExclusive, parallelOptions, body);
-        }
-
         var bodies = new List<Action>(Math.Max(0, toExclusive - fromInclusive));
         for (int i = fromInclusive; i < toExclusive; i++)
         {
@@ -107,8 +112,11 @@ public static class ControlledParallel
     /// <param name="toExclusive">The end index, exclusive.</param>
     /// <param name="body">The per-iteration body.</param>
     /// <returns>A completed <see cref="ParallelLoopResult"/>.</returns>
-    public static ParallelLoopResult For(long fromInclusive, long toExclusive, Action<long> body) =>
-        For(fromInclusive, toExclusive, new ParallelOptions(), body);
+    public static ParallelLoopResult For(long fromInclusive, long toExclusive, Action<long> body)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation(ForApi);
+        return For(fromInclusive, toExclusive, new ParallelOptions(), body);
+    }
 
     /// <summary>Controlled <see cref="Parallel.For(long, long, ParallelOptions, System.Action{long})"/>.</summary>
     /// <param name="fromInclusive">The start index, inclusive.</param>
@@ -118,13 +126,9 @@ public static class ControlledParallel
     /// <returns>A completed <see cref="ParallelLoopResult"/>.</returns>
     public static ParallelLoopResult For(long fromInclusive, long toExclusive, ParallelOptions parallelOptions, Action<long> body)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(ForApi);
         ArgumentNullException.ThrowIfNull(parallelOptions);
         ArgumentNullException.ThrowIfNull(body);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return Parallel.For(fromInclusive, toExclusive, parallelOptions, body);
-        }
-
         var bodies = new List<Action>();
         for (long i = fromInclusive; i < toExclusive; i++)
         {
@@ -141,8 +145,11 @@ public static class ControlledParallel
     /// <param name="source">The source sequence.</param>
     /// <param name="body">The per-element body.</param>
     /// <returns>A completed <see cref="ParallelLoopResult"/>.</returns>
-    public static ParallelLoopResult ForEach<TSource>(IEnumerable<TSource> source, Action<TSource> body) =>
-        ForEach(source, new ParallelOptions(), body);
+    public static ParallelLoopResult ForEach<TSource>(IEnumerable<TSource> source, Action<TSource> body)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation(ForEachApi);
+        return ForEach(source, new ParallelOptions(), body);
+    }
 
     /// <summary>Controlled <see cref="Parallel.ForEach{TSource}(IEnumerable{TSource}, ParallelOptions, System.Action{TSource})"/>.</summary>
     /// <typeparam name="TSource">The element type.</typeparam>
@@ -152,14 +159,10 @@ public static class ControlledParallel
     /// <returns>A completed <see cref="ParallelLoopResult"/>.</returns>
     public static ParallelLoopResult ForEach<TSource>(IEnumerable<TSource> source, ParallelOptions parallelOptions, Action<TSource> body)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(ForEachApi);
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(parallelOptions);
         ArgumentNullException.ThrowIfNull(body);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return Parallel.ForEach(source, parallelOptions, body);
-        }
-
         var bodies = new List<Action>();
         foreach (TSource item in source)
         {
@@ -176,12 +179,15 @@ public static class ControlledParallel
     /// <see cref="ParallelLoopState"/>, <c>TLocal</c>, or <c>Partitioner</c> overloads).
     /// </summary>
     /// <param name="apiName">The unsupported API, supplied by the rewriter.</param>
-    public static void RejectUnsupported(string apiName) =>
+    public static void RejectUnsupported(string apiName)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation(apiName);
         throw new ControlledParallelUnsupportedException(
             apiName,
             "the break/stop (ParallelLoopState), thread-local (TLocal), and Partitioner overloads cannot be " +
             "modelled deterministically without constructing framework types that have no public surface; " +
             "use a simple-body For/ForEach/Invoke overload instead.");
+    }
 
     // Queues every branch as a fresh controlled operation, drains the deterministic loop until all branches
     // complete, then re-throws any faults aggregated into an AggregateException (matching Parallel).

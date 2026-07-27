@@ -29,6 +29,12 @@ public sealed class ThreadConformanceTests : IDisposable
                 return Task.FromResult(result);
             }
 
+            public static void StartActionOnly(int[] sink)
+            {
+                var t = new Thread(() => sink[0] = 42);
+                t.Start();
+            }
+
             // Several controlled threads run cooperatively on the single logical thread; all are joined.
             public static Task<int> ManyThreads()
             {
@@ -100,6 +106,60 @@ public sealed class ThreadConformanceTests : IDisposable
                     return Task.FromResult(true);
                 }
             }
+
+            public static Task UnstartedJoin()
+            {
+                var t = new Thread(() => { });
+                t.Join();
+                return Task.CompletedTask;
+            }
+
+            public static Task<int> JoinZeroSnapshot()
+            {
+                bool ran = false;
+                var t = new Thread(() => ran = true);
+                t.Start();
+                bool joined = t.Join(0);
+                int snapshot = (joined ? 2 : 0) | (ran ? 1 : 0);
+                return Task.FromResult(snapshot);
+            }
+
+            public static Task JoinIntegerValidation(int millisecondsTimeout)
+            {
+                var t = new Thread(() => { });
+                t.Start();
+                t.Join();
+                _ = t.Join(millisecondsTimeout);
+                return Task.CompletedTask;
+            }
+
+            public static Task JoinTimeSpanValidation(long millisecondsTimeout)
+            {
+                var t = new Thread(() => { });
+                t.Start();
+                t.Join();
+                _ = t.Join(TimeSpan.FromMilliseconds(millisecondsTimeout));
+                return Task.CompletedTask;
+            }
+
+            public static Task SleepIntegerValidation(int millisecondsTimeout)
+            {
+                Thread.Sleep(millisecondsTimeout);
+                return Task.CompletedTask;
+            }
+
+            public static Task SleepTimeSpanValidation(long millisecondsTimeout)
+            {
+                Thread.Sleep(TimeSpan.FromMilliseconds(millisecondsTimeout));
+                return Task.CompletedTask;
+            }
+
+            public static Task ThreadStartParameterMismatch()
+            {
+                var t = new Thread(new ThreadStart(() => { }));
+                t.Start(new object());
+                return Task.CompletedTask;
+            }
         } }
         """;
 
@@ -167,12 +227,104 @@ public sealed class ThreadConformanceTests : IDisposable
     }
 
     [Fact]
-    public async Task RewrittenThreadDelegatesToRealBclOutsideAnySimulation()
+    public async Task OnlyRewrittenThreadRequiresActiveSimulationWithoutStartingItsAction()
     {
-        // No active simulation: the rewritten shims delegate to the real BCL Thread, running on a real
-        // OS thread and joining normally.
-        var task = (Task<int>)Method("StartAndJoin").Invoke(null, null)!;
+        UninstrumentedProbe uninstrumented = _fixture.CompileUninstrumented(
+            "Conf.UninstrumentedThread",
+            "Conf.ThreadProbe",
+            Source);
+        var task = (Task<int>)uninstrumented.Method("StartAndJoin").Invoke(null, null)!;
         Assert.Equal(42, await task);
+
+        int[] sink = [0];
+        SimulationNotActiveExceptionAssert.Throws(Method("StartActionOnly"), sink);
+        Assert.Equal(0, sink[0]);
+    }
+
+    [Fact]
+    public void UnstartedJoinThrowsThreadStateException()
+    {
+        using var host = new SimulationHost(Start);
+
+        var exception = Assert.Throws<ThreadStateException>(() => host.Invoke(Method("UnstartedJoin")));
+
+        Assert.IsType<ThreadStateException>(exception);
+    }
+
+    [Fact]
+    public void JoinZeroReturnsFalseBeforeTheQueuedBodyRuns()
+    {
+        using var host = new SimulationHost(Start);
+
+        var task = (Task<int>)host.Invoke(Method("JoinZeroSnapshot"))!;
+
+        Assert.Equal(0, Result<int>(task));
+    }
+
+    [Theory]
+    [InlineData(-2)]
+    [InlineData(int.MinValue)]
+    public void JoinIntegerValidationMatchesBcl(int millisecondsTimeout)
+    {
+        using var host = new SimulationHost(Start);
+
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(
+            () => { _ = host.Invoke(Method("JoinIntegerValidation"), millisecondsTimeout); });
+
+        Assert.IsType<ArgumentOutOfRangeException>(exception);
+        Assert.Equal("millisecondsTimeout", exception.ParamName);
+    }
+
+    [Theory]
+    [InlineData(-2L)]
+    [InlineData((long)int.MaxValue + 1)]
+    public void JoinTimeSpanValidationMatchesBcl(long millisecondsTimeout)
+    {
+        using var host = new SimulationHost(Start);
+
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(
+            () => { _ = host.Invoke(Method("JoinTimeSpanValidation"), millisecondsTimeout); });
+
+        Assert.IsType<ArgumentOutOfRangeException>(exception);
+        Assert.Equal("timeout", exception.ParamName);
+    }
+
+    [Theory]
+    [InlineData("integer", -2L, "millisecondsTimeout")]
+    [InlineData("integer", int.MinValue, "millisecondsTimeout")]
+    [InlineData("timespan", -2L, "timeout")]
+    [InlineData("timespan", (long)int.MaxValue + 1, "timeout")]
+    public void SleepValidationMatchesBcl(string overload, long millisecondsTimeout, string expectedParamName)
+    {
+        using var host = new SimulationHost(Start);
+        MethodInfo method;
+        object argument;
+        if (overload == "integer")
+        {
+            method = Method("SleepIntegerValidation");
+            argument = checked((int)millisecondsTimeout);
+        }
+        else
+        {
+            method = Method("SleepTimeSpanValidation");
+            argument = millisecondsTimeout;
+        }
+
+        var exception = Assert.Throws<ArgumentOutOfRangeException>(() => { _ = host.Invoke(method, argument); });
+
+        Assert.IsType<ArgumentOutOfRangeException>(exception);
+        Assert.Equal(expectedParamName, exception.ParamName);
+    }
+
+    [Fact]
+    public void ThreadStartParameterMismatchThrowsInvalidOperationException()
+    {
+        using var host = new SimulationHost(Start);
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => { _ = host.Invoke(Method("ThreadStartParameterMismatch")); });
+
+        Assert.IsType<InvalidOperationException>(exception);
     }
 
     private MethodInfo Method(string name) => _probe.Value.Method(name);
@@ -186,4 +338,47 @@ public sealed class ThreadConformanceTests : IDisposable
     }
 
     public void Dispose() => _fixture.Dispose();
+
+    [Fact]
+    public void JoinZeroSnapshotPinsPrePumpAndPostDriveState()
+    {
+        using var host = new SimulationHost(Start);
+
+        var task = (Task<int[]>)host.Invoke(JoinZeroDepthMethod("JoinZeroDetailedSnapshot"))!;
+        int[] observation = Result<int[]>(task);
+
+        Assert.Equal(0x5A00, observation[0]);
+        Assert.Equal(0, observation[0] & 0x2);
+        Assert.Equal(0, observation[0] & 0x1);
+        Assert.Equal(0x2A, observation[1]);
+    }
+
+    private const string JoinZeroDepthSource = """
+        using System.Threading;
+        using System.Threading.Tasks;
+        namespace Conf { public static class ThreadJoinZeroDepthProbe {
+            public static Task<int[]> JoinZeroDetailedSnapshot()
+            {
+                const int Sentinel = 0x5A00;
+                var observation = new[] { -1, -1 };
+                var thread = new Thread(() => observation[1] = 0x2A);
+                thread.Start();
+                bool joined = thread.Join(0);
+                observation[0] =
+                    Sentinel |
+                    (joined ? 0x2 : 0) |
+                    (observation[1] == 0x2A ? 0x1 : 0);
+                return Task.FromResult(observation);
+            }
+        } }
+        """;
+
+    private StagedProbe? _joinZeroDepthProbe;
+
+    private MethodInfo JoinZeroDepthMethod(string name) =>
+        (_joinZeroDepthProbe ??= _fixture.StageControlledTasks(
+            "Conf.ThreadJoinZeroDepth",
+            "Conf.ThreadJoinZeroDepthProbe",
+            JoinZeroDepthSource,
+            optimize: true)).Method(name);
 }

@@ -13,8 +13,7 @@ namespace Clockwork.Runtime.Tests.Threading;
 /// waiter set are modelled on the cooperative logical thread: a <see cref="WaitHandle.WaitOne()"/> with no
 /// signal pumps the loop until <c>Set</c>, an auto-reset event wakes exactly one waiter while a manual-reset
 /// event releases all and stays signalled, and finite timeouts consume only virtual time. Named /
-/// cross-process APIs and the raw handle accessors are rejected precisely. Outside a simulation every shim
-/// delegates to the real BCL primitive.
+/// cross-process APIs and the raw handle accessors are rejected precisely.
 /// </summary>
 public sealed class ControlledEventWaitHandleTests
 {
@@ -323,18 +322,18 @@ public sealed class ControlledEventWaitHandleTests
         });
     }
 
-    // ---- outside a simulation everything delegates to the real BCL primitive ----
-
     [Fact]
-    public void OutsideSimulationDelegatesToRealEvent()
+    public void OutsideSimulationFailsBeforeCreatingEventHandle()
     {
-        ManualResetEvent evt = ControlledEventWaitHandle.CreateManualResetEvent(initialState: false);
-        Assert.False(ControlledWaitHandle.WaitOne(evt, 0));
-        Assert.True(ControlledEventWaitHandle.Set(evt));
-        Assert.True(ControlledWaitHandle.WaitOne(evt, 0)); // Manual-reset stays signalled.
-        Assert.True(ControlledEventWaitHandle.Reset(evt));
-        Assert.False(ControlledWaitHandle.WaitOne(evt, 0));
-        ControlledWaitHandle.Dispose(evt);
+        ManualResetEvent? evt = null;
+
+        Exception? exception = Record.Exception(
+            () => evt = ControlledEventWaitHandle.CreateManualResetEvent(initialState: false));
+
+        Assert.Null(evt);
+        SimulationNotActiveExceptionAssert.Equal(
+            exception,
+            "System.Threading.ManualResetEvent..ctor");
     }
 
     // ---- WaitAny / WaitAll / SignalAndWait ----

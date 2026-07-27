@@ -7,7 +7,7 @@ namespace Clockwork.Instrumentation.Rules.BuiltIn;
 /// The catalogue of Clockwork's built-in, versioned rewrite rule sets. These ship with the
 /// instrumentation package so MSBuild and CLI users can turn on deterministic BCL behaviour without
 /// hand-authoring JSON signatures. The only rule set today is
-/// <see cref="DeterministicBclId"/> - the first production deterministic BCL shim set - which
+/// <see cref="DeterministicBclId"/> - the built-in deterministic BCL shim set - which
 /// redirects the direct static time / identity / random surface to the Cecil-free runtime shims in
 /// the <c>Clockwork.Runtime</c> assembly (namespace <c>Clockwork.Runtime.Shims</c>).
 /// </summary>
@@ -22,9 +22,9 @@ namespace Clockwork.Instrumentation.Rules.BuiltIn;
 /// <para>
 /// The clock, identity, and random families are <see cref="SimulationApiPolicy.Controlled"/>
 /// redirections. The crypto family is classified <see cref="SimulationApiPolicy.Rejected"/> - the
-/// operation is still a redirect to <c>DeterministicCryptoRandom</c>, but the shim rejects the call by
+/// operation is still a redirect to <c>ControlledRandomNumberGenerator</c>, but the shim rejects the call by
 /// default at runtime and only serves deterministic-insecure bytes under an explicit test-only opt-in.
-/// Outside a simulation every shim runs the real BCL API unchanged.
+/// Controlled rewrite targets require an active simulation.
 /// </para>
 /// </remarks>
 public static class BuiltInRuleSets
@@ -33,7 +33,7 @@ public static class BuiltInRuleSets
     public const string DeterministicBclId = "clockwork.bcl.deterministic";
 
     /// <summary>The version of the deterministic BCL rule set.</summary>
-    public const string DeterministicBclVersion = "1.0.0";
+    public const string DeterministicBclVersion = "2.0.0";
 
     /// <summary>The stable id of the controlled task / async machinery rule set (Phase 6A).</summary>
     public const string ControlledTasksId = "clockwork.tasks.controlled";
@@ -44,10 +44,13 @@ public static class BuiltInRuleSets
     /// <summary>The simple name of the assembly declaring every built-in shim.</summary>
     public const string ShimAssemblyName = "Clockwork.Runtime";
 
-    private const string ClockShim = "Clockwork.Runtime.Shims.DeterministicClock";
-    private const string GuidShim = "Clockwork.Runtime.Shims.DeterministicGuid";
-    private const string RandomShim = "Clockwork.Runtime.Shims.DeterministicRandom";
-    private const string CryptoShim = "Clockwork.Runtime.Shims.DeterministicCryptoRandom";
+    private const string DateTimeShim = "Clockwork.Runtime.Shims.ControlledDateTime";
+    private const string DateTimeOffsetShim = "Clockwork.Runtime.Shims.ControlledDateTimeOffset";
+    private const string StopwatchShim = "Clockwork.Runtime.Shims.ControlledStopwatch";
+    private const string EnvironmentShim = "Clockwork.Runtime.Shims.ControlledEnvironment";
+    private const string GuidShim = "Clockwork.Runtime.Shims.ControlledGuid";
+    private const string RandomShim = "Clockwork.Runtime.Shims.ControlledRandom";
+    private const string CryptoShim = "Clockwork.Runtime.Shims.ControlledRandomNumberGenerator";
     private const string TaskShim = "Clockwork.Runtime.Tasks.ControlledTask";
     private const string TaskFactoryShim = "Clockwork.Runtime.Tasks.ControlledTaskFactory";
     private const string ThreadShim = "Clockwork.Runtime.Threading.ControlledThread";
@@ -1235,18 +1238,18 @@ public static class BuiltInRuleSets
         var builder = ImmutableArray.CreateBuilder<BuiltInRuleEntry>();
 
         // ---- Clock family: wall-clock, offset clock, monotonic timestamp, tick counters ----
-        Clock(builder, "clockwork.bcl.datetime.now", "System.DateTime", "get_Now", "GetNow");
-        Clock(builder, "clockwork.bcl.datetime.utcnow", "System.DateTime", "get_UtcNow", "GetUtcNow");
-        Clock(builder, "clockwork.bcl.datetime.today", "System.DateTime", "get_Today", "GetToday");
-        Clock(builder, "clockwork.bcl.datetimeoffset.now", "System.DateTimeOffset", "get_Now", "GetOffsetNow");
-        Clock(builder, "clockwork.bcl.datetimeoffset.utcnow", "System.DateTimeOffset", "get_UtcNow", "GetOffsetUtcNow");
-        Clock(builder, "clockwork.bcl.stopwatch.gettimestamp", "System.Diagnostics.Stopwatch", "GetTimestamp", "GetTimestamp");
+        Clock(builder, "clockwork.bcl.datetime.now", "System.DateTime", "get_Now", DateTimeShim, "GetNow");
+        Clock(builder, "clockwork.bcl.datetime.utcnow", "System.DateTime", "get_UtcNow", DateTimeShim, "GetUtcNow");
+        Clock(builder, "clockwork.bcl.datetime.today", "System.DateTime", "get_Today", DateTimeShim, "GetToday");
+        Clock(builder, "clockwork.bcl.datetimeoffset.now", "System.DateTimeOffset", "get_Now", DateTimeOffsetShim, "GetNow");
+        Clock(builder, "clockwork.bcl.datetimeoffset.utcnow", "System.DateTimeOffset", "get_UtcNow", DateTimeOffsetShim, "GetUtcNow");
+        Clock(builder, "clockwork.bcl.stopwatch.gettimestamp", "System.Diagnostics.Stopwatch", "GetTimestamp", StopwatchShim, "GetTimestamp");
         builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Clock, RewriteRule.RedirectCall(
             "clockwork.bcl.stopwatch.getelapsedtime",
             MemberSignature.Method("System.Diagnostics.Stopwatch", "GetElapsedTime", Int64),
-            Shim(ClockShim, "GetElapsedTime", Int64))));
-        Clock(builder, "clockwork.bcl.environment.tickcount", "System.Environment", "get_TickCount", "GetTickCount");
-        Clock(builder, "clockwork.bcl.environment.tickcount64", "System.Environment", "get_TickCount64", "GetTickCount64");
+            Shim(StopwatchShim, "GetElapsedTime", Int64))));
+        Clock(builder, "clockwork.bcl.environment.tickcount", "System.Environment", "get_TickCount", EnvironmentShim, "GetTickCount");
+        Clock(builder, "clockwork.bcl.environment.tickcount64", "System.Environment", "get_TickCount64", EnvironmentShim, "GetTickCount64");
 
         // ---- Guid family: deterministic identity bytes with preserved RFC variant/version ----
         builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Identity, RewriteRule.RedirectCall(
@@ -1304,12 +1307,13 @@ public static class BuiltInRuleSets
         string id,
         string declaringType,
         string member,
+        string shimType,
         string shimMember)
     {
         builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Clock, RewriteRule.RedirectCall(
             id,
             MemberSignature.Method(declaringType, member),
-            Shim(ClockShim, shimMember))));
+            Shim(shimType, shimMember))));
     }
 
     private static void Crypto(

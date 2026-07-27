@@ -1,7 +1,9 @@
 using Clockwork.Instrumentation.Diagnostics;
 using Clockwork.Instrumentation.Rewriting;
 using Clockwork.Instrumentation.Rules;
+using Clockwork.Instrumentation.Rules.BuiltIn;
 using Clockwork.Instrumentation.Tests.Infrastructure;
+using Clockwork.Runtime.Shims;
 using Mono.Cecil;
 
 namespace Clockwork.Instrumentation.Tests.Golden;
@@ -73,6 +75,52 @@ public sealed class IdempotenceGoldenTests
 
         Assert.False(second.Succeeded);
         Assert.Contains(second.Errors, d => d.Id == RewriteDiagnosticIds.IncompatibleRewriteVersion);
+        Assert.False(second.WasWritten);
+    }
+
+    [Fact]
+    public void VersionOneBuiltInRewriteIsRejectedByCurrentVersionTwoRules()
+    {
+        const string source = """
+            namespace Fx
+            {
+                public static class BuiltInVersion
+                {
+                    public static System.DateTime UtcNow() => System.DateTime.UtcNow;
+                }
+            }
+            """;
+        using var context = RewriteTestContext.Create();
+        string fixturePath = context.CompileFixture("Fx.BuiltInVersion", source);
+        string firstOut = Path.Combine(context.Directory, "Fx.BuiltInVersion.v1.dll");
+        RewriteRuleSet current = BuiltInRuleSets.BuildDeterministicBcl([BuiltInRuleFamily.Clock]);
+        var versionOne = new RewriteRuleSet(current.Id, "1.0.0", current.Rules);
+        var options = new RewriteOptions
+        {
+            ReplacementAssemblyPaths = [typeof(SimulationRuntimeDispatch).Assembly.Location],
+            ReferenceSearchDirectories = [AppContext.BaseDirectory],
+        };
+
+        RewriteResult first = context.Rewrite(fixturePath, firstOut, versionOne, options);
+        first.EnsureSuccess();
+        Assert.Contains(
+            first.Manifest.Transformations,
+            transformation => transformation.RuleId == "clockwork.bcl.datetime.utcnow");
+        RewriteResult second = context.Rewrite(
+            firstOut,
+            Path.Combine(context.Directory, "Fx.BuiltInVersion.v2.dll"),
+            current,
+            options);
+
+        Assert.False(second.Succeeded);
+        RewriteDiagnostic diagnostic = Assert.Single(
+            second.Errors,
+            error => error.Id == RewriteDiagnosticIds.IncompatibleRewriteVersion);
+        Assert.Equal("2.0.0", current.Version);
+        Assert.Contains(
+            "'clockwork.bcl.deterministic' v1.0.0",
+            diagnostic.Message,
+            StringComparison.Ordinal);
         Assert.False(second.WasWritten);
     }
 

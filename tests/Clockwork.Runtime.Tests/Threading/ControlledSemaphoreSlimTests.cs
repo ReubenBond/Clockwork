@@ -17,8 +17,7 @@ namespace Clockwork.Runtime.Tests.Threading;
 /// modelled on the cooperative logical thread, a contended synchronous <c>Wait</c> pumps the loop until
 /// a permit is released, <c>WaitAsync</c> completes when a permit is released, max-count is enforced,
 /// cancellation is honoured, and <c>AvailableWaitHandle</c> is bridged to a controlled manual-reset handle
-/// that tracks count &gt; 0 (Phase 7B). Outside a
-/// simulation every shim delegates to the real <see cref="SemaphoreSlim"/>.
+/// that tracks count &gt; 0 (Phase 7B).
 /// </summary>
 public sealed class ControlledSemaphoreSlimTests
 {
@@ -250,15 +249,17 @@ public sealed class ControlledSemaphoreSlimTests
     }
 
     [Fact]
-    public void OutsideSimulationDelegatesToRealSemaphore()
+    public void OutsideSimulationFailsBeforeCreatingSemaphore()
     {
-        var sem = ControlledSemaphoreSlim.Create(1);
-        Assert.Equal(1, ControlledSemaphoreSlim.CurrentCount(sem));
-        Assert.True(ControlledSemaphoreSlim.Wait(sem, 0));
-        Assert.Equal(0, ControlledSemaphoreSlim.CurrentCount(sem));
-        ControlledSemaphoreSlim.Release(sem);
-        Assert.Equal(1, ControlledSemaphoreSlim.CurrentCount(sem));
-        ControlledSemaphoreSlim.Dispose(sem);
+        SemaphoreSlim? semaphore = null;
+
+        Exception? exception = Record.Exception(
+            () => semaphore = ControlledSemaphoreSlim.Create(1));
+
+        Assert.Null(semaphore);
+        SimulationNotActiveExceptionAssert.Equal(
+            exception,
+            "System.Threading.SemaphoreSlim..ctor");
     }
 
     // ---- Finite virtual-time timeouts (SemaphoreSlim.Wait / WaitAsync) ----
@@ -584,5 +585,226 @@ public sealed class ControlledSemaphoreSlimTests
             Assert.False(acquired);
             Assert.True(coordinator.Loop.IsIdle);
         }
+    }
+
+    private enum ReceiverOperation
+    {
+        CurrentCount,
+        Wait,
+        WaitCancellationToken,
+        WaitMilliseconds,
+        WaitMillisecondsCancellationToken,
+        WaitTimeSpan,
+        WaitTimeSpanCancellationToken,
+        WaitAsync,
+        WaitAsyncCancellationToken,
+        WaitAsyncMilliseconds,
+        WaitAsyncMillisecondsCancellationToken,
+        WaitAsyncTimeSpan,
+        WaitAsyncTimeSpanCancellationToken,
+        Release,
+        ReleaseCount,
+        Dispose,
+    }
+
+    [Theory]
+    [InlineData((int)ReceiverOperation.CurrentCount)]
+    [InlineData((int)ReceiverOperation.Wait)]
+    [InlineData((int)ReceiverOperation.WaitCancellationToken)]
+    [InlineData((int)ReceiverOperation.WaitMilliseconds)]
+    [InlineData((int)ReceiverOperation.WaitMillisecondsCancellationToken)]
+    [InlineData((int)ReceiverOperation.WaitTimeSpan)]
+    [InlineData((int)ReceiverOperation.WaitTimeSpanCancellationToken)]
+    [InlineData((int)ReceiverOperation.WaitAsync)]
+    [InlineData((int)ReceiverOperation.WaitAsyncCancellationToken)]
+    [InlineData((int)ReceiverOperation.WaitAsyncMilliseconds)]
+    [InlineData((int)ReceiverOperation.WaitAsyncMillisecondsCancellationToken)]
+    [InlineData((int)ReceiverOperation.WaitAsyncTimeSpan)]
+    [InlineData((int)ReceiverOperation.WaitAsyncTimeSpanCancellationToken)]
+    [InlineData((int)ReceiverOperation.Release)]
+    [InlineData((int)ReceiverOperation.ReleaseCount)]
+    [InlineData((int)ReceiverOperation.Dispose)]
+    public void ExternallyCreatedSemaphoreIsRejectedByEveryReceivingShimInsideSimulation(
+        int operationValue)
+    {
+        var operation = (ReceiverOperation)operationValue;
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            using var semaphore = new SemaphoreSlim(1, 1);
+
+            var exception = Assert.Throws<ControlledSemaphoreSlimUnsupportedException>(
+                () => InvokeReceiverOperation(semaphore, operation));
+
+            Assert.Equal(ExpectedApiName(operation), exception.ApiName);
+            Assert.Contains(
+                "not created through the controlled SemaphoreSlim surface",
+                exception.Message,
+                StringComparison.Ordinal);
+        });
+    }
+
+    [Theory]
+    [InlineData((int)ReceiverOperation.CurrentCount)]
+    [InlineData((int)ReceiverOperation.Wait)]
+    [InlineData((int)ReceiverOperation.WaitCancellationToken)]
+    [InlineData((int)ReceiverOperation.WaitMilliseconds)]
+    [InlineData((int)ReceiverOperation.WaitMillisecondsCancellationToken)]
+    [InlineData((int)ReceiverOperation.WaitTimeSpan)]
+    [InlineData((int)ReceiverOperation.WaitTimeSpanCancellationToken)]
+    [InlineData((int)ReceiverOperation.WaitAsync)]
+    [InlineData((int)ReceiverOperation.WaitAsyncCancellationToken)]
+    [InlineData((int)ReceiverOperation.WaitAsyncMilliseconds)]
+    [InlineData((int)ReceiverOperation.WaitAsyncMillisecondsCancellationToken)]
+    [InlineData((int)ReceiverOperation.WaitAsyncTimeSpan)]
+    [InlineData((int)ReceiverOperation.WaitAsyncTimeSpanCancellationToken)]
+    [InlineData((int)ReceiverOperation.Release)]
+    [InlineData((int)ReceiverOperation.ReleaseCount)]
+    [InlineData((int)ReceiverOperation.Dispose)]
+    public void ExternallyCreatedSemaphoreRequiresActiveSimulationForEveryReceivingShim(
+        int operationValue)
+    {
+        var operation = (ReceiverOperation)operationValue;
+        using var semaphore = new SemaphoreSlim(1, 1);
+
+        Exception? exception = Record.Exception(
+            () => InvokeReceiverOperation(semaphore, operation));
+
+        Assert.Equal(1, semaphore.CurrentCount);
+        Assert.True(semaphore.Wait(0));
+        semaphore.Release();
+        SimulationNotActiveExceptionAssert.Equal(exception, ExpectedApiName(operation));
+    }
+
+    private static void InvokeReceiverOperation(SemaphoreSlim semaphore, ReceiverOperation operation)
+    {
+        switch (operation)
+        {
+            case ReceiverOperation.CurrentCount:
+                _ = ControlledSemaphoreSlim.CurrentCount(semaphore);
+                break;
+            case ReceiverOperation.Wait:
+                ControlledSemaphoreSlim.Wait(semaphore);
+                break;
+            case ReceiverOperation.WaitCancellationToken:
+                ControlledSemaphoreSlim.Wait(semaphore, CancellationToken.None);
+                break;
+            case ReceiverOperation.WaitMilliseconds:
+                _ = ControlledSemaphoreSlim.Wait(semaphore, 0);
+                break;
+            case ReceiverOperation.WaitMillisecondsCancellationToken:
+                _ = ControlledSemaphoreSlim.Wait(semaphore, 0, CancellationToken.None);
+                break;
+            case ReceiverOperation.WaitTimeSpan:
+                _ = ControlledSemaphoreSlim.Wait(semaphore, TimeSpan.Zero);
+                break;
+            case ReceiverOperation.WaitTimeSpanCancellationToken:
+                _ = ControlledSemaphoreSlim.Wait(semaphore, TimeSpan.Zero, CancellationToken.None);
+                break;
+            case ReceiverOperation.WaitAsync:
+                ControlledSemaphoreSlim.WaitAsync(semaphore).GetAwaiter().GetResult();
+                break;
+            case ReceiverOperation.WaitAsyncCancellationToken:
+                ControlledSemaphoreSlim.WaitAsync(semaphore, CancellationToken.None).GetAwaiter().GetResult();
+                break;
+            case ReceiverOperation.WaitAsyncMilliseconds:
+                _ = ControlledSemaphoreSlim.WaitAsync(semaphore, 0).GetAwaiter().GetResult();
+                break;
+            case ReceiverOperation.WaitAsyncMillisecondsCancellationToken:
+                _ = ControlledSemaphoreSlim.WaitAsync(semaphore, 0, CancellationToken.None)
+                    .GetAwaiter().GetResult();
+                break;
+            case ReceiverOperation.WaitAsyncTimeSpan:
+                _ = ControlledSemaphoreSlim.WaitAsync(semaphore, TimeSpan.Zero).GetAwaiter().GetResult();
+                break;
+            case ReceiverOperation.WaitAsyncTimeSpanCancellationToken:
+                _ = ControlledSemaphoreSlim.WaitAsync(semaphore, TimeSpan.Zero, CancellationToken.None)
+                    .GetAwaiter().GetResult();
+                break;
+            case ReceiverOperation.Release:
+                _ = ControlledSemaphoreSlim.Release(semaphore);
+                break;
+            case ReceiverOperation.ReleaseCount:
+                _ = ControlledSemaphoreSlim.Release(semaphore, 1);
+                break;
+            case ReceiverOperation.Dispose:
+                ControlledSemaphoreSlim.Dispose(semaphore);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(operation), operation, null);
+        }
+    }
+
+    private static string ExpectedApiName(ReceiverOperation operation) =>
+        operation switch
+        {
+            ReceiverOperation.CurrentCount => "System.Threading.SemaphoreSlim.get_CurrentCount",
+            ReceiverOperation.Wait or
+            ReceiverOperation.WaitCancellationToken or
+            ReceiverOperation.WaitMilliseconds or
+            ReceiverOperation.WaitMillisecondsCancellationToken or
+            ReceiverOperation.WaitTimeSpan or
+            ReceiverOperation.WaitTimeSpanCancellationToken => "System.Threading.SemaphoreSlim.Wait",
+            ReceiverOperation.WaitAsync or
+            ReceiverOperation.WaitAsyncCancellationToken or
+            ReceiverOperation.WaitAsyncMilliseconds or
+            ReceiverOperation.WaitAsyncMillisecondsCancellationToken or
+            ReceiverOperation.WaitAsyncTimeSpan or
+            ReceiverOperation.WaitAsyncTimeSpanCancellationToken => "System.Threading.SemaphoreSlim.WaitAsync",
+            ReceiverOperation.Release or
+            ReceiverOperation.ReleaseCount => "System.Threading.SemaphoreSlim.Release",
+            ReceiverOperation.Dispose => "System.Threading.SemaphoreSlim.Dispose",
+            _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, null),
+        };
+
+    [Theory]
+    [InlineData((int)ReceiverOperation.CurrentCount)]
+    [InlineData((int)ReceiverOperation.Wait)]
+    [InlineData((int)ReceiverOperation.WaitCancellationToken)]
+    [InlineData((int)ReceiverOperation.WaitMilliseconds)]
+    [InlineData((int)ReceiverOperation.WaitMillisecondsCancellationToken)]
+    [InlineData((int)ReceiverOperation.WaitTimeSpan)]
+    [InlineData((int)ReceiverOperation.WaitTimeSpanCancellationToken)]
+    [InlineData((int)ReceiverOperation.WaitAsync)]
+    [InlineData((int)ReceiverOperation.WaitAsyncCancellationToken)]
+    [InlineData((int)ReceiverOperation.WaitAsyncMilliseconds)]
+    [InlineData((int)ReceiverOperation.WaitAsyncMillisecondsCancellationToken)]
+    [InlineData((int)ReceiverOperation.WaitAsyncTimeSpan)]
+    [InlineData((int)ReceiverOperation.WaitAsyncTimeSpanCancellationToken)]
+    [InlineData((int)ReceiverOperation.Release)]
+    [InlineData((int)ReceiverOperation.ReleaseCount)]
+    [InlineData((int)ReceiverOperation.Dispose)]
+    public void ExternalSemaphoreRejectionPreservesRawInstanceAndPublicLoopState(
+        int operationValue)
+    {
+        var operation = (ReceiverOperation)operationValue;
+        var coordinator = new ControlledTaskLoopCoordinator();
+        using var semaphore = new SemaphoreSlim(1, 1);
+        Exception? error = null;
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            error = Record.Exception(() => InvokeReceiverOperation(semaphore, operation));
+
+            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+            Assert.Equal(0, coordinator.Loop.ReadyCount);
+            Assert.Equal(0, coordinator.Loop.WaitingCount);
+            Assert.Null(coordinator.Loop.NextDeadlineDue());
+            Assert.True(coordinator.Loop.IsIdle);
+        });
+
+        var rejection = Assert.IsType<ControlledSemaphoreSlimUnsupportedException>(error);
+        Assert.Equal(ExpectedApiName(operation), rejection.ApiName);
+        Assert.Contains(
+            "not created through the controlled SemaphoreSlim surface",
+            rejection.Message,
+            StringComparison.Ordinal);
+
+        Assert.Equal(1, semaphore.CurrentCount);
+        Assert.True(semaphore.Wait(0));
+        Assert.Equal(0, semaphore.CurrentCount);
+        Assert.Equal(0, semaphore.Release());
+        Assert.Equal(1, semaphore.CurrentCount);
     }
 }

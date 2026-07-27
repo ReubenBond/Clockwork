@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Threading;
+using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks;
 
 namespace Clockwork.Runtime.Threading;
@@ -21,8 +22,7 @@ namespace Clockwork.Runtime.Threading;
 /// <see cref="ControlledTaskRuntime.DrainUntil"/>) until the lock is free rather than blocking an OS
 /// thread. A wait that can never make progress surfaces as the standard controlled deadlock diagnostic.
 /// <see cref="Wait(object)"/>/<see cref="Pulse(object)"/>/<see cref="PulseAll(object)"/> implement the
-/// condition-variable protocol on the same kernel. Outside a simulation every shim delegates to the real
-/// BCL <see cref="Monitor"/> unchanged.
+/// condition-variable protocol on the same kernel.
 /// </para>
 /// <para>
 /// Per-object state is held in a <see cref="ConditionalWeakTable{TKey,TValue}"/> keyed on the lock
@@ -82,13 +82,8 @@ public static class ControlledMonitor
     /// <param name="obj">The lock object.</param>
     public static void Enter(object obj)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(EnterApi);
         ArgumentNullException.ThrowIfNull(obj);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            Monitor.Enter(obj);
-            return;
-        }
-
         AcquireControlled(obj);
     }
 
@@ -97,16 +92,11 @@ public static class ControlledMonitor
     /// <param name="lockTaken">Set to <see langword="true"/> once the lock is held; must be <see langword="false"/> on entry.</param>
     public static void Enter(object obj, ref bool lockTaken)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(EnterApi);
         ArgumentNullException.ThrowIfNull(obj);
         if (lockTaken)
         {
             throw new ArgumentException("The lockTaken argument must be initialized to false before calling Monitor.Enter.", nameof(lockTaken));
-        }
-
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            Monitor.Enter(obj, ref lockTaken);
-            return;
         }
 
         AcquireControlled(obj);
@@ -117,13 +107,8 @@ public static class ControlledMonitor
     /// <param name="obj">The lock object.</param>
     public static void Exit(object obj)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Monitor.Exit");
         ArgumentNullException.ThrowIfNull(obj);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            Monitor.Exit(obj);
-            return;
-        }
-
         var state = StateOf(obj);
         var me = ControlledSynchronizationFlow.CurrentId;
         if (state.Owner != me)
@@ -143,12 +128,8 @@ public static class ControlledMonitor
     /// <returns><see langword="true"/> if the current strand owns the monitor.</returns>
     public static bool IsEntered(object obj)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Monitor.IsEntered");
         ArgumentNullException.ThrowIfNull(obj);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return Monitor.IsEntered(obj);
-        }
-
         return StateOf(obj).Owner == ControlledSynchronizationFlow.CurrentId;
     }
 
@@ -157,14 +138,10 @@ public static class ControlledMonitor
     /// Its value aggregates physical runtime contention across unrelated simulations and cannot be
     /// represented faithfully by a per-simulation cooperative scheduler.
     /// </summary>
-    /// <returns>The real process-wide count outside simulation.</returns>
+    /// <returns>Never returns.</returns>
     public static long LockContentionCount()
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return Monitor.LockContentionCount;
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Monitor.LockContentionCount");
         throw new ControlledTaskUnsupportedException(
             "System.Threading.Monitor.LockContentionCount",
             "the process-wide physical lock contention metric has no faithful per-simulation meaning.");
@@ -175,12 +152,8 @@ public static class ControlledMonitor
     /// <returns><see langword="true"/> if the lock was acquired.</returns>
     public static bool TryEnter(object obj)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(TryEnterApi);
         ArgumentNullException.ThrowIfNull(obj);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return Monitor.TryEnter(obj);
-        }
-
         return TryAcquireControlled(obj);
     }
 
@@ -189,16 +162,11 @@ public static class ControlledMonitor
     /// <param name="lockTaken">Set to the acquisition result; must be <see langword="false"/> on entry.</param>
     public static void TryEnter(object obj, ref bool lockTaken)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(TryEnterApi);
         ArgumentNullException.ThrowIfNull(obj);
         if (lockTaken)
         {
             throw new ArgumentException("The lockTaken argument must be initialized to false before calling Monitor.TryEnter.", nameof(lockTaken));
-        }
-
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            Monitor.TryEnter(obj, ref lockTaken);
-            return;
         }
 
         lockTaken = TryAcquireControlled(obj);
@@ -210,13 +178,9 @@ public static class ControlledMonitor
     /// <returns><see langword="true"/> if the lock was acquired.</returns>
     public static bool TryEnter(object obj, int millisecondsTimeout)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(TryEnterApi);
         ArgumentNullException.ThrowIfNull(obj);
         ValidateTimeout(millisecondsTimeout);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return Monitor.TryEnter(obj, millisecondsTimeout);
-        }
-
         if (millisecondsTimeout == 0)
         {
             return TryAcquireControlled(obj);
@@ -237,6 +201,7 @@ public static class ControlledMonitor
     /// <param name="lockTaken">Set to the acquisition result; must be <see langword="false"/> on entry.</param>
     public static void TryEnter(object obj, int millisecondsTimeout, ref bool lockTaken)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(TryEnterApi);
         ArgumentNullException.ThrowIfNull(obj);
         if (lockTaken)
         {
@@ -244,12 +209,6 @@ public static class ControlledMonitor
         }
 
         ValidateTimeout(millisecondsTimeout);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            Monitor.TryEnter(obj, millisecondsTimeout, ref lockTaken);
-            return;
-        }
-
         if (millisecondsTimeout == 0)
         {
             lockTaken = TryAcquireControlled(obj);
@@ -270,27 +229,29 @@ public static class ControlledMonitor
     /// <param name="obj">The lock object.</param>
     /// <param name="timeout">The timeout, converted to milliseconds and interpreted as for <see cref="TryEnter(object, int)"/>.</param>
     /// <returns><see langword="true"/> if the lock was acquired.</returns>
-    public static bool TryEnter(object obj, TimeSpan timeout) =>
-        TryEnter(obj, ToMilliseconds(timeout));
+    public static bool TryEnter(object obj, TimeSpan timeout)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation(TryEnterApi);
+        return TryEnter(obj, ToMilliseconds(timeout));
+    }
 
     /// <summary>Controlled <see cref="Monitor.TryEnter(object, TimeSpan, ref bool)"/>.</summary>
     /// <param name="obj">The lock object.</param>
     /// <param name="timeout">The timeout, converted to milliseconds and interpreted as for <see cref="TryEnter(object, int)"/>.</param>
     /// <param name="lockTaken">Set to the acquisition result; must be <see langword="false"/> on entry.</param>
-    public static void TryEnter(object obj, TimeSpan timeout, ref bool lockTaken) =>
+    public static void TryEnter(object obj, TimeSpan timeout, ref bool lockTaken)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation(TryEnterApi);
         TryEnter(obj, ToMilliseconds(timeout), ref lockTaken);
+    }
 
     /// <summary>Controlled <see cref="Monitor.Wait(object)"/>.</summary>
     /// <param name="obj">The lock object; the current strand must own it.</param>
     /// <returns><see langword="true"/> when the monitor was reacquired after a pulse.</returns>
     public static bool Wait(object obj)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(WaitApi);
         ArgumentNullException.ThrowIfNull(obj);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return Monitor.Wait(obj);
-        }
-
         return WaitControlled(obj, Timeout.Infinite);
     }
 
@@ -300,13 +261,9 @@ public static class ControlledMonitor
     /// <returns><see langword="true"/> when the monitor was reacquired after a pulse; <see langword="false"/> for a zero timeout with no pending pulse.</returns>
     public static bool Wait(object obj, int millisecondsTimeout)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(WaitApi);
         ArgumentNullException.ThrowIfNull(obj);
         ValidateTimeout(millisecondsTimeout);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return Monitor.Wait(obj, millisecondsTimeout);
-        }
-
         return WaitControlled(obj, millisecondsTimeout);
     }
 
@@ -314,8 +271,11 @@ public static class ControlledMonitor
     /// <param name="obj">The lock object; the current strand must own it.</param>
     /// <param name="timeout">The timeout, converted to milliseconds and interpreted as for <see cref="Wait(object, int)"/>.</param>
     /// <returns><see langword="true"/> when the monitor was reacquired after a pulse.</returns>
-    public static bool Wait(object obj, TimeSpan timeout) =>
-        Wait(obj, ToMilliseconds(timeout));
+    public static bool Wait(object obj, TimeSpan timeout)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation(WaitApi);
+        return Wait(obj, ToMilliseconds(timeout));
+    }
 
     /// <summary>Controlled <see cref="Monitor.Wait(object, int, bool)"/>.</summary>
     /// <param name="obj">The lock object; the current strand must own it.</param>
@@ -324,13 +284,9 @@ public static class ControlledMonitor
     /// <returns><see langword="true"/> when the monitor was reacquired after a pulse.</returns>
     public static bool Wait(object obj, int millisecondsTimeout, bool exitContext)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(WaitApi);
         ArgumentNullException.ThrowIfNull(obj);
         ValidateTimeout(millisecondsTimeout);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return Monitor.Wait(obj, millisecondsTimeout, exitContext);
-        }
-
         return WaitControlled(obj, millisecondsTimeout);
     }
 
@@ -339,20 +295,18 @@ public static class ControlledMonitor
     /// <param name="timeout">The timeout, interpreted as for <see cref="Wait(object, int)"/>.</param>
     /// <param name="exitContext">The legacy synchronization-context flag; a no-op on modern .NET and ignored inside a simulation.</param>
     /// <returns><see langword="true"/> when the monitor was reacquired after a pulse.</returns>
-    public static bool Wait(object obj, TimeSpan timeout, bool exitContext) =>
-        Wait(obj, ToMilliseconds(timeout), exitContext);
+    public static bool Wait(object obj, TimeSpan timeout, bool exitContext)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation(WaitApi);
+        return Wait(obj, ToMilliseconds(timeout), exitContext);
+    }
 
     /// <summary>Controlled <see cref="Monitor.Pulse(object)"/>: makes the longest-waiting strand eligible to reacquire.</summary>
     /// <param name="obj">The lock object; the current strand must own it.</param>
     public static void Pulse(object obj)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Monitor.Pulse");
         ArgumentNullException.ThrowIfNull(obj);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            Monitor.Pulse(obj);
-            return;
-        }
-
         var state = StateOf(obj);
         RequireOwnership(state, "Monitor.Pulse");
         for (var i = 0; i < state.WaitSet.Count; i++)
@@ -373,13 +327,8 @@ public static class ControlledMonitor
     /// <param name="obj">The lock object; the current strand must own it.</param>
     public static void PulseAll(object obj)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Monitor.PulseAll");
         ArgumentNullException.ThrowIfNull(obj);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            Monitor.PulseAll(obj);
-            return;
-        }
-
         var state = StateOf(obj);
         RequireOwnership(state, "Monitor.PulseAll");
         foreach (var waiter in state.WaitSet)

@@ -81,7 +81,6 @@ internal sealed class BuiltInProcessFixture : IDisposable
                 string output = "";
                 node.Context.TaskQueue.EnqueueAfter(() => output = Probe.Run(), TimeSpan.Zero);
                 simulation.RunUntilIdle();
-                simulation.DisposeAsync().AsTask().GetAwaiter().GetResult();
                 Console.WriteLine(output);
                 return 0;
             }

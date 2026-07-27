@@ -1,5 +1,7 @@
 using System.IO;
 using Clockwork.Runtime.Scheduling;
+using Clockwork.Runtime.Tasks;
+using Clockwork.Runtime.Tests.Tasks;
 
 namespace Clockwork.Runtime.Tests;
 
@@ -16,33 +18,45 @@ public sealed class ControlledExceptionGuardTests
     [Fact]
     public void RethrowsTheInternalControlSignal()
     {
+        var coordinator = new ControlledTaskLoopCoordinator();
         var signal = new ControlledOperationAbortSignal(new ControlledOperationId(42));
 
-        // The guard must re-surface the exact same signal instance, preserving its identity/stack.
-        var rethrown = Assert.Throws<ControlledOperationAbortSignal>(
-            () => ControlledExceptionGuard.ThrowIfControlSignal(signal));
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            // The guard must re-surface the exact same signal instance, preserving its identity/stack.
+            var rethrown = Assert.Throws<ControlledOperationAbortSignal>(
+                () => ControlledExceptionGuard.ThrowIfControlSignal(signal));
 
-        Assert.Same(signal, rethrown);
-        Assert.Equal(new ControlledOperationId(42), rethrown.OperationId);
+            Assert.Same(signal, rethrown);
+            Assert.Equal(new ControlledOperationId(42), rethrown.OperationId);
+        });
     }
 
     [Fact]
     public void LetsOrdinaryExceptionsPassThrough()
     {
-        // A normal application exception a broad user catch is meant to handle must NOT be re-thrown by
-        // the guard - it returns so the user handler runs exactly as written.
-        ControlledExceptionGuard.ThrowIfControlSignal(new InvalidOperationException("boom"));
-        ControlledExceptionGuard.ThrowIfControlSignal(new IOException("io"));
-        ControlledExceptionGuard.ThrowIfControlSignal(new TimeoutException("base"));
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            // A normal application exception a broad user catch is meant to handle must NOT be re-thrown by
+            // the guard - it returns so the user handler runs exactly as written.
+            ControlledExceptionGuard.ThrowIfControlSignal(new InvalidOperationException("boom"));
+            ControlledExceptionGuard.ThrowIfControlSignal(new IOException("io"));
+            ControlledExceptionGuard.ThrowIfControlSignal(new TimeoutException("base"));
+        });
     }
 
     [Fact]
     public void IgnoresNonExceptionAndNullOperands()
     {
-        // The injected IL dups whatever is on the handler's evaluation stack; the guard must tolerate a
-        // null or non-Exception operand without throwing.
-        ControlledExceptionGuard.ThrowIfControlSignal(null);
-        ControlledExceptionGuard.ThrowIfControlSignal("not an exception");
-        ControlledExceptionGuard.ThrowIfControlSignal(42);
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            // The injected IL dups whatever is on the handler's evaluation stack; the guard must tolerate a
+            // null or non-Exception operand without throwing.
+            ControlledExceptionGuard.ThrowIfControlSignal(null);
+            ControlledExceptionGuard.ThrowIfControlSignal("not an exception");
+            ControlledExceptionGuard.ThrowIfControlSignal(42);
+        });
     }
 }

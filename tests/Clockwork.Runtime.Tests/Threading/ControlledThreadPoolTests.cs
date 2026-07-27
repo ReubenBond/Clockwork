@@ -13,7 +13,7 @@ namespace Clockwork.Runtime.Tests.Threading;
 /// unsafe variants do not, the native-overlapped surface is rejected precisely, the registered-wait
 /// factories fire their <see cref="WaitOrTimerCallback"/> as a controlled operation on signal
 /// (<c>timedOut: false</c>) or virtual-time timeout (<c>timedOut: true</c>) honouring executeOnlyOnce /
-/// repeating and <c>Unregister</c>, and outside a simulation every shim delegates to the real API.
+/// repeating and <c>Unregister</c>.
 /// </summary>
 public sealed class ControlledThreadPoolTests
 {
@@ -131,14 +131,13 @@ public sealed class ControlledThreadPoolTests
             var ambient = new AsyncLocal<int> { Value = 5 };
             var seen = -1;
 
-            // Unsafe variant does not capture the caller's context; it observes the ambient value at run
-            // time, so the post-enqueue mutation is visible - the flow distinction from the safe variant.
+            // Unsafe queueing does not flow caller AsyncLocal values into the fresh worker context.
             ControlledThreadPool.UnsafeQueueUserWorkItem(_ => seen = ambient.Value, state: null);
 
             ambient.Value = 9;
             coordinator.Loop.RunUntilIdle();
 
-            Assert.Equal(9, seen);
+            Assert.Equal(0, seen);
         });
     }
 
@@ -332,27 +331,42 @@ public sealed class ControlledThreadPoolTests
     }
 
     [Fact]
-    public void OutsideSimulationRegisterWaitDelegatesToRealThreadPool()
+    public void OutsideSimulationRegisterWaitFailsBeforeTouchingHandlesOrCallback()
     {
         using var evt = new ManualResetEvent(false);
         using var fired = new ManualResetEventSlim(false);
+        ControlledRegisteredWaitHandle? registration = null;
 
-        ControlledRegisteredWaitHandle reg = ControlledThreadPool.RegisterWaitForSingleObject(
-            evt, (_, _) => fired.Set(), state: null, Timeout.Infinite, executeOnlyOnce: true);
+        Exception? exception = Record.Exception(
+            () => registration = ControlledThreadPool.RegisterWaitForSingleObject(
+                evt, (_, _) => fired.Set(), state: null, Timeout.Infinite, executeOnlyOnce: true));
 
-        evt.Set();
-        Assert.True(fired.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
-        reg.Unregister(null);
+        Assert.Null(registration);
+        Assert.False(evt.WaitOne(0));
+        Assert.False(fired.IsSet);
+        SimulationNotActiveExceptionAssert.Equal(
+            exception,
+            "System.Threading.ThreadPool.RegisterWaitForSingleObject");
     }
 
     [Fact]
-    public void OutsideSimulationQueueDelegatesToRealThreadPool()
+    public void OutsideSimulationQueueFailsBeforeQueuingTheCallback()
     {
-        using var completed = new ManualResetEventSlim(false);
-        var accepted = ControlledThreadPool.QueueUserWorkItem(_ => completed.Set());
+        var ran = false;
 
-        Assert.True(accepted);
-        Assert.True(completed.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+        Exception? exception = Record.Exception(
+            () => ControlledThreadPool.QueueUserWorkItem(_ => ran = true));
+
+        Assert.False(ran);
+        SimulationNotActiveExceptionAssert.Equal(
+            exception,
+            "System.Threading.ThreadPool.QueueUserWorkItem");
+
+        Exception? nullCallbackException = Record.Exception(
+            () => ControlledThreadPool.QueueUserWorkItem(null!));
+        SimulationNotActiveExceptionAssert.Equal(
+            nullCallbackException,
+            "System.Threading.ThreadPool.QueueUserWorkItem");
     }
 
     // Pumps the loop and folds virtual-time deadlines in, mirroring a host drive loop: run ready work to
@@ -370,5 +384,86 @@ public sealed class ControlledThreadPoolTests
 
             coordinator.Loop.AdvanceTimeTo(due.Value);
         }
+    }
+
+    [Theory]
+    [InlineData((int)QueueVariant.QueueWaitCallback, 5)]
+    [InlineData((int)QueueVariant.QueueGeneric, 5)]
+    [InlineData((int)QueueVariant.UnsafeQueueWaitCallback, 0)]
+    [InlineData((int)QueueVariant.UnsafeQueueGeneric, 0)]
+    [InlineData((int)QueueVariant.UnsafeQueueWorkItem, 0)]
+    public void QueueVariantsMatchBclExecutionContextFlowAtExecutionTime(int variantValue, int expected)
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var variant = (QueueVariant)variantValue;
+            var ambient = new AsyncLocal<int> { Value = 5 };
+            var seen = -1;
+            bool accepted;
+
+            switch (variant)
+            {
+                case QueueVariant.QueueWaitCallback:
+                    accepted = ControlledThreadPool.QueueUserWorkItem(
+                        _ => seen = ambient.Value,
+                        state: new object());
+                    break;
+                case QueueVariant.QueueGeneric:
+                    accepted = ControlledThreadPool.QueueUserWorkItem(
+                        _ => seen = ambient.Value,
+                        state: 17,
+                        preferLocal: true);
+                    break;
+                case QueueVariant.UnsafeQueueWaitCallback:
+                    accepted = ControlledThreadPool.UnsafeQueueUserWorkItem(
+                        _ => seen = ambient.Value,
+                        state: new object());
+                    break;
+                case QueueVariant.UnsafeQueueGeneric:
+                    accepted = ControlledThreadPool.UnsafeQueueUserWorkItem(
+                        _ => seen = ambient.Value,
+                        state: 17,
+                        preferLocal: false);
+                    break;
+                case QueueVariant.UnsafeQueueWorkItem:
+                    accepted = ControlledThreadPool.UnsafeQueueUserWorkItem(
+                        new ExecutionContextRecordingWorkItem(() => seen = ambient.Value),
+                        preferLocal: true);
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(variantValue));
+            }
+
+            Assert.True(accepted);
+            Assert.Equal(-1, seen);
+            Assert.Equal(1, coordinator.Loop.ReadyCount);
+            Assert.False(coordinator.Loop.IsIdle);
+
+            ambient.Value = 9;
+            Assert.Equal(1, coordinator.Loop.RunUntilIdle());
+
+            Assert.Equal(expected, seen);
+            Assert.Equal(9, ambient.Value);
+            Assert.Equal(0, coordinator.Loop.ReadyCount);
+            Assert.Equal(0, coordinator.Loop.WaitingCount);
+            Assert.Null(coordinator.Loop.NextDeadlineDue());
+            Assert.True(coordinator.Loop.IsIdle);
+        });
+    }
+
+    private enum QueueVariant
+    {
+        QueueWaitCallback,
+        QueueGeneric,
+        UnsafeQueueWaitCallback,
+        UnsafeQueueGeneric,
+        UnsafeQueueWorkItem,
+    }
+
+    private sealed class ExecutionContextRecordingWorkItem(Action execute) : IThreadPoolWorkItem
+    {
+        public void Execute() => execute();
     }
 }

@@ -25,6 +25,7 @@ public sealed class TaskFactoryConformanceTests : IDisposable
             // Task.Factory.StartNew(Func<TResult>) computes on the logical thread and returns its value.
             public static Task<int> StartValue() => ValueImpl();
             private static async Task<int> ValueImpl() => await Task.Factory.StartNew(() => 42);
+            public static Task StartActionOnly(int[] sink) => Task.Factory.StartNew(() => sink[0] = 42);
 
             // Task.Factory.StartNew(Action) mutates shared state under the cluster drive.
             public static Task<int> StartAction(int[] sink) => ActionImpl(sink);
@@ -252,10 +253,18 @@ public sealed class TaskFactoryConformanceTests : IDisposable
     }
 
     [Fact]
-    public async Task RewrittenStartNewDelegatesToRealBclOutsideAnySimulation()
+    public async Task OnlyRewrittenStartNewRequiresActiveSimulationWithoutRunningItsAction()
     {
-        var task = (Task<int>)Method("StartValue").Invoke(null, null)!;
+        UninstrumentedProbe uninstrumented = _fixture.CompileUninstrumented(
+            "Conf.UninstrumentedTaskFactory",
+            "Conf.FactoryProbe",
+            Source);
+        var task = (Task<int>)uninstrumented.Method("StartValue").Invoke(null, null)!;
         Assert.Equal(42, await task);
+
+        int[] sink = [0];
+        SimulationNotActiveExceptionAssert.Throws(Method("StartActionOnly"), sink);
+        Assert.Equal(0, sink[0]);
     }
 
     private MethodInfo Method(string name) => _release.Value.Method(name);
@@ -272,4 +281,173 @@ public sealed class TaskFactoryConformanceTests : IDisposable
     }
 
     public void Dispose() => _fixture.Dispose();
+
+    [Fact]
+    public void StartNewFlowsCapturedExecutionContext()
+    {
+        using var host = new SimulationHost(Start);
+        var task = (Task<int>)host.Invoke(ExecutionContextMethod("StartNewFlowsContext"))!;
+
+        Assert.Equal(TaskStatus.RanToCompletion, task.Status);
+        Assert.Equal(5, Result<int>(task));
+    }
+
+    private const string ExecutionContextSource = """
+        using System.Threading;
+        using System.Threading.Tasks;
+        namespace Conf { public static class FactoryExecutionContextProbe {
+            public static Task<int> StartNewFlowsContext()
+            {
+                var ambient = new AsyncLocal<int> { Value = 5 };
+                var task = Task.Factory.StartNew(() => ambient.Value);
+                ambient.Value = 9;
+                return task;
+            }
+        } }
+        """;
+
+    private StagedProbe? _executionContextProbe;
+
+    private MethodInfo ExecutionContextMethod(string name) =>
+        (_executionContextProbe ??= _fixture.StageControlledTasks(
+            "Conf.TaskFactoryExecutionContext",
+            "Conf.FactoryExecutionContextProbe",
+            ExecutionContextSource,
+            optimize: true)).Method(name);
+
+    [Theory]
+    [InlineData((int)StartNewOceDelegateShape.Action, (int)StartNewOceCase.Bare)]
+    [InlineData((int)StartNewOceDelegateShape.Action, (int)StartNewOceCase.UnmatchedRequested)]
+    [InlineData((int)StartNewOceDelegateShape.Action, (int)StartNewOceCase.MatchingNotRequested)]
+    [InlineData((int)StartNewOceDelegateShape.Action, (int)StartNewOceCase.MatchingRequested)]
+    [InlineData((int)StartNewOceDelegateShape.Function, (int)StartNewOceCase.Bare)]
+    [InlineData((int)StartNewOceDelegateShape.Function, (int)StartNewOceCase.UnmatchedRequested)]
+    [InlineData((int)StartNewOceDelegateShape.Function, (int)StartNewOceCase.MatchingNotRequested)]
+    [InlineData((int)StartNewOceDelegateShape.Function, (int)StartNewOceCase.MatchingRequested)]
+    public void StartNewOceClassificationMatchesBcl(int delegateShapeValue, int oceCaseValue)
+    {
+        var delegateShape = (StartNewOceDelegateShape)delegateShapeValue;
+        var oceCase = (StartNewOceCase)oceCaseValue;
+        using var associatedSource = new CancellationTokenSource();
+        using var unrelatedSource = new CancellationTokenSource();
+
+        OperationCanceledException thrown;
+        switch (oceCase)
+        {
+            case StartNewOceCase.Bare:
+                thrown = new OperationCanceledException();
+                break;
+            case StartNewOceCase.UnmatchedRequested:
+                unrelatedSource.Cancel();
+                thrown = new OperationCanceledException(unrelatedSource.Token);
+                break;
+            case StartNewOceCase.MatchingNotRequested:
+            case StartNewOceCase.MatchingRequested:
+                thrown = new OperationCanceledException(associatedSource.Token);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(oceCaseValue));
+        }
+
+        using var host = new SimulationHost(Start);
+        string methodName = delegateShape == StartNewOceDelegateShape.Action
+            ? "StartOceAction"
+            : "StartOceFunction";
+        var task = (Task)host.Invoke(
+            Phase4Method(methodName),
+            (int)oceCase,
+            associatedSource,
+            thrown)!;
+
+        bool shouldCancel = oceCase == StartNewOceCase.MatchingRequested;
+        Assert.Equal(shouldCancel, associatedSource.IsCancellationRequested);
+        AssertOceTaskCompletion(task, thrown, shouldCancel);
+    }
+
+    private const string Phase4Source = """
+        using System;
+        using System.Threading;
+        using System.Threading.Tasks;
+        namespace Conf { public static class FactoryOceProbe {
+            public static Task StartOceAction(
+                int scenario,
+                CancellationTokenSource associated,
+                OperationCanceledException error)
+            {
+                Action body = () =>
+                {
+                    if (scenario == 3) associated.Cancel();
+                    throw error;
+                };
+                return scenario == 0
+                    ? Task.Factory.StartNew(body)
+                    : Task.Factory.StartNew(body, associated.Token);
+            }
+
+            public static Task StartOceFunction(
+                int scenario,
+                CancellationTokenSource associated,
+                OperationCanceledException error)
+            {
+                Func<int> body = () =>
+                {
+                    if (scenario == 3) associated.Cancel();
+                    throw error;
+                };
+                return scenario == 0
+                    ? Task.Factory.StartNew(body)
+                    : Task.Factory.StartNew(body, associated.Token);
+            }
+        } }
+        """;
+
+    private StagedProbe? _phase4Probe;
+
+    private MethodInfo Phase4Method(string name) =>
+        (_phase4Probe ??= _fixture.StageControlledTasks(
+            "Conf.TaskFactoryOce",
+            "Conf.FactoryOceProbe",
+            Phase4Source,
+            optimize: true)).Method(name);
+
+    private static void AssertOceTaskCompletion(
+        Task task,
+        OperationCanceledException thrown,
+        bool shouldCancel)
+    {
+        if (shouldCancel)
+        {
+            Assert.Equal(TaskStatus.Canceled, task.Status);
+            Assert.True(task.IsCanceled);
+            Assert.Null(task.Exception);
+            var awaited = Assert.ThrowsAny<OperationCanceledException>(() => task.GetAwaiter().GetResult());
+            Assert.Equal(thrown.CancellationToken, awaited.CancellationToken);
+            return;
+        }
+
+        Assert.Equal(TaskStatus.Faulted, task.Status);
+        Assert.False(task.IsCanceled);
+        var aggregate = Assert.IsType<AggregateException>(task.Exception);
+        var inner = Assert.Single(aggregate.InnerExceptions);
+        var fault = Assert.IsType<OperationCanceledException>(inner);
+        Assert.Same(thrown, fault);
+        Assert.Equal(thrown.CancellationToken, fault.CancellationToken);
+        var awaitedFault = Assert.Throws<OperationCanceledException>(() => task.GetAwaiter().GetResult());
+        Assert.Same(thrown, awaitedFault);
+        Assert.Equal(thrown.CancellationToken, awaitedFault.CancellationToken);
+    }
+
+    private enum StartNewOceDelegateShape
+    {
+        Action,
+        Function,
+    }
+
+    private enum StartNewOceCase
+    {
+        Bare,
+        UnmatchedRequested,
+        MatchingNotRequested,
+        MatchingRequested,
+    }
 }

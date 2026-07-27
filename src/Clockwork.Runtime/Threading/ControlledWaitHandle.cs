@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks;
 using Microsoft.Win32.SafeHandles;
 
@@ -25,8 +26,7 @@ namespace Clockwork.Runtime.Threading;
 /// <see cref="WaitHandle.WaitOne()"/> pumps the deterministic loop until the handle is signalled (an
 /// auto-reset handle consumes the signal, a manual-reset handle leaves it set), or a finite virtual-time
 /// deadline elapses - never real time, never a blocked physical thread. A wait that can never be satisfied
-/// surfaces as the standard controlled deadlock diagnostic. Outside a simulation every shim delegates to
-/// the real <see cref="WaitHandle"/>.
+/// surfaces as the standard controlled deadlock diagnostic.
 /// </para>
 /// <para>
 /// Adapted from Microsoft Coyote (MIT), whose controlled wait handles likewise model the signalled state
@@ -254,12 +254,8 @@ public static class ControlledWaitHandle
     /// <returns><see langword="true"/> when the handle is signalled.</returns>
     public static bool WaitOne(WaitHandle instance)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(WaitOneApi);
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return instance.WaitOne();
-        }
-
         return WaitControlled(instance, Timeout.Infinite, WaitOneApi);
     }
 
@@ -269,12 +265,8 @@ public static class ControlledWaitHandle
     /// <returns><see langword="true"/> when the handle is signalled before the deadline.</returns>
     public static bool WaitOne(WaitHandle instance, int millisecondsTimeout)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(WaitOneApi);
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return instance.WaitOne(millisecondsTimeout);
-        }
-
         return WaitControlled(instance, millisecondsTimeout, WaitOneApi);
     }
 
@@ -284,12 +276,8 @@ public static class ControlledWaitHandle
     /// <returns><see langword="true"/> when the handle is signalled before the deadline.</returns>
     public static bool WaitOne(WaitHandle instance, TimeSpan timeout)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(WaitOneApi);
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return instance.WaitOne(timeout);
-        }
-
         return WaitControlled(instance, ToMilliseconds(timeout), WaitOneApi);
     }
 
@@ -300,12 +288,8 @@ public static class ControlledWaitHandle
     /// <returns><see langword="true"/> when the handle is signalled before the deadline.</returns>
     public static bool WaitOne(WaitHandle instance, int millisecondsTimeout, bool exitContext)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(WaitOneApi);
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return instance.WaitOne(millisecondsTimeout, exitContext);
-        }
-
         return WaitControlled(instance, millisecondsTimeout, WaitOneApi);
     }
 
@@ -316,12 +300,8 @@ public static class ControlledWaitHandle
     /// <returns><see langword="true"/> when the handle is signalled before the deadline.</returns>
     public static bool WaitOne(WaitHandle instance, TimeSpan timeout, bool exitContext)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(WaitOneApi);
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return instance.WaitOne(timeout, exitContext);
-        }
-
         return WaitControlled(instance, ToMilliseconds(timeout), WaitOneApi);
     }
 
@@ -335,11 +315,7 @@ public static class ControlledWaitHandle
     /// <returns>The array index of the handle that satisfied the wait.</returns>
     public static int WaitAny(WaitHandle[] waitHandles)
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return WaitHandle.WaitAny(waitHandles);
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation(WaitAnyApi);
         return WaitAnyControlled(waitHandles, Timeout.Infinite);
     }
 
@@ -349,11 +325,7 @@ public static class ControlledWaitHandle
     /// <returns>The signalled handle's index, or <see cref="WaitTimeout"/> on timeout.</returns>
     public static int WaitAny(WaitHandle[] waitHandles, int millisecondsTimeout)
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return WaitHandle.WaitAny(waitHandles, millisecondsTimeout);
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation(WaitAnyApi);
         return WaitAnyControlled(waitHandles, millisecondsTimeout);
     }
 
@@ -363,11 +335,7 @@ public static class ControlledWaitHandle
     /// <returns>The signalled handle's index, or <see cref="WaitTimeout"/> on timeout.</returns>
     public static int WaitAny(WaitHandle[] waitHandles, TimeSpan timeout)
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return WaitHandle.WaitAny(waitHandles, timeout);
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation(WaitAnyApi);
         return WaitAnyControlled(waitHandles, ToMilliseconds(timeout));
     }
 
@@ -378,11 +346,7 @@ public static class ControlledWaitHandle
     /// <returns>The signalled handle's index, or <see cref="WaitTimeout"/> on timeout.</returns>
     public static int WaitAny(WaitHandle[] waitHandles, int millisecondsTimeout, bool exitContext)
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return WaitHandle.WaitAny(waitHandles, millisecondsTimeout, exitContext);
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation(WaitAnyApi);
         return WaitAnyControlled(waitHandles, millisecondsTimeout);
     }
 
@@ -393,11 +357,7 @@ public static class ControlledWaitHandle
     /// <returns>The signalled handle's index, or <see cref="WaitTimeout"/> on timeout.</returns>
     public static int WaitAny(WaitHandle[] waitHandles, TimeSpan timeout, bool exitContext)
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return WaitHandle.WaitAny(waitHandles, timeout, exitContext);
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation(WaitAnyApi);
         return WaitAnyControlled(waitHandles, ToMilliseconds(timeout));
     }
 
@@ -406,11 +366,7 @@ public static class ControlledWaitHandle
     /// <returns><see langword="true"/> when every handle became signalled.</returns>
     public static bool WaitAll(WaitHandle[] waitHandles)
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return WaitHandle.WaitAll(waitHandles);
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation(WaitAllApi);
         return WaitAllControlled(waitHandles, Timeout.Infinite);
     }
 
@@ -420,11 +376,7 @@ public static class ControlledWaitHandle
     /// <returns><see langword="true"/> when every handle became signalled before the deadline.</returns>
     public static bool WaitAll(WaitHandle[] waitHandles, int millisecondsTimeout)
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return WaitHandle.WaitAll(waitHandles, millisecondsTimeout);
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation(WaitAllApi);
         return WaitAllControlled(waitHandles, millisecondsTimeout);
     }
 
@@ -434,11 +386,7 @@ public static class ControlledWaitHandle
     /// <returns><see langword="true"/> when every handle became signalled before the deadline.</returns>
     public static bool WaitAll(WaitHandle[] waitHandles, TimeSpan timeout)
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return WaitHandle.WaitAll(waitHandles, timeout);
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation(WaitAllApi);
         return WaitAllControlled(waitHandles, ToMilliseconds(timeout));
     }
 
@@ -449,11 +397,7 @@ public static class ControlledWaitHandle
     /// <returns><see langword="true"/> when every handle became signalled before the deadline.</returns>
     public static bool WaitAll(WaitHandle[] waitHandles, int millisecondsTimeout, bool exitContext)
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return WaitHandle.WaitAll(waitHandles, millisecondsTimeout, exitContext);
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation(WaitAllApi);
         return WaitAllControlled(waitHandles, millisecondsTimeout);
     }
 
@@ -464,11 +408,7 @@ public static class ControlledWaitHandle
     /// <returns><see langword="true"/> when every handle became signalled before the deadline.</returns>
     public static bool WaitAll(WaitHandle[] waitHandles, TimeSpan timeout, bool exitContext)
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return WaitHandle.WaitAll(waitHandles, timeout, exitContext);
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation(WaitAllApi);
         return WaitAllControlled(waitHandles, ToMilliseconds(timeout));
     }
 
@@ -478,11 +418,7 @@ public static class ControlledWaitHandle
     /// <returns><see langword="true"/> when <paramref name="toWaitOn"/> became signalled.</returns>
     public static bool SignalAndWait(WaitHandle toSignal, WaitHandle toWaitOn)
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return WaitHandle.SignalAndWait(toSignal, toWaitOn);
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation(SignalAndWaitApi);
         return SignalAndWaitControlled(toSignal, toWaitOn, Timeout.Infinite);
     }
 
@@ -494,11 +430,7 @@ public static class ControlledWaitHandle
     /// <returns><see langword="true"/> when <paramref name="toWaitOn"/> became signalled before the deadline.</returns>
     public static bool SignalAndWait(WaitHandle toSignal, WaitHandle toWaitOn, int millisecondsTimeout, bool exitContext)
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return WaitHandle.SignalAndWait(toSignal, toWaitOn, millisecondsTimeout, exitContext);
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation(SignalAndWaitApi);
         return SignalAndWaitControlled(toSignal, toWaitOn, millisecondsTimeout);
     }
 
@@ -510,11 +442,7 @@ public static class ControlledWaitHandle
     /// <returns><see langword="true"/> when <paramref name="toWaitOn"/> became signalled before the deadline.</returns>
     public static bool SignalAndWait(WaitHandle toSignal, WaitHandle toWaitOn, TimeSpan timeout, bool exitContext)
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return WaitHandle.SignalAndWait(toSignal, toWaitOn, timeout, exitContext);
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation(SignalAndWaitApi);
         return SignalAndWaitControlled(toSignal, toWaitOn, ToMilliseconds(timeout));
     }
 
@@ -762,6 +690,7 @@ public static class ControlledWaitHandle
     /// <param name="instance">The receiving wait handle.</param>
     public static void Dispose(WaitHandle instance)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.WaitHandle.Dispose");
         ArgumentNullException.ThrowIfNull(instance);
         if (States.TryGetValue(instance, out EventState? state))
         {
@@ -769,7 +698,7 @@ public static class ControlledWaitHandle
         }
 
         // Always release the real identity object's OS handle; the modelled state above is what a
-        // controlled wait observes. Safe both inside and outside a simulation.
+        // controlled wait observes.
         instance.Dispose();
     }
 
@@ -784,14 +713,8 @@ public static class ControlledWaitHandle
     /// <returns>Never returns inside a simulation; throws instead.</returns>
     public static IntPtr GetHandle(WaitHandle instance)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(HandleApi);
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-#pragma warning disable CS0618 // WaitHandle.Handle is deprecated; the passthrough must still honour it outside a simulation.
-            return instance.Handle;
-#pragma warning restore CS0618
-        }
-
         throw RawHandleRejected(HandleApi);
     }
 
@@ -800,15 +723,8 @@ public static class ControlledWaitHandle
     /// <param name="value">The requested native handle.</param>
     public static void SetHandle(WaitHandle instance, IntPtr value)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(HandleApi);
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-#pragma warning disable CS0618 // WaitHandle.Handle is deprecated; the passthrough must still honour it outside a simulation.
-            instance.Handle = value;
-#pragma warning restore CS0618
-            return;
-        }
-
         throw RawHandleRejected(HandleApi);
     }
 
@@ -817,12 +733,8 @@ public static class ControlledWaitHandle
     /// <returns>Never returns inside a simulation; throws instead.</returns>
     public static SafeWaitHandle GetSafeWaitHandle(WaitHandle instance)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(SafeWaitHandleApi);
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return instance.SafeWaitHandle;
-        }
-
         throw RawHandleRejected(SafeWaitHandleApi);
     }
 
@@ -831,13 +743,8 @@ public static class ControlledWaitHandle
     /// <param name="value">The requested safe handle.</param>
     public static void SetSafeWaitHandle(WaitHandle instance, SafeWaitHandle value)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(SafeWaitHandleApi);
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            instance.SafeWaitHandle = value;
-            return;
-        }
-
         throw RawHandleRejected(SafeWaitHandleApi);
     }
 

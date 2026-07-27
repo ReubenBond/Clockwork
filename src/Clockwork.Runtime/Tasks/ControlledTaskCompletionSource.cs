@@ -1,4 +1,6 @@
 using System.Threading.Tasks;
+using Clockwork.Runtime.Execution;
+using Clockwork.Runtime.Shims;
 
 namespace Clockwork.Runtime.Tasks;
 
@@ -9,13 +11,11 @@ namespace Clockwork.Runtime.Tasks;
 /// this type so that construction stays deterministic inside a simulation.
 /// </para>
 /// <para>
-/// The one behavioural change is that <see cref="TaskCreationOptions.RunContinuationsAsynchronously"/>
-/// is stripped inside a simulation. That flag normally makes completion post the task's continuations to
+/// <see cref="TaskCreationOptions.RunContinuationsAsynchronously"/> is stripped. That flag normally makes completion post the task's continuations to
 /// the thread pool - an escape from the single logical thread. It is safe to drop because Clockwork
 /// controls continuations at the await/ContinueWith site (via the controlled awaiters and
 /// <see cref="ControlledTask.ContinueWith(Task, Action{Task})"/>), so completion here simply sets status
-/// on the logical thread and the controlled awaiter reschedules deterministically. Outside a simulation
-/// the flag - and every other option - is honoured exactly.
+/// on the logical thread and the controlled awaiter reschedules deterministically.
 /// </para>
 /// </summary>
 public sealed class ControlledTaskCompletionSource
@@ -34,30 +34,33 @@ public sealed class ControlledTaskCompletionSource
         _inner = new TaskCompletionSource(ControlledTaskCompletionSourceOptions.Normalize(creationOptions));
 
     /// <summary>Gets the task controlled by this completion source.</summary>
-    public Task Task => _inner.Task;
+    public Task Task => (RequireActive(), _inner.Task).Item2;
 
     /// <summary>Transitions the task to <see cref="TaskStatus.RanToCompletion"/>.</summary>
-    public void SetResult() => _inner.SetResult();
+    public void SetResult() { RequireActive(); _inner.SetResult(); }
 
     /// <summary>Attempts to transition the task to <see cref="TaskStatus.RanToCompletion"/>.</summary>
     /// <returns><see langword="true"/> if successful.</returns>
-    public bool TrySetResult() => _inner.TrySetResult();
+    public bool TrySetResult() => (RequireActive(), _inner.TrySetResult()).Item2;
 
     /// <summary>Transitions the task to <see cref="TaskStatus.Faulted"/> with the given exception.</summary>
     /// <param name="exception">The fault.</param>
-    public void SetException(Exception exception) => _inner.SetException(exception);
+    public void SetException(Exception exception) { RequireActive(); _inner.SetException(exception); }
 
     /// <summary>Attempts to transition the task to <see cref="TaskStatus.Faulted"/>.</summary>
     /// <param name="exception">The fault.</param>
     /// <returns><see langword="true"/> if successful.</returns>
-    public bool TrySetException(Exception exception) => _inner.TrySetException(exception);
+    public bool TrySetException(Exception exception) => (RequireActive(), _inner.TrySetException(exception)).Item2;
 
     /// <summary>Transitions the task to <see cref="TaskStatus.Canceled"/>.</summary>
-    public void SetCanceled() => _inner.SetCanceled();
+    public void SetCanceled() { RequireActive(); _inner.SetCanceled(); }
 
     /// <summary>Attempts to transition the task to <see cref="TaskStatus.Canceled"/>.</summary>
     /// <returns><see langword="true"/> if successful.</returns>
-    public bool TrySetCanceled() => _inner.TrySetCanceled();
+    public bool TrySetCanceled() => (RequireActive(), _inner.TrySetCanceled()).Item2;
+
+    private static SimulationExecutionSnapshot RequireActive() =>
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.TaskCompletionSource");
 }
 
 /// <summary>
@@ -82,46 +85,42 @@ public sealed class ControlledTaskCompletionSource<TResult>
         _inner = new TaskCompletionSource<TResult>(ControlledTaskCompletionSourceOptions.Normalize(creationOptions));
 
     /// <summary>Gets the task controlled by this completion source.</summary>
-    public Task<TResult> Task => _inner.Task;
+    public Task<TResult> Task => (RequireActive(), _inner.Task).Item2;
 
     /// <summary>Transitions the task to <see cref="TaskStatus.RanToCompletion"/> with the given result.</summary>
     /// <param name="result">The result.</param>
-    public void SetResult(TResult result) => _inner.SetResult(result);
+    public void SetResult(TResult result) { RequireActive(); _inner.SetResult(result); }
 
     /// <summary>Attempts to transition the task to <see cref="TaskStatus.RanToCompletion"/> with the given result.</summary>
     /// <param name="result">The result.</param>
     /// <returns><see langword="true"/> if successful.</returns>
-    public bool TrySetResult(TResult result) => _inner.TrySetResult(result);
+    public bool TrySetResult(TResult result) => (RequireActive(), _inner.TrySetResult(result)).Item2;
 
     /// <summary>Transitions the task to <see cref="TaskStatus.Faulted"/> with the given exception.</summary>
     /// <param name="exception">The fault.</param>
-    public void SetException(Exception exception) => _inner.SetException(exception);
+    public void SetException(Exception exception) { RequireActive(); _inner.SetException(exception); }
 
     /// <summary>Attempts to transition the task to <see cref="TaskStatus.Faulted"/>.</summary>
     /// <param name="exception">The fault.</param>
     /// <returns><see langword="true"/> if successful.</returns>
-    public bool TrySetException(Exception exception) => _inner.TrySetException(exception);
+    public bool TrySetException(Exception exception) => (RequireActive(), _inner.TrySetException(exception)).Item2;
 
     /// <summary>Transitions the task to <see cref="TaskStatus.Canceled"/>.</summary>
-    public void SetCanceled() => _inner.SetCanceled();
+    public void SetCanceled() { RequireActive(); _inner.SetCanceled(); }
 
     /// <summary>Attempts to transition the task to <see cref="TaskStatus.Canceled"/>.</summary>
     /// <returns><see langword="true"/> if successful.</returns>
-    public bool TrySetCanceled() => _inner.TrySetCanceled();
+    public bool TrySetCanceled() => (RequireActive(), _inner.TrySetCanceled()).Item2;
+
+    private static SimulationExecutionSnapshot RequireActive() =>
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.TaskCompletionSource`1");
 }
 
 internal static class ControlledTaskCompletionSourceOptions
 {
     public static TaskCreationOptions Normalize(TaskCreationOptions creationOptions)
     {
-        // Inside a simulation, dropping RunContinuationsAsynchronously keeps completion on the logical
-        // thread; continuations are already controlled at the await/ContinueWith site. Outside a
-        // simulation the options are passed through untouched.
-        if (ControlledTaskRuntime.IsSimulationActive)
-        {
-            return creationOptions & ~TaskCreationOptions.RunContinuationsAsynchronously;
-        }
-
-        return creationOptions;
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.TaskCompletionSource..ctor");
+        return creationOptions & ~TaskCreationOptions.RunContinuationsAsynchronously;
     }
 }

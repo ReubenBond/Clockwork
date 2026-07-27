@@ -59,21 +59,24 @@ public sealed class ControlledTaskRuntimeTests
     }
 
     [Fact]
-    public void TryGetCoordinatorReturnsFalseOutsideSimulation()
+    public void RequireCoordinatorOutsideSimulationRequiresActiveSimulation()
     {
         Assert.False(ControlledTaskRuntime.IsSimulationActive);
-        Assert.False(ControlledTaskRuntime.TryGetCoordinator("test.api", out _, out var node));
-        Assert.Null(node);
+
+        Exception? exception = Record.Exception(
+            () => ControlledTaskRuntime.RequireCoordinator("test.api"));
+
+        SimulationNotActiveExceptionAssert.Equal(exception, "test.api");
     }
 
     [Fact]
-    public void TryGetCoordinatorReturnsTrueWithNodeWhenActiveAndRegistered()
+    public void RequireCoordinatorReturnsNodeWhenActiveAndRegistered()
     {
         var coordinator = new ControlledTaskLoopCoordinator();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            Assert.True(ControlledTaskRuntime.TryGetCoordinator("test.api", out var resolved, out var node));
+            var (resolved, node) = ControlledTaskRuntime.RequireCoordinator("test.api");
             Assert.Same(coordinator, resolved);
             Assert.NotNull(node);
             Assert.Equal(TaskTestHarness.DefaultNodeAddress, node!.Address);
@@ -81,12 +84,12 @@ public sealed class ControlledTaskRuntimeTests
     }
 
     [Fact]
-    public void TryGetCoordinatorThrowsWhenActiveButNoCoordinatorRegistered()
+    public void RequireCoordinatorThrowsWhenActiveButNoCoordinatorRegistered()
     {
         TaskTestHarness.RunInSimulationWithoutCoordinator(() =>
         {
             var ex = Assert.Throws<ControlledTaskServiceMissingException>(
-                () => ControlledTaskRuntime.TryGetCoordinator("System.Example.Api", out _, out _));
+                () => ControlledTaskRuntime.RequireCoordinator("System.Example.Api"));
             Assert.Equal("System.Example.Api", ex.ApiName);
         });
     }
@@ -164,16 +167,14 @@ public sealed class ControlledTaskRuntimeTests
             coordinatorA,
             () =>
             {
-                ControlledTaskRuntime.TryGetCoordinator("api", out var c, out _);
-                return c;
+                return ControlledTaskRuntime.RequireCoordinator("api").Coordinator;
             },
             runtime: runtimeA);
         var resolvedB = TaskTestHarness.RunInSimulation(
             coordinatorB,
             () =>
             {
-                ControlledTaskRuntime.TryGetCoordinator("api", out var c, out _);
-                return c;
+                return ControlledTaskRuntime.RequireCoordinator("api").Coordinator;
             },
             runtime: runtimeB);
 

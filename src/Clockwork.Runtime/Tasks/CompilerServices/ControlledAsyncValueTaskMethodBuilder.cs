@@ -1,5 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
+using Clockwork.Runtime.Execution;
+using Clockwork.Runtime.Shims;
 
 namespace Clockwork.Runtime.Tasks.CompilerServices;
 
@@ -18,29 +20,36 @@ public struct ControlledAsyncValueTaskMethodBuilder
 
     /// <summary>Creates a new controlled builder wrapping a fresh real builder.</summary>
     /// <returns>The new builder.</returns>
-    public static ControlledAsyncValueTaskMethodBuilder Create() => new(AsyncValueTaskMethodBuilder.Create());
+    public static ControlledAsyncValueTaskMethodBuilder Create() =>
+        (RequireActive(), new ControlledAsyncValueTaskMethodBuilder(AsyncValueTaskMethodBuilder.Create())).Item2;
 
     /// <summary>Gets the value task for the async method, with unchanged semantics.</summary>
-    public readonly ValueTask Task => _inner.Task;
+    public readonly ValueTask Task => (RequireActive(), _inner.Task).Item2;
 
     /// <summary>Begins running the state machine, up to its first suspension point.</summary>
     /// <typeparam name="TStateMachine">The state machine type.</typeparam>
     /// <param name="stateMachine">The state machine.</param>
     public void Start<TStateMachine>(ref TStateMachine stateMachine)
-        where TStateMachine : IAsyncStateMachine =>
+        where TStateMachine : IAsyncStateMachine
+    {
+        RequireActive();
         _inner.Start(ref stateMachine);
+    }
 
     /// <summary>Associates the boxed state machine with the builder.</summary>
     /// <param name="stateMachine">The boxed state machine.</param>
-    public readonly void SetStateMachine(IAsyncStateMachine stateMachine) =>
+    public readonly void SetStateMachine(IAsyncStateMachine stateMachine)
+    {
+        RequireActive();
         _inner.SetStateMachine(stateMachine);
+    }
 
     /// <summary>Completes the value task successfully.</summary>
-    public void SetResult() => _inner.SetResult();
+    public void SetResult() { RequireActive(); _inner.SetResult(); }
 
     /// <summary>Completes the value task in a faulted or cancelled state.</summary>
     /// <param name="exception">The exception to fault (or cancel) the value task with.</param>
-    public void SetException(Exception exception) => _inner.SetException(exception);
+    public void SetException(Exception exception) { RequireActive(); _inner.SetException(exception); }
 
     /// <summary>Schedules the state machine to resume when the awaiter completes (context-flowing).</summary>
     /// <typeparam name="TAwaiter">The awaiter type.</typeparam>
@@ -49,8 +58,11 @@ public struct ControlledAsyncValueTaskMethodBuilder
     /// <param name="stateMachine">The state machine.</param>
     public void AwaitOnCompleted<TAwaiter, TStateMachine>(ref TAwaiter awaiter, ref TStateMachine stateMachine)
         where TAwaiter : INotifyCompletion
-        where TStateMachine : IAsyncStateMachine =>
+        where TStateMachine : IAsyncStateMachine
+    {
+        RequireActive();
         _inner.AwaitOnCompleted(ref awaiter, ref stateMachine);
+    }
 
     /// <summary>Schedules the state machine to resume when the awaiter completes (non context-flowing).</summary>
     /// <typeparam name="TAwaiter">The awaiter type.</typeparam>
@@ -59,8 +71,14 @@ public struct ControlledAsyncValueTaskMethodBuilder
     /// <param name="stateMachine">The state machine.</param>
     public void AwaitUnsafeOnCompleted<TAwaiter, TStateMachine>(ref TAwaiter awaiter, ref TStateMachine stateMachine)
         where TAwaiter : ICriticalNotifyCompletion
-        where TStateMachine : IAsyncStateMachine =>
+        where TStateMachine : IAsyncStateMachine
+    {
+        RequireActive();
         _inner.AwaitUnsafeOnCompleted(ref awaiter, ref stateMachine);
+    }
+
+    private static SimulationExecutionSnapshot RequireActive() =>
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Runtime.CompilerServices.AsyncValueTaskMethodBuilder");
 }
 
 /// <summary>
@@ -83,30 +101,36 @@ public struct ControlledAsyncValueTaskMethodBuilder<TResult>
     /// <summary>Creates a new controlled builder wrapping a fresh real builder.</summary>
     /// <returns>The new builder.</returns>
     public static ControlledAsyncValueTaskMethodBuilder<TResult> Create() =>
-        new(AsyncValueTaskMethodBuilder<TResult>.Create());
+        (RequireActive(), new ControlledAsyncValueTaskMethodBuilder<TResult>(AsyncValueTaskMethodBuilder<TResult>.Create())).Item2;
 
     /// <summary>Gets the value task for the async method, with unchanged semantics.</summary>
-    public readonly ValueTask<TResult> Task => _inner.Task;
+    public readonly ValueTask<TResult> Task => (RequireActive(), _inner.Task).Item2;
 
     /// <summary>Begins running the state machine, up to its first suspension point.</summary>
     /// <typeparam name="TStateMachine">The state machine type.</typeparam>
     /// <param name="stateMachine">The state machine.</param>
     public void Start<TStateMachine>(ref TStateMachine stateMachine)
-        where TStateMachine : IAsyncStateMachine =>
+        where TStateMachine : IAsyncStateMachine
+    {
+        RequireActive();
         _inner.Start(ref stateMachine);
+    }
 
     /// <summary>Associates the boxed state machine with the builder.</summary>
     /// <param name="stateMachine">The boxed state machine.</param>
-    public readonly void SetStateMachine(IAsyncStateMachine stateMachine) =>
+    public readonly void SetStateMachine(IAsyncStateMachine stateMachine)
+    {
+        RequireActive();
         _inner.SetStateMachine(stateMachine);
+    }
 
     /// <summary>Completes the value task successfully with the given result.</summary>
     /// <param name="result">The result value.</param>
-    public void SetResult(TResult result) => _inner.SetResult(result);
+    public void SetResult(TResult result) { RequireActive(); _inner.SetResult(result); }
 
     /// <summary>Completes the value task in a faulted or cancelled state.</summary>
     /// <param name="exception">The exception to fault (or cancel) the value task with.</param>
-    public void SetException(Exception exception) => _inner.SetException(exception);
+    public void SetException(Exception exception) { RequireActive(); _inner.SetException(exception); }
 
     /// <summary>Schedules the state machine to resume when the awaiter completes (context-flowing).</summary>
     /// <typeparam name="TAwaiter">The awaiter type.</typeparam>
@@ -115,8 +139,11 @@ public struct ControlledAsyncValueTaskMethodBuilder<TResult>
     /// <param name="stateMachine">The state machine.</param>
     public void AwaitOnCompleted<TAwaiter, TStateMachine>(ref TAwaiter awaiter, ref TStateMachine stateMachine)
         where TAwaiter : INotifyCompletion
-        where TStateMachine : IAsyncStateMachine =>
+        where TStateMachine : IAsyncStateMachine
+    {
+        RequireActive();
         _inner.AwaitOnCompleted(ref awaiter, ref stateMachine);
+    }
 
     /// <summary>Schedules the state machine to resume when the awaiter completes (non context-flowing).</summary>
     /// <typeparam name="TAwaiter">The awaiter type.</typeparam>
@@ -125,6 +152,12 @@ public struct ControlledAsyncValueTaskMethodBuilder<TResult>
     /// <param name="stateMachine">The state machine.</param>
     public void AwaitUnsafeOnCompleted<TAwaiter, TStateMachine>(ref TAwaiter awaiter, ref TStateMachine stateMachine)
         where TAwaiter : ICriticalNotifyCompletion
-        where TStateMachine : IAsyncStateMachine =>
+        where TStateMachine : IAsyncStateMachine
+    {
+        RequireActive();
         _inner.AwaitUnsafeOnCompleted(ref awaiter, ref stateMachine);
+    }
+
+    private static SimulationExecutionSnapshot RequireActive() =>
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Runtime.CompilerServices.AsyncValueTaskMethodBuilder`1");
 }

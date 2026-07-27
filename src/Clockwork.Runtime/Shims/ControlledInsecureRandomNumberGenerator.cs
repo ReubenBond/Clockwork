@@ -19,15 +19,15 @@ namespace Clockwork.Runtime.Shims;
 /// </para>
 /// </summary>
 [EditorBrowsable(EditorBrowsableState.Never)]
-public sealed class InsecureDeterministicRandomNumberGenerator : RandomNumberGenerator
+public sealed class ControlledInsecureRandomNumberGenerator : RandomNumberGenerator
 {
     private readonly ISimulationRuntimeEnvironment _environment;
     private readonly SimulationNodeIdentity? _node;
 
-    /// <summary>Initializes a new instance of the <see cref="InsecureDeterministicRandomNumberGenerator"/> class.</summary>
+    /// <summary>Initializes a new instance of the <see cref="ControlledInsecureRandomNumberGenerator"/> class.</summary>
     /// <param name="environment">The environment supplying deterministic insecure bytes.</param>
     /// <param name="node">The active node identity, or <see langword="null"/> for cluster-level execution.</param>
-    public InsecureDeterministicRandomNumberGenerator(ISimulationRuntimeEnvironment environment, SimulationNodeIdentity? node)
+    public ControlledInsecureRandomNumberGenerator(ISimulationRuntimeEnvironment environment, SimulationNodeIdentity? node)
     {
         ArgumentNullException.ThrowIfNull(environment);
         _environment = environment;

@@ -3,6 +3,7 @@ using Clockwork.Instrumentation.Configuration;
 using Clockwork.Instrumentation.Rules;
 using Clockwork.Instrumentation.Rules.BuiltIn;
 using Clockwork.Runtime.Policy;
+using Clockwork.Runtime.Shims;
 using Mono.Cecil;
 
 namespace Clockwork.Instrumentation.Tests.Rules;
@@ -21,6 +22,8 @@ public sealed class BuiltInRuleSetsTests
     {
         ImmutableArray<(BuiltInRuleFamily Family, RewriteRule Rule)> inventory = BuiltInRuleSets.DeterministicBclInventory;
 
+        Assert.Equal("clockwork.bcl.deterministic", BuiltInRuleSets.DeterministicBclId);
+        Assert.Equal("2.0.0", BuiltInRuleSets.DeterministicBclVersion);
         Assert.NotEmpty(inventory);
         Assert.Equal(inventory.Length, inventory.Select(e => e.Rule.Id).Distinct(StringComparer.Ordinal).Count());
         Assert.All(inventory, e => Assert.Equal(BuiltInRuleSets.ShimAssemblyName, e.Rule.Replacement.AssemblyName));
@@ -33,6 +36,32 @@ public sealed class BuiltInRuleSetsTests
         Assert.All(
             inventory.Where(e => e.Family != BuiltInRuleFamily.Crypto),
             e => Assert.Equal(SimulationApiPolicy.Controlled, e.Rule.Policy));
+    }
+
+    [Fact]
+    public void InventoryTargetsOnlyVersionTwoControlledBclTypes()
+    {
+        string[] expected =
+        [
+            "Clockwork.Runtime.Shims.ControlledDateTime",
+            "Clockwork.Runtime.Shims.ControlledDateTimeOffset",
+            "Clockwork.Runtime.Shims.ControlledEnvironment",
+            "Clockwork.Runtime.Shims.ControlledGuid",
+            "Clockwork.Runtime.Shims.ControlledRandom",
+            "Clockwork.Runtime.Shims.ControlledRandomNumberGenerator",
+            "Clockwork.Runtime.Shims.ControlledStopwatch",
+        ];
+        string[] actual = BuiltInRuleSets.DeterministicBclInventory
+            .Select(entry => entry.Rule.Replacement.DeclaringTypeFullName)
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(expected, actual);
+        Assert.DoesNotContain(actual, type => type.Contains("Deterministic", StringComparison.Ordinal));
+        Assert.Equal(
+            "DeterministicInsecureForTesting",
+            SimulationCryptoRandomnessPolicy.DeterministicInsecureForTesting.ToString());
     }
 
     [Fact]
