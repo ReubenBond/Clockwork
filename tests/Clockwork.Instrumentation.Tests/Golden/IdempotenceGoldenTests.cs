@@ -1,4 +1,5 @@
 using Clockwork.Instrumentation.Diagnostics;
+using Clockwork.Instrumentation.Rewriting;
 using Clockwork.Instrumentation.Tests.Infrastructure;
 using Mono.Cecil;
 
@@ -72,5 +73,55 @@ public sealed class IdempotenceGoldenTests
         Assert.False(second.Succeeded);
         Assert.Contains(second.Errors, d => d.Id == RewriteDiagnosticIds.IncompatibleRewriteVersion);
         Assert.False(second.WasWritten);
+    }
+
+    [Fact]
+    public void EverySemanticOptionChangeRequiresCleanInput()
+    {
+        using var context = RewriteTestContext.Create();
+        var baseline = new RewriteOptions
+        {
+            ReplacementAssemblyPaths = [context.ShimPath],
+            ReferenceSearchDirectories = [context.Directory],
+        };
+        (string Name, RewriteOptions Options)[] variants =
+        [
+            ("replacement assemblies", baseline with { ReplacementAssemblyPaths = [context.ShimPath, context.ApiPath] }),
+            ("reference search directories", baseline with { ReferenceSearchDirectories = [context.Directory, Path.GetTempPath()] }),
+            ("target runtime", baseline with { TargetRuntime = new Version(10, 0) }),
+            ("excluded types", baseline with { ExcludedTypeFullNames = ["Fx.Other"] }),
+            ("unresolved-reference warnings", baseline with { WarnOnUnresolvedReferences = false }),
+            ("output hashing", baseline with { ComputeOutputHash = false }),
+            ("exception hardening", baseline with { HardenExceptionHandlers = true }),
+            ("uncontrolled-task detection", baseline with { DetectUncontrolledTasks = true }),
+        ];
+
+        foreach ((string name, RewriteOptions variant) in variants)
+        {
+            string fixturePath = context.CompileFixture("Fx.Option." + name.Replace(' ', '.'), Fixture);
+            string firstOut = fixturePath + ".rewritten.dll";
+            context.Rewrite(fixturePath, firstOut, RewriteTestContext.StandardRuleSet(), baseline).EnsureSuccess();
+
+            RewriteResult second = context.Rewrite(
+                firstOut,
+                fixturePath + ".twice.dll",
+                RewriteTestContext.StandardRuleSet(),
+                variant);
+
+            Assert.False(second.Succeeded);
+            RewriteDiagnostic diagnostic = Assert.Single(
+                second.Errors,
+                error => error.Id == RewriteDiagnosticIds.IncompatibleRewriteVersion);
+            Assert.Contains("rewrite options", diagnostic.Message);
+        }
+    }
+
+    [Fact]
+    public void ExclusionOrderingDoesNotChangeOptionsFingerprint()
+    {
+        var first = new RewriteOptions { ExcludedTypeFullNames = ["Fx.B", "Fx.A", "Fx.B"] };
+        var second = new RewriteOptions { ExcludedTypeFullNames = ["Fx.A", "Fx.B"] };
+
+        Assert.Equal(first.ComputeSemanticFingerprint(), second.ComputeSemanticFingerprint());
     }
 }
