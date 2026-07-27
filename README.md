@@ -18,6 +18,30 @@ Clockwork is a deterministic simulation testing framework for distributed system
 
 Clockwork targets .NET 10.
 
+## Current capability contract
+
+This section is the authoritative current-state summary; phase-labelled sections later in this file
+are historical implementation notes.
+
+- The cooperative simulation kernel, builder, virtual clock, seeded randomness, network, diagnostics,
+  rendezvous primitives, and controlled scheduling runtime are implemented.
+- `Clockwork.Instrumentation.Build` and `Clockwork.Tool` perform opt-in, out-of-place Cecil rewriting of
+  application/dependency closures. The shipped Roslyn analyzer reports controlled and rejected direct
+  BCL usage; all of these components are implemented and exercised in CI.
+- `clockwork.bcl.deterministic` controls the exact time, identity, and random signatures in
+  [`docs/rule-inventory.md`](docs/rule-inventory.md).
+- `clockwork.tasks.controlled` controls async builders/awaiters, task combinators and waits,
+  `Task.Run`, all 24 .NET 10 `TaskFactory`/`TaskFactory<T>.StartNew` overloads, `Thread`,
+  `ThreadPool`, `Parallel`, `Monitor`, `System.Threading.Lock`, and `SemaphoreSlim`. Work executes on
+  controlled logical strands; Debug and Release compiler lowering are both conformance-tested.
+- All six .NET 10 `Task.Delay` overloads are rejected during simulation until virtual delays are
+  implemented, and pass through unchanged outside simulation. Custom `TaskScheduler` instances and
+  unsupported `TaskCreationOptions` are likewise rejected rather than ignored.
+- Exact limitations: general wait handles/events, `ReaderWriterLockSlim`, `Mutex`, kernel `Semaphore`,
+  struct `SpinLock`, timers/cancellation timers, and synchronous `ValueTask` blocking are not rewritten.
+  `SemaphoreSlim.AvailableWaitHandle`, registered thread-pool waits, and unmodellable OS APIs are
+  explicitly rejected. Execution is cooperative and non-preemptive between yield points.
+
 ## Build and test
 
 ```powershell
@@ -313,13 +337,12 @@ instrumentation) and the platform/deployment contract (.NET 10, Windows/Linux/ma
 JIT and ReadyToRun today; deferred limitations for single-file, trimming,
 NativeAOT, signed assemblies, and profiler conflicts).
 
-This phase (composition ergonomics, adaptive budgets, stable seeds, rendezvous primitives, and the
-`Send` improvement above) is still entirely cooperative-mode: it does not add ambient runtime
-context, controlled-operation physical-thread gating, IL rewriting (Cecil), fault injection
-("Buggify"), API compatibility shims, Generic Host integration, or HTTP support. Those remain
-tracked by the modes in `docs/compatibility.md`.
+## Historical implementation notes
 
-## Deterministic instrumentation runtime plumbing (Phase 2)
+The phase-labelled sections below record how the current implementation was delivered. Statements
+about what a phase did not yet include describe that historical milestone, not current capability.
+
+### Deterministic instrumentation runtime plumbing (historical Phase 2)
 
 `Clockwork.Runtime` (referenced by the `Clockwork`/`Clockwork.Simulation` package at
 `src/Clockwork/Clockwork.csproj`) adds
@@ -616,7 +639,7 @@ rules tabulated in the [rule inventory](docs/rule-inventory.md); see
 [compatibility](docs/compatibility.md) for the documented holes.
 
 
-## Controlled task and async rule set (Phase 6A)
+## Controlled task and async rule set (Phase 6A/6B)
 
 The second production built-in rule set, **`clockwork.tasks.controlled`** (version `1.0.0`),
 makes ordinary `async`/`await` code and the direct `Task` surface run on the simulation's single
@@ -649,16 +672,12 @@ deadlock the scheduler, then delegate to the real API for its exact `AggregateEx
 **Three-state contract.** As with the BCL rule set: outside a simulation everything is a
 transparent pass-through to the real BCL; inside a simulation continuations and waits route through
 the coordinator; inside a simulation with no registered task coordinator the shim throws
-`ControlledTaskServiceMissingException` rather than escaping to the thread pool. `Task.Delay`,
-`Task.Run`, and `TaskFactory.StartNew`/`TaskFactory<T>.StartNew` are **rejected** under simulation
-with a precise diagnostic rather than modelled with wall-clock time or an uncontrolled thread.
-
-**Deferred to Phase 6B:** `Thread`/`ThreadPool`/`Parallel`, `Monitor`/semaphore/wait-handle shims,
-timers and the `Task.Delay` implementation, cancellation timers, synchronous blocking on
-`ValueTask`/`ValueTask<T>`, generic `Task<T>.ContinueWith` overloads,
-`TaskCompletionSource`/`TaskFactory` surfaces beyond the rejected `StartNew` sites, cross-assembly
-enforcement, and exception-filter hardening. Control parity is claimed **only** for the exact
-signatures in the [rule inventory](docs/rule-inventory.md). This work adapts
+`ControlledTaskServiceMissingException` rather than escaping to the thread pool. `Task.Run`, every
+.NET 10 `TaskFactory.StartNew` state/options/scheduler form, `Thread`, `ThreadPool`, and `Parallel`
+are controlled. Every .NET 10 `Task.Delay` overload is **rejected** under simulation until virtual
+delays are implemented. `Monitor`, `System.Threading.Lock`, and `SemaphoreSlim` are controlled;
+general wait handles and timers remain outside the inventory. Control parity is claimed **only** for
+the exact signatures in the [rule inventory](docs/rule-inventory.md). This work adapts
 the *design* of Microsoft Coyote's controlled-task model (MIT); see
 [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES.md) for the attribution.
 
