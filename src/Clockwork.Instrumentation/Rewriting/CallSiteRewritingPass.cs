@@ -164,20 +164,41 @@ internal sealed class CallSiteRewritingPass : RewritePass
 
     private MethodReference ApplyGenericArguments(MethodReference open, MethodReference matched, MethodDefinition definition)
     {
+        if (!definition.HasGenericParameters)
+        {
+            return open;
+        }
+
+        // A generic call site - e.g. Task.WhenAll<int>(...) - carries its own method type arguments,
+        // which bind the generic replacement method one-for-one.
         if (matched is GenericInstanceMethod generic
-            && definition.HasGenericParameters
             && definition.GenericParameters.Count == generic.GenericArguments.Count)
         {
-            var result = new GenericInstanceMethod(open);
-            foreach (TypeReference argument in generic.GenericArguments)
-            {
-                result.GenericArguments.Add(Session.TargetModule.ImportReference(argument));
-            }
+            return Instantiate(open, generic.GenericArguments);
+        }
 
-            return result;
+        // A non-generic member on a closed generic type - e.g. Task<int>.get_Result - carries the
+        // receiver's declaring-type arguments onto the generic replacement method, so a redirect to
+        // ControlledTask.Result<int>(Task<int>) stays stack-balanced and correctly typed.
+        if (matched is not GenericInstanceMethod
+            && matched.DeclaringType is GenericInstanceType declaring
+            && definition.GenericParameters.Count == declaring.GenericArguments.Count)
+        {
+            return Instantiate(open, declaring.GenericArguments);
         }
 
         return open;
+    }
+
+    private GenericInstanceMethod Instantiate(MethodReference open, IEnumerable<TypeReference> arguments)
+    {
+        var result = new GenericInstanceMethod(open);
+        foreach (TypeReference argument in arguments)
+        {
+            result.GenericArguments.Add(Session.TargetModule.ImportReference(argument));
+        }
+
+        return result;
     }
 
     private void Record(RewriteRule rule, int offset, TransformationOutcome outcome)
