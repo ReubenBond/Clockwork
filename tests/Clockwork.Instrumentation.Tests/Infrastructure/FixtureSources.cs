@@ -60,6 +60,23 @@ internal static class FixtureSources
             {
                 public override string ToString() => "legacy";
             }
+
+            public sealed class LegacyShapes
+            {
+                public sealed class Nested { }
+                public int Choose(int value) => value;
+                public int Choose(string value) => value.Length;
+                public int Ref(ref int value) => value;
+                public int Ref(ref string value) => value.Length;
+                public int In(in long value) => (int)value;
+                public int In(in int value) => value;
+                public int Out(out string value) { value = ""; return 1; }
+                public int Out(out int value) { value = 0; return 2; }
+                public int Generic<T>(T value) => 1;
+                public int Generic<T>(System.Collections.Generic.List<T> value) => 2;
+                public int NestedShape(Nested value) => 1;
+                public int NestedShape(string value) => 2;
+            }
         }
         """;
 
@@ -117,6 +134,36 @@ internal static class FixtureSources
             public sealed class ModernMarker
             {
                 public override string ToString() => "modern";
+            }
+
+            public sealed class InvalidShim
+            {
+                public long InstanceTicks() => 0L;
+                public static int WrongReceiver(string receiver) => receiver.Length;
+                public static string WrongReturn() => "";
+                public static string WrongFactory(int value) => value.ToString();
+                public static int WrongWrapper(string value) => value.Length;
+                public static void WrongReject() { }
+                public static T GenericMismatch<T, TOther>(T value) => value;
+                public static long Ambiguous(int value) => value;
+                public static long Ambiguous(string value) => value.Length;
+            }
+
+            public sealed class ModernShapes
+            {
+                public sealed class Nested { }
+                public int Choose(int value) => value;
+                public int Choose(string value) => value.Length;
+                public int Ref(ref int value) => value;
+                public int Ref(ref string value) => value.Length;
+                public int In(in long value) => (int)value;
+                public int In(in int value) => value;
+                public int Out(out string value) { value = ""; return 1; }
+                public int Out(out int value) { value = 0; return 2; }
+                public int Generic<T>(T value) => 1;
+                public int Generic<T>(System.Collections.Generic.List<T> value) => 2;
+                public int NestedShape(Nested value) => 1;
+                public int NestedShape(string value) => 2;
             }
         }
         """;

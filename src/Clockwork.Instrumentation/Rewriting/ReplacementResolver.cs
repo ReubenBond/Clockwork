@@ -86,7 +86,7 @@ internal sealed class ReplacementResolver : IDisposable
             return false;
         }
 
-        MethodDefinition? match = null;
+        var matches = new List<MethodDefinition>();
         foreach (MethodDefinition candidate in type.Methods)
         {
             if (candidate.Name != replacement.MemberName)
@@ -117,16 +117,24 @@ internal sealed class ReplacementResolver : IDisposable
                 }
             }
 
-            match = candidate;
-            break;
+            matches.Add(candidate);
         }
 
-        if (match is null)
+        if (matches.Count == 0)
         {
             error = $"Replacement method '{replacement.ToCanonicalString()}' was not found.";
             return false;
         }
 
+        if (matches.Count != 1)
+        {
+            error =
+                $"Replacement method '{replacement.ToCanonicalString()}' is ambiguous: {matches.Count} same-name methods match. " +
+                "Specify the full replacement parameter list.";
+            return false;
+        }
+
+        MethodDefinition match = matches[0];
         definition = match;
         importedOpen = targetModule.ImportReference(match);
         return true;

@@ -123,6 +123,40 @@ internal sealed class MemberSubstitutionMapper
                     return mapped is null ? null : new PointerType(mapped);
                 }
 
+            case RequiredModifierType modifier:
+                {
+                    TypeReference? mappedElement = MapType(modifier.ElementType);
+                    TypeReference? mappedModifier = MapType(modifier.ModifierType);
+                    return mappedElement is null && mappedModifier is null
+                        ? null
+                        : new RequiredModifierType(
+                            mappedModifier ?? modifier.ModifierType,
+                            mappedElement ?? modifier.ElementType);
+                }
+
+            case OptionalModifierType modifier:
+                {
+                    TypeReference? mappedElement = MapType(modifier.ElementType);
+                    TypeReference? mappedModifier = MapType(modifier.ModifierType);
+                    return mappedElement is null && mappedModifier is null
+                        ? null
+                        : new OptionalModifierType(
+                            mappedModifier ?? modifier.ModifierType,
+                            mappedElement ?? modifier.ElementType);
+                }
+
+            case PinnedType pinned:
+                {
+                    TypeReference? mapped = MapType(pinned.ElementType);
+                    return mapped is null ? null : new PinnedType(mapped);
+                }
+
+            case SentinelType sentinel:
+                {
+                    TypeReference? mapped = MapType(sentinel.ElementType);
+                    return mapped is null ? null : new SentinelType(mapped);
+                }
+
             case GenericParameter:
                 return null;
 
@@ -252,20 +286,75 @@ internal sealed class MemberSubstitutionMapper
         return BuildConstructor(mappedResult, arity);
     }
 
-    private static MethodDefinition? FindMatchingMethod(TypeDefinition definition, MethodReference original)
+    private MethodDefinition? FindMatchingMethod(TypeDefinition definition, MethodReference original)
     {
         MethodReference elementOriginal = original is GenericInstanceMethod generic ? generic.ElementMethod : original;
         foreach (MethodDefinition candidate in definition.Methods)
         {
-            if (candidate.Name == elementOriginal.Name
-                && candidate.Parameters.Count == elementOriginal.Parameters.Count
-                && candidate.GenericParameters.Count == elementOriginal.GenericParameters.Count)
+            if (candidate.Name != elementOriginal.Name
+                || candidate.HasThis != elementOriginal.HasThis
+                || candidate.Parameters.Count != elementOriginal.Parameters.Count
+                || candidate.GenericParameters.Count != elementOriginal.GenericParameters.Count)
+            {
+                continue;
+            }
+
+            TypeReference expectedReturn = MapType(elementOriginal.ReturnType) ?? elementOriginal.ReturnType;
+            if (!SameTypeShape(candidate.ReturnType, expectedReturn))
+            {
+                continue;
+            }
+
+            bool parametersMatch = true;
+            for (int i = 0; i < candidate.Parameters.Count; i++)
+            {
+                ParameterDefinition expectedParameter = elementOriginal.Parameters[i];
+                ParameterDefinition candidateParameter = candidate.Parameters[i];
+                TypeReference expectedType = MapType(expectedParameter.ParameterType) ?? expectedParameter.ParameterType;
+                if (!SameTypeShape(candidateParameter.ParameterType, expectedType))
+                {
+                    parametersMatch = false;
+                    break;
+                }
+            }
+
+            if (parametersMatch)
             {
                 return candidate;
             }
         }
 
         return null;
+    }
+
+    private static bool SameTypeShape(TypeReference left, TypeReference right)
+    {
+        if (left is GenericParameter leftParameter && right is GenericParameter rightParameter)
+        {
+            return leftParameter.Type == rightParameter.Type
+                && leftParameter.Position == rightParameter.Position;
+        }
+
+        bool leftSpecification = left is TypeSpecification;
+        bool rightSpecification = right is TypeSpecification;
+        return (left, right) switch
+        {
+            (ByReferenceType l, ByReferenceType r) => SameTypeShape(l.ElementType, r.ElementType),
+            (PointerType l, PointerType r) => SameTypeShape(l.ElementType, r.ElementType),
+            (ArrayType l, ArrayType r) =>
+                l.Rank == r.Rank && l.IsVector == r.IsVector && SameTypeShape(l.ElementType, r.ElementType),
+            (GenericInstanceType l, GenericInstanceType r) =>
+                l.ElementType.FullName == r.ElementType.FullName
+                && l.GenericArguments.Count == r.GenericArguments.Count
+                && l.GenericArguments.Zip(r.GenericArguments, SameTypeShape).All(static match => match),
+            (RequiredModifierType l, RequiredModifierType r) =>
+                SameTypeShape(l.ModifierType, r.ModifierType) && SameTypeShape(l.ElementType, r.ElementType),
+            (OptionalModifierType l, OptionalModifierType r) =>
+                SameTypeShape(l.ModifierType, r.ModifierType) && SameTypeShape(l.ElementType, r.ElementType),
+            (PinnedType l, PinnedType r) => SameTypeShape(l.ElementType, r.ElementType),
+            (SentinelType l, SentinelType r) => SameTypeShape(l.ElementType, r.ElementType),
+            _ => !leftSpecification && !rightSpecification && left.FullName == right.FullName,
+        };
     }
 
     private static MethodReference Rebase(MethodReference importedOpen, GenericInstanceType declaringType)

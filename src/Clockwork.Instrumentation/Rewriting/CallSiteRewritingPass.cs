@@ -67,7 +67,12 @@ internal sealed class CallSiteRewritingPass : RewritePass
             return instruction;
         }
 
-        MethodReference target = ApplyGenericArguments(open, method, definition);
+        _ = TryApplyGenericArguments(open, method, definition, out MethodReference target, out string? genericError);
+        if (!ValidateContract(rule, method, target, offset, genericError))
+        {
+            return instruction;
+        }
+
         var replacement = Instruction.Create(OpCodes.Call, target);
         Record(rule, offset, TransformationOutcome.Transformed);
         Replace(instruction, replacement);
@@ -89,6 +94,19 @@ internal sealed class CallSiteRewritingPass : RewritePass
             generic.GenericArguments.Add(Session.TargetModule.ImportReference(method.ReturnType));
             wrapper = generic;
         }
+        else if (definition.GenericParameters.Count > 1)
+        {
+            ReportContractMismatch(
+                rule,
+                offset,
+                $"Post-call replacement '{definition.FullName}' has generic arity {definition.GenericParameters.Count}; only zero or one is supported.");
+            return instruction;
+        }
+
+        if (!ValidateContract(rule, method, wrapper, offset, error: null))
+        {
+            return instruction;
+        }
 
         var wrap = Instruction.Create(OpCodes.Call, wrapper);
         Record(rule, offset, TransformationOutcome.Transformed);
@@ -101,6 +119,11 @@ internal sealed class CallSiteRewritingPass : RewritePass
     {
         int offset = instruction.Offset;
         if (!TryResolveMethod(rule, method, offset, out MethodReference open, out _))
+        {
+            return instruction;
+        }
+
+        if (!ValidateContract(rule, method, open, offset, error: null))
         {
             return instruction;
         }
@@ -172,11 +195,18 @@ internal sealed class CallSiteRewritingPass : RewritePass
         Record(rule, instruction.Offset, TransformationOutcome.Skipped);
     }
 
-    private MethodReference ApplyGenericArguments(MethodReference open, MethodReference matched, MethodDefinition definition)
+    private bool TryApplyGenericArguments(
+        MethodReference open,
+        MethodReference matched,
+        MethodDefinition definition,
+        out MethodReference result,
+        out string? error)
     {
         if (!definition.HasGenericParameters)
         {
-            return open;
+            result = open;
+            error = null;
+            return true;
         }
 
         // A generic method on a closed generic type - e.g. Task<int>.ContinueWith<string>(...) - binds
@@ -188,7 +218,9 @@ internal sealed class CallSiteRewritingPass : RewritePass
             && matched.DeclaringType is GenericInstanceType owner
             && definition.GenericParameters.Count == owner.GenericArguments.Count + methodAndType.GenericArguments.Count)
         {
-            return Instantiate(open, [.. owner.GenericArguments, .. methodAndType.GenericArguments]);
+            result = Instantiate(open, [.. owner.GenericArguments, .. methodAndType.GenericArguments]);
+            error = null;
+            return true;
         }
 
         // A generic call site - e.g. Task.WhenAll<int>(...) - carries its own method type arguments,
@@ -196,7 +228,9 @@ internal sealed class CallSiteRewritingPass : RewritePass
         if (matched is GenericInstanceMethod generic
             && definition.GenericParameters.Count == generic.GenericArguments.Count)
         {
-            return Instantiate(open, generic.GenericArguments);
+            result = Instantiate(open, generic.GenericArguments);
+            error = null;
+            return true;
         }
 
         // A non-generic member on a closed generic type - e.g. Task<int>.get_Result - carries the
@@ -206,10 +240,18 @@ internal sealed class CallSiteRewritingPass : RewritePass
             && matched.DeclaringType is GenericInstanceType declaring
             && definition.GenericParameters.Count == declaring.GenericArguments.Count)
         {
-            return Instantiate(open, declaring.GenericArguments);
+            result = Instantiate(open, declaring.GenericArguments);
+            error = null;
+            return true;
         }
 
-        return open;
+        int available = (matched as GenericInstanceMethod)?.GenericArguments.Count ?? 0;
+        available += (matched.DeclaringType as GenericInstanceType)?.GenericArguments.Count ?? 0;
+        result = open;
+        error =
+            $"Replacement '{definition.FullName}' has generic arity {definition.GenericParameters.Count}, " +
+            $"but target '{matched.FullName}' supplies {available} generic arguments.";
+        return false;
     }
 
     private GenericInstanceMethod Instantiate(MethodReference open, IEnumerable<TypeReference> arguments)
@@ -221,6 +263,32 @@ internal sealed class CallSiteRewritingPass : RewritePass
         }
 
         return result;
+    }
+
+    private bool ValidateContract(
+        RewriteRule rule,
+        MethodReference method,
+        MethodReference replacement,
+        int offset,
+        string? error)
+    {
+        if (error is null
+            && ReplacementContractValidator.TryValidate(rule.Operation, method, replacement, out error))
+        {
+            return true;
+        }
+
+        ReportContractMismatch(rule, offset, error ?? "The replacement contract is incompatible.");
+        return false;
+    }
+
+    private void ReportContractMismatch(RewriteRule rule, int offset, string message)
+    {
+        Session.AddDiagnostic(RewriteDiagnostic.Error(
+            RewriteDiagnosticIds.ReplacementContractMismatch,
+            $"{message} Rule '{rule.Id}' was not applied.",
+            CecilNames.FullyQualifiedMethodName(Method!),
+            offset));
     }
 
     private void Record(RewriteRule rule, int offset, TransformationOutcome outcome, string? reason = null)
