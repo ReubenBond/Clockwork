@@ -113,6 +113,45 @@ public sealed class ControlledDeadlockDetectionTests
     }
 
     [Fact]
+    public void UnrelatedDeadlineKeepsAnOwnershipCycleProgressableUntilItCanBeBroken()
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        var ra = scheduler.CreateResource(ControlledResourceKind.Monitor, "A");
+        var rb = scheduler.CreateResource(ControlledResourceKind.Monitor, "B");
+        var rc = scheduler.CreateResource(ControlledResourceKind.Monitor, "C");
+        var timer = scheduler.CreateResource(ControlledResourceKind.Timer, "breaker");
+
+        var opA = scheduler.Schedule("A", () => scheduler.WaitOnResource(rb, Reason("B")));
+        var opB = scheduler.Schedule("B", () => scheduler.WaitOnResource(rc, Reason("C")));
+        var opC = scheduler.Schedule("C", () => scheduler.WaitOnResource(ra, Reason("A")));
+        scheduler.Schedule("breaker", () =>
+        {
+            scheduler.WaitOnResource(timer, TimeSpan.FromTicks(1), Reason("timer"));
+            scheduler.SignalOne(rb);
+        });
+        scheduler.MarkResourceOwner(ra, opA);
+        scheduler.MarkResourceOwner(rb, opB);
+        scheduler.MarkResourceOwner(rc, opC);
+
+        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep());
+        Assert.False(scheduler.RunStep());
+
+        var beforeDeadline = scheduler.DetectDeadlock();
+        Assert.Equal(ControlledLivenessState.PausedUntilTime, beforeDeadline.Liveness);
+        Assert.False(beforeDeadline.IsDeadlocked);
+        Assert.Single(beforeDeadline.Cycles);
+        Assert.Equal(1, beforeDeadline.PendingTimeoutCount);
+
+        Assert.True(scheduler.TryAdvanceVirtualTime());
+        scheduler.Drain();
+
+        Assert.False(scheduler.DetectDeadlock().IsDeadlocked);
+    }
+
+    [Fact]
     public void ExternallyCompletableWaitIsNotDeadlocked()
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();

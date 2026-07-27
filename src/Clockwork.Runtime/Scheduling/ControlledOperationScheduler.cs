@@ -1280,14 +1280,20 @@ public sealed class ControlledOperationScheduler : IDisposable
             return ControlledLivenessState.Progressing;
         }
 
+        // A live deadline means the scheduler can still advance modeled time. Preserve any cycle in
+        // the report for diagnostics, but do not classify it as terminal until all finite escape paths
+        // have been exhausted.
+        if (pendingTimeouts > 0)
+        {
+            return ControlledLivenessState.PausedUntilTime;
+        }
+
         if (cycleCount > 0)
         {
             return ControlledLivenessState.Deadlocked;
         }
 
-        return pendingTimeouts > 0
-            ? ControlledLivenessState.PausedUntilTime
-            : ControlledLivenessState.ExternallyCompletable;
+        return ControlledLivenessState.ExternallyCompletable;
     }
 
     /// <summary>A single wait-for edge used during deadlock analysis: the owner to follow and the waiter that drew it.</summary>
