@@ -312,6 +312,87 @@ context, controlled-operation physical-thread gating, IL rewriting (Cecil), faul
 ("Buggify"), API compatibility shims, Generic Host integration, or HTTP support. Those remain
 tracked by the modes in `docs/compatibility.md`.
 
+## Deterministic instrumentation runtime plumbing (Phase 2)
+
+`Clockwork.Runtime` (referenced by the root `Clockwork.csproj`/`Clockwork.Simulation` package) adds
+the ambient-context, activation-security, seed-domain, decision-log, and API-policy plumbing that
+future controlled/race-exploration instrumentation will build on. **This is runtime plumbing only:
+nothing here intercepts application code yet, and no existing behavior changed** - every type below
+is either newly ambient/observable data or an explicit, additive constructor parameter.
+
+- **Ambient execution context.** `Clockwork.Runtime.Execution.SimulationExecutionContext` exposes
+  `IsActive`, `Current` (a `SimulationExecutionSnapshot` with the active runtime, node, and logical
+  execution identity), and `TryGetCurrentRuntime`. It is `AsyncLocal<T>`-backed, so it flows across
+  `await` automatically, is isolated between parallel `Task`s (e.g. two simulations on the same test
+  process), and every `Enter*` method returns an `IDisposable` scope that restores the exact
+  enclosing frame on `Dispose()` - including when the guarded code throws. `SuppressFlow(reason)`
+  wraps `ExecutionContext.SuppressFlow()` for the rare case where ambient flow into new unflowed work
+  (e.g. `Task.Run` used deliberately for something outside the simulation) must be prevented, and
+  records a bounded diagnostic trail (`SimulationFlowSuppressionDiagnostics`) so an unexpected loss
+  of ambient context can be explained rather than guessed at.
+- **Secure activation.** There is no public global switch, environment variable, or default that
+  activates simulation context. `EnterRuntime` requires a `SimulationActivationToken`, which only
+  `Clockwork.Runtime.Execution.SimulationRuntimeActivation` (`internal`, granted via
+  `InternalsVisibleTo` to the simulation host packages and test assemblies) can mint. Outside an
+  active simulation, `IsActive`/`TryGetCurrentRuntime` are cheap `AsyncLocal` reads that report
+  `false`/no-runtime - deliberately shaped so a future inlineable "Buggify"-style shim can check
+  activity with negligible overhead in production.
+- **Independent named seed domains.** `Clockwork.Runtime.Random.SimulationSeedAuthority` derives a
+  seed per `SimulationSeedDomain` (`Scheduler`, `Network`, `Application`, `Identity`, `Buggify`,
+  `Model`) as a pure function of the authority's root seed and the domain name - consuming
+  randomness in one domain never perturbs another. `GetSiteSeed`/`CreateChildAuthority` derive
+  per-node/per-site child seeds from a caller-supplied *stable identity* (e.g. a node's network
+  address) rather than construction/fork order, so reordering or adding unrelated nodes never
+  reseeds an existing one. `SimulationCluster<TNode>.SeedAuthority` exposes this per-cluster; the
+  root `SimulationSeed.FromString(s)`/`FromStrings(...)` now delegate to the same underlying
+  `DeterministicHash` algorithm (byte-identical output - this is a pure refactor).
+- **Typed deterministic decision log.** `Clockwork.Runtime.Decisions.SimulationDecisionLog` records
+  `SimulationDecisionRecord`s (domain, kind, optional stable source/site id, input metadata,
+  selected result, plus the runtime/node/logical-execution identity active at the time) under a
+  monotonically increasing `SimulationDecisionId`, in exact call order across every domain. This is
+  a data model and recording contract only - nothing calls `Record` automatically yet; a future
+  controlled-operation scheduler is expected to.
+- **Replay contract (validation only, not a scheduler).**
+  `Clockwork.Runtime.Decisions.SimulationDecisionReplayValidator` compares a live decision against
+  an `ISimulationDecisionReplayReader` (with an in-memory implementation for tests), by *content*
+  (domain/kind/source/input/result) - deliberately ignoring the run-identifying fields (id, runtime,
+  node, logical execution) that necessarily differ between the original recording and a later
+  replay. It throws `SimulationDecisionReplayMismatchException` at the first divergence and does not
+  throw again for decisions after that point, since a scheduler replay engine (not implemented in
+  this phase) is what would actually resume from a divergent point.
+- **API interception policy classification.**
+  `Clockwork.Runtime.Policy.SimulationApiPolicyRegistry` resolves `Controlled`/`Rejected`/
+  `PassThrough` for a `SimulationApiKey` (assembly + API name), with deterministic precedence
+  (per-API override > per-assembly override > registry default) and a diagnostic `Reason` per
+  decision. The registry's default can never be `PassThrough` - skipping determinism for an API must
+  always be an explicit, targeted override while a simulation is active, never a silent fallback.
+  This is a policy data model only; nothing intercepts calls based on it yet.
+- **External-entry guard.** `Clockwork.Runtime.Execution.SimulationExternalEntryGuard.ValidateEntry`
+  is called from `SimulationTaskQueue`'s item-dispatch path (see below) to detect a callback
+  executing while the calling thread's ambient context belongs to a *different* simulation runtime
+  than the one about to run - the "external entry" case (two simulations sharing a thread without
+  properly restoring their scopes, or a callback that escaped one simulation onto another's thread).
+  It deliberately does **not** flag the common, expected case of no ambient context at all, and
+  throws `SimulationExternalEntryException` with an actionable message (including any recent,
+  matching flow-suppression event) instead of silently repairing or broadly catching.
+- **Ambient integration into the existing kernel.** `SimulationCluster<TNode>` mints a
+  `SimulationActivationToken`/`RuntimeIdentity`/`SeedAuthority` and installs ambient context on its
+  own cluster-level `TaskQueue` (every cluster, old subclass or new). `SimulationBuilder`/
+  `BuiltSimulation` additionally installs a *node-scoped* ambient context on every node it creates,
+  so builder-created node callbacks observe both the runtime and their own node identity. Because
+  timers and synchronization-context callbacks are both dispatched through the same
+  `SimulationTaskQueue.RunOnce()` path, they get this integration automatically with no separate
+  wiring. **Hand-written `SimulationCluster<TNode>`/`SimulationNode` subclasses that construct their
+  own `SimulationNodeContext` directly (the pattern in "Define a simulation" above) are unaffected**:
+  without an explicit `ambientContext` argument, their node-level queues get no ambient scope,
+  preserving their exact prior behavior. This distinction is deliberate and tested.
+
+None of this is wired into any interception, scheduling, or IL-rewriting layer - see
+`docs/compatibility.md` for what remains deferred to later phases (controlled-operation
+physical-thread gating, resource pause/resume, deadlock detection, the Cecil-based deep
+instrumentation mode, BCL shims, a public Buggify API, Generic Host integration, and HTTP support).
+
+
 ## License
 
 Clockwork is licensed under the [MIT License](LICENSE). See
