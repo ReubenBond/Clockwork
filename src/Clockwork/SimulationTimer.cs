@@ -12,6 +12,7 @@ public sealed class SimulationTimer(SimulationTaskQueue taskQueue, TimerCallback
     private readonly object? _state = state;
     private SimulationTaskQueue? _taskQueue = taskQueue;
     private ScheduledTimerItem? _scheduledTimer;
+    private long _generation;
 
     /// <summary>
     /// Gets the current period for this timer.
@@ -41,6 +42,8 @@ public sealed class SimulationTimer(SimulationTaskQueue taskQueue, TimerCallback
             return false;
         }
 
+        _generation++;
+
         // Cancel any existing timer
         _scheduledTimer?.Dispose();
         _scheduledTimer = null;
@@ -69,18 +72,24 @@ public sealed class SimulationTimer(SimulationTaskQueue taskQueue, TimerCallback
     private void ScheduleNextFiring(SimulationTaskQueue queue, TimeSpan delay)
     {
         _scheduledTimer = queue.EnqueueAfter(
-            new ScheduledTimerItem(this),
+            new ScheduledTimerItem(this, _generation),
             delay);
     }
 
-    private void TimerFired()
+    private void TimerFired(long generation)
     {
+        if (_generation == generation)
+        {
+            _scheduledTimer = null;
+        }
+
         // Invoke the user callback
         _callback!(_state);
 
-        // Reschedule if this is a periodic timer
+        // A callback can reentrantly change or dispose the timer. Only the generation which
+        // actually fired may perform its automatic periodic reschedule.
         var queue = _taskQueue;
-        if (queue is not null && Period > TimeSpan.Zero)
+        if (_generation == generation && queue is not null && Period > TimeSpan.Zero)
         {
             ScheduleNextFiring(queue, Period);
         }
@@ -89,6 +98,7 @@ public sealed class SimulationTimer(SimulationTaskQueue taskQueue, TimerCallback
     /// <inheritdoc />
     public void Dispose()
     {
+        _generation++;
         _scheduledTimer?.Dispose();
         _scheduledTimer = null;
         _taskQueue = null;
@@ -125,10 +135,10 @@ public sealed class SimulationTimer(SimulationTaskQueue taskQueue, TimerCallback
         return taskQueue.GetWaitingCount<ScheduledTimerItem>();
     }
 
-    private sealed class ScheduledTimerItem(SimulationTimer timer) : ScheduledItem
+    private sealed class ScheduledTimerItem(SimulationTimer timer, long generation) : ScheduledItem
     {
         public SimulationTimer Timer => timer;
 
-        protected internal override void Invoke() => timer.TimerFired();
+        protected internal override void Invoke() => timer.TimerFired(generation);
     }
 }

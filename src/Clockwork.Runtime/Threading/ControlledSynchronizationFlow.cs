@@ -63,4 +63,24 @@ public static class ControlledSynchronizationFlow
             Ambient.Value = previous;
         }
     }
+
+    /// <summary>
+    /// Restores an already-assigned controlled strand around work that must run under a captured
+    /// <see cref="ExecutionContext"/>. The captured context can contain the enqueueing strand's
+    /// <see cref="AsyncLocal{T}"/> value, so the fresh queue identity is re-applied inside it.
+    /// </summary>
+    internal static void RunAsStrand(long strandId, Action work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        var previous = Ambient.Value;
+        Ambient.Value = strandId;
+        try
+        {
+            work();
+        }
+        finally
+        {
+            Ambient.Value = previous;
+        }
+    }
 }

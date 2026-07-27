@@ -16,6 +16,35 @@ namespace Clockwork.Instrumentation.Tests.Execution;
 /// </summary>
 public sealed class ProcessExecutionTests
 {
+    public static TheoryData<bool> Optimize => new() { true, false };
+
+    [Theory]
+    [MemberData(nameof(Optimize))]
+    public void BuiltInRulesRewriteThirdPartySynchronizationAndEveryDelayOverload(bool optimize)
+    {
+        using var fixture = BuiltInProcessFixture.Create(optimize);
+
+        AppRunResult source = fixture.RunSource();
+        Assert.True(
+            source.ExitCode == 0,
+            $"Source process failed ({source.ExitCode}):\n{source.StandardOutput}\n{source.StandardError}");
+        Assert.Contains("monitor=real", source.Output);
+        Assert.Contains("lock=System.Threading.Lock", source.Output);
+        Assert.Contains("semaphore=signaled", source.Output);
+        Assert.Contains("delays=0", source.Output);
+
+        InstrumentationResult instrumentation = fixture.Instrument();
+        Assert.True(instrumentation.Succeeded, string.Join("\n", instrumentation.Errors));
+        AppRunResult staged = fixture.RunStaged();
+        Assert.True(
+            staged.ExitCode == 0,
+            $"Staged process failed ({staged.ExitCode}):\n{staged.StandardOutput}\n{staged.StandardError}");
+        Assert.Contains("monitor=rejected", staged.Output);
+        Assert.Contains("lock=Clockwork.Runtime.Threading.ControlledLock", staged.Output);
+        Assert.Contains("semaphore=signaled", staged.Output);
+        Assert.Contains("delays=6", staged.Output);
+    }
+
     [Fact]
     public void NormalExecutableDoesNotDispatchToShim()
     {

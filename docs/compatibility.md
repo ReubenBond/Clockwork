@@ -6,56 +6,11 @@ against. It is a durable product document, not a task plan: it should stay accur
 as the corresponding capabilities are implemented, and it should be updated (not
 duplicated) as scope firms up in later phases.
 
-> **Status:** Phase 2. The deterministic simulation kernel described in the root
-> [README](../README.md) exists today (clock, task scheduler, synchronization
-> context, seeded random, simulated network, chaos injection), its
-> `RunUntil`/`RunUntilIdle`/`RunForDuration` drive loops share one internal
-> execution engine with a structured, diagnosable outcome type
-> (`SimulationExecutionResult` and the `*Detailed` methods), and adaptive
-> `RunUntilConverged`/`RunUntilIdleConverged` entry points escalate the iteration
-> budget automatically instead of requiring a hand-picked `maxIterations` (see the
-> README's "Adaptive execution budgets" section). Phase 1B added
-> pre-instrumentation ergonomics that sit entirely inside cooperative mode: a
-> `SimulationBuilder` fluent composition API (`BuiltSimulation`) so common
-> simulations don't need a hand-written `SimulationCluster<TNode>`/`SimulationNode`
-> subclass, a foundation for heterogeneous node registration (`AddCustomNode`,
-> deliberately without startup ordering or DI-style construction - see the
-> README), stable cross-process-safe seed derivation from strings
-> (`SimulationSeed`), reusable named rendezvous primitives (`SimulationGate`,
-> `SimulationLatch`, `SimulationBarrier`), and a reworked
-> `SimulationSynchronizationContext.Send` that supports inline-reentrant and
-> schedule-and-pump cases without a real-time wait, and rejects genuine
-> cross-thread contention with a precise diagnostic instead of deadlocking.
->
-> Phase 2 adds the **runtime plumbing** that controlled/race-exploration
-> instrumentation will build on, hosted in `Clockwork.Runtime` (see
-> [Project layout](#project-layout)): an ambient, `AsyncLocal`-backed
-> `SimulationExecutionContext` (nested scopes, exception-safe disposal, async
-> flow, parallel isolation, explicit flow-suppression diagnostics); secure,
-> capability-token-gated activation (no public global switch, environment
-> variable, or accidental default can activate simulation context); a root
-> deterministic seed/decision authority with independent named domains
-> (scheduler, network, application, identity, Buggify, model) and stable
-> per-node/per-site child derivation that does not depend on registration order;
-> a typed deterministic decision-log model plus a replay *validation* contract
-> (content-only comparison, first-divergence detection - not a scheduler); an API
-> interception policy classification model (`Controlled`/`Rejected`/`PassThrough`
-> with deterministic per-API/per-assembly precedence, and pass-through always
-> explicit); and an external-entry guard that flags a callback executing under a
-> *different* simulation's ambient context without falsely flagging the normal
-> no-ambient-context case. `SimulationCluster<TNode>`, `SimulationNodeContext`,
-> `SimulationTaskQueue`, and `SimulationBuilder`/`BuiltSimulation` install and
-> restore this ambient context automatically; hand-written cluster/node subclasses
-> that predate it are unaffected (see the README's "Deterministic instrumentation
-> runtime plumbing" section for the exact compatibility rule). None of this
-> changes any existing public API's signature or behavior - it is purely
-> additive, and none of it intercepts, schedules, or rewrites application code
-> yet. Phase 2 explicitly does **not** implement: controlled-operation
-> physical-thread gating, resource pause/resume, deadlock detection, IL rewriting
-> (Cecil), a public Buggify API, BCL compatibility shims, Generic Host
-> integration, or HTTP support - this document exists to pin down the contract
-> those will be designed against, so the package scaffolding under `src/` (see
-> [Project layout](#project-layout)) has a stable target.
+> **Current status:** The authoritative capability summary is
+> [README — Current capability contract](../README.md#current-capability-contract). The kernel,
+> build/tool rewriting pipeline, analyzers, built-in BCL/task rules, and Phase 7A synchronization
+> rules described there are implemented. Phase-labelled sections in this document are historical
+> delivery records; their “not yet” statements describe that milestone, not current capability.
 
 ## Intended execution modes
 
@@ -68,23 +23,15 @@ application's own concurrency they can observe or control.
 The application opts in explicitly: it uses `TimeProvider`, the simulation
 `TaskScheduler`/`SynchronizationContext`, `SimulationRandom`, and the simulated
 network surfaces directly, as described in the README's "Determinism requirements"
-section. This is what the current kernel supports today. No IL rewriting, no
-profiler, no analyzer - the application author is responsible for routing every
-source of nondeterminism through Clockwork's APIs.
+section. This remains available without instrumentation. The application author explicitly routes
+nondeterminism through Clockwork APIs.
 
 ### Controlled mode
 
-Clockwork additionally *verifies* cooperative usage and, where feasible, redirects
-common nondeterministic entry points (thread pool scheduling, `Task.Delay`, `Random`
-construction) automatically, so that accidental escapes from the simulation are
-caught early instead of silently reintroducing flakiness. This is expected to be the
-first mode built on top of the `Clockwork.Instrumentation` boundary and the
-Roslyn analyzers in `Clockwork.Analyzers` (diagnostics for direct wall-clock/thread
-pool/`Random.Shared` usage), rather than requiring IL rewriting. Phase 2's runtime
-plumbing (ambient `SimulationExecutionContext`, the `SimulationApiPolicyRegistry`
-classification model, and the external-entry guard) is the substrate this mode is
-expected to build on; it does not itself intercept or redirect any API yet - see the
-README's "Deterministic instrumentation runtime plumbing" section.
+Clockwork verifies usage with shipped Roslyn diagnostics and redirects the exact built-in rule
+inventory through opt-in IL rewriting. Controlled async/task/thread/thread-pool/Parallel and
+Monitor/Lock/SemaphoreSlim surfaces run on logical strands; every .NET 10 `Task.Delay` overload is
+rejected until virtual delays exist.
 
 #### Controlled-operation kernel (Phase 3A)
 
@@ -198,12 +145,8 @@ The most invasive mode: build-time IL rewriting (`Clockwork.Instrumentation.Buil
 or runtime profiling hooks intercept nondeterministic operations that cannot be
 caught cooperatively or via analyzers - for example, calls made by third-party
 libraries that do not route through `TimeProvider` or accept an injected scheduler.
-This mode is expected to depend on IL manipulation tooling (see
-[Third-party notices](../THIRD-PARTY-NOTICES.md) for the Mono.Cecil-based approach
-under consideration) and is deliberately deferred: it carries the highest
-implementation cost and the most platform constraints (see below), so it should
-only be built once the lower-cost modes have proven insufficient for a concrete
-scenario.
+The build package and CLI implement this mode today using Mono.Cecil; see
+[Third-party notices](../THIRD-PARTY-NOTICES.md). Rewriting is opt-in and out-of-place.
 
 #### Rewrite-engine core (Phase 4A)
 
@@ -369,18 +312,16 @@ is driven by antecedents that complete on the logical thread); synchronous waits
 coordinator loop until completion instead of blocking a physical thread**, then delegate to the
 real API to reproduce its exact `AggregateException` semantics, so a synchronous wait or a blocking
 `Task<T>.Result` read on incomplete controlled work never deadlocks the scheduler.
-`TaskFactory.StartNew` / `TaskFactory<T>.StartNew` are **rejected** at the rewritten call site (they
-offload onto a task scheduler / the thread pool) rather than escaping onto a physical thread.
+At the Phase 6A milestone, `Task.Run` and `TaskFactory.StartNew` were rejected rather than allowed to
+escape. Phase 6B replaced those guards with controlled scheduling; only `Task.Delay` remains rejected.
 
 The redirect obeys the same three-state contract as the BCL rule set: outside a simulation every
 controlled builder/awaiter/shim is a transparent pass-through to the real BCL; inside a simulation
 continuations and waits route through the coordinator; inside a simulation with no registered task
 coordinator the shim throws `ControlledTaskServiceMissingException` rather than silently escaping
-to the thread pool. `Task.Delay` (virtual timers) and `Task.Run` (thread-pool scheduling) are
-**rejected** under simulation with a precise diagnostic rather than modelled with wall-clock time
-or an uncontrolled thread — they are owned by later phases.
+to the thread pool.
 
-**Deferred to Phase 6B** (deliberately *not* in this rule set): `Thread`/`ThreadPool`/`Parallel`,
+**Historical Phase 6A boundary (closed by Phase 6B):** `Thread`/`ThreadPool`/`Parallel`,
 `Monitor`/semaphore/wait-handle public shims, timers and the `Task.Delay` implementation,
 cancellation timers, synchronous blocking on `ValueTask`/`ValueTask<T>` (a value task may be
 consumed only once, so a blocking drain is unsafe — `await` is the supported controlled path),
@@ -388,7 +329,7 @@ generic `Task<T>.ContinueWith<TNewResult>` overloads, `TaskCompletionSource`/`Ta
 beyond the rejected `StartNew` sites, cross-assembly enforcement, and hardening of exception
 filters/handlers against swallowing scheduler-control flow. Phase 6A already prefers explicit
 gate/state transitions over control exceptions, so a user `catch` cannot swallow the scheduler; the
-remaining filter-level hardening is reported to Phase 6B as a boundary.
+remaining filter-level hardening was delivered in Phase 6B.
 
 #### Threads, thread pool, Parallel, and task-parity closure (Phase 6B)
 
@@ -456,8 +397,8 @@ physical-gate backend lands):
 The three-state contract still holds for every controlled shim: outside a simulation each is a
 transparent pass-through to the real BCL API; inside a simulation the work routes through the
 coordinator; inside a simulation with no registered coordinator the shim throws rather than silently
-escaping. **Phase 7** owns `Monitor`/semaphores/wait handles (and unblocks registered waits);
-**Phase 8** owns timers/`Task.Delay`/cancellation timers.
+escaping. Phase 7A subsequently delivered `Monitor`, `System.Threading.Lock`, and `SemaphoreSlim`;
+general wait handles remain unimplemented, and timers/cancellation timers remain future work.
 
 Each mode is intended to be strictly additive: an application written for
 cooperative mode should continue to work unmodified under controlled, race
@@ -524,7 +465,8 @@ The three-state contract still holds for every Phase 7A shim: outside a simulati
 pass-through to the real BCL primitive; inside a simulation the operation routes through the coordinator;
 inside a simulation with no registered coordinator the shim throws rather than silently escaping.
 **Phase 7B** owns wait handles / events / `Interlocked` / `Volatile` / `SpinWait`; **Phase 8** owns
-`ReaderWriterLockSlim`/`Mutex`/`Semaphore`/`SpinLock` and timers/`Task.Delay`/cancellation timers.
+`ReaderWriterLockSlim`/`Mutex`/`Semaphore`/`SpinLock`, timers, cancellation timers, and a future
+virtual implementation for the currently rejected `Task.Delay` surface.
 
 ## Platform and deployment contract
 
@@ -543,19 +485,16 @@ inside a simulation with no registered coordinator the shim throws rather than s
   surface (including the generic `Task<T>.ContinueWith` and result-producing
   `ContinueWith<TNewResult>` added in Phase 6B) enumerated in [`rule-inventory.md`](rule-inventory.md),
   routing `async`/`await` and synchronous waits through the simulation coordinator. Phase 6B also
-  brings `Task.Run`, `TaskFactory`/`TaskFactory<T>.StartNew`, `Thread`, `ThreadPool`
+  brings `Task.Run`, all 24 .NET 10 `TaskFactory`/`TaskFactory<T>.StartNew` signatures, `Thread`, `ThreadPool`
   (`QueueUserWorkItem`/`UnsafeQueueUserWorkItem`), and `Parallel` under control (see the Coyote
   parity matrix, [`coyote-parity.md`](coyote-parity.md)). Control is claimed **only** for those
-  exact signatures; `Task.Delay` stays rejected (Phase 8), synchronous `ValueTask` blocking remains
+  exact signatures; all six .NET 10 `Task.Delay` overloads stay rejected, synchronous `ValueTask` blocking remains
   a documented hole. **Phase 7A** additionally brings `Monitor` (and the C# `lock (object)`
   statement), `System.Threading.Lock` (and the C# `lock (Lock)` statement), and `SemaphoreSlim` under
   control; `SemaphoreSlim.AvailableWaitHandle`, wait handles, and the `ThreadPool` registered-wait
   APIs stay rejected until **Phase 7B**.
-- **ReadyToRun (R2R) published assemblies** are expected to work for the existing
-  kernel and for cooperative/controlled/race-exploration modes, since none of those
-  modes require rewriting already-compiled method bodies at load time. This is a
-  design intent for Phase 0 scaffolding, not yet independently verified by a
-  dedicated R2R test lane.
+- **ReadyToRun inputs** are detected by the build/tool path: the default policy rejects them, while
+  `StripToIL` produces an IL-only staged output. Instrument before publishing R2R.
 
 ### Deferred / not yet supported
 
@@ -586,8 +525,7 @@ surprise:
   instance APIs and `GetElapsedTime(long, long)`; generic crypto helpers `GetItems<T>`/`Shuffle<T>`
   and unlisted `GetString`/`GetHexString` overloads; and `DateTime`/`DateTimeOffset`
   parse/format/convert helpers. Everything outside time/identity/random - task/thread/
-  synchronization primitives, timers, collections, Buggify, hosting, and network/HTTP - is out
-  of scope for Phase 5.
+  general wait handles, timers, collections, Buggify, hosting, and network/HTTP.
 - **Profiler conflicts.** Deep instrumentation that uses the .NET profiling APIs
   (ICorProfilerCallback) cannot coexist with other profilers (coverage tools, APM
   agents, debuggers attaching a profiler) without explicit multi-profiler
@@ -599,24 +537,19 @@ runtime itself imposes, because it requires no rewriting or hooking at all.
 
 ## Project layout
 
-The package boundaries scaffolded under `src/` map to the modes above:
+The implemented package boundaries under `src/` map to the modes above:
 
-| Project | Depends on | Future purpose |
+| Project | Depends on | Current purpose |
 |---|---|---|
-| `Clockwork.Runtime` | *(none)* | **Phase 2 (current):** ambient `SimulationExecutionContext`, secure activation, named seed domains, the decision-log/replay contract, and the API policy classification model - see the README's "Deterministic instrumentation runtime plumbing" section. Eventual home of the deterministic kernel itself (currently `src/Clockwork/Clockwork.csproj`, packaged as `Clockwork.Simulation`), which references this package. |
-| `Clockwork.Instrumentation` | `Clockwork.Runtime` | Contracts and hooks shared by controlled, race exploration, and deep instrumentation modes. |
-| `Clockwork.Instrumentation.Build` | `Clockwork.Instrumentation` | **Phase 4B (current):** opt-in MSBuild task + `build/` targets that instrument the resolved output closure out-of-place during `dotnet build`. |
-| `Clockwork.Tool` | `Clockwork.Instrumentation` | **Phase 4B (current):** the `clockwork` CLI (`rewrite`, `inspect`) over the shared orchestrator. |
-| `Clockwork.Analyzers` | *(none)* | Roslyn diagnostics for cooperative/controlled-mode misuse (direct wall-clock, thread pool, `Random.Shared` usage). |
+| `Clockwork.Runtime` | *(none)* | Ambient simulation context, policy, controlled task/thread/synchronization shims, logical strands, and scheduling/resource infrastructure. |
+| `Clockwork.Instrumentation` | `Clockwork.Runtime` | Cecil rewrite engine, manifests, built-in rules, closure orchestration, and diagnostics. |
+| `Clockwork.Instrumentation.Build` | `Clockwork.Instrumentation` | Opt-in MSBuild task + targets that instrument the resolved output closure out-of-place. |
+| `Clockwork.Tool` | `Clockwork.Instrumentation` | `clockwork rewrite` / `inspect` CLI over the shared orchestrator. |
+| `Clockwork.Analyzers` | *(none)* | Roslyn diagnostics aligned with controlled/rejected direct BCL usage. |
 | `Clockwork.Hosting` | `Clockwork.Runtime` | Integration with `Microsoft.Extensions.Hosting`. |
 | `Clockwork.Http` | `Clockwork.Runtime` | `HttpMessageHandler` routed through the simulated network. |
 | `Clockwork.Testing` | `Clockwork.Runtime` | Reusable test helpers and scenario builders for consumers. |
 
-As of Phase 2, `Clockwork.Runtime` hosts the runtime plumbing described above (and is
-referenced by `src/Clockwork/Clockwork.csproj`). As of Phase 4A/4B, `Clockwork.Instrumentation`
-carries the generic IL rewrite engine and `Clockwork.Instrumentation.Build` /
-`Clockwork.Tool` expose it through an opt-in build task and the `clockwork` CLI;
-`Clockwork.Analyzers`, `Clockwork.Hosting`, `Clockwork.Http`, and `Clockwork.Testing`
-remain empty, minimal placeholder projects with no behavior. See
-`src/Clockwork/Clockwork.csproj` for the deterministic kernel's current, real implementation. No public
-behavior of the existing kernel changed as a result of this or prior scaffolding phases.
+`Clockwork.Hosting`, `Clockwork.Http`, and `Clockwork.Testing` remain separate integration/helper
+packages. Exact shipped interception behavior is defined by [`rule-inventory.md`](rule-inventory.md),
+not by historical phase prose.

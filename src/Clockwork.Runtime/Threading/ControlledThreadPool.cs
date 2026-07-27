@@ -288,6 +288,14 @@ public static class ControlledThreadPool
             return;
         }
 
-        ExecutionContext.Run(context, static state => ((Action)state!)(), work);
+        long strandId = ControlledSynchronizationFlow.CurrentId;
+        ExecutionContext.Run(
+            context,
+            static state =>
+            {
+                var flowed = ((long StrandId, Action Work))state!;
+                ControlledSynchronizationFlow.RunAsStrand(flowed.StrandId, flowed.Work);
+            },
+            (strandId, work));
     }
 }

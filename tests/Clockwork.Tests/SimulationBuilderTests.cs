@@ -1,3 +1,9 @@
+using System.Reflection;
+using Clockwork.Runtime.Execution;
+using Clockwork.Runtime.Random;
+using Clockwork.Runtime.Shims;
+using Clockwork.Runtime.Tasks;
+
 namespace Clockwork.Tests;
 
 /// <summary>
@@ -16,6 +22,162 @@ public sealed class SimulationBuilderTests
         var exception = Assert.Throws<InvalidOperationException>(() => builder.Build());
         Assert.Contains("WithSeed", exception.Message, StringComparison.Ordinal);
         await Task.CompletedTask;
+    }
+
+    [Fact]
+    public async Task BuildCannotBeCalledTwice()
+    {
+        var builder = new SimulationBuilder().WithSeed(1);
+        var handle = builder.AddNode("node-1", state: 42);
+        await using var cluster = builder.Build();
+
+        var exception = Assert.Throws<InvalidOperationException>(() => builder.Build());
+
+        Assert.Contains("cannot be reused", exception.Message, StringComparison.Ordinal);
+        Assert.Single(cluster.Nodes);
+        Assert.Same(handle, cluster.Nodes[0]);
+        Assert.Equal(42, handle.State);
+    }
+
+    [Fact]
+    public void ThrowingSecondFactoryCleansCreatedNodesAndRuntimeRegistrationsAndPreventsReuse()
+    {
+        var events = new List<string>();
+        SimulationRuntimeIdentity? runtime = null;
+        var factoryFailure = new InvalidOperationException("second factory failed");
+        var builder = new SimulationBuilder().WithSeed(1);
+        builder.AddCustomNode("first", context =>
+        {
+            runtime = GetRuntimeIdentity(context);
+            return new TrackingNode("first", context, events);
+        });
+        builder.AddCustomNode<CustomNode>("second", _ => throw factoryFailure);
+
+        var exception = Assert.Throws<InvalidOperationException>(() => builder.Build());
+
+        Assert.Same(factoryFailure, exception);
+        Assert.Equal(["first"], events);
+        Assert.NotNull(runtime);
+        Assert.False(SimulationRuntimeServices.TryGet(runtime, out _));
+        Assert.False(SimulationTaskCoordination.TryGet(runtime, out _));
+
+        var reuseException = Assert.Throws<InvalidOperationException>(() => builder.Build());
+        Assert.Contains("cannot be reused", reuseException.Message, StringComparison.Ordinal);
+        Assert.Equal(["first"], events);
+    }
+
+    [Fact]
+    public void FactoryAndCleanupFailuresAreAggregatedAfterRemainingCleanupAndInfrastructureRelease()
+    {
+        var events = new List<string>();
+        SimulationRuntimeIdentity? runtime = null;
+        var factoryFailure = new InvalidOperationException("third factory failed");
+        var builder = new SimulationBuilder().WithSeed(1);
+        builder.AddCustomNode("first", context =>
+        {
+            runtime = GetRuntimeIdentity(context);
+            return new TrackingNode("first", context, events, throwOnDispose: true);
+        });
+        builder.AddCustomNode("second", context => new TrackingNode("second", context, events));
+        builder.AddCustomNode<CustomNode>("third", _ => throw factoryFailure);
+
+        var exception = Assert.Throws<AggregateException>(() => builder.Build());
+
+        Assert.Equal(
+            ["third factory failed", "first disposal failed"],
+            exception.InnerExceptions.Select(static error => error.Message));
+        Assert.Equal(["first", "second"], events);
+        Assert.NotNull(runtime);
+        Assert.False(SimulationRuntimeServices.TryGet(runtime, out _));
+        Assert.False(SimulationTaskCoordination.TryGet(runtime, out _));
+    }
+
+    [Fact]
+    public void FailedMaterializationDisposesStateAndDetachesHandle()
+    {
+        var state = new DisposableState();
+        var builder = new SimulationBuilder().WithSeed(1);
+        var handle = builder.AddNode("first", state);
+        builder.AddCustomNode<CustomNode>("second", _ => throw new InvalidOperationException("boom"));
+
+        _ = Assert.Throws<InvalidOperationException>(() => builder.Build());
+
+        Assert.True(state.Disposed);
+        Assert.False(handle.IsInitialized);
+        Assert.Throws<InvalidOperationException>(() => handle.Context);
+        Assert.Throws<InvalidOperationException>(() => handle.State);
+    }
+
+    [Fact]
+    public void BuildRejectsNullCustomFactoryResult()
+    {
+        var builder = new SimulationBuilder().WithSeed(1);
+        builder.AddCustomNode<CustomNode>("node-1", _ => null!);
+
+        var exception = Assert.Throws<InvalidOperationException>(() => builder.Build());
+
+        Assert.Contains("node-1", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("null", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildRejectsEmptyCustomNodeAddressAndDisposesTheNode()
+    {
+        var events = new List<string>();
+        var builder = new SimulationBuilder().WithSeed(1);
+        builder.AddCustomNode("node-1", context => new TrackingNode(string.Empty, context, events));
+
+        var exception = Assert.Throws<InvalidOperationException>(() => builder.Build());
+
+        Assert.Contains("null or empty", exception.Message, StringComparison.Ordinal);
+        Assert.Equal([""], events);
+    }
+
+    [Fact]
+    public void BuildRejectsNullCustomNodeAddressAndDisposesTheNode()
+    {
+        DisposableAddressNode? node = null;
+        var builder = new SimulationBuilder().WithSeed(1);
+        builder.AddCustomNode("node-1", context =>
+        {
+            node = new DisposableAddressNode(null!, context);
+            return node;
+        });
+
+        var exception = Assert.Throws<InvalidOperationException>(() => builder.Build());
+
+        Assert.Contains("null or empty", exception.Message, StringComparison.Ordinal);
+        Assert.NotNull(node);
+        Assert.True(node.Disposed);
+    }
+
+    [Fact]
+    public void BuildRejectsCustomNodeAddressMismatchAndDisposesTheNode()
+    {
+        var events = new List<string>();
+        var builder = new SimulationBuilder().WithSeed(1);
+        builder.AddCustomNode("node", context => new TrackingNode("NODE", context, events));
+
+        var exception = Assert.Throws<InvalidOperationException>(() => builder.Build());
+
+        Assert.Contains("exactly match", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("node", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("NODE", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(["NODE"], events);
+    }
+
+    [Fact]
+    public void BuildRejectsMaterializedAddressCollisionAndDisposesEveryCreatedNode()
+    {
+        var events = new List<string>();
+        var builder = new SimulationBuilder().WithSeed(1);
+        builder.AddCustomNode("shared", context => new TrackingNode("shared", context, events));
+        builder.AddCustomNode("requested", context => new TrackingNode("shared", context, events));
+
+        var exception = Assert.Throws<InvalidOperationException>(() => builder.Build());
+
+        Assert.Contains("collides", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(["shared", "shared"], events);
     }
 
     [Fact]
@@ -174,6 +336,46 @@ public sealed class SimulationBuilderTests
     }
 
     [Fact]
+    public async Task DisposeAsyncContinuesCleanupAggregatesFailuresAndIsIdempotent()
+    {
+        var events = new List<string>();
+        var firstState = new TrackingDisposable("state-failure", events, throwOnDispose: true);
+        var laterState = new TrackingDisposable("state-success", events);
+        var builder = new SimulationBuilder().WithSeed(1);
+        var firstHandle = builder.AddNode("state-failure", firstState);
+        builder.AddCustomNode(
+            "node-failure",
+            context => new TrackingNode("node-failure", context, events, throwOnDispose: true));
+        var laterHandle = builder.AddNode("state-success", laterState);
+        builder.AddCustomNode("node-success", context => new TrackingNode("node-success", context, events));
+        var cluster = builder.Build();
+        var runtime = cluster.RuntimeIdentity;
+        var teardownToken = cluster.TeardownCancellationToken;
+
+        var exception = await Assert.ThrowsAsync<AggregateException>(() => cluster.DisposeAsync().AsTask());
+
+        Assert.Equal(
+            ["state-failure", "node-failure", "state-success", "node-success"],
+            events);
+        Assert.Equal(
+            ["state-failure disposal failed", "node-failure disposal failed"],
+            exception.InnerExceptions.Select(static error => error.Message));
+        Assert.True(firstState.Disposed);
+        Assert.True(laterState.Disposed);
+        Assert.False(firstHandle.IsInitialized);
+        Assert.False(laterHandle.IsInitialized);
+        Assert.Empty(cluster.Nodes);
+        Assert.True(teardownToken.IsCancellationRequested);
+        Assert.False(SimulationRuntimeServices.TryGet(runtime, out _));
+        Assert.False(SimulationTaskCoordination.TryGet(runtime, out _));
+
+        await cluster.DisposeAsync();
+        Assert.Equal(
+            ["state-failure", "node-failure", "state-success", "node-success"],
+            events);
+    }
+
+    [Fact]
     public async Task SameSeedProducesReproducibleDerivedRandomValues()
     {
         var firstBuilder = new SimulationBuilder().WithSeed(42);
@@ -187,6 +389,57 @@ public sealed class SimulationBuilderTests
         var firstNode = (SimulationNodeHandle<int>)first.Nodes[0];
         var secondNode = (SimulationNodeHandle<int>)second.Nodes[0];
         Assert.Equal(firstNode.State, secondNode.State);
+    }
+
+    [Fact]
+    public async Task NodeRandomUsesStableApplicationDomainSeedAcrossTopologyOrderEdits()
+    {
+        const int seed = 42;
+        var firstBuilder = new SimulationBuilder().WithSeed(seed);
+        var firstStable = firstBuilder.AddNode("stable");
+        _ = firstBuilder.AddNode("peer");
+        await using var first = firstBuilder.Build();
+
+        var editedBuilder = new SimulationBuilder().WithSeed(seed);
+        _ = editedBuilder.AddNode("added");
+        _ = editedBuilder.AddNode("peer");
+        var editedStable = editedBuilder.AddNode("stable");
+        await using var edited = editedBuilder.Build();
+
+        var expectedSeed = new SimulationSeedAuthority(seed)
+            .GetSiteSeed(SimulationSeedDomain.Application, "stable");
+        Assert.Equal(expectedSeed, firstStable.Context.Random.Seed);
+        Assert.Equal(expectedSeed, editedStable.Context.Random.Seed);
+        Assert.Equal(firstStable.Context.Random.Next(), editedStable.Context.Random.Next());
+        Assert.Equal(firstStable.Context.Random.Next(), editedStable.Context.Random.Next());
+    }
+
+    [Fact]
+    public async Task NetworkRandomUsesFixedNetworkDomainAcrossTopologyOrderEdits()
+    {
+        const int seed = 42;
+        const double dropRate = 0.5;
+        var firstBuilder = new SimulationBuilder().WithSeed(seed);
+        _ = firstBuilder.AddNode("stable");
+        _ = firstBuilder.AddNode("peer");
+        await using var first = firstBuilder.Build();
+
+        var editedBuilder = new SimulationBuilder().WithSeed(seed);
+        _ = editedBuilder.AddNode("added");
+        _ = editedBuilder.AddNode("peer");
+        _ = editedBuilder.AddNode("stable");
+        await using var edited = editedBuilder.Build();
+
+        var expectedRandom = new SimulationRandom(
+            new SimulationSeedAuthority(seed).GetDomainSeed(SimulationSeedDomain.Network));
+        var expected = Enumerable.Range(0, 32)
+            .Select(_ => expectedRandom.Chance(dropRate) ? DeliveryStatus.Dropped : DeliveryStatus.Success)
+            .ToArray();
+        var firstOutcomes = GetDeliveryOutcomes(first.Network, dropRate);
+        var editedOutcomes = GetDeliveryOutcomes(edited.Network, dropRate);
+
+        Assert.Equal(expected, firstOutcomes);
+        Assert.Equal(expected, editedOutcomes);
     }
 
     [Fact]
@@ -222,6 +475,48 @@ public sealed class SimulationBuilderTests
         public void Dispose() => Disposed = true;
     }
 
+    private sealed class TrackingDisposable(
+        string name,
+        List<string> events,
+        bool throwOnDispose = false) : IDisposable
+    {
+        public bool Disposed { get; private set; }
+
+        public void Dispose()
+        {
+            events.Add(name);
+            Disposed = true;
+            if (throwOnDispose)
+            {
+                throw new InvalidOperationException($"{name} disposal failed");
+            }
+        }
+    }
+
+    private sealed class TrackingNode(
+        string address,
+        SimulationNodeContext context,
+        List<string> events,
+        bool throwOnDispose = false) : SimulationNode, IAsyncDisposable
+    {
+        public override SimulationNodeContext Context { get; } = context;
+
+        public override string NetworkAddress { get; } = address;
+
+        public override bool IsInitialized => true;
+
+        public ValueTask DisposeAsync()
+        {
+            events.Add(NetworkAddress);
+            if (throwOnDispose)
+            {
+                throw new InvalidOperationException($"{NetworkAddress} disposal failed");
+            }
+
+            return ValueTask.CompletedTask;
+        }
+    }
+
     private sealed class DisposableCustomNode(string address, SimulationNodeContext context) : SimulationNode, IAsyncDisposable
     {
         public override SimulationNodeContext Context { get; } = context;
@@ -237,6 +532,19 @@ public sealed class SimulationBuilderTests
             Disposed = true;
             return ValueTask.CompletedTask;
         }
+    }
+
+    private sealed class DisposableAddressNode(string address, SimulationNodeContext context) : SimulationNode, IDisposable
+    {
+        public override SimulationNodeContext Context { get; } = context;
+
+        public override string NetworkAddress { get; } = address;
+
+        public override bool IsInitialized => true;
+
+        public bool Disposed { get; private set; }
+
+        public void Dispose() => Disposed = true;
     }
 
     private sealed class LegacyStyleCluster : SimulationCluster<LegacyStyleNode>
@@ -264,5 +572,23 @@ public sealed class SimulationBuilderTests
         public override string NetworkAddress { get; } = address;
 
         public override bool IsInitialized => true;
+    }
+
+    private static SimulationRuntimeIdentity GetRuntimeIdentity(SimulationNodeContext context)
+    {
+        var field = typeof(SimulationTaskQueue).GetField(
+            "_ambientContext",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        var ambientContext = Assert.IsType<SimulationAmbientContextConfiguration>(
+            field?.GetValue(context.TaskQueue));
+        return ambientContext.Runtime;
+    }
+
+    private static DeliveryStatus[] GetDeliveryOutcomes(SimulationNetwork network, double dropRate)
+    {
+        network.MessageDropRate = dropRate;
+        return Enumerable.Range(0, 32)
+            .Select(_ => network.CheckDelivery("stable", "peer"))
+            .ToArray();
     }
 }

@@ -263,6 +263,20 @@ public sealed class ControlledMonitorTests
         Assert.True(Monitor.IsEntered(gate));
         ControlledMonitor.Exit(gate);
         Assert.False(ControlledMonitor.IsEntered(gate));
+        Assert.Equal(Monitor.LockContentionCount, ControlledMonitor.LockContentionCount());
+    }
+
+    [Fact]
+    public void LockContentionCountIsRejectedInsideSimulation()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var ex = Assert.Throws<ControlledTaskUnsupportedException>(
+                () => ControlledMonitor.LockContentionCount());
+            Assert.Equal("System.Threading.Monitor.LockContentionCount", ex.ApiName);
+        });
     }
 
     // ---- Finite virtual-time timeouts (Monitor.TryEnter / Monitor.Wait) ----

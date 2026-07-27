@@ -109,7 +109,7 @@ public sealed class SimulationGateTests
     }
 
     [Fact]
-    public void CancellingBeforeTheQueueDrainsTheReleaseWinsTheRaceAndTheWaiterEndsUpCanceled()
+    public void OpeningBeforeCancellationClaimsTheWaiterEvenBeforeTheQueueDrains()
     {
         var queue = CreateQueue();
         var gate = new SimulationGate(queue);
@@ -118,13 +118,12 @@ public sealed class SimulationGateTests
         var task = gate.WaitAsync(cts.Token);
 
         gate.Open(); // Enqueues the completion, but does not run it yet.
-        cts.Cancel(); // Cancellation is synchronous and happens before the queue is drained.
+        cts.Cancel();
 
-        Assert.True(task.IsCanceled);
+        Assert.False(task.IsCompleted);
 
-        // The still-queued completion action must be a harmless no-op once drained.
         Assert.True(queue.RunOnce());
-        Assert.True(task.IsCanceled);
+        Assert.True(task.IsCompletedSuccessfully);
     }
 
     [Fact]
@@ -145,6 +144,105 @@ public sealed class SimulationGateTests
     }
 
     [Fact]
+    public async Task CrossThreadCancellationRacingOpenHasExactlyOneWinnerAndPreservesTheWaiterList()
+    {
+        for (var iteration = 0; iteration < 200; iteration++)
+        {
+            var queue = CreateQueue();
+            var gate = new SimulationGate(queue);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+            using var start = new ManualResetEventSlim();
+
+            var racingTask = gate.WaitAsync(cts.Token);
+            var survivor = gate.WaitAsync(TestContext.Current.CancellationToken);
+            var cancellation = Task.Run(
+                () =>
+                {
+                    start.Wait(TestContext.Current.CancellationToken);
+                    cts.Cancel();
+                },
+                TestContext.Current.CancellationToken);
+
+            start.Set();
+            gate.Open();
+            await cancellation.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            queue.RunUntilIdle();
+
+            Assert.True(racingTask.IsCanceled || racingTask.IsCompletedSuccessfully);
+            Assert.True(survivor.IsCompletedSuccessfully);
+            Assert.False(queue.HasItems);
+        }
+    }
+
+    [Fact]
+    public void CancelingAMiddleWaiterLeavesSurvivorsInFifoOrder()
+    {
+        var queue = CreateQueue();
+        var gate = new SimulationGate(queue);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+
+        var first = gate.WaitAsync(TestContext.Current.CancellationToken);
+        var canceled = gate.WaitAsync(cts.Token);
+        var third = gate.WaitAsync(TestContext.Current.CancellationToken);
+
+        cts.Cancel();
+        gate.Open();
+
+        Assert.True(canceled.IsCanceled);
+        Assert.True(queue.RunOnce());
+        Assert.True(first.IsCompletedSuccessfully);
+        Assert.False(third.IsCompleted);
+        Assert.True(queue.RunOnce());
+        Assert.True(third.IsCompletedSuccessfully);
+        Assert.False(queue.HasItems);
+    }
+
+    [Fact]
+    public void ReleasingAWaiterDisposesItsCancellationRegistration()
+    {
+        var queue = CreateQueue();
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+
+        var gateReference = CreateReleasedGateReference(queue, cts.Token);
+
+        AssertEventuallyCollected(gateReference);
+        GC.KeepAlive(cts);
+    }
+
+    [Fact]
+    public async Task ReleaseDoesNotDeadlockWhileTheTokenIsRunningAnotherCancellationCallback()
+    {
+        var queue = CreateQueue();
+        var gate = new SimulationGate(queue);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        using var callbackEntered = new ManualResetEventSlim();
+        using var allowCancellationToContinue = new ManualResetEventSlim();
+
+        var task = gate.WaitAsync(cts.Token);
+        using var blockingRegistration = cts.Token.Register(
+            () =>
+            {
+                callbackEntered.Set();
+                allowCancellationToContinue.Wait(TestContext.Current.CancellationToken);
+            });
+
+        var cancellation = Task.Run(cts.Cancel, TestContext.Current.CancellationToken);
+        Assert.True(callbackEntered.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+
+        var release = Task.Run(gate.Open, TestContext.Current.CancellationToken);
+        var completed = await Task.WhenAny(
+            release,
+            Task.Delay(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+        allowCancellationToContinue.Set();
+        await cancellation.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        Assert.Same(release, completed);
+        await release;
+
+        Assert.True(queue.RunOnce());
+        Assert.True(task.IsCompletedSuccessfully);
+    }
+
+    [Fact]
     public void NameIsExposedForDiagnosticsAndDefaultsToNull()
     {
         var queue = CreateQueue();
@@ -153,4 +251,29 @@ public sealed class SimulationGateTests
     }
 
     private static SimulationTaskQueue CreateQueue() => new(new SimulationClock(DateTimeOffset.UnixEpoch), new SingleThreadedGuard());
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static WeakReference CreateReleasedGateReference(SimulationTaskQueue queue, CancellationToken cancellationToken)
+    {
+        var gate = new SimulationGate(queue);
+        var task = gate.WaitAsync(cancellationToken);
+        var reference = new WeakReference(gate);
+
+        gate.Open();
+        Assert.Equal(1, queue.RunUntilIdle());
+        Assert.True(task.IsCompletedSuccessfully);
+        return reference;
+    }
+
+    private static void AssertEventuallyCollected(WeakReference reference)
+    {
+        for (var attempt = 0; attempt < 10 && reference.IsAlive; attempt++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+        }
+
+        Assert.False(reference.IsAlive);
+    }
 }

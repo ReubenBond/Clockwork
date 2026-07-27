@@ -193,6 +193,50 @@ public sealed class SimulationClusterAdaptiveTests
         Assert.True(result.Iterations >= result.StepsExecuted + result.TimeAdvanceCount);
     }
 
+    [Fact]
+    public async Task RunUntilConvergedCarriesConsecutiveTimeAdvancesAcrossBatchBoundaries()
+    {
+        await using var cluster = CreateClusterWithBlockedTimers();
+        var budget = new SimulationAdaptiveBudget(initialMaxIterations: 1, growthFactor: 2.0, maxTotalIterations: 100);
+
+        var result = cluster.RunUntilConverged(() => false, budget);
+
+        Assert.Equal(SimulationExecutionReason.MaxConsecutiveTimeAdvancesExceeded, result.Reason);
+        Assert.Equal(3, result.TimeAdvanceCount);
+        Assert.Equal(3, result.ConsecutiveTimeAdvanceCount);
+        Assert.Equal(budget.MaxTotalIterations, result.Limits.MaxIterations);
+    }
+
+    [Fact]
+    public async Task RunUntilIdleConvergedCarriesConsecutiveTimeAdvancesAcrossBatchBoundaries()
+    {
+        await using var cluster = CreateClusterWithBlockedTimers();
+        var budget = new SimulationAdaptiveBudget(initialMaxIterations: 1, growthFactor: 2.0, maxTotalIterations: 100);
+
+        var result = cluster.RunUntilIdleConverged(budget: budget);
+
+        Assert.Equal(SimulationExecutionReason.MaxConsecutiveTimeAdvancesExceeded, result.Reason);
+        Assert.Equal(3, result.TimeAdvanceCount);
+        Assert.Equal(3, result.ConsecutiveTimeAdvanceCount);
+        Assert.Equal(budget.MaxTotalIterations, result.Limits.MaxIterations);
+    }
+
+    private static AdaptiveTestCluster CreateClusterWithBlockedTimers()
+    {
+        var cluster = new AdaptiveTestCluster(seed: 1)
+        {
+            MaxConsecutiveTimeAdvances = 2,
+        };
+        var node = cluster.AddNode("node-1");
+        node.Suspend();
+        for (var seconds = 1; seconds <= 3; seconds++)
+        {
+            node.Context.TaskQueue.EnqueueAfter(() => { }, TimeSpan.FromSeconds(seconds));
+        }
+
+        return cluster;
+    }
+
     private sealed class AdaptiveTestCluster : SimulationCluster<AdaptiveTestNode>
     {
         public AdaptiveTestCluster(int seed, DateTimeOffset? startDateTime = null, CancellationToken cancellationToken = default)

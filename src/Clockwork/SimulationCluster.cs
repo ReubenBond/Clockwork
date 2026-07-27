@@ -29,6 +29,8 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     private readonly IDisposable _runtimeRegistration;
     private readonly Clockwork.Runtime.Tasks.ControlledTaskLoopCoordinator _taskCoordinator;
     private readonly IDisposable _taskCoordinatorRegistration;
+    private RoundRobinCursorKind _roundRobinCursor;
+    private string? _roundRobinNodeAddressExclusive;
     private bool _disposed;
 
     /// <summary>
@@ -384,48 +386,86 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     }
 
     /// <summary>
-    /// Attempts to execute one ready task using round-robin across all node contexts and the cluster queue.
+    /// Attempts to execute one ready task using persistent round-robin order across the cluster queue,
+    /// ordinally sorted node queues, and the controlled task loop.
     /// Returns true if a task was executed.
     /// </summary>
     protected bool RunOneTaskRoundRobin()
     {
         using var _ = Guard.Enter();
+        var nodes = Nodes;
+        var sourceCount = nodes.Count + 2;
+        var startIndex = GetRoundRobinStartIndex(nodes);
 
-        // Try the cluster queue (for scheduled operations like auto-resume)
-        if (TaskQueue.RunOnce())
+        for (var offset = 0; offset < sourceCount; offset++)
         {
-            return true;
-        }
-
-        // Try to execute from non-suspended node contexts (round-robin)
-        foreach (var node in Nodes)
-        {
-            var context = node.Context;
-            if (context.State == SimulationNodeState.Running && context.Step())
+            var sourceIndex = (startIndex + offset) % sourceCount;
+            if (sourceIndex == 0)
             {
-                return true;
-            }
-        }
+                if (TaskQueue.RunOnce())
+                {
+                    _roundRobinCursor = RoundRobinCursorKind.Node;
+                    _roundRobinNodeAddressExclusive = null;
+                    return true;
+                }
 
-        // Finally, pump any ready controlled async continuations (Phase 6A). Placed last so that when no
-        // controlled async work exists the loop is empty, RunUntilIdle returns 0, and existing behaviour
-        // and trace snapshots are completely unchanged. When controlled continuations are ready (an
-        // awaited controlled task has completed), draining them here lets fire-and-forget async work
-        // advance under the cluster's deterministic single-threaded drive. The pump runs inside the
-        // cluster's ambient runtime scope so a resumed state machine that performs further awaits still
-        // resolves this runtime's coordinator instead of falling back to the real BCL.
-        if (!_taskCoordinator.Loop.IsIdle)
-        {
+                continue;
+            }
+
+            if (sourceIndex <= nodes.Count)
+            {
+                var node = nodes[sourceIndex - 1];
+                var context = node.Context;
+                if (context.State == SimulationNodeState.Running && context.Step())
+                {
+                    _roundRobinCursor = RoundRobinCursorKind.Node;
+                    _roundRobinNodeAddressExclusive = node.NetworkAddress;
+                    return true;
+                }
+
+                continue;
+            }
+
+            if (_taskCoordinator.Loop.IsIdle)
+            {
+                continue;
+            }
+
             using (SimulationExecutionContext.EnterRuntime(_activationToken, RuntimeIdentity))
             {
-                if (_taskCoordinator.Loop.RunUntilIdle() > 0)
+                if (_taskCoordinator.Loop.RunOnce())
                 {
+                    _roundRobinCursor = RoundRobinCursorKind.Cluster;
+                    _roundRobinNodeAddressExclusive = null;
                     return true;
                 }
             }
         }
 
         return false;
+    }
+
+    private int GetRoundRobinStartIndex(IReadOnlyList<TNode> nodes)
+    {
+        if (_roundRobinCursor == RoundRobinCursorKind.Cluster)
+        {
+            return 0;
+        }
+
+        if (_roundRobinNodeAddressExclusive is null)
+        {
+            return 1;
+        }
+
+        for (var index = 0; index < nodes.Count; index++)
+        {
+            if (StringComparer.Ordinal.Compare(nodes[index].NetworkAddress, _roundRobinNodeAddressExclusive) > 0)
+            {
+                return index + 1;
+            }
+        }
+
+        return nodes.Count + 1;
     }
 
     /// <summary>
@@ -639,10 +679,21 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     /// dispatches the appropriate <c>On*</c> hook(s) based on the outcome, preserving the exact
     /// hook-firing behavior of the original, separate implementations.
     /// </summary>
-    private SimulationExecutionResult ExecuteDriveLoop(Func<bool>? condition, TimeSpan maxSimulatedTimeAdvance, int maxIterations, bool observeTeardownCancellation)
+    private SimulationExecutionResult ExecuteDriveLoop(
+        Func<bool>? condition,
+        TimeSpan maxSimulatedTimeAdvance,
+        int maxIterations,
+        bool observeTeardownCancellation,
+        int initialConsecutiveTimeAdvances = 0)
     {
         using var _ = Guard.Enter();
-        var options = new SimulationDriveLoopOptions(condition, maxSimulatedTimeAdvance, maxIterations, MaxConsecutiveTimeAdvances, observeTeardownCancellation);
+        var options = new SimulationDriveLoopOptions(
+            condition,
+            maxSimulatedTimeAdvance,
+            maxIterations,
+            MaxConsecutiveTimeAdvances,
+            observeTeardownCancellation,
+            initialConsecutiveTimeAdvances);
         var result = _driveLoop.Execute(options);
         DispatchExecutionHooks(result, isConditionBased: condition is not null);
         return result;
@@ -717,6 +768,12 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
             final.PendingWork,
             final.Limits,
             final.AttemptedTimeAdvance);
+    }
+
+    private enum RoundRobinCursorKind
+    {
+        Cluster,
+        Node,
     }
 
     /// <summary>
@@ -802,25 +859,77 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        if (_disposed) return;
-        _disposed = true;
-
-        Run(async () =>
+        if (_disposed)
         {
-            SafeCancel(_teardownCts);
-            await DisposeAsyncCore();
-        });
+            return;
+        }
+
+        _disposed = true;
+        List<Exception>? failures = null;
+
+        try
+        {
+            Run(async () =>
+            {
+                SafeCancel(_teardownCts);
+                await DisposeAsyncCore();
+            });
+        }
+        catch (Exception exception)
+        {
+            AddDisposalFailure(ref failures, exception);
+        }
 
         // Tear down the deterministic runtime environment registration so a later simulation with a
         // fresh runtime identity starts clean and this cluster's environment stops serving shims.
-        _runtimeRegistration.Dispose();
+        try
+        {
+            _runtimeRegistration.Dispose();
+        }
+        catch (Exception exception)
+        {
+            AddDisposalFailure(ref failures, exception);
+        }
 
         // Unregister the controlled task coordinator so a later runtime starts with no coordinator and
         // the missing-service path is exercised correctly until it registers its own.
-        _taskCoordinatorRegistration.Dispose();
+        try
+        {
+            _taskCoordinatorRegistration.Dispose();
+        }
+        catch (Exception exception)
+        {
+            AddDisposalFailure(ref failures, exception);
+        }
 
-        _teardownCts.Dispose();
+        try
+        {
+            _teardownCts.Dispose();
+        }
+        catch (Exception exception)
+        {
+            AddDisposalFailure(ref failures, exception);
+        }
+
         GC.SuppressFinalize(this);
+
+        if (failures is not null)
+        {
+            throw new AggregateException("One or more errors occurred while disposing the simulation cluster.", failures);
+        }
+    }
+
+    private static void AddDisposalFailure(ref List<Exception>? failures, Exception exception)
+    {
+        failures ??= [];
+        if (exception is AggregateException aggregate)
+        {
+            failures.AddRange(aggregate.Flatten().InnerExceptions);
+        }
+        else
+        {
+            failures.Add(exception);
+        }
     }
 
     private string DebuggerDisplay => string.Create(CultureInfo.InvariantCulture, $"SimulationCluster(Seed={Seed}, Nodes={Nodes.Count}, Time={Clock.CurrentTime:hh\\:mm\\:ss\\.fff})");

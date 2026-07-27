@@ -1,3 +1,5 @@
+using Clockwork.Runtime.Random;
+
 namespace Clockwork;
 
 /// <summary>
@@ -21,6 +23,8 @@ namespace Clockwork;
 public sealed class BuiltSimulation : SimulationCluster<SimulationNode>
 {
     private readonly List<SimulationNode> _materializedNodes;
+    private readonly HashSet<SimulationNode> _registeredNodes = new(ReferenceEqualityComparer.Instance);
+    private readonly HashSet<string> _materializedAddresses = new(StringComparer.Ordinal);
 
     internal BuiltSimulation(
         int seed,
@@ -33,15 +37,47 @@ public sealed class BuiltSimulation : SimulationCluster<SimulationNode>
         : base(seed, startDateTime, simulationTimeZone, cryptoRandomnessPolicy, cancellationToken)
     {
         _materializedNodes = new List<SimulationNode>(pendingNodes.Count);
-        foreach (var pending in pendingNodes)
+        try
         {
-            var context = new SimulationNodeContext(Clock, Guard, CreateDerivedRandom(), TaskQueue, ambientContext: CreateNodeAmbientContext(pending.Address));
-            var node = pending.Materialize(context);
-            RegisterNode(node);
-            _materializedNodes.Add(node);
-        }
+            foreach (var pending in pendingNodes)
+            {
+                var nodeRandom = new SimulationRandom(
+                    SeedAuthority.GetSiteSeed(SimulationSeedDomain.Application, pending.Address));
+                var context = new SimulationNodeContext(
+                    Clock,
+                    Guard,
+                    nodeRandom,
+                    TaskQueue,
+                    ambientContext: CreateNodeAmbientContext(pending.Address));
+                var node = pending.Materialize(context);
+                if (node is null)
+                {
+                    throw new InvalidOperationException(
+                        $"The factory for node '{pending.Address}' returned null.");
+                }
 
-        Network = new SimulationNetwork(() => Nodes, CreateDerivedRandom());
+                _materializedNodes.Add(node);
+                ValidateMaterializedNode(pending.Address, node);
+                RegisterNode(node);
+                _registeredNodes.Add(node);
+            }
+
+            Network = new SimulationNetwork(
+                () => Nodes,
+                new SimulationRandom(SeedAuthority.GetDomainSeed(SimulationSeedDomain.Network)));
+        }
+        catch (Exception materializationException)
+        {
+            var cleanupFailures = CleanupAfterFailedMaterialization();
+            if (cleanupFailures.Count > 0)
+            {
+                throw new AggregateException(
+                    "Simulation materialization and cleanup both failed.",
+                    [materializationException, .. cleanupFailures]);
+            }
+
+            throw;
+        }
     }
 
     /// <summary>
@@ -68,14 +104,107 @@ public sealed class BuiltSimulation : SimulationCluster<SimulationNode>
     /// <inheritdoc />
     protected override async ValueTask DisposeAsyncCore()
     {
+        List<Exception>? failures = null;
         foreach (var node in _materializedNodes)
         {
-            if (node is ISimulationNodeStateHolder holder)
+            if (_registeredNodes.Remove(node))
             {
-                await DisposeIfDisposableAsync(holder.StateObject).ConfigureAwait(false);
+                try
+                {
+                    UnregisterNode(node);
+                }
+                catch (Exception exception)
+                {
+                    AddFailure(ref failures, exception);
+                }
             }
 
-            await DisposeIfDisposableAsync(node).ConfigureAwait(false);
+            if (node is ISimulationNodeStateHolder holder)
+            {
+                try
+                {
+                    await DisposeIfDisposableAsync(holder.StateObject).ConfigureAwait(false);
+                }
+                catch (Exception exception)
+                {
+                    AddFailure(ref failures, exception);
+                }
+            }
+
+            try
+            {
+                await DisposeIfDisposableAsync(node).ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                AddFailure(ref failures, exception);
+            }
+
+            if (node is ISimulationNodeStateHolder stateHolder)
+            {
+                stateHolder.Detach();
+            }
+        }
+
+        _materializedNodes.Clear();
+        _materializedAddresses.Clear();
+
+        if (failures is not null)
+        {
+            throw new AggregateException("One or more simulation nodes failed to dispose.", failures);
+        }
+    }
+
+    private void ValidateMaterializedNode(string requestedAddress, SimulationNode node)
+    {
+        var actualAddress = node.NetworkAddress;
+        if (string.IsNullOrEmpty(actualAddress))
+        {
+            throw new InvalidOperationException(
+                $"The factory for node '{requestedAddress}' returned a node with a null or empty network address.");
+        }
+
+        if (!_materializedAddresses.Add(actualAddress))
+        {
+            throw new InvalidOperationException(
+                $"The factory for node '{requestedAddress}' returned address '{actualAddress}', which collides with an already materialized node.");
+        }
+
+        if (!string.Equals(requestedAddress, actualAddress, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"The factory for node '{requestedAddress}' returned a node with address '{actualAddress}'. " +
+                "Custom node addresses must exactly match the requested address.");
+        }
+    }
+
+    private List<Exception> CleanupAfterFailedMaterialization()
+    {
+        try
+        {
+            DisposeAsync().AsTask().GetAwaiter().GetResult();
+            return [];
+        }
+        catch (AggregateException exception)
+        {
+            return [.. exception.Flatten().InnerExceptions];
+        }
+        catch (Exception exception)
+        {
+            return [exception];
+        }
+    }
+
+    private static void AddFailure(ref List<Exception>? failures, Exception exception)
+    {
+        failures ??= [];
+        if (exception is AggregateException aggregate)
+        {
+            failures.AddRange(aggregate.Flatten().InnerExceptions);
+        }
+        else
+        {
+            failures.Add(exception);
         }
     }
 

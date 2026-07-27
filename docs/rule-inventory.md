@@ -120,6 +120,11 @@ Policy: **Rejected**. `Task.Delay` (virtual timers, Phase 8) is rejected under s
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
 | `clockwork.tasks.delay.milliseconds` | `System.Threading.Tasks.Task::Delay(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Delay(System.Int32)` | Rejected |
+| `clockwork.tasks.delay.timespan` | `System.Threading.Tasks.Task::Delay(System.TimeSpan)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Delay(System.TimeSpan)` | Rejected |
+| `clockwork.tasks.delay.milliseconds.cancellationtoken` | `System.Threading.Tasks.Task::Delay(System.Int32,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Delay(System.Int32,System.Threading.CancellationToken)` | Rejected |
+| `clockwork.tasks.delay.timespan.cancellationtoken` | `System.Threading.Tasks.Task::Delay(System.TimeSpan,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Delay(System.TimeSpan,System.Threading.CancellationToken)` | Rejected |
+| `clockwork.tasks.delay.timespan.timeprovider` | `System.Threading.Tasks.Task::Delay(System.TimeSpan,System.TimeProvider)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Delay(System.TimeSpan,System.TimeProvider)` | Rejected |
+| `clockwork.tasks.delay.timespan.timeprovider.cancellationtoken` | `System.Threading.Tasks.Task::Delay(System.TimeSpan,System.TimeProvider,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Delay(System.TimeSpan,System.TimeProvider,System.Threading.CancellationToken)` | Rejected |
 
 ## TaskScheduling family
 
@@ -171,19 +176,34 @@ Policy: **Controlled**. The compiler-generated builder and awaiter types of an `
 
 ## TaskFactory family
 
-Policy: **Controlled**. `TaskFactory.StartNew` and `TaskFactory<T>.StartNew` (the `Action`/`Func<TResult>` overloads with and without a `CancellationToken` or `TaskCreationOptions`) offload work onto a task scheduler that Phase 6A left uncontrolled. Each redirects to a controlled equivalent that schedules the delegate as a controlled operation on the simulation coordinator; `TaskCreationOptions` are honoured where they have a controlled meaning and an unsupported combination is rejected with a precise diagnostic. Outside simulation they run the real BCL API unchanged.
+Policy: **Controlled**. All 24 .NET 10 `TaskFactory.StartNew` and `TaskFactory<T>.StartNew` overloads are classified, including state-carrying delegates and the full cancellation/options/scheduler forms. Each redirects to a controlled equivalent that schedules the delegate as a fresh logical strand while preserving state, cancellation, and results. Non-default schedulers and creation options whose semantics cannot be preserved are rejected precisely; outside simulation every overload runs the real BCL API unchanged.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
 | `clockwork.tasks.factory.startnew.action` | `System.Threading.Tasks.TaskFactory::StartNew(System.Action)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Action)` | Controlled |
 | `clockwork.tasks.factory.startnew.action.cancellationtoken` | `System.Threading.Tasks.TaskFactory::StartNew(System.Action,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Action,System.Threading.CancellationToken)` | Controlled |
 | `clockwork.tasks.factory.startnew.action.options` | `System.Threading.Tasks.TaskFactory::StartNew(System.Action,System.Threading.Tasks.TaskCreationOptions)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Action,System.Threading.Tasks.TaskCreationOptions)` | Controlled |
+| `clockwork.tasks.factory.startnew.action.scheduler` | `System.Threading.Tasks.TaskFactory::StartNew(System.Action,System.Threading.CancellationToken,System.Threading.Tasks.TaskCreationOptions,System.Threading.Tasks.TaskScheduler)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Action,System.Threading.CancellationToken,System.Threading.Tasks.TaskCreationOptions,System.Threading.Tasks.TaskScheduler)` | Controlled |
+| `clockwork.tasks.factory.startnew.action.state` | `System.Threading.Tasks.TaskFactory::StartNew(System.Action`1<System.Object>,System.Object)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Action`1<System.Object>,System.Object)` | Controlled |
+| `clockwork.tasks.factory.startnew.action.state.cancellationtoken` | `System.Threading.Tasks.TaskFactory::StartNew(System.Action`1<System.Object>,System.Object,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Action`1<System.Object>,System.Object,System.Threading.CancellationToken)` | Controlled |
+| `clockwork.tasks.factory.startnew.action.state.options` | `System.Threading.Tasks.TaskFactory::StartNew(System.Action`1<System.Object>,System.Object,System.Threading.Tasks.TaskCreationOptions)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Action`1<System.Object>,System.Object,System.Threading.Tasks.TaskCreationOptions)` | Controlled |
+| `clockwork.tasks.factory.startnew.action.state.scheduler` | `System.Threading.Tasks.TaskFactory::StartNew(System.Action`1<System.Object>,System.Object,System.Threading.CancellationToken,System.Threading.Tasks.TaskCreationOptions,System.Threading.Tasks.TaskScheduler)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Action`1<System.Object>,System.Object,System.Threading.CancellationToken,System.Threading.Tasks.TaskCreationOptions,System.Threading.Tasks.TaskScheduler)` | Controlled |
 | `clockwork.tasks.factory.startnew.func` | `System.Threading.Tasks.TaskFactory::StartNew(System.Func`1<!!0>)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Func`1<TResult>)` | Controlled |
 | `clockwork.tasks.factory.startnew.func.cancellationtoken` | `System.Threading.Tasks.TaskFactory::StartNew(System.Func`1<!!0>,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Func`1<TResult>,System.Threading.CancellationToken)` | Controlled |
 | `clockwork.tasks.factory.startnew.func.options` | `System.Threading.Tasks.TaskFactory::StartNew(System.Func`1<!!0>,System.Threading.Tasks.TaskCreationOptions)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Func`1<TResult>,System.Threading.Tasks.TaskCreationOptions)` | Controlled |
+| `clockwork.tasks.factory.startnew.func.scheduler` | `System.Threading.Tasks.TaskFactory::StartNew(System.Func`1<!!0>,System.Threading.CancellationToken,System.Threading.Tasks.TaskCreationOptions,System.Threading.Tasks.TaskScheduler)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Func`1<TResult>,System.Threading.CancellationToken,System.Threading.Tasks.TaskCreationOptions,System.Threading.Tasks.TaskScheduler)` | Controlled |
+| `clockwork.tasks.factory.startnew.func.state` | `System.Threading.Tasks.TaskFactory::StartNew(System.Func`2<System.Object,!!0>,System.Object)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Func`2<System.Object,TResult>,System.Object)` | Controlled |
+| `clockwork.tasks.factory.startnew.func.state.cancellationtoken` | `System.Threading.Tasks.TaskFactory::StartNew(System.Func`2<System.Object,!!0>,System.Object,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Func`2<System.Object,TResult>,System.Object,System.Threading.CancellationToken)` | Controlled |
+| `clockwork.tasks.factory.startnew.func.state.options` | `System.Threading.Tasks.TaskFactory::StartNew(System.Func`2<System.Object,!!0>,System.Object,System.Threading.Tasks.TaskCreationOptions)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Func`2<System.Object,TResult>,System.Object,System.Threading.Tasks.TaskCreationOptions)` | Controlled |
+| `clockwork.tasks.factory.startnew.func.state.scheduler` | `System.Threading.Tasks.TaskFactory::StartNew(System.Func`2<System.Object,!!0>,System.Object,System.Threading.CancellationToken,System.Threading.Tasks.TaskCreationOptions,System.Threading.Tasks.TaskScheduler)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Func`2<System.Object,TResult>,System.Object,System.Threading.CancellationToken,System.Threading.Tasks.TaskCreationOptions,System.Threading.Tasks.TaskScheduler)` | Controlled |
 | `clockwork.tasks.factory.generic.startnew.func` | `System.Threading.Tasks.TaskFactory`1::StartNew(System.Func`1<!0>)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory`1<TResult>,System.Func`1<TResult>)` | Controlled |
 | `clockwork.tasks.factory.generic.startnew.func.cancellationtoken` | `System.Threading.Tasks.TaskFactory`1::StartNew(System.Func`1<!0>,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory`1<TResult>,System.Func`1<TResult>,System.Threading.CancellationToken)` | Controlled |
 | `clockwork.tasks.factory.generic.startnew.func.options` | `System.Threading.Tasks.TaskFactory`1::StartNew(System.Func`1<!0>,System.Threading.Tasks.TaskCreationOptions)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory`1<TResult>,System.Func`1<TResult>,System.Threading.Tasks.TaskCreationOptions)` | Controlled |
+| `clockwork.tasks.factory.generic.startnew.func.scheduler` | `System.Threading.Tasks.TaskFactory`1::StartNew(System.Func`1<!0>,System.Threading.CancellationToken,System.Threading.Tasks.TaskCreationOptions,System.Threading.Tasks.TaskScheduler)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory`1<TResult>,System.Func`1<TResult>,System.Threading.CancellationToken,System.Threading.Tasks.TaskCreationOptions,System.Threading.Tasks.TaskScheduler)` | Controlled |
+| `clockwork.tasks.factory.generic.startnew.func.state` | `System.Threading.Tasks.TaskFactory`1::StartNew(System.Func`2<System.Object,!0>,System.Object)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory`1<TResult>,System.Func`2<System.Object,TResult>,System.Object)` | Controlled |
+| `clockwork.tasks.factory.generic.startnew.func.state.cancellationtoken` | `System.Threading.Tasks.TaskFactory`1::StartNew(System.Func`2<System.Object,!0>,System.Object,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory`1<TResult>,System.Func`2<System.Object,TResult>,System.Object,System.Threading.CancellationToken)` | Controlled |
+| `clockwork.tasks.factory.generic.startnew.func.state.options` | `System.Threading.Tasks.TaskFactory`1::StartNew(System.Func`2<System.Object,!0>,System.Object,System.Threading.Tasks.TaskCreationOptions)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory`1<TResult>,System.Func`2<System.Object,TResult>,System.Object,System.Threading.Tasks.TaskCreationOptions)` | Controlled |
+| `clockwork.tasks.factory.generic.startnew.func.state.scheduler` | `System.Threading.Tasks.TaskFactory`1::StartNew(System.Func`2<System.Object,!0>,System.Object,System.Threading.CancellationToken,System.Threading.Tasks.TaskCreationOptions,System.Threading.Tasks.TaskScheduler)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory`1<TResult>,System.Func`2<System.Object,TResult>,System.Object,System.Threading.CancellationToken,System.Threading.Tasks.TaskCreationOptions,System.Threading.Tasks.TaskScheduler)` | Controlled |
 
 ## Thread family
 
@@ -255,7 +275,7 @@ Policy: **Controlled**. `Parallel.Invoke`, `Parallel.For` (`int`/`long`, with an
 
 ## Monitor family
 
-Policy: **Controlled**. 
+Policy: **Controlled**. The complete .NET 10 `Monitor` surface is classified: synchronization and C# `lock (object)` lowering are controlled with deterministic virtual-time deadlines, while the process-wide `LockContentionCount` metric is rejected because it has no per-simulation meaning.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -263,6 +283,7 @@ Policy: **Controlled**.
 | `clockwork.monitor.enter.locktaken` | `System.Threading.Monitor::Enter(System.Object,System.Boolean&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::Enter(System.Object,System.Boolean&)` | Controlled |
 | `clockwork.monitor.exit` | `System.Threading.Monitor::Exit(System.Object)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::Exit(System.Object)` | Controlled |
 | `clockwork.monitor.isentered` | `System.Threading.Monitor::IsEntered(System.Object)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::IsEntered(System.Object)` | Controlled |
+| `clockwork.monitor.get_lockcontentioncount` | `System.Threading.Monitor::get_LockContentionCount()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::LockContentionCount()` | Rejected |
 | `clockwork.monitor.tryenter` | `System.Threading.Monitor::TryEnter(System.Object)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::TryEnter(System.Object)` | Controlled |
 | `clockwork.monitor.tryenter.locktaken` | `System.Threading.Monitor::TryEnter(System.Object,System.Boolean&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::TryEnter(System.Object,System.Boolean&)` | Controlled |
 | `clockwork.monitor.tryenter.milliseconds` | `System.Threading.Monitor::TryEnter(System.Object,System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::TryEnter(System.Object,System.Int32)` | Controlled |
@@ -279,7 +300,7 @@ Policy: **Controlled**.
 
 ## Lock family
 
-Policy: **Controlled**. 
+Policy: **Controlled**. The .NET 9+ `System.Threading.Lock` type and nested `Scope` are substituted onto controlled equivalents, covering the dedicated C# lock lowering in Debug and Release builds.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -288,7 +309,7 @@ Policy: **Controlled**.
 
 ## Semaphore family
 
-Policy: **Controlled**. 
+Policy: **Controlled**. The .NET 10 `SemaphoreSlim` constructors, counts, waits, releases, and disposal are controlled; `AvailableWaitHandle` is explicitly rejected until general wait handles are modelled.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -493,6 +514,7 @@ remain real BCL calls even under simulation:
 - `DateTime`/`DateTimeOffset` parsing/formatting and any culture-, timezone-, or kind-conversion helpers other than the `Now`/`UtcNow`/`Today` clocks above.
 - Synchronous blocking on `ValueTask`/`ValueTask<T>` (`.Result`/`.GetResult()` outside an awaiter): a value task may be consumed only once, so a blocking drain is unsafe. `await` is the supported controlled path.
 - Named/cross-process synchronization (named `EventWaitHandle`/`Mutex`/`Semaphore` and their `OpenExisting`/`TryOpenExisting` APIs): a single-process simulation cannot model kernel-object sharing, so these are rejected.
-- Timers, `PeriodicTimer`, the `Task.Delay` implementation, and cancellation timers. These are Phase 8 scope (`Thread.Sleep` is a controlled virtual wait now).
+- `ReaderWriterLockSlim`, `Mutex`, the kernel `Semaphore`, `SpinLock`, and `ManualResetEventSlim` remain unrewritten Phase 8 scope.
+- `Timer`, `PeriodicTimer`, and cancellation timers remain unrewritten Phase 8 scope.
 
 Determinism is claimed **only** for the exact rules tabulated above.

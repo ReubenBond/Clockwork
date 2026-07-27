@@ -1,4 +1,6 @@
 using System.Runtime.InteropServices;
+using System.IO.Compression;
+using System.Xml.Linq;
 using Clockwork.Instrumentation.Configuration;
 using Clockwork.Instrumentation.Rules;
 using Clockwork.Instrumentation.Tests.Infrastructure;
@@ -101,6 +103,46 @@ public sealed class PackageSmokeTests
         Assert.Contains("SmokeProbe.dll", inspect.Output);
     }
 
+    [Fact]
+    public void PackedPackagesCarryLicenseMetadataAndRedistributionNotices()
+    {
+        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        PackagedArtifacts artifacts = Artifacts.Value;
+
+        AssertPackageMetadata(artifacts.PackagePath("Clockwork.Instrumentation.Build"));
+        AssertPackageMetadata(artifacts.PackagePath("Clockwork.Tool"));
+    }
+
+    private static void AssertPackageMetadata(string packagePath)
+    {
+        using ZipArchive package = ZipFile.OpenRead(packagePath);
+        string[] entries = package.Entries.Select(entry => entry.FullName).ToArray();
+        Assert.Contains("LICENSE", entries);
+        Assert.Contains("README.md", entries);
+        Assert.Contains("THIRD-PARTY-NOTICES.md", entries);
+        Assert.Contains(entries, entry => entry.EndsWith("/Mono.Cecil.dll", StringComparison.Ordinal));
+
+        ZipArchiveEntry nuspecEntry = Assert.Single(package.Entries, entry =>
+            entry.FullName.EndsWith(".nuspec", StringComparison.Ordinal));
+        using Stream nuspecStream = nuspecEntry.Open();
+        XDocument nuspec = XDocument.Load(nuspecStream);
+        XNamespace ns = nuspec.Root!.Name.Namespace;
+        XElement metadata = nuspec.Root.Element(ns + "metadata")!;
+        XElement license = metadata.Element(ns + "license")!;
+        Assert.Equal("expression", license.Attribute("type")?.Value);
+        Assert.Equal("MIT", license.Value);
+        Assert.Equal(
+            "https://github.com/ReubenBond/Clockwork",
+            metadata.Element(ns + "repository")?.Attribute("url")?.Value);
+
+        ZipArchiveEntry noticesEntry = package.GetEntry("THIRD-PARTY-NOTICES.md")!;
+        using var reader = new StreamReader(noticesEntry.Open());
+        string notices = reader.ReadToEnd();
+        Assert.Contains("Copyright (c) 2008 - 2015 Jb Evain", notices, StringComparison.Ordinal);
+        Assert.Contains("Copyright (c) 2008 - 2011 Novell, Inc.", notices, StringComparison.Ordinal);
+        Assert.Contains("THE SOFTWARE IS PROVIDED \"AS IS\"", notices, StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// The packed local feed plus the installed tool, built once and shared across the smoke tests.
     /// </summary>
@@ -150,6 +192,12 @@ public sealed class PackageSmokeTests
                 _toolPath, RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "clockwork.exe" : "clockwork");
             return ProcessAppRunner.Execute(executable, arguments, _toolPath, timeout: TimeSpan.FromSeconds(120));
         }
+
+        public string PackagePath(string packageId) =>
+            Directory.GetFiles(_feed, "*.nupkg")
+                .Single(path => Path.GetFileName(path).StartsWith(
+                    packageId + "." + _version,
+                    StringComparison.OrdinalIgnoreCase));
 
         public ConsumerProject ScaffoldConsumer(string name, bool instrumentationEnabled)
         {

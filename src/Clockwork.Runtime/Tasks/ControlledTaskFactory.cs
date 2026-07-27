@@ -3,6 +3,8 @@ using System.Threading.Tasks;
 
 namespace Clockwork.Runtime.Tasks;
 
+#pragma warning disable CA1068 // Signatures intentionally mirror the BCL TaskFactory overload order.
+
 /// <summary>
 /// <para>
 /// Static shims for the <see cref="TaskFactory"/> and <see cref="TaskFactory{TResult}"/> surface. The
@@ -15,9 +17,8 @@ namespace Clockwork.Runtime.Tasks;
 /// queuing the delegate body as a fresh controlled operation on the simulation coordinator (exactly as
 /// <see cref="ControlledTask.Run(System.Action)"/> does), so the work runs deterministically on the
 /// single logical thread with the factory's (or the call's) cancellation token honoured. The
-/// <see cref="TaskCreationOptions.AttachedToParent"/> option is rejected under simulation: the
-/// cooperative model has no faithful parent/child attach relationship, so silently ignoring it would
-/// change observable completion semantics. Every option combination runs unchanged outside a simulation.
+/// options that change scheduling or parent/continuation semantics and non-default task schedulers are
+/// rejected under simulation rather than silently ignored. Every combination runs unchanged outside a simulation.
 /// </para>
 /// </summary>
 public static class ControlledTaskFactory
@@ -29,7 +30,16 @@ public static class ControlledTaskFactory
     public static Task StartNew(TaskFactory factory, Action action)
     {
         ArgumentNullException.ThrowIfNull(factory);
-        return StartNew(factory, action, factory.CreationOptions, factory.CancellationToken);
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return factory.StartNew(action);
+        }
+
+        return StartNewCore(
+            action,
+            factory.CancellationToken,
+            factory.CreationOptions,
+            factory.Scheduler ?? TaskScheduler.Default);
     }
 
     /// <summary>Controlled <c>TaskFactory.StartNew(Action, CancellationToken)</c>.</summary>
@@ -40,7 +50,16 @@ public static class ControlledTaskFactory
     public static Task StartNew(TaskFactory factory, Action action, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(factory);
-        return StartNew(factory, action, factory.CreationOptions, cancellationToken);
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return factory.StartNew(action, cancellationToken);
+        }
+
+        return StartNewCore(
+            action,
+            cancellationToken,
+            factory.CreationOptions,
+            factory.Scheduler ?? TaskScheduler.Default);
     }
 
     /// <summary>Controlled <c>TaskFactory.StartNew(Action, TaskCreationOptions)</c>.</summary>
@@ -51,19 +70,138 @@ public static class ControlledTaskFactory
     public static Task StartNew(TaskFactory factory, Action action, TaskCreationOptions creationOptions)
     {
         ArgumentNullException.ThrowIfNull(factory);
-        return StartNew(factory, action, creationOptions, factory.CancellationToken);
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return factory.StartNew(action, creationOptions);
+        }
+
+        return StartNewCore(
+            action,
+            factory.CancellationToken,
+            creationOptions,
+            factory.Scheduler ?? TaskScheduler.Default);
     }
 
-    private static Task StartNew(TaskFactory factory, Action action, TaskCreationOptions creationOptions, CancellationToken cancellationToken)
+    /// <summary>Controlled full-scheduler <c>TaskFactory.StartNew(Action, ...)</c> overload.</summary>
+    public static Task StartNew(
+        TaskFactory factory,
+        Action action,
+        CancellationToken cancellationToken,
+        TaskCreationOptions creationOptions,
+        TaskScheduler scheduler)
     {
+        ArgumentNullException.ThrowIfNull(factory);
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return factory.StartNew(action, cancellationToken, creationOptions, scheduler);
+        }
+
+        return StartNewCore(action, cancellationToken, creationOptions, scheduler);
+    }
+
+    /// <summary>Controlled <c>TaskFactory.StartNew(Action&lt;object&gt;, object)</c>.</summary>
+    public static Task StartNew(TaskFactory factory, Action<object?> action, object? state)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(action);
         if (!ControlledTaskRuntime.IsSimulationActive)
         {
-            return factory.StartNew(action, cancellationToken, creationOptions, factory.Scheduler ?? TaskScheduler.Current);
+            return factory.StartNew(action, state);
         }
 
+        return StartNewCore(
+            () => action(state),
+            factory.CancellationToken,
+            factory.CreationOptions,
+            factory.Scheduler ?? TaskScheduler.Default,
+            state);
+    }
+
+    /// <summary>Controlled state-carrying <c>TaskFactory.StartNew</c> overload.</summary>
+    public static Task StartNew(
+        TaskFactory factory,
+        Action<object?> action,
+        object? state,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+        ArgumentNullException.ThrowIfNull(action);
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return factory.StartNew(action, state, cancellationToken);
+        }
+
+        return StartNewCore(
+            () => action(state),
+            cancellationToken,
+            factory.CreationOptions,
+            factory.Scheduler ?? TaskScheduler.Default,
+            state);
+    }
+
+    /// <summary>Controlled state-carrying <c>TaskFactory.StartNew</c> overload.</summary>
+    public static Task StartNew(
+        TaskFactory factory,
+        Action<object?> action,
+        object? state,
+        TaskCreationOptions creationOptions)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+        ArgumentNullException.ThrowIfNull(action);
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return factory.StartNew(action, state, creationOptions);
+        }
+
+        return StartNewCore(
+            () => action(state),
+            factory.CancellationToken,
+            creationOptions,
+            factory.Scheduler ?? TaskScheduler.Default,
+            state);
+    }
+
+    /// <summary>Controlled full-scheduler state-carrying <c>TaskFactory.StartNew</c> overload.</summary>
+    public static Task StartNew(
+        TaskFactory factory,
+        Action<object?> action,
+        object? state,
+        CancellationToken cancellationToken,
+        TaskCreationOptions creationOptions,
+        TaskScheduler scheduler)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+        ArgumentNullException.ThrowIfNull(action);
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return factory.StartNew(action, state, cancellationToken, creationOptions, scheduler);
+        }
+
+        return StartNewCore(
+            () => action(state),
+            cancellationToken,
+            creationOptions,
+            scheduler,
+            state);
+    }
+
+    private static Task StartNewCore(
+        Action action,
+        CancellationToken cancellationToken,
+        TaskCreationOptions creationOptions,
+        TaskScheduler scheduler,
+        object? asyncState = null)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        ArgumentNullException.ThrowIfNull(scheduler);
         RejectUnsupportedOptions(creationOptions);
-        var tcs = new TaskCompletionSource();
+        RejectUnsupportedScheduler(scheduler);
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return Task.FromCanceled(cancellationToken);
+        }
+
+        var tcs = new TaskCompletionSource(asyncState);
         ControlledTaskRuntime.QueueWork(
             () => RunAction(action, tcs, cancellationToken),
             "System.Threading.Tasks.TaskFactory.StartNew");
@@ -78,7 +216,16 @@ public static class ControlledTaskFactory
     public static Task<TResult> StartNew<TResult>(TaskFactory factory, Func<TResult> function)
     {
         ArgumentNullException.ThrowIfNull(factory);
-        return StartNew(factory, function, factory.CreationOptions, factory.CancellationToken);
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return factory.StartNew(function);
+        }
+
+        return StartNewCore(
+            function,
+            factory.CancellationToken,
+            factory.CreationOptions,
+            factory.Scheduler ?? TaskScheduler.Default);
     }
 
     /// <summary>Controlled <c>TaskFactory.StartNew&lt;TResult&gt;(Func&lt;TResult&gt;, CancellationToken)</c>.</summary>
@@ -90,7 +237,16 @@ public static class ControlledTaskFactory
     public static Task<TResult> StartNew<TResult>(TaskFactory factory, Func<TResult> function, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(factory);
-        return StartNew(factory, function, factory.CreationOptions, cancellationToken);
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return factory.StartNew(function, cancellationToken);
+        }
+
+        return StartNewCore(
+            function,
+            cancellationToken,
+            factory.CreationOptions,
+            factory.Scheduler ?? TaskScheduler.Default);
     }
 
     /// <summary>Controlled <c>TaskFactory.StartNew&lt;TResult&gt;(Func&lt;TResult&gt;, TaskCreationOptions)</c>.</summary>
@@ -102,23 +258,117 @@ public static class ControlledTaskFactory
     public static Task<TResult> StartNew<TResult>(TaskFactory factory, Func<TResult> function, TaskCreationOptions creationOptions)
     {
         ArgumentNullException.ThrowIfNull(factory);
-        return StartNew(factory, function, creationOptions, factory.CancellationToken);
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return factory.StartNew(function, creationOptions);
+        }
+
+        return StartNewCore(
+            function,
+            factory.CancellationToken,
+            creationOptions,
+            factory.Scheduler ?? TaskScheduler.Default);
     }
 
-    private static Task<TResult> StartNew<TResult>(TaskFactory factory, Func<TResult> function, TaskCreationOptions creationOptions, CancellationToken cancellationToken)
+    /// <summary>Controlled full-scheduler <c>TaskFactory.StartNew&lt;TResult&gt;</c> overload.</summary>
+    public static Task<TResult> StartNew<TResult>(
+        TaskFactory factory,
+        Func<TResult> function,
+        CancellationToken cancellationToken,
+        TaskCreationOptions creationOptions,
+        TaskScheduler scheduler)
     {
+        ArgumentNullException.ThrowIfNull(factory);
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return factory.StartNew(function, cancellationToken, creationOptions, scheduler);
+        }
+
+        return StartNewCore(function, cancellationToken, creationOptions, scheduler);
+    }
+
+    /// <summary>Controlled state-carrying <c>TaskFactory.StartNew&lt;TResult&gt;</c> overload.</summary>
+    public static Task<TResult> StartNew<TResult>(
+        TaskFactory factory,
+        Func<object?, TResult> function,
+        object? state)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(function);
         if (!ControlledTaskRuntime.IsSimulationActive)
         {
-            return factory.StartNew(function, cancellationToken, creationOptions, factory.Scheduler ?? TaskScheduler.Current);
+            return factory.StartNew(function, state);
         }
 
-        RejectUnsupportedOptions(creationOptions);
-        var tcs = new TaskCompletionSource<TResult>();
-        ControlledTaskRuntime.QueueWork(
-            () => RunFunc(function, tcs, cancellationToken),
-            "System.Threading.Tasks.TaskFactory.StartNew");
-        return tcs.Task;
+        return StartNewCore(
+            () => function(state),
+            factory.CancellationToken,
+            factory.CreationOptions,
+            factory.Scheduler ?? TaskScheduler.Default,
+            state);
+    }
+
+    /// <summary>Controlled state-carrying <c>TaskFactory.StartNew&lt;TResult&gt;</c> overload.</summary>
+    public static Task<TResult> StartNew<TResult>(
+        TaskFactory factory,
+        Func<object?, TResult> function,
+        object? state,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+        ArgumentNullException.ThrowIfNull(function);
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return factory.StartNew(function, state, cancellationToken);
+        }
+
+        return StartNewCore(
+            () => function(state),
+            cancellationToken,
+            factory.CreationOptions,
+            factory.Scheduler ?? TaskScheduler.Default,
+            state);
+    }
+
+    /// <summary>Controlled state-carrying <c>TaskFactory.StartNew&lt;TResult&gt;</c> overload.</summary>
+    public static Task<TResult> StartNew<TResult>(
+        TaskFactory factory,
+        Func<object?, TResult> function,
+        object? state,
+        TaskCreationOptions creationOptions)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+        ArgumentNullException.ThrowIfNull(function);
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return factory.StartNew(function, state, creationOptions);
+        }
+
+        return StartNewCore(
+            () => function(state),
+            factory.CancellationToken,
+            creationOptions,
+            factory.Scheduler ?? TaskScheduler.Default,
+            state);
+    }
+
+    /// <summary>Controlled full-scheduler state-carrying <c>TaskFactory.StartNew&lt;TResult&gt;</c> overload.</summary>
+    public static Task<TResult> StartNew<TResult>(
+        TaskFactory factory,
+        Func<object?, TResult> function,
+        object? state,
+        CancellationToken cancellationToken,
+        TaskCreationOptions creationOptions,
+        TaskScheduler scheduler)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+        ArgumentNullException.ThrowIfNull(function);
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return factory.StartNew(function, state, cancellationToken, creationOptions, scheduler);
+        }
+
+        return StartNewCore(() => function(state), cancellationToken, creationOptions, scheduler, state);
     }
 
     /// <summary>Controlled <c>TaskFactory&lt;TResult&gt;.StartNew(Func&lt;TResult&gt;)</c>.</summary>
@@ -129,7 +379,16 @@ public static class ControlledTaskFactory
     public static Task<TResult> StartNew<TResult>(TaskFactory<TResult> factory, Func<TResult> function)
     {
         ArgumentNullException.ThrowIfNull(factory);
-        return StartNew(factory, function, factory.CreationOptions, factory.CancellationToken);
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return factory.StartNew(function);
+        }
+
+        return StartNewCore(
+            function,
+            factory.CancellationToken,
+            factory.CreationOptions,
+            factory.Scheduler ?? TaskScheduler.Default);
     }
 
     /// <summary>Controlled <c>TaskFactory&lt;TResult&gt;.StartNew(Func&lt;TResult&gt;, CancellationToken)</c>.</summary>
@@ -141,7 +400,16 @@ public static class ControlledTaskFactory
     public static Task<TResult> StartNew<TResult>(TaskFactory<TResult> factory, Func<TResult> function, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(factory);
-        return StartNew(factory, function, factory.CreationOptions, cancellationToken);
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return factory.StartNew(function, cancellationToken);
+        }
+
+        return StartNewCore(
+            function,
+            cancellationToken,
+            factory.CreationOptions,
+            factory.Scheduler ?? TaskScheduler.Default);
     }
 
     /// <summary>Controlled <c>TaskFactory&lt;TResult&gt;.StartNew(Func&lt;TResult&gt;, TaskCreationOptions)</c>.</summary>
@@ -153,19 +421,136 @@ public static class ControlledTaskFactory
     public static Task<TResult> StartNew<TResult>(TaskFactory<TResult> factory, Func<TResult> function, TaskCreationOptions creationOptions)
     {
         ArgumentNullException.ThrowIfNull(factory);
-        return StartNew(factory, function, creationOptions, factory.CancellationToken);
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return factory.StartNew(function, creationOptions);
+        }
+
+        return StartNewCore(
+            function,
+            factory.CancellationToken,
+            creationOptions,
+            factory.Scheduler ?? TaskScheduler.Default);
     }
 
-    private static Task<TResult> StartNew<TResult>(TaskFactory<TResult> factory, Func<TResult> function, TaskCreationOptions creationOptions, CancellationToken cancellationToken)
+    /// <summary>Controlled full-scheduler <c>TaskFactory&lt;TResult&gt;.StartNew</c> overload.</summary>
+    public static Task<TResult> StartNew<TResult>(
+        TaskFactory<TResult> factory,
+        Func<TResult> function,
+        CancellationToken cancellationToken,
+        TaskCreationOptions creationOptions,
+        TaskScheduler scheduler)
     {
+        ArgumentNullException.ThrowIfNull(factory);
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return factory.StartNew(function, cancellationToken, creationOptions, scheduler);
+        }
+
+        return StartNewCore(function, cancellationToken, creationOptions, scheduler);
+    }
+
+    /// <summary>Controlled state-carrying <c>TaskFactory&lt;TResult&gt;.StartNew</c> overload.</summary>
+    public static Task<TResult> StartNew<TResult>(
+        TaskFactory<TResult> factory,
+        Func<object?, TResult> function,
+        object? state)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(function);
         if (!ControlledTaskRuntime.IsSimulationActive)
         {
-            return factory.StartNew(function, cancellationToken, creationOptions, factory.Scheduler ?? TaskScheduler.Current);
+            return factory.StartNew(function, state);
         }
 
+        return StartNewCore(
+            () => function(state),
+            factory.CancellationToken,
+            factory.CreationOptions,
+            factory.Scheduler ?? TaskScheduler.Default,
+            state);
+    }
+
+    /// <summary>Controlled state-carrying <c>TaskFactory&lt;TResult&gt;.StartNew</c> overload.</summary>
+    public static Task<TResult> StartNew<TResult>(
+        TaskFactory<TResult> factory,
+        Func<object?, TResult> function,
+        object? state,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+        ArgumentNullException.ThrowIfNull(function);
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return factory.StartNew(function, state, cancellationToken);
+        }
+
+        return StartNewCore(
+            () => function(state),
+            cancellationToken,
+            factory.CreationOptions,
+            factory.Scheduler ?? TaskScheduler.Default,
+            state);
+    }
+
+    /// <summary>Controlled state-carrying <c>TaskFactory&lt;TResult&gt;.StartNew</c> overload.</summary>
+    public static Task<TResult> StartNew<TResult>(
+        TaskFactory<TResult> factory,
+        Func<object?, TResult> function,
+        object? state,
+        TaskCreationOptions creationOptions)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+        ArgumentNullException.ThrowIfNull(function);
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return factory.StartNew(function, state, creationOptions);
+        }
+
+        return StartNewCore(
+            () => function(state),
+            factory.CancellationToken,
+            creationOptions,
+            factory.Scheduler ?? TaskScheduler.Default,
+            state);
+    }
+
+    /// <summary>Controlled full-scheduler state-carrying <c>TaskFactory&lt;TResult&gt;.StartNew</c> overload.</summary>
+    public static Task<TResult> StartNew<TResult>(
+        TaskFactory<TResult> factory,
+        Func<object?, TResult> function,
+        object? state,
+        CancellationToken cancellationToken,
+        TaskCreationOptions creationOptions,
+        TaskScheduler scheduler)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+        ArgumentNullException.ThrowIfNull(function);
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return factory.StartNew(function, state, cancellationToken, creationOptions, scheduler);
+        }
+
+        return StartNewCore(() => function(state), cancellationToken, creationOptions, scheduler, state);
+    }
+
+    private static Task<TResult> StartNewCore<TResult>(
+        Func<TResult> function,
+        CancellationToken cancellationToken,
+        TaskCreationOptions creationOptions,
+        TaskScheduler scheduler,
+        object? asyncState = null)
+    {
+        ArgumentNullException.ThrowIfNull(function);
+        ArgumentNullException.ThrowIfNull(scheduler);
         RejectUnsupportedOptions(creationOptions);
-        var tcs = new TaskCompletionSource<TResult>();
+        RejectUnsupportedScheduler(scheduler);
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return Task.FromCanceled<TResult>(cancellationToken);
+        }
+
+        var tcs = new TaskCompletionSource<TResult>(asyncState);
         ControlledTaskRuntime.QueueWork(
             () => RunFunc(function, tcs, cancellationToken),
             "System.Threading.Tasks.TaskFactory.StartNew");
@@ -186,8 +571,9 @@ public static class ControlledTaskFactory
             tcs.TrySetResult();
         }
         catch (OperationCanceledException oce)
+            when (cancellationToken.IsCancellationRequested && oce.CancellationToken == cancellationToken)
         {
-            tcs.TrySetCanceled(oce.CancellationToken);
+            tcs.TrySetCanceled(cancellationToken);
         }
         catch (Exception ex)
         {
@@ -208,8 +594,9 @@ public static class ControlledTaskFactory
             tcs.TrySetResult(function());
         }
         catch (OperationCanceledException oce)
+            when (cancellationToken.IsCancellationRequested && oce.CancellationToken == cancellationToken)
         {
-            tcs.TrySetCanceled(oce.CancellationToken);
+            tcs.TrySetCanceled(cancellationToken);
         }
         catch (Exception ex)
         {
@@ -219,13 +606,26 @@ public static class ControlledTaskFactory
 
     private static void RejectUnsupportedOptions(TaskCreationOptions creationOptions)
     {
-        if ((creationOptions & TaskCreationOptions.AttachedToParent) != 0)
+        if (creationOptions != TaskCreationOptions.None)
         {
             throw new ControlledTaskUnsupportedException(
                 "System.Threading.Tasks.TaskFactory.StartNew",
-                "the AttachedToParent creation option is not supported inside a simulation: the cooperative " +
-                "controlled scheduler has no faithful parent/child attach relationship, so honouring it would " +
-                "change observable completion semantics. Remove AttachedToParent (or use DenyChildAttach).");
+                $"the creation option combination '{creationOptions}' is not supported inside a simulation: " +
+                "the cooperative scheduler cannot faithfully preserve the returned task's observable creation " +
+                "options or their scheduling, parent, and continuation semantics.");
         }
     }
+
+    private static void RejectUnsupportedScheduler(TaskScheduler scheduler)
+    {
+        if (!ReferenceEquals(scheduler, TaskScheduler.Default))
+        {
+            throw new ControlledTaskUnsupportedException(
+                "System.Threading.Tasks.TaskFactory.StartNew",
+                "a custom TaskScheduler is not supported inside a simulation because executing it would escape " +
+                "Clockwork's controlled logical strand. Use TaskScheduler.Default or a factory without a custom scheduler.");
+        }
+    }
+
+#pragma warning restore CA1068
 }

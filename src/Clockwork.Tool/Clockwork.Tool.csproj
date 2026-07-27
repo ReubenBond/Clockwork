@@ -10,6 +10,9 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>clockwork</ToolCommandName>
     <PackageId>Clockwork.Tool</PackageId>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/ReubenBond/Clockwork</RepositoryUrl>
   </PropertyGroup>
 
   <ItemGroup>
@@ -18,6 +21,12 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Clockwork.Instrumentation.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="\" />
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>

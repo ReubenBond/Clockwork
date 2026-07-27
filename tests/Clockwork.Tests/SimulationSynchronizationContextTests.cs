@@ -101,10 +101,130 @@ public sealed class SimulationSynchronizationContextTests
     public void SendPropagatesExceptionsThrownByTheCallbackToTheCaller()
     {
         var queue = CreateQueue();
+        var expected = new InvalidTimeZoneException("boom");
+        var invocationCount = 0;
 
         var thrown = Assert.Throws<InvalidTimeZoneException>(
-            () => queue.SynchronizationContext.Send(_ => throw new InvalidTimeZoneException("boom"), null));
-        Assert.Equal("boom", thrown.Message);
+            () => queue.SynchronizationContext.Send(
+                _ =>
+                {
+                    invocationCount++;
+                    throw expected;
+                },
+                null));
+
+        Assert.Same(expected, thrown);
+        Assert.Equal(1, invocationCount);
+        Assert.False(queue.HasItems);
+    }
+
+    [Fact]
+    public void SendExecutesExactlyOnceAfterAnEarlierFailureAndThenRethrowsThatFailure()
+    {
+        var queue = CreateQueue();
+        var order = new List<string>();
+        var expected = new FormatException("earlier");
+        var sentInvocationCount = 0;
+
+        queue.SynchronizationContext.Post(
+            _ =>
+            {
+                order.Add("posted-fault");
+                throw expected;
+            },
+            null);
+        queue.SynchronizationContext.Post(_ => order.Add("posted-after-fault"), null);
+
+        var thrown = Assert.Throws<FormatException>(
+            () => queue.SynchronizationContext.Send(
+                _ =>
+                {
+                    sentInvocationCount++;
+                    order.Add("sent");
+                },
+                null));
+
+        Assert.Same(expected, thrown);
+        Assert.Equal(["posted-fault", "posted-after-fault", "sent"], order);
+        Assert.Equal(1, sentInvocationCount);
+        Assert.False(queue.HasItems);
+    }
+
+    [Fact]
+    public void SendAggregatesEarlierFailuresInExactFifoOrderAfterFulfillingTheSend()
+    {
+        var queue = CreateQueue();
+        var order = new List<string>();
+        var firstFailure = new FormatException("first");
+        var secondFailure = new InvalidDataException("second");
+        var sentInvocationCount = 0;
+
+        queue.SynchronizationContext.Post(_ => order.Add("posted-1"), null);
+        queue.SynchronizationContext.Post(
+            _ =>
+            {
+                order.Add("posted-fault-1");
+                throw firstFailure;
+            },
+            null);
+        queue.SynchronizationContext.Post(_ => order.Add("posted-2"), null);
+        queue.SynchronizationContext.Post(
+            _ =>
+            {
+                order.Add("posted-fault-2");
+                throw secondFailure;
+            },
+            null);
+
+        var thrown = Assert.Throws<AggregateException>(
+            () => queue.SynchronizationContext.Send(
+                _ =>
+                {
+                    sentInvocationCount++;
+                    order.Add("sent");
+                },
+                null));
+
+        Assert.Equal(
+            ["posted-1", "posted-fault-1", "posted-2", "posted-fault-2", "sent"],
+            order);
+        Assert.Equal([firstFailure, secondFailure], thrown.InnerExceptions);
+        Assert.Equal(1, sentInvocationCount);
+        Assert.False(queue.HasItems);
+    }
+
+    [Fact]
+    public void SendAggregatesEarlierAndSentFailuresInDeterministicFifoOrder()
+    {
+        var queue = CreateQueue();
+        var order = new List<string>();
+        var earlierFailure = new FormatException("earlier");
+        var sentFailure = new InvalidDataException("sent");
+        var sentInvocationCount = 0;
+
+        queue.SynchronizationContext.Post(
+            _ =>
+            {
+                order.Add("posted-fault");
+                throw earlierFailure;
+            },
+            null);
+        queue.SynchronizationContext.Post(_ => order.Add("posted-after-fault"), null);
+
+        var thrown = Assert.Throws<AggregateException>(
+            () => queue.SynchronizationContext.Send(
+                _ =>
+                {
+                    sentInvocationCount++;
+                    order.Add("sent-fault");
+                    throw sentFailure;
+                },
+                null));
+
+        Assert.Equal(["posted-fault", "posted-after-fault", "sent-fault"], order);
+        Assert.Equal([earlierFailure, sentFailure], thrown.InnerExceptions);
+        Assert.Equal(1, sentInvocationCount);
+        Assert.False(queue.HasItems);
     }
 
     [Fact]
