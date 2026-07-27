@@ -111,6 +111,7 @@ public static class InstrumentationRunner
         }
 
         ImmutableArray<string> replacementPaths = ResolveReplacementAssemblies(sourceDirectory, request.RuleSet);
+        HashSet<string> replacementNames = ResolveReplacementNames(request.RuleSet);
         var options = new RewriteOptions
         {
             ReplacementAssemblyPaths = replacementPaths,
@@ -121,6 +122,18 @@ public static class InstrumentationRunner
         var assemblyResults = new List<AssemblyInstrumentationResult>();
         foreach (ClosureAsset asset in plan.AssembliesToRewrite)
         {
+            // A rule set's replacement ("shim") assemblies are inputs to the rewrite, not targets of
+            // it: rewriting a shim would corrupt it (e.g. redirect its own calls into itself). Copy
+            // them verbatim so the staged closure can resolve the redirects at runtime.
+            if (replacementNames.Contains(Path.GetFileNameWithoutExtension(asset.RelativePath)))
+            {
+                string replacementDestination = ToStagingPath(stagingDirectory, asset.RelativePath);
+                Directory.CreateDirectory(Path.GetDirectoryName(replacementDestination)!);
+                File.Copy(asset.SourcePath, replacementDestination, overwrite: true);
+                copied.Add(asset.RelativePath);
+                continue;
+            }
+
             assemblyResults.Add(ProcessAssembly(asset, stagingDirectory, configuration, request.RuleSet, options, key));
         }
 
@@ -291,6 +304,18 @@ public static class InstrumentationRunner
         return [.. paths];
     }
 
+    private static HashSet<string> ResolveReplacementNames(Rules.RewriteRuleSet ruleSet)
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string name in ruleSet.Rules
+            .Select(r => r.Replacement.AssemblyName)
+            .Where(n => !string.IsNullOrEmpty(n)))
+        {
+            names.Add(name);
+        }
+
+        return names;
+    }
     private static ClosureManifest BuildManifest(
         ClosurePlan plan,
         InstrumentationConfiguration configuration,

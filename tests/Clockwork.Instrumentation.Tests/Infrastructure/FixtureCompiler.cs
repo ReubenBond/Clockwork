@@ -41,7 +41,8 @@ internal static class FixtureCompiler
         FixtureSymbols symbols,
         bool optimize,
         IEnumerable<string>? additionalReferencePaths = null,
-        string? strongNameKeyFile = null)
+        string? strongNameKeyFile = null,
+        OutputKind outputKind = OutputKind.DynamicallyLinkedLibrary)
     {
         SyntaxTree tree = CSharpSyntaxTree.ParseText(
             source,
@@ -59,7 +60,7 @@ internal static class FixtureCompiler
         }
 
         var options = new CSharpCompilationOptions(
-            OutputKind.DynamicallyLinkedLibrary,
+            outputKind,
             optimizationLevel: optimize ? OptimizationLevel.Release : OptimizationLevel.Debug,
             allowUnsafe: true,
             deterministic: true);
