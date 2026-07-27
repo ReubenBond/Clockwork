@@ -95,4 +95,16 @@ public enum BuiltInRuleFamily
     /// and runs the real BCL API unchanged outside simulation.
     /// </summary>
     TaskFactory,
+
+    /// <summary>
+    /// <see cref="System.Threading.Thread"/> surface: construction and the <c>Start</c>/<c>Join</c>
+    /// instance members are <c>Controlled</c> (Phase 6B) - a controlled thread is a real thread object
+    /// whose body is scheduled as a fresh controlled operation on the coordinator instead of running on a
+    /// physical OS thread, and <c>Join</c> pumps the deterministic loop; the static <c>Sleep</c>,
+    /// <c>Yield</c>, and <c>SpinWait</c> hints yield cooperatively without blocking or using real time.
+    /// The OS-specific surface (<c>Priority</c>, apartment state, <c>Interrupt</c>) is classified
+    /// <c>Rejected</c>: it cannot be modelled faithfully by the cooperative scheduler, so the rewritten
+    /// call site fails precisely under simulation and runs the real API unchanged outside one.
+    /// </summary>
+    Thread,
 }

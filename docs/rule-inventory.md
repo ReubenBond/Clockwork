@@ -183,6 +183,30 @@ Policy: **Controlled**. `TaskFactory.StartNew` and `TaskFactory<T>.StartNew` off
 | `clockwork.tasks.factory.generic.startnew.func.cancellationtoken` | `System.Threading.Tasks.TaskFactory`1::StartNew(System.Func`1<!0>,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory`1<TResult>,System.Func`1<TResult>,System.Threading.CancellationToken)` | Controlled |
 | `clockwork.tasks.factory.generic.startnew.func.options` | `System.Threading.Tasks.TaskFactory`1::StartNew(System.Func`1<!0>,System.Threading.Tasks.TaskCreationOptions)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory`1<TResult>,System.Func`1<TResult>,System.Threading.Tasks.TaskCreationOptions)` | Controlled |
 
+## Thread family
+
+Policy: **Controlled**. 
+
+| Rule id | BCL target | Shim | Policy |
+| --- | --- | --- | --- |
+| `clockwork.thread.ctor.threadstart` | `new System.Threading.Thread(System.Threading.ThreadStart)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::Create(System.Threading.ThreadStart)` | Controlled |
+| `clockwork.thread.ctor.threadstart.stacksize` | `new System.Threading.Thread(System.Threading.ThreadStart,System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::Create(System.Threading.ThreadStart,System.Int32)` | Controlled |
+| `clockwork.thread.ctor.parameterized` | `new System.Threading.Thread(System.Threading.ParameterizedThreadStart)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::Create(System.Threading.ParameterizedThreadStart)` | Controlled |
+| `clockwork.thread.ctor.parameterized.stacksize` | `new System.Threading.Thread(System.Threading.ParameterizedThreadStart,System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::Create(System.Threading.ParameterizedThreadStart,System.Int32)` | Controlled |
+| `clockwork.thread.start` | `System.Threading.Thread::Start()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::Start(System.Threading.Thread)` | Controlled |
+| `clockwork.thread.start.parameter` | `System.Threading.Thread::Start(System.Object)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::Start(System.Threading.Thread,System.Object)` | Controlled |
+| `clockwork.thread.join` | `System.Threading.Thread::Join()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::Join(System.Threading.Thread)` | Controlled |
+| `clockwork.thread.join.milliseconds` | `System.Threading.Thread::Join(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::Join(System.Threading.Thread,System.Int32)` | Controlled |
+| `clockwork.thread.join.timespan` | `System.Threading.Thread::Join(System.TimeSpan)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::Join(System.Threading.Thread,System.TimeSpan)` | Controlled |
+| `clockwork.thread.sleep.milliseconds` | `System.Threading.Thread::Sleep(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::Sleep(System.Int32)` | Controlled |
+| `clockwork.thread.sleep.timespan` | `System.Threading.Thread::Sleep(System.TimeSpan)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::Sleep(System.TimeSpan)` | Controlled |
+| `clockwork.thread.spinwait` | `System.Threading.Thread::SpinWait(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::SpinWait(System.Int32)` | Controlled |
+| `clockwork.thread.yield` | `System.Threading.Thread::Yield()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::Yield()` | Controlled |
+| `clockwork.thread.set_priority` | `System.Threading.Thread::set_Priority(System.Threading.ThreadPriority)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::SetPriority(System.Threading.Thread,System.Threading.ThreadPriority)` | Rejected |
+| `clockwork.thread.interrupt` | `System.Threading.Thread::Interrupt()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::Interrupt(System.Threading.Thread)` | Rejected |
+| `clockwork.thread.setapartmentstate` | `System.Threading.Thread::SetApartmentState(System.Threading.ApartmentState)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::SetApartmentState(System.Threading.Thread,System.Threading.ApartmentState)` | Rejected |
+| `clockwork.thread.trysetapartmentstate` | `System.Threading.Thread::TrySetApartmentState(System.Threading.ApartmentState)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThread::TrySetApartmentState(System.Threading.Thread,System.Threading.ApartmentState)` | Rejected |
+
 ## Documented holes (not rewritten in these rule sets)
 
 These nondeterministic or entropy-drawing surfaces are intentionally **not** covered and

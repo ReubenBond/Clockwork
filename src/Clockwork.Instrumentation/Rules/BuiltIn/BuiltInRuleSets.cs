@@ -50,6 +50,7 @@ public static class BuiltInRuleSets
     private const string CryptoShim = "Clockwork.Runtime.Shims.DeterministicCryptoRandom";
     private const string TaskShim = "Clockwork.Runtime.Tasks.ControlledTask";
     private const string TaskFactoryShim = "Clockwork.Runtime.Tasks.ControlledTaskFactory";
+    private const string ThreadShim = "Clockwork.Runtime.Threading.ControlledThread";
 
     // Cecil full names for the exact overload parameters (from the net10 reference assemblies).
     private const string Int32 = "System.Int32";
@@ -116,6 +117,15 @@ public static class BuiltInRuleSets
     // TaskCreationOptions selects the controlled StartNew overloads that carry an explicit options value.
     private const string TaskCreationOptions = "System.Threading.Tasks.TaskCreationOptions";
 
+    // Cecil full names for the controlled System.Threading.Thread surface (Phase 6B).
+    private const string ThreadType = "System.Threading.Thread";
+    private const string ThreadStart = "System.Threading.ThreadStart";
+    private const string ParameterizedThreadStart = "System.Threading.ParameterizedThreadStart";
+    private const string ObjectType = "System.Object";
+    private const string TimeSpan = "System.TimeSpan";
+    private const string ThreadPriority = "System.Threading.ThreadPriority";
+    private const string ApartmentState = "System.Threading.ApartmentState";
+
     // Cecil full names for the compiler-generated async machinery (BCL) and their controlled substitutes.
     // Nested awaiter types use Cecil's '/' separator; generic arities carry the backtick.
     private const string CompilerNs = "System.Runtime.CompilerServices.";
@@ -178,6 +188,7 @@ public static class BuiltInRuleSets
         BuiltInRuleFamily.AsyncMachinery,
         BuiltInRuleFamily.ValueTaskMachinery,
         BuiltInRuleFamily.TaskFactory,
+        BuiltInRuleFamily.Thread,
     ];
 
     /// <summary>Gets the (family, rule) entries of the deterministic BCL rule set, for documentation and inventory generation.</summary>
@@ -391,7 +402,62 @@ public static class BuiltInRuleSets
             MemberSignature.Method(TaskFactoryTType, "StartNew", FuncOfTypeResult, TaskCreationOptions),
             Shim(TaskFactoryShim, "StartNew", TaskFactoryTOfResultDecl, FuncOfResultDecl, TaskCreationOptions));
 
+        // ---- Thread: construction and Start/Join are controlled; Sleep/Yield/SpinWait yield cooperatively;
+        // the OS-specific priority/apartment/interrupt surface is rejected precisely under simulation. Each
+        // controlled thread is a real thread object whose body is queued as a fresh controlled operation, so
+        // the logical identity surface (Name, ManagedThreadId, IsBackground) keeps working unchanged. ----
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Thread, RewriteRule.RedirectNewObj(
+            "clockwork.thread.ctor.threadstart",
+            MemberSignature.Constructor(ThreadType, ThreadStart), Shim(ThreadShim, "Create", ThreadStart))));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Thread, RewriteRule.RedirectNewObj(
+            "clockwork.thread.ctor.threadstart.stacksize",
+            MemberSignature.Constructor(ThreadType, ThreadStart, Int32), Shim(ThreadShim, "Create", ThreadStart, Int32))));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Thread, RewriteRule.RedirectNewObj(
+            "clockwork.thread.ctor.parameterized",
+            MemberSignature.Constructor(ThreadType, ParameterizedThreadStart), Shim(ThreadShim, "Create", ParameterizedThreadStart))));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Thread, RewriteRule.RedirectNewObj(
+            "clockwork.thread.ctor.parameterized.stacksize",
+            MemberSignature.Constructor(ThreadType, ParameterizedThreadStart, Int32), Shim(ThreadShim, "Create", ParameterizedThreadStart, Int32))));
+
+        TaskRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.start",
+            MemberSignature.Method(ThreadType, "Start"), Shim(ThreadShim, "Start", ThreadType));
+        TaskRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.start.parameter",
+            MemberSignature.Method(ThreadType, "Start", ObjectType), Shim(ThreadShim, "Start", ThreadType, ObjectType));
+        TaskRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.join",
+            MemberSignature.Method(ThreadType, "Join"), Shim(ThreadShim, "Join", ThreadType));
+        TaskRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.join.milliseconds",
+            MemberSignature.Method(ThreadType, "Join", Int32), Shim(ThreadShim, "Join", ThreadType, Int32));
+        TaskRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.join.timespan",
+            MemberSignature.Method(ThreadType, "Join", TimeSpan), Shim(ThreadShim, "Join", ThreadType, TimeSpan));
+        TaskRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.sleep.milliseconds",
+            MemberSignature.Method(ThreadType, "Sleep", Int32), Shim(ThreadShim, "Sleep", Int32));
+        TaskRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.sleep.timespan",
+            MemberSignature.Method(ThreadType, "Sleep", TimeSpan), Shim(ThreadShim, "Sleep", TimeSpan));
+        TaskRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.spinwait",
+            MemberSignature.Method(ThreadType, "SpinWait", Int32), Shim(ThreadShim, "SpinWait", Int32));
+        TaskRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.yield",
+            MemberSignature.Method(ThreadType, "Yield"), Shim(ThreadShim, "Yield"));
+
+        RejectedRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.set_priority",
+            MemberSignature.Method(ThreadType, "set_Priority", ThreadPriority), Shim(ThreadShim, "SetPriority", ThreadType, ThreadPriority));
+        RejectedRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.interrupt",
+            MemberSignature.Method(ThreadType, "Interrupt"), Shim(ThreadShim, "Interrupt", ThreadType));
+        RejectedRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.setapartmentstate",
+            MemberSignature.Method(ThreadType, "SetApartmentState", ApartmentState), Shim(ThreadShim, "SetApartmentState", ThreadType, ApartmentState));
+        RejectedRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.trysetapartmentstate",
+            MemberSignature.Method(ThreadType, "TrySetApartmentState", ApartmentState), Shim(ThreadShim, "TrySetApartmentState", ThreadType, ApartmentState));
+
         return builder.ToImmutable();
+    }
+
+    private static void RejectedRule(
+        ImmutableArray<BuiltInRuleEntry>.Builder builder,
+        BuiltInRuleFamily family,
+        string id,
+        MemberSignature target,
+        RewriteReplacement replacement)
+    {
+        builder.Add(new BuiltInRuleEntry(family, RewriteRule.RedirectCall(id, target, replacement, SimulationApiPolicy.Rejected)));
     }
 
     private static void Sub(
