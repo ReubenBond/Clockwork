@@ -33,6 +33,10 @@ jobs:
         run: dotnet run --project tests/Clockwork.Instrumentation.Tests/Clockwork.Instrumentation.Tests.csproj --configuration Release --no-build -- --timeout 180s
       - name: Test Testing scaffold
         run: dotnet run --project tests/Clockwork.Testing.Tests/Clockwork.Testing.Tests.csproj --configuration Release --no-build -- --timeout 60s
+      - name: Test analyzers
+        run: dotnet run --project tests/Clockwork.Analyzers.Tests/Clockwork.Analyzers.Tests.csproj --configuration Release --no-build -- --timeout 60s
+      - name: Test conformance (Debug lowering)
+        run: dotnet run --project tests/Clockwork.Conformance.Tests/Clockwork.Conformance.Tests.csproj --configuration Debug -- --timeout 300s
       - name: Package smoke tests
         # Exercises the real packed NuGet artifacts end-to-end: packs Clockwork.Instrumentation.Build
         # and Clockwork.Tool into an isolated feed, consumes the build package through the real MSBuild
@@ -76,3 +80,5 @@ jobs:
         run: dotnet build Clockwork.slnx --configuration Release
       - name: Test kernel
         run: dotnet run --project tests/Clockwork.Tests/Clockwork.Tests.csproj --configuration Release --no-build -- --timeout 60s
+      - name: Test conformance (Release lowering)
+        run: dotnet run --project tests/Clockwork.Conformance.Tests/Clockwork.Conformance.Tests.csproj --configuration Release --no-build -- --timeout 300s
