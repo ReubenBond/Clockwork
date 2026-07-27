@@ -453,6 +453,60 @@ public sealed class ControlledOperationSchedulerTests
     }
 
     [Fact]
+    public void ListenerCannotCancelCurrentOperationBeforeHandback()
+    {
+        var listener = new CancelCurrentOnPausedListener();
+        using var scheduler = SchedulerTestHarness.NewScheduler(listener);
+        listener.Scheduler = scheduler;
+        var operation = scheduler.Schedule(
+            "pause",
+            () => scheduler.Pause(ControlledOperationPauseReason.ResourceWait("pause")));
+
+        Assert.True(scheduler.RunStep());
+
+        var exception = Assert.IsType<ControlledOperationException>(listener.Exception);
+        Assert.Contains("before it hands control back", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(ControlledOperationState.Paused, operation.State);
+        scheduler.Cancel(operation);
+    }
+
+    [Fact]
+    public void SignalAllPublishesEachRunnableBeforeReentrantCancellationOfLaterWaiter()
+    {
+        var listener = new CancelLaterWaiterListener();
+        using var scheduler = SchedulerTestHarness.NewScheduler(listener);
+        listener.Scheduler = scheduler;
+        var resource = scheduler.CreateResource(
+            Clockwork.Runtime.Scheduling.Resources.ControlledResourceKind.Semaphore,
+            "signal-all");
+        var first = scheduler.Schedule(
+            "first",
+            () => scheduler.WaitOnResource(resource, ControlledOperationPauseReason.ResourceWait("signal-all")));
+        var second = scheduler.Schedule(
+            "second",
+            () => scheduler.WaitOnResource(resource, ControlledOperationPauseReason.ResourceWait("signal-all")));
+        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep());
+        listener.TriggerId = first.Id;
+        listener.Target = second;
+
+        var woken = scheduler.SignalAll(resource);
+        scheduler.Drain();
+
+        Assert.Equal([first], woken);
+        Assert.Equal(
+            [
+                ControlledOperationState.Created,
+                ControlledOperationState.Runnable,
+                ControlledOperationState.Running,
+                ControlledOperationState.Paused,
+                ControlledOperationState.Canceled,
+            ],
+            listener.Events.Where(e => e.Id == second.Id).Select(e => e.EventState));
+        Assert.All(listener.Events, e => Assert.Equal(e.EventState, e.SnapshotState));
+    }
+
+    [Fact]
     public void CaptureStatusReturnsOperationsInStableIdOrder()
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();
@@ -561,6 +615,55 @@ public sealed class ControlledOperationSchedulerTests
             catch (Exception exception)
             {
                 Exception = exception;
+            }
+        }
+    }
+
+    private sealed class CancelCurrentOnPausedListener : IControlledOperationListener
+    {
+        public ControlledOperationScheduler Scheduler { get; set; } = null!;
+
+        public Exception? Exception { get; private set; }
+
+        public void OnStateChanged(ControlledOperation operation, ControlledOperationState newState)
+        {
+            if (newState != ControlledOperationState.Paused)
+            {
+                return;
+            }
+
+            try
+            {
+                Scheduler.Cancel(operation);
+            }
+            catch (Exception exception)
+            {
+                Exception = exception;
+            }
+        }
+    }
+
+    private sealed class CancelLaterWaiterListener : IControlledOperationListener
+    {
+        private readonly ConcurrentQueue<(ControlledOperationId Id, ControlledOperationState EventState, ControlledOperationState SnapshotState)> _events = new();
+
+        public ControlledOperationScheduler Scheduler { get; set; } = null!;
+
+        public ControlledOperationId TriggerId { get; set; }
+
+        public ControlledOperation? Target { get; set; }
+
+        public IReadOnlyList<(ControlledOperationId Id, ControlledOperationState EventState, ControlledOperationState SnapshotState)> Events =>
+            _events.ToArray();
+
+        public void OnStateChanged(ControlledOperation operation, ControlledOperationState newState)
+        {
+            _events.Enqueue((operation.Id, newState, operation.State));
+            if (newState == ControlledOperationState.Runnable &&
+                operation.Id == TriggerId &&
+                Target is not null)
+            {
+                Scheduler.Cancel(Target);
             }
         }
     }

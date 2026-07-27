@@ -529,8 +529,8 @@ public sealed class ControlledOperationScheduler : IDisposable
     /// <returns><see langword="true"/> if time advanced and at least one waiter timed out; otherwise <see langword="false"/>.</returns>
     public bool TryAdvanceVirtualTime()
     {
-        List<ControlledOperation> timedOut = [];
-        List<CancellationTokenRegistration> registrations = [];
+        IReadOnlyList<ControlledTimeoutRegistration> due;
+        var timedOut = 0;
         using (EnterTransitionPublicationScope())
         {
             lock (_gate)
@@ -547,29 +547,36 @@ public sealed class ControlledOperationScheduler : IDisposable
                     return false;
                 }
 
-                foreach (var registration in _clock.AdvanceToNextDue())
+                due = _clock.AdvanceToNextDue();
+            }
+
+            foreach (var timeoutRegistration in due)
+            {
+                ControlledOperation? operation = null;
+                CancellationTokenRegistration cancellationRegistration = default;
+                lock (_gate)
                 {
-                    var waiter = registration.Waiter;
+                    var waiter = timeoutRegistration.Waiter;
                     if (waiter.TryResolve(ControlledWaitOutcome.TimedOut))
                     {
                         RecordWaitResolution(waiter, ControlledWaitOutcome.TimedOut);
-                        registrations.Add(DetachWaiterRegistrationsUnderLock(waiter));
+                        cancellationRegistration = DetachWaiterRegistrationsUnderLock(waiter);
                         waiter.Resource.RemoveWaiter(waiter);
                         waiter.Operation.ApplyTransition(ControlledOperationState.Runnable);
-                        timedOut.Add(waiter.Operation);
+                        operation = waiter.Operation;
                     }
                 }
-            }
 
-            foreach (var operation in timedOut)
-            {
-                Notify(operation, ControlledOperationState.Runnable);
+                if (operation is not null)
+                {
+                    Notify(operation, ControlledOperationState.Runnable);
+                    DisposeRegistration(cancellationRegistration);
+                    timedOut++;
+                }
             }
         }
 
-        DisposeRegistrations(registrations);
-
-        return timedOut.Count > 0;
+        return timedOut > 0;
     }
 
     private bool HasRunnableUnderLock()
@@ -632,10 +639,12 @@ public sealed class ControlledOperationScheduler : IDisposable
                     return;
                 }
 
-                if (ReferenceEquals(operation, _current) && operation.State == ControlledOperationState.Running)
+                if (ReferenceEquals(operation, _current))
                 {
                     throw new ControlledOperationException(
-                        string.Create(CultureInfo.InvariantCulture, $"Cannot externally cancel the currently-running operation {operation.Id}; it must observe cooperative cancellation from within its own body."));
+                        string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"Cannot externally cancel in-flight operation {operation.Id} before it hands control back to the scheduler; retry after RunStep returns or use cooperative cancellation from within its body."));
                 }
 
                 operation.RequestTermination();
@@ -990,32 +999,40 @@ public sealed class ControlledOperationScheduler : IDisposable
         ValidateResourceOwnership(resource);
 
         List<ControlledOperation> woken = [];
-        List<CancellationTokenRegistration> registrations = [];
+        ControlledResourceWaiter[] pending;
         using (EnterTransitionPublicationScope())
         {
             lock (_gate)
             {
                 ThrowIfDisposed();
-                foreach (var waiter in resource.SnapshotPendingWaiters())
+                pending = resource.SnapshotPendingWaiters();
+            }
+
+            foreach (var waiter in pending)
+            {
+                ControlledOperation? operation = null;
+                CancellationTokenRegistration registration = default;
+                lock (_gate)
                 {
                     if (waiter.TryResolve(ControlledWaitOutcome.Signaled))
                     {
                         RecordWaitResolution(waiter, ControlledWaitOutcome.Signaled);
-                        registrations.Add(DetachWaiterRegistrationsUnderLock(waiter));
+                        registration = DetachWaiterRegistrationsUnderLock(waiter);
                         resource.RemoveWaiter(waiter);
                         waiter.Operation.ApplyTransition(ControlledOperationState.Runnable);
-                        woken.Add(waiter.Operation);
+                        operation = waiter.Operation;
                     }
                 }
-            }
 
-            foreach (var operation in woken)
-            {
-                Notify(operation, ControlledOperationState.Runnable);
+                if (operation is not null)
+                {
+                    woken.Add(operation);
+                    Notify(operation, ControlledOperationState.Runnable);
+                    DisposeRegistration(registration);
+                }
             }
         }
 
-        DisposeRegistrations(registrations);
         return woken;
     }
 
