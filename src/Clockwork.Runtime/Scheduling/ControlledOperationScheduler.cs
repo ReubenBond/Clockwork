@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using Clockwork.Runtime.Execution;
+using Clockwork.Runtime.Scheduling.Resources;
 
 namespace Clockwork.Runtime.Scheduling;
 
@@ -47,6 +48,7 @@ public sealed class ControlledOperationScheduler : IDisposable
 
     private readonly object _gate = new();
     private readonly SortedDictionary<ControlledOperationId, ControlledOperation> _operations = new();
+    private readonly SortedDictionary<ControlledResourceId, ControlledResource> _resources = new();
     private readonly SemaphoreSlim _handback = new(0, 1);
     private readonly SimulationLogicalExecutionIdSource _logicalIds = new();
     private readonly SimulationActivationToken _activationToken;
@@ -54,6 +56,7 @@ public sealed class ControlledOperationScheduler : IDisposable
     private readonly IControlledOperationListener? _listener;
 
     private long _nextOperationId;
+    private long _nextResourceId;
     private ControlledOperationId _lastSelected = ControlledOperationId.None;
     private ControlledOperation? _current;
     private int _controlThreadId;
@@ -184,6 +187,43 @@ public sealed class ControlledOperationScheduler : IDisposable
         Admit(operation);
         return operation;
     }
+
+    /// <summary>
+    /// Creates a new <see cref="ControlledResource"/> owned by this scheduler, with a stable,
+    /// monotonically-assigned <see cref="ControlledResourceId"/>. The resource starts unowned, with no
+    /// waiters; acquire/release policy and waits are layered on top by callers via the scheduler's
+    /// wait/signal primitives and the resource's own bookkeeping fields. This is the entry point a
+    /// future controlled primitive (Phase 6/7) uses to obtain the resource backing one sync object.
+    /// </summary>
+    /// <param name="kind">The diagnostic classification of the primitive the resource models.</param>
+    /// <param name="name">A short, stable, human-readable name for diagnostics.</param>
+    /// <returns>The newly created resource.</returns>
+    public ControlledResource CreateResource(ControlledResourceKind kind, string name)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(name);
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            var id = new ControlledResourceId(++_nextResourceId);
+            var resource = new ControlledResource(id, kind, name);
+            _resources.Add(id, resource);
+            return resource;
+        }
+    }
+
+    /// <summary>
+    /// Captures a deterministic snapshot of every resource currently registered with this scheduler,
+    /// in stable <see cref="ControlledResourceId"/> order, for diagnostics and deadlock reporting.
+    /// </summary>
+    /// <returns>An ordered, immutable list of resources.</returns>
+    public IReadOnlyList<ControlledResource> CaptureResources()
+    {
+        lock (_gate)
+        {
+            return [.. _resources.Values];
+        }
+    }
+
 
     /// <summary>
     /// Admits a <see cref="ControlledOperationState.Created"/> operation for scheduling, transitioning
