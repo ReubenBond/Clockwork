@@ -65,4 +65,24 @@ public enum BuiltInRuleFamily
     /// coordinator instead of the thread pool, while <c>ConfigureAwait(false)</c> stays controlled.
     /// </summary>
     AsyncMachinery,
+
+    /// <summary>
+    /// Compiler-generated <see cref="System.Threading.Tasks.ValueTask"/> machinery: the
+    /// <c>SubstituteType</c> rules that retarget an <c>async ValueTask</c>/<c>async ValueTask&lt;T&gt;</c>
+    /// state machine's builder and awaiter types
+    /// (<see cref="System.Runtime.CompilerServices.AsyncValueTaskMethodBuilder"/>, <c>ValueTaskAwaiter</c>,
+    /// <c>ConfiguredValueTaskAwaitable</c> and their awaiters, generic and non-generic) onto Clockwork's
+    /// controlled equivalents, so awaiting a <see cref="System.Threading.Tasks.ValueTask"/> is scheduled
+    /// through the coordinator and <c>ConfigureAwait(false)</c> stays controlled.
+    /// </summary>
+    ValueTaskMachinery,
+
+    /// <summary>
+    /// <see cref="System.Threading.Tasks.TaskFactory"/> / <see cref="System.Threading.Tasks.TaskFactory{TResult}"/>
+    /// scheduling: <c>StartNew</c> offloads work onto a task scheduler (the thread pool by default).
+    /// Classified <c>Rejected</c> - the shim fails the call with a precise diagnostic under simulation
+    /// rather than letting work escape onto an uncontrolled physical thread (thread-pool scheduling is
+    /// owned by the threading phase), and runs the real BCL API unchanged outside simulation.
+    /// </summary>
+    TaskFactory,
 }

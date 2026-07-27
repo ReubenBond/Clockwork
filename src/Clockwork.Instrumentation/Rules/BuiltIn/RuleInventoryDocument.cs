@@ -53,7 +53,8 @@ public static class RuleInventoryDocument
         Line("- `Stopwatch` instance APIs (`Start`/`Stop`/`Restart`/`Elapsed`/`ElapsedMilliseconds`/`ElapsedTicks`) and the `GetElapsedTime(long, long)` overload.");
         Line("- Generic cryptographic helpers `RandomNumberGenerator.GetItems<T>` and `Shuffle<T>`, and any `GetString`/`GetHexString` overloads beyond those listed above.");
         Line("- `DateTime`/`DateTimeOffset` parsing/formatting and any culture-, timezone-, or kind-conversion helpers other than the `Now`/`UtcNow`/`Today` clocks above.");
-        Line("- Generic `Task<TResult>` combinator overloads (`WhenAll<T>`/`WhenAny<T>`), the `Task<T>.Result` accessor, `ValueTask`, `TaskCompletionSource`, `TaskFactory`, and the compiler-generated builder/awaiter types. These are served by the `Clockwork.Runtime` controlled-task engine but are **not** in the shipped rule set: matching them requires the member-aware / generic-arity substitution pass deferred to Phase 6B.");
+        Line("- Synchronous blocking on `ValueTask`/`ValueTask<T>` (`.Result`/`.GetResult()` outside an awaiter): a value task may be consumed only once, so a blocking drain is unsafe. `await` is the supported controlled path; deferred to Phase 6B.");
+        Line("- Generic `Task<TResult>.ContinueWith<TNewResult>` overloads and `TaskFactory`/`TaskFactory<T>` surfaces other than the rejected `StartNew` sites above. Deferred to Phase 6B.");
         Line("- Thread/`ThreadPool`/`Parallel`, `Monitor`/semaphores/wait handles, timers and the `Task.Delay` implementation, and cancellation timers. These are Phase 6B / Phase 8 scope.");
         Line();
         Line("Determinism is claimed **only** for the exact rules tabulated above.");
@@ -148,6 +149,19 @@ public static class RuleInventoryDocument
             "the member-aware pass, and `Task.Yield()` redirects to the controlled yield. Every awaited " +
             "continuation is scheduled through the simulation coordinator instead of the thread pool, and " +
             "`ConfigureAwait(false)` stays controlled while preserving normal semantics outside simulation.",
+        BuiltInRuleFamily.ValueTaskMachinery =>
+            "The compiler-generated builder and awaiter types of an `async ValueTask`/`async ValueTask<T>` " +
+            "state machine (`AsyncValueTaskMethodBuilder`, `ValueTaskAwaiter`, `ConfiguredValueTaskAwaitable` " +
+            "and their awaiters, generic and non-generic) are substituted onto Clockwork's controlled " +
+            "equivalents by the member-aware pass, so every awaited value-task continuation is scheduled " +
+            "through the simulation coordinator. `ConfigureAwait(false)` stays controlled in simulation while " +
+            "preserving normal semantics outside. Synchronous blocking on a value task is not rewritten " +
+            "(a value task may be consumed only once); `await` is the supported controlled path.",
+        BuiltInRuleFamily.TaskFactory =>
+            "`TaskFactory.StartNew` and `TaskFactory<T>.StartNew` offload work onto a task scheduler (the " +
+            "thread pool by default), which Phase 6A does not control. They are rejected under simulation " +
+            "with a precise diagnostic at the rewritten call site rather than silently escaping onto a " +
+            "physical thread; outside simulation they run the real BCL API unchanged.",
         _ => string.Empty,
     };
 
