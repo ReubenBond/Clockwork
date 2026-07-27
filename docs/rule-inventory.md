@@ -108,6 +108,8 @@ Policy: **Controlled**. `Task.ContinueWith(Action<Task>)` redirects so the conti
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
 | `clockwork.tasks.continuewith.action` | `System.Threading.Tasks.Task::ContinueWith(System.Action`1<System.Threading.Tasks.Task>)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::ContinueWith(System.Threading.Tasks.Task,System.Action`1<System.Threading.Tasks.Task>)` | Controlled |
+| `clockwork.tasks.continuewith.generic.action` | `System.Threading.Tasks.Task`1::ContinueWith(System.Action`1<System.Threading.Tasks.Task`1<!0>>)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::ContinueWith(System.Threading.Tasks.Task`1<TResult>,System.Action`1<System.Threading.Tasks.Task`1<TResult>>)` | Controlled |
+| `clockwork.tasks.continuewith.generic.func` | `System.Threading.Tasks.Task`1::ContinueWith(System.Func`2<System.Threading.Tasks.Task`1<!0>,!!0>)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::ContinueWith(System.Threading.Tasks.Task`1<TResult>,System.Func`2<System.Threading.Tasks.Task`1<TResult>,TNewResult>)` | Controlled |
 
 ## TaskDeferred family
 
@@ -167,13 +169,19 @@ Policy: **Controlled**. The compiler-generated builder and awaiter types of an `
 
 ## TaskFactory family
 
-Policy: **Rejected**. `TaskFactory.StartNew` and `TaskFactory<T>.StartNew` offload work onto a task scheduler (the thread pool by default), which Phase 6A does not control. They are rejected under simulation with a precise diagnostic at the rewritten call site rather than silently escaping onto a physical thread; outside simulation they run the real BCL API unchanged.
+Policy: **Controlled**. `TaskFactory.StartNew` and `TaskFactory<T>.StartNew` offload work onto a task scheduler (the thread pool by default), which Phase 6A does not control. They are rejected under simulation with a precise diagnostic at the rewritten call site rather than silently escaping onto a physical thread; outside simulation they run the real BCL API unchanged.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
-| `clockwork.tasks.factory.startnew.action` | `System.Threading.Tasks.TaskFactory::StartNew(System.Action)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Action)` | Rejected |
-| `clockwork.tasks.factory.startnew.func` | `System.Threading.Tasks.TaskFactory::StartNew(System.Func`1<!!0>)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Func`1<TResult>)` | Rejected |
-| `clockwork.tasks.factory.generic.startnew.func` | `System.Threading.Tasks.TaskFactory`1::StartNew(System.Func`1<!0>)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory`1<TResult>,System.Func`1<TResult>)` | Rejected |
+| `clockwork.tasks.factory.startnew.action` | `System.Threading.Tasks.TaskFactory::StartNew(System.Action)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Action)` | Controlled |
+| `clockwork.tasks.factory.startnew.action.cancellationtoken` | `System.Threading.Tasks.TaskFactory::StartNew(System.Action,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Action,System.Threading.CancellationToken)` | Controlled |
+| `clockwork.tasks.factory.startnew.action.options` | `System.Threading.Tasks.TaskFactory::StartNew(System.Action,System.Threading.Tasks.TaskCreationOptions)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Action,System.Threading.Tasks.TaskCreationOptions)` | Controlled |
+| `clockwork.tasks.factory.startnew.func` | `System.Threading.Tasks.TaskFactory::StartNew(System.Func`1<!!0>)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Func`1<TResult>)` | Controlled |
+| `clockwork.tasks.factory.startnew.func.cancellationtoken` | `System.Threading.Tasks.TaskFactory::StartNew(System.Func`1<!!0>,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Func`1<TResult>,System.Threading.CancellationToken)` | Controlled |
+| `clockwork.tasks.factory.startnew.func.options` | `System.Threading.Tasks.TaskFactory::StartNew(System.Func`1<!!0>,System.Threading.Tasks.TaskCreationOptions)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory,System.Func`1<TResult>,System.Threading.Tasks.TaskCreationOptions)` | Controlled |
+| `clockwork.tasks.factory.generic.startnew.func` | `System.Threading.Tasks.TaskFactory`1::StartNew(System.Func`1<!0>)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory`1<TResult>,System.Func`1<TResult>)` | Controlled |
+| `clockwork.tasks.factory.generic.startnew.func.cancellationtoken` | `System.Threading.Tasks.TaskFactory`1::StartNew(System.Func`1<!0>,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory`1<TResult>,System.Func`1<TResult>,System.Threading.CancellationToken)` | Controlled |
+| `clockwork.tasks.factory.generic.startnew.func.options` | `System.Threading.Tasks.TaskFactory`1::StartNew(System.Func`1<!0>,System.Threading.Tasks.TaskCreationOptions)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTaskFactory::StartNew(System.Threading.Tasks.TaskFactory`1<TResult>,System.Func`1<TResult>,System.Threading.Tasks.TaskCreationOptions)` | Controlled |
 
 ## Documented holes (not rewritten in these rule sets)
 

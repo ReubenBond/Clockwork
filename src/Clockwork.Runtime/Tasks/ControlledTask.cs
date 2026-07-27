@@ -244,6 +244,64 @@ public static class ControlledTask
     }
 
     /// <summary>
+    /// Controlled default <c>Task&lt;TResult&gt;.ContinueWith(Action&lt;Task&lt;TResult&gt;&gt;)</c>: the
+    /// generic-antecedent continuation form. The continuation observes the completed antecedent (typed as
+    /// <see cref="Task{TResult}"/>) and runs on the logical thread once it completes.
+    /// </summary>
+    /// <typeparam name="TResult">The antecedent result type.</typeparam>
+    /// <param name="antecedent">The task to continue from.</param>
+    /// <param name="continuationAction">The continuation to run.</param>
+    /// <returns>A task representing the continuation.</returns>
+    public static Task ContinueWith<TResult>(Task<TResult> antecedent, Action<Task<TResult>> continuationAction)
+    {
+        ArgumentNullException.ThrowIfNull(antecedent);
+        ArgumentNullException.ThrowIfNull(continuationAction);
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return antecedent.ContinueWith(continuationAction, TaskScheduler.Current);
+        }
+
+        var tcs = new TaskCompletionSource();
+        ControlledTaskRuntime.ScheduleContinuation(
+            antecedent,
+            () => RunContinuation(() => continuationAction(antecedent), tcs),
+            "System.Threading.Tasks.Task.ContinueWith",
+            flowExecutionContext: false);
+        return tcs.Task;
+    }
+
+    /// <summary>
+    /// Controlled default <c>Task&lt;TResult&gt;.ContinueWith&lt;TNewResult&gt;(Func&lt;Task&lt;TResult&gt;, TNewResult&gt;)</c>:
+    /// the generic-antecedent, generic-result continuation form (a generic method on a closed generic
+    /// type). The call-site pass binds the shim's two type parameters declaring-type-first
+    /// (<typeparamref name="TResult"/>) then method-argument (<typeparamref name="TNewResult"/>).
+    /// </summary>
+    /// <typeparam name="TResult">The antecedent result type.</typeparam>
+    /// <typeparam name="TNewResult">The continuation result type.</typeparam>
+    /// <param name="antecedent">The task to continue from.</param>
+    /// <param name="continuationFunction">The continuation to run.</param>
+    /// <returns>A task representing the continuation's result.</returns>
+    public static Task<TNewResult> ContinueWith<TResult, TNewResult>(
+        Task<TResult> antecedent,
+        Func<Task<TResult>, TNewResult> continuationFunction)
+    {
+        ArgumentNullException.ThrowIfNull(antecedent);
+        ArgumentNullException.ThrowIfNull(continuationFunction);
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return antecedent.ContinueWith(continuationFunction, TaskScheduler.Current);
+        }
+
+        var tcs = new TaskCompletionSource<TNewResult>();
+        ControlledTaskRuntime.ScheduleContinuation(
+            antecedent,
+            () => RunContinuation(() => continuationFunction(antecedent), tcs),
+            "System.Threading.Tasks.Task.ContinueWith",
+            flowExecutionContext: false);
+        return tcs.Task;
+    }
+
+    /// <summary>
     /// Controlled <c>task.RunSynchronously()</c>: delegates to the real API, which runs the task's
     /// delegate inline on the calling (logical) thread - already deterministic.
     /// </summary>

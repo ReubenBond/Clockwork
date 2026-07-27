@@ -33,6 +33,10 @@ public sealed class ControlledTaskRuleGoldenTests
                 public static void Block(Task t) => t.Wait();
                 public static Task Delayed() => Task.Delay(5);
                 public static Task Offloaded() => Task.Run(() => { });
+                public static Task Started() => Task.Factory.StartNew(() => { });
+                public static Task<int> StartedValue() => Task.Factory.StartNew(() => 7);
+                public static Task Continued(Task<int> t) => t.ContinueWith(x => { });
+                public static Task<string> Projected(Task<int> t) => t.ContinueWith(x => x.Result.ToString());
             }
         }
         """;
@@ -127,5 +131,43 @@ public sealed class ControlledTaskRuleGoldenTests
         ImmutableArray<ManifestTransformation> transformations = result.Manifest.Transformations;
         Assert.Contains(transformations, t =>
             t.RuleId == "clockwork.tasks.run.action" && t.Policy == SimulationApiPolicy.Controlled);
+    }
+
+    [Fact]
+    public void TaskFactoryStartNewIsRedirectedToControlledShim()
+    {
+        using var context = RewriteTestContext.Create();
+        var result = RewriteFixture(context, "Fx.TaskFactory");
+
+        using ModuleDefinition module = context.LoadModule(
+            Path.Combine(context.Directory, "Fx.TaskFactory.rewritten.dll"));
+
+        MethodDefinition started = CecilInspect.GetMethod(module, "Fx.TaskUser", "Started");
+        Assert.True(CecilInspect.CallsAnyContaining(started, "ControlledTaskFactory::StartNew"));
+        Assert.False(CecilInspect.CallsAnyContaining(started, "Threading.Tasks.TaskFactory::StartNew"));
+
+        ImmutableArray<ManifestTransformation> transformations = result.Manifest.Transformations;
+        Assert.Contains(transformations, t =>
+            t.RuleId == "clockwork.tasks.factory.startnew.func" && t.Policy == SimulationApiPolicy.Controlled);
+    }
+
+    [Fact]
+    public void GenericContinueWithIsRedirectedToControlledShim()
+    {
+        using var context = RewriteTestContext.Create();
+        var result = RewriteFixture(context, "Fx.TaskContinue");
+
+        using ModuleDefinition module = context.LoadModule(
+            Path.Combine(context.Directory, "Fx.TaskContinue.rewritten.dll"));
+
+        MethodDefinition projected = CecilInspect.GetMethod(module, "Fx.TaskUser", "Projected");
+        Assert.True(CecilInspect.CallsAnyContaining(projected, "ControlledTask::ContinueWith"));
+        Assert.False(CecilInspect.CallsAnyContaining(projected, "Threading.Tasks.Task`1::ContinueWith"));
+
+        ImmutableArray<ManifestTransformation> transformations = result.Manifest.Transformations;
+        Assert.Contains(transformations, t =>
+            t.RuleId == "clockwork.tasks.continuewith.generic.func" && t.Policy == SimulationApiPolicy.Controlled);
+        Assert.Contains(transformations, t =>
+            t.RuleId == "clockwork.tasks.continuewith.generic.action" && t.Policy == SimulationApiPolicy.Controlled);
     }
 }

@@ -319,4 +319,105 @@ public sealed class ControlledTaskApiTests
         Assert.True(delay.IsCompletedSuccessfully);
         Assert.True(run.IsCompletedSuccessfully);
     }
+
+    [Fact]
+    public void TaskFactoryStartNewQueuesBodyAsControlledWork()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var ran = false;
+            var task = ControlledTaskFactory.StartNew(Task.Factory, () => { ran = true; });
+
+            // The body is queued, not run inline.
+            Assert.False(ran);
+            Assert.False(task.IsCompleted);
+
+            coordinator.Loop.RunUntil(() => task.IsCompleted, "test");
+
+            Assert.True(ran);
+            Assert.True(task.IsCompletedSuccessfully);
+        });
+    }
+
+    [Fact]
+    public void TaskFactoryStartNewOfFuncReturnsResult()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var task = ControlledTaskFactory.StartNew(Task.Factory, () => 99);
+            coordinator.Loop.RunUntil(() => task.IsCompleted, "test");
+            Assert.Equal(99, task.Result);
+        });
+    }
+
+    [Fact]
+    public void TaskFactoryStartNewRejectsAttachedToParent()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var ex = Assert.Throws<ControlledTaskUnsupportedException>(() =>
+            {
+                // Intentionally the TaskCreationOptions overload (no CancellationToken variant exists for it).
+#pragma warning disable xUnit1051
+                _ = ControlledTaskFactory.StartNew(Task.Factory, () => { }, TaskCreationOptions.AttachedToParent);
+#pragma warning restore xUnit1051
+            });
+            Assert.Contains("AttachedToParent", ex.Message);
+        });
+    }
+
+    [Fact]
+    public void GenericContinueWithProjectsAntecedentResult()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var source = new TaskCompletionSource<int>();
+            var projected = ControlledTask.ContinueWith(source.Task, t => t.Result.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+            Assert.False(projected.IsCompleted);
+
+            coordinator.Loop.Schedule(() => source.SetResult(7));
+            coordinator.Loop.RunUntil(() => projected.IsCompleted, "test");
+
+            Assert.Equal("7", projected.Result);
+        });
+    }
+
+    [Fact]
+    public void GenericContinueWithActionObservesTypedAntecedent()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var source = new TaskCompletionSource<int>();
+            var seen = 0;
+            var continuation = ControlledTask.ContinueWith(source.Task, t => { seen = t.Result; });
+
+            coordinator.Loop.Schedule(() => source.SetResult(11));
+            coordinator.Loop.RunUntil(() => continuation.IsCompleted, "test");
+
+            Assert.Equal(11, seen);
+            Assert.True(continuation.IsCompletedSuccessfully);
+        });
+    }
+
+    [Fact]
+    public async Task TaskFactoryStartNewPassesThroughOutsideSimulation()
+    {
+        Assert.False(ControlledTaskRuntime.IsSimulationActive);
+
+        var task = ControlledTaskFactory.StartNew(Task.Factory, () => 5);
+        var value = await task;
+
+        Assert.Equal(5, value);
+    }
 }

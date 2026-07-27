@@ -169,6 +169,18 @@ internal sealed class CallSiteRewritingPass : RewritePass
             return open;
         }
 
+        // A generic method on a closed generic type - e.g. Task<int>.ContinueWith<string>(...) - binds
+        // the replacement's type parameters from the receiver's declaring-type arguments *followed by*
+        // the call site's own method type arguments, in that order. The controlled shim therefore
+        // declares its generic parameters declaring-type-first (e.g.
+        // ControlledTask.ContinueWith<TResult, TNewResult>(Task<TResult>, Func<Task<TResult>, TNewResult>)).
+        if (matched is GenericInstanceMethod methodAndType
+            && matched.DeclaringType is GenericInstanceType owner
+            && definition.GenericParameters.Count == owner.GenericArguments.Count + methodAndType.GenericArguments.Count)
+        {
+            return Instantiate(open, [.. owner.GenericArguments, .. methodAndType.GenericArguments]);
+        }
+
         // A generic call site - e.g. Task.WhenAll<int>(...) - carries its own method type arguments,
         // which bind the generic replacement method one-for-one.
         if (matched is GenericInstanceMethod generic

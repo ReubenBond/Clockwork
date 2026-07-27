@@ -102,6 +102,20 @@ public static class BuiltInRuleSets
     private const string FuncOfTaskResult = "System.Func`1<System.Threading.Tasks.Task`1<!!0>>";
     private const string FuncOfTaskResultDecl = "System.Func`1<System.Threading.Tasks.Task`1<TResult>>";
 
+    // Cecil full names for the generic-antecedent Task<TResult>.ContinueWith surface (Phase 6B). The
+    // declaring type is the open Task`1; a call site renders the type's generic parameter as `!0` and
+    // the method's own generic parameter (ContinueWith<TNewResult>) as `!!0`, whereas the controlled
+    // shim's definition renders both by name (TResult from the declaring type, TNewResult from the
+    // method). The call-site pass binds the shim's two type parameters declaring-type-first.
+    private const string TaskTType = "System.Threading.Tasks.Task`1";
+    private const string ActionOfTaskTVar = "System.Action`1<System.Threading.Tasks.Task`1<!0>>";
+    private const string ActionOfTaskTDecl = "System.Action`1<System.Threading.Tasks.Task`1<TResult>>";
+    private const string FuncOfTaskTAndNewResult = "System.Func`2<System.Threading.Tasks.Task`1<!0>,!!0>";
+    private const string FuncOfTaskTAndNewResultDecl = "System.Func`2<System.Threading.Tasks.Task`1<TResult>,TNewResult>";
+
+    // TaskCreationOptions selects the controlled StartNew overloads that carry an explicit options value.
+    private const string TaskCreationOptions = "System.Threading.Tasks.TaskCreationOptions";
+
     // Cecil full names for the compiler-generated async machinery (BCL) and their controlled substitutes.
     // Nested awaiter types use Cecil's '/' separator; generic arities carry the backtick.
     private const string CompilerNs = "System.Runtime.CompilerServices.";
@@ -274,6 +288,15 @@ public static class BuiltInRuleSets
         TaskRule(builder, BuiltInRuleFamily.TaskContinuations, "clockwork.tasks.continuewith.action",
             MemberSignature.Method(Task, "ContinueWith", ActionOfTask), Shim(TaskShim, "ContinueWith", Task, ActionOfTask));
 
+        // Generic-antecedent Task<TResult>.ContinueWith: the Action<Task<TResult>> form is a non-generic
+        // member on a closed generic type (declaring-type arg binds the shim's TResult); the
+        // Func<Task<TResult>, TNewResult> form is a generic method on a closed generic type, so the shim's
+        // two type parameters bind declaring-type-first (TResult) then method-argument (TNewResult).
+        TaskRule(builder, BuiltInRuleFamily.TaskContinuations, "clockwork.tasks.continuewith.generic.action",
+            MemberSignature.Method(TaskTType, "ContinueWith", ActionOfTaskTVar), Shim(TaskShim, "ContinueWith", TaskTDecl, ActionOfTaskTDecl));
+        TaskRule(builder, BuiltInRuleFamily.TaskContinuations, "clockwork.tasks.continuewith.generic.func",
+            MemberSignature.Method(TaskTType, "ContinueWith", FuncOfTaskTAndNewResult), Shim(TaskShim, "ContinueWith", TaskTDecl, FuncOfTaskTAndNewResultDecl));
+
         // ---- Deferred: Task.Delay (Phase 8 timers) rejected. The shim rejects under simulation with a
         // precise diagnostic and runs the real BCL API outside. ----
         builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.TaskDeferred, RewriteRule.RedirectCall(
@@ -334,24 +357,39 @@ public static class BuiltInRuleSets
         Sub(builder, BuiltInRuleFamily.ValueTaskMachinery, "clockwork.tasks.configured.valuetask.awaiter.generic", BclConfiguredValueAwaiterT, ControlledConfiguredValueAwaiterT);
 
         // ---- TaskFactory scheduling: StartNew offloads onto a task scheduler (the thread pool by
-        // default). Rejected under simulation - the shim throws a precise diagnostic and runs the real
-        // BCL API outside. Task.Factory.StartNew(Func<TResult>) is a generic method (`!!0`); the generic
-        // TaskFactory`1's StartNew(Func<TResult>) is a non-generic method over the type parameter (`!0`).
-        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.TaskFactory, RewriteRule.RedirectCall(
-            "clockwork.tasks.factory.startnew.action",
+        // default). Phase 6B controls it by queuing the delegate body as a fresh controlled operation on
+        // the coordinator (like Task.Run), honouring the factory's/call's cancellation token; the
+        // AttachedToParent creation option is rejected at runtime. Task.Factory.StartNew(Func<TResult>)
+        // is a generic method (`!!0`); TaskFactory`1's StartNew(Func<TResult>) is a non-generic method
+        // over the type parameter (`!0`). Each supported delegate form has plain, CancellationToken, and
+        // TaskCreationOptions overloads. ----
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.startnew.action",
             MemberSignature.Method(TaskFactoryType, "StartNew", Action),
-            Shim(TaskFactoryShim, "StartNew", TaskFactoryType, Action),
-            SimulationApiPolicy.Rejected)));
-        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.TaskFactory, RewriteRule.RedirectCall(
-            "clockwork.tasks.factory.startnew.func",
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryType, Action));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.startnew.action.cancellationtoken",
+            MemberSignature.Method(TaskFactoryType, "StartNew", Action, CancellationToken),
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryType, Action, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.startnew.action.options",
+            MemberSignature.Method(TaskFactoryType, "StartNew", Action, TaskCreationOptions),
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryType, Action, TaskCreationOptions));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.startnew.func",
             MemberSignature.Method(TaskFactoryType, "StartNew", FuncOfMethodResult),
-            Shim(TaskFactoryShim, "StartNew", TaskFactoryType, FuncOfResultDecl),
-            SimulationApiPolicy.Rejected)));
-        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.TaskFactory, RewriteRule.RedirectCall(
-            "clockwork.tasks.factory.generic.startnew.func",
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryType, FuncOfResultDecl));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.startnew.func.cancellationtoken",
+            MemberSignature.Method(TaskFactoryType, "StartNew", FuncOfMethodResult, CancellationToken),
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryType, FuncOfResultDecl, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.startnew.func.options",
+            MemberSignature.Method(TaskFactoryType, "StartNew", FuncOfMethodResult, TaskCreationOptions),
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryType, FuncOfResultDecl, TaskCreationOptions));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.generic.startnew.func",
             MemberSignature.Method(TaskFactoryTType, "StartNew", FuncOfTypeResult),
-            Shim(TaskFactoryShim, "StartNew", TaskFactoryTOfResultDecl, FuncOfResultDecl),
-            SimulationApiPolicy.Rejected)));
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryTOfResultDecl, FuncOfResultDecl));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.generic.startnew.func.cancellationtoken",
+            MemberSignature.Method(TaskFactoryTType, "StartNew", FuncOfTypeResult, CancellationToken),
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryTOfResultDecl, FuncOfResultDecl, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.generic.startnew.func.options",
+            MemberSignature.Method(TaskFactoryTType, "StartNew", FuncOfTypeResult, TaskCreationOptions),
+            Shim(TaskFactoryShim, "StartNew", TaskFactoryTOfResultDecl, FuncOfResultDecl, TaskCreationOptions));
 
         return builder.ToImmutable();
     }

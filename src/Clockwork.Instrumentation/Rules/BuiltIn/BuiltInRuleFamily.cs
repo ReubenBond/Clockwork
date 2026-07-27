@@ -89,9 +89,10 @@ public enum BuiltInRuleFamily
     /// <summary>
     /// <see cref="System.Threading.Tasks.TaskFactory"/> / <see cref="System.Threading.Tasks.TaskFactory{TResult}"/>
     /// scheduling: <c>StartNew</c> offloads work onto a task scheduler (the thread pool by default).
-    /// Classified <c>Rejected</c> - the shim fails the call with a precise diagnostic under simulation
-    /// rather than letting work escape onto an uncontrolled physical thread (thread-pool scheduling is
-    /// owned by the threading phase), and runs the real BCL API unchanged outside simulation.
+    /// Classified <c>Controlled</c> (Phase 6B) - the shim queues the delegate body as a fresh controlled
+    /// operation on the coordinator (honouring the factory's/call's cancellation token) instead of
+    /// escaping onto a physical thread, rejects the unsupported <c>AttachedToParent</c> creation option,
+    /// and runs the real BCL API unchanged outside simulation.
     /// </summary>
     TaskFactory,
 }
