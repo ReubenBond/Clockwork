@@ -56,6 +56,7 @@ public sealed class ControlledOperationScheduler : IDisposable
     private long _nextOperationId;
     private ControlledOperationId _lastSelected = ControlledOperationId.None;
     private ControlledOperation? _current;
+    private int _controlThreadId;
     private bool _controlThreadBusy;
     private bool _disposed;
 
@@ -84,6 +85,41 @@ public sealed class ControlledOperationScheduler : IDisposable
 
     /// <summary>Gets the runtime identity every operation in this scheduler runs under.</summary>
     public SimulationRuntimeIdentity Runtime => _runtime;
+
+    /// <summary>
+    /// The single logical-owner identity that both the controlling thread and every operation thread
+    /// of a scheduler report while a controlled drive is in progress. It is deliberately outside the
+    /// range of real <see cref="Environment.CurrentManagedThreadId"/> values (which are always
+    /// positive) so a single-threaded guard keyed on <see cref="IsSimulationThread"/> treats a
+    /// legitimate baton handoff as reentrant while still flagging genuinely escaped async work on an
+    /// unrelated thread.
+    /// </summary>
+    public const int SimulationLogicalThreadOwnerId = int.MinValue;
+
+    /// <summary>
+    /// Gets a value indicating whether the calling physical thread is part of this scheduler's single
+    /// logical simulation thread right now: either a thread currently executing one of this
+    /// scheduler's operation bodies, or the controlling thread while it drives a step (see
+    /// <see cref="EnterControlScope"/>). Intended to build a logical-owner delegate for a
+    /// single-threaded guard.
+    /// </summary>
+    public bool IsSimulationThread =>
+        (t_currentOperation is { } op && ReferenceEquals(op.Scheduler, this))
+        || Environment.CurrentManagedThreadId == Volatile.Read(ref _controlThreadId);
+
+    /// <summary>
+    /// Marks the calling thread as this scheduler's controlling thread until the returned scope is
+    /// disposed, so <see cref="IsSimulationThread"/> reports <see langword="true"/> for it. A host
+    /// integrating a single-threaded guard wraps the code that drives the scheduler (dequeue plus
+    /// <see cref="RunStep"/>) in this scope so the guard treats the controlling thread and the
+    /// operation threads as one logical owner.
+    /// </summary>
+    /// <returns>A disposable that restores the previous controlling-thread marker.</returns>
+    public IDisposable EnterControlScope()
+    {
+        var previous = Interlocked.Exchange(ref _controlThreadId, Environment.CurrentManagedThreadId);
+        return new ControlScope(this, previous);
+    }
 
     /// <summary>
     /// Gets the operation the calling thread is currently executing as, or <see langword="null"/> if
@@ -661,5 +697,18 @@ public sealed class ControlledOperationScheduler : IDisposable
     private sealed class BodyClosure(ControlledOperationScheduler scheduler, ControlledOperation operation)
     {
         public void Run() => scheduler.RunBodyScoped(operation);
+    }
+
+    private sealed class ControlScope(ControlledOperationScheduler scheduler, int previousControlThreadId) : IDisposable
+    {
+        private int _disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+            {
+                Volatile.Write(ref scheduler._controlThreadId, previousControlThreadId);
+            }
+        }
     }
 }

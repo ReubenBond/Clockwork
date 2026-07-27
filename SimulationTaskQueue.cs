@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.ExceptionServices;
 using Clockwork.Runtime.Execution;
+using Clockwork.Runtime.Scheduling;
 
 namespace Clockwork;
 
@@ -30,6 +32,7 @@ public sealed class SimulationTaskQueue
     private readonly SimulationClock _clock;
     private readonly SingleThreadedGuard _guard;
     private readonly SimulationAmbientContextConfiguration? _ambientContext;
+    private readonly ControlledOperationScheduler? _operationScheduler;
     private long _sequenceNumber;
 
     /// <summary>
@@ -52,13 +55,34 @@ public sealed class SimulationTaskQueue
     /// around each executed item. When omitted (the default), this queue behaves exactly as it did
     /// before ambient-context integration existed.
     /// </param>
-    public SimulationTaskQueue(SimulationClock clock, SingleThreadedGuard guard, SimulationAmbientContextConfiguration? ambientContext = null)
+    /// <param name="operationScheduler">
+    /// <para>
+    /// Optional controlled-operation kernel (see
+    /// <see cref="Clockwork.Runtime.Scheduling.ControlledOperationScheduler"/>). This is the opt-in
+    /// Phase 3A compatibility bridge: when both this and <paramref name="ambientContext"/> are
+    /// supplied, <see cref="RunOnce"/> runs each ready item as a single controlled operation instead
+    /// of invoking it inline, so the item body executes under the kernel's permission baton and
+    /// carries a logical execution identity. It is <see langword="null"/> by default, so the queue's
+    /// established behavior - and every existing trace snapshot - is completely unchanged unless a
+    /// host explicitly opts in.
+    /// </para>
+    /// <para>
+    /// Granularity is deliberately one controlled operation per ready item (per user-visible
+    /// callback), not one per internal bookkeeping call (enqueue/remove/peek), to give a meaningful
+    /// operation boundary without churning behavior. The kernel's single-baton guarantee makes the
+    /// controlled path observably equivalent to the inline path for callbacks that enqueue further
+    /// work and return; re-entrantly driving the queue from within a running item (a synchronous
+    /// pump) is a resource-wait scenario deferred to Phase 3B.
+    /// </para>
+    /// </param>
+    public SimulationTaskQueue(SimulationClock clock, SingleThreadedGuard guard, SimulationAmbientContextConfiguration? ambientContext = null, ControlledOperationScheduler? operationScheduler = null)
     {
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(guard);
         _clock = clock;
         _guard = guard;
         _ambientContext = ambientContext;
+        _operationScheduler = operationScheduler;
         SynchronizationContext = new SimulationSynchronizationContext(this);
         ScheduledItems = _queue.AsReadOnly();
     }
@@ -183,6 +207,11 @@ public sealed class SimulationTaskQueue
     /// <returns>True if an item was dequeued and executed, false if no items are ready.</returns>
     public bool RunOnce()
     {
+        if (_operationScheduler is not null && _ambientContext is { } controlledAmbient)
+        {
+            return RunOnceControlled(controlledAmbient);
+        }
+
         using var _ = _guard.Enter();
         if (_queue.Count == 0)
             return false;
@@ -193,6 +222,63 @@ public sealed class SimulationTaskQueue
 
         _queue.Remove(item);
         ExecuteReadyItem(item);
+
+        return true;
+    }
+
+    /// <summary>
+    /// The opt-in Phase 3A compatibility path for <see cref="RunOnce"/>: dequeues the next ready item
+    /// exactly as the inline path does, then runs it as a single controlled operation on the kernel's
+    /// permission baton instead of invoking it inline. The single-threaded guard is held across the
+    /// baton handoff under the scheduler's control scope, so the controlling thread and the operation
+    /// thread count as one logical owner (a legitimate handoff is reentrant) while genuinely escaped
+    /// async work is still detected. Ambient runtime/node identity is established by the kernel on the
+    /// operation thread; the operation additionally carries a logical execution identity, which the
+    /// inline path does not. Exceptions thrown by the item are re-thrown with their original identity
+    /// so callers observe the same failure semantics as the inline path.
+    /// </summary>
+    /// <param name="ambient">The ambient-context configuration to run the item under.</param>
+    /// <returns><see langword="true"/> if an item was dequeued and run; otherwise <see langword="false"/>.</returns>
+    private bool RunOnceControlled(SimulationAmbientContextConfiguration ambient)
+    {
+        using var control = _operationScheduler!.EnterControlScope();
+        using var _ = _guard.Enter();
+        if (_queue.Count == 0)
+            return false;
+
+        var item = _queue.Min!;
+        if (item.DueTime > UtcNow)
+            return false; // No ready items
+
+        _queue.Remove(item);
+
+        SimulationExternalEntryGuard.ValidateEntry(ambient.Runtime, "SimulationTaskQueue.RunOnce");
+        Exception? captured = null;
+        _operationScheduler.Schedule(
+            "SimulationTaskQueue.Item",
+            () =>
+            {
+                using var syncScope = SynchronizationContext.Install();
+                try
+                {
+                    item.Invoke();
+                }
+                catch (Exception ex)
+                {
+                    // Preserve the exact exception so RunOnce can re-throw it with original identity,
+                    // matching the inline path, while still letting the kernel record terminal state.
+                    captured = ex;
+                    throw;
+                }
+            },
+            ambient.Node);
+
+        _operationScheduler.RunStep();
+
+        if (captured is not null)
+        {
+            ExceptionDispatchInfo.Throw(captured);
+        }
 
         return true;
     }
