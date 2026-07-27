@@ -607,6 +607,14 @@ public sealed class ControlledOperationScheduler : IDisposable
             lock (_gate)
             {
                 ThrowIfDisposed();
+                if (operation.Waiter is not null)
+                {
+                    throw new ControlledOperationException(
+                        string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"Cannot resume operation {operation.Id} directly while it has an active resource waiter. Resolve it through SignalOne/SignalAll, timeout, or cancellation so the wait receives exactly one outcome."));
+                }
+
                 operation.ApplyTransition(ControlledOperationState.Runnable);
             }
 

@@ -192,6 +192,28 @@ public sealed class ControlledOperationSchedulerTests
     }
 
     [Fact]
+    public void ResumeRejectsAnActiveResourceWaiter()
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        var resource = scheduler.CreateResource(
+            Clockwork.Runtime.Scheduling.Resources.ControlledResourceKind.Semaphore,
+            "resource-wait");
+        var operation = scheduler.Schedule(
+            "waiter",
+            () => scheduler.WaitOnResource(
+                resource,
+                ControlledOperationPauseReason.ResourceWait("resource-wait")));
+        Assert.True(scheduler.RunStep());
+
+        var exception = Assert.Throws<ControlledOperationException>(() => scheduler.Resume(operation));
+
+        Assert.Contains("active resource waiter", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(ControlledOperationState.Paused, operation.State);
+        scheduler.SignalOne(resource);
+        scheduler.Drain();
+    }
+
+    [Fact]
     public void YieldKeepsOperationRunnableAndItCompletesOnNextStep()
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();
