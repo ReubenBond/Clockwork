@@ -10,18 +10,19 @@ namespace Clockwork.Runtime.Tasks;
 /// on real time and no busy-spin.
 /// </para>
 /// <para>
-/// The loop is deliberately <b>not</b> thread-safe: every operation must happen on the one logical
-/// thread the simulation host drives it from. That single-threaded discipline is the whole point - it
-/// is what makes continuation ordering a pure function of the deterministic insertion order, and it is
-/// what lets a stalled synchronous wait be recognised immediately as a deadlock instead of a real-time
-/// hang. A simulation host owns one loop per node and pumps it from its drive loop; the controlled
-/// shims resolve it through an <see cref="ISimulationTaskCoordinator"/>.
+/// Ready/wait continuation operations remain deliberately single-threaded: they must happen on the one
+/// logical thread the simulation host drives. The deadline registry alone accepts concurrent
+/// cancellation, because an external <see cref="CancellationToken"/> callback can remove a controlled
+/// timeout while the logical thread is inspecting deadlines. That narrow synchronization does not make
+/// continuation execution concurrent. A simulation host owns one loop per node and pumps it from its
+/// drive loop; the controlled shims resolve it through an <see cref="ISimulationTaskCoordinator"/>.
 /// </para>
 /// </summary>
 public sealed class ControlledTaskLoop
 {
     private readonly Queue<Action> _ready = new();
     private readonly List<WaitEntry> _waits = [];
+    private readonly object _deadlineGate = new();
 
     // Virtual-time deadline registry. Modelled time only ever advances forward, and only when the loop has
     // no ready work and no wait can advance - never on the wall clock - so a finite timeout is a pure,
@@ -40,7 +41,16 @@ public sealed class ControlledTaskLoop
     /// Gets the loop's modelled time measured from the start of the simulation. It advances only when the
     /// loop drives a virtual-time deadline (see <see cref="RegisterDeadline"/>), never on the wall clock.
     /// </summary>
-    public TimeSpan VirtualNow => _virtualNow;
+    public TimeSpan VirtualNow
+    {
+        get
+        {
+            lock (_deadlineGate)
+            {
+                return _virtualNow;
+            }
+        }
+    }
 
     /// <summary>Gets a value indicating whether the loop has no ready and no waiting work left.</summary>
     public bool IsIdle => _ready.Count == 0 && _waits.Count == 0;
@@ -97,10 +107,13 @@ public sealed class ControlledTaskLoop
     public IControlledTimeout RegisterDeadline(TimeSpan delay, Action? onElapsed = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(delay, TimeSpan.Zero);
-        var deadline = new Deadline(_virtualNow + delay, ++_deadlineSequence, onElapsed);
-        deadline.BindCanceller(d => _deadlines.Remove(d));
-        _deadlines.Add(deadline);
-        return deadline;
+        lock (_deadlineGate)
+        {
+            var deadline = new Deadline(_virtualNow + delay, ++_deadlineSequence, onElapsed);
+            deadline.BindCanceller(CancelDeadline);
+            _deadlines.Add(deadline);
+            return deadline;
+        }
     }
 
     /// <summary>
@@ -111,16 +124,19 @@ public sealed class ControlledTaskLoop
     /// <returns>The earliest pending deadline's due time, or <see langword="null"/>.</returns>
     public TimeSpan? NextDeadlineDue()
     {
-        TimeSpan? earliest = null;
-        foreach (var deadline in _deadlines)
+        lock (_deadlineGate)
         {
-            if (earliest is null || deadline.Due < earliest.Value)
+            TimeSpan? earliest = null;
+            foreach (var deadline in _deadlines)
             {
-                earliest = deadline.Due;
+                if (earliest is null || deadline.Due < earliest.Value)
+                {
+                    earliest = deadline.Due;
+                }
             }
-        }
 
-        return earliest;
+            return earliest;
+        }
     }
 
     /// <summary>
@@ -132,34 +148,49 @@ public sealed class ControlledTaskLoop
     /// <param name="target">The modelled time (from the start of the simulation) to advance to.</param>
     public void AdvanceTimeTo(TimeSpan target)
     {
-        if (target > _virtualNow)
+        lock (_deadlineGate)
         {
-            _virtualNow = target;
+            if (target > _virtualNow)
+            {
+                _virtualNow = target;
+            }
         }
 
         while (true)
         {
             Deadline? next = null;
-            foreach (var deadline in _deadlines)
+            lock (_deadlineGate)
             {
-                if (deadline.Due > _virtualNow)
+                foreach (var deadline in _deadlines)
                 {
-                    continue;
+                    if (deadline.Due > _virtualNow)
+                    {
+                        continue;
+                    }
+
+                    if (next is null || deadline.Due < next.Due || (deadline.Due == next.Due && deadline.Sequence < next.Sequence))
+                    {
+                        next = deadline;
+                    }
                 }
 
-                if (next is null || deadline.Due < next.Due || (deadline.Due == next.Due && deadline.Sequence < next.Sequence))
+                if (next is null)
                 {
-                    next = deadline;
+                    return;
                 }
+
+                _deadlines.Remove(next);
             }
 
-            if (next is null)
-            {
-                return;
-            }
-
-            _deadlines.Remove(next);
             next.MarkElapsed();
+        }
+    }
+
+    private void CancelDeadline(Deadline deadline)
+    {
+        lock (_deadlineGate)
+        {
+            _deadlines.Remove(deadline);
         }
     }
 

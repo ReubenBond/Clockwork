@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using Clockwork.Runtime.Tasks;
@@ -470,6 +471,95 @@ public sealed class ControlledSemaphoreSlimTests
             Assert.True(task.IsCanceled);
             Assert.True(coordinator.Loop.IsIdle);
         });
+    }
+
+    [Fact]
+    public void CancellationDuringRegistrationCannotLeaveAStaleDeadline()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var sem = ControlledSemaphoreSlim.Create(0);
+            using var cancellation = new CancellationTokenSource();
+            try
+            {
+                // Force cancellation after the initial token check and waiter enqueue, immediately
+                // before CancellationToken.Register. Register must invoke the callback synchronously.
+                ControlledSemaphoreSlim.BeforeCancellationRegistrationForTesting = cancellation.Cancel;
+                var task = ControlledSemaphoreSlim.WaitAsync(sem, 500, cancellation.Token);
+
+                Assert.True(task.IsCanceled);
+                Assert.Null(coordinator.Loop.NextDeadlineDue());
+                Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+                Assert.Equal(0, coordinator.Loop.RunUntilIdle());
+            }
+            finally
+            {
+                ControlledSemaphoreSlim.BeforeCancellationRegistrationForTesting = null;
+            }
+        });
+    }
+
+    [Fact]
+    public void ExternalCancellationReleaseAndDisposePreserveOneWinnerWithoutLeaks()
+    {
+        for (var iteration = 0; iteration < 100; iteration++)
+        {
+            var coordinator = new ControlledTaskLoopCoordinator();
+            TaskTestHarness.RunInSimulation(coordinator, () =>
+            {
+                var sem = ControlledSemaphoreSlim.Create(0);
+                using var cancellation = new CancellationTokenSource();
+                var waiter = ControlledSemaphoreSlim.WaitAsync(sem, 500, cancellation.Token);
+                using var start = new Barrier(3);
+                var errors = new ConcurrentQueue<Exception>();
+                var testCancellation = TestContext.Current.CancellationToken;
+
+                Task RunExternal(Action action) => Task.Run(() =>
+                {
+                    try
+                    {
+                        start.SignalAndWait(testCancellation);
+                        action();
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        // Dispose is allowed to win before Release reaches the serialized state.
+                    }
+                    catch (Exception exception)
+                    {
+                        errors.Enqueue(exception);
+                    }
+                }, testCancellation);
+
+                var canceler = RunExternal(cancellation.Cancel);
+                var releaser = RunExternal(() => ControlledSemaphoreSlim.Release(sem));
+                var disposer = RunExternal(() => ControlledSemaphoreSlim.Dispose(sem));
+                Task.WhenAll(canceler, releaser, disposer)
+                    .WaitAsync(TimeSpan.FromSeconds(5), testCancellation)
+                    .GetAwaiter()
+                    .GetResult();
+
+                Assert.Empty(errors);
+                Assert.True(waiter.IsCompleted);
+                if (waiter.IsCompletedSuccessfully)
+                {
+                    Assert.True(waiter.Result);
+                }
+                else if (waiter.IsFaulted)
+                {
+                    Assert.IsType<ObjectDisposedException>(Assert.Single(waiter.Exception!.InnerExceptions));
+                }
+                else
+                {
+                    Assert.True(waiter.IsCanceled);
+                }
+
+                Assert.Null(coordinator.Loop.NextDeadlineDue());
+                Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+            });
+        }
     }
 
     [Fact]
