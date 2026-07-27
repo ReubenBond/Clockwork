@@ -80,7 +80,10 @@ internal sealed class ControlledVirtualClock
     public ControlledTimeoutRegistration Schedule(TimeSpan delay, ControlledResourceWaiter waiter)
     {
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(delay, TimeSpan.Zero);
-        var registration = new ControlledTimeoutRegistration(_now + delay, ++_nextSequence, waiter);
+        var registration = new ControlledTimeoutRegistration(
+            ControlledDeadlineMath.SaturatingAdd(_now, delay),
+            ++_nextSequence,
+            waiter);
         _pending.Add(registration);
         return registration;
     }
@@ -204,3 +207,14 @@ public sealed record ControlledPendingTimeoutInfo(
     long Sequence,
     ControlledOperationId OperationId,
     ControlledResourceId ResourceId);
+
+internal static class ControlledDeadlineMath
+{
+    public static TimeSpan SaturatingAdd(TimeSpan now, TimeSpan delay)
+    {
+        var remainingTicks = TimeSpan.MaxValue.Ticks - now.Ticks;
+        return delay.Ticks > remainingTicks
+            ? TimeSpan.MaxValue
+            : TimeSpan.FromTicks(now.Ticks + delay.Ticks);
+    }
+}

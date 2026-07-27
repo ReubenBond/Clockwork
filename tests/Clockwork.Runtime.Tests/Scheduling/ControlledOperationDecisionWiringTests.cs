@@ -2,6 +2,7 @@ using Clockwork.Runtime.Decisions;
 using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Random;
 using Clockwork.Runtime.Scheduling;
+using Clockwork.Runtime.Scheduling.Resources;
 
 namespace Clockwork.Runtime.Tests.Scheduling;
 
@@ -87,5 +88,86 @@ public sealed class ControlledOperationDecisionWiringTests
             SimulationSeedDomain.Scheduler,
             SimulationDecisionKind.Choice,
             selectedResult: "x"));
+    }
+
+    [Fact]
+    public void ExternalCancellationVersusSignalWinnerIsRecordedAndReplayValidated()
+    {
+        var log = new SimulationDecisionLog();
+        ControlledWaitOutcome recordedOutcome;
+        using (var recorder = SchedulerTestHarness.NewScheduler())
+        {
+            recorder.DecisionLog = log;
+            var resource = recorder.CreateResource(ControlledResourceKind.Semaphore, "race");
+            using var cancellation = new CancellationTokenSource();
+            ControlledWaitOutcome? outcome = null;
+            recorder.Schedule(
+                "waiter",
+                () => outcome = recorder.WaitOnResource(
+                    resource,
+                    Timeout.InfiniteTimeSpan,
+                    ControlledOperationPauseReason.ResourceWait("race"),
+                    cancellation.Token));
+            Assert.True(recorder.RunStep());
+
+            using var start = new Barrier(2);
+            var testCancellation = TestContext.Current.CancellationToken;
+            var signaler = new Thread(() =>
+            {
+                start.SignalAndWait(testCancellation);
+                recorder.SignalOne(resource);
+            })
+            {
+                IsBackground = true,
+            };
+            var canceler = new Thread(() =>
+            {
+                start.SignalAndWait(testCancellation);
+                cancellation.Cancel();
+            })
+            {
+                IsBackground = true,
+            };
+            signaler.Start();
+            canceler.Start();
+            Assert.True(signaler.Join(TimeSpan.FromSeconds(5)));
+            Assert.True(canceler.Join(TimeSpan.FromSeconds(5)));
+            recorder.Drain();
+            recordedOutcome = Assert.IsType<ControlledWaitOutcome>(outcome);
+        }
+
+        var record = Assert.Single(log.Records);
+        Assert.Equal(SimulationDecisionKind.Choice, record.Kind);
+        Assert.Equal("resource-wait-resolution", record.SourceId);
+        Assert.Equal(recordedOutcome.ToString(), record.SelectedResult);
+
+        using var replay = SchedulerTestHarness.NewScheduler();
+        replay.ReplayValidator = new SimulationDecisionReplayValidator(
+            new SimulationInMemoryDecisionReplayReader(log.Records));
+        var replayResource = replay.CreateResource(ControlledResourceKind.Semaphore, "race");
+        using var replayCancellation = new CancellationTokenSource();
+        ControlledWaitOutcome? replayedOutcome = null;
+        replay.Schedule(
+            "waiter",
+            () => replayedOutcome = replay.WaitOnResource(
+                replayResource,
+                Timeout.InfiniteTimeSpan,
+                ControlledOperationPauseReason.ResourceWait("race"),
+                replayCancellation.Token));
+        Assert.True(replay.RunStep());
+
+        if (recordedOutcome == ControlledWaitOutcome.Signaled)
+        {
+            replay.SignalOne(replayResource);
+            replayCancellation.Cancel();
+        }
+        else
+        {
+            replayCancellation.Cancel();
+            replay.SignalOne(replayResource);
+        }
+
+        replay.Drain();
+        Assert.Equal(recordedOutcome, replayedOutcome);
     }
 }

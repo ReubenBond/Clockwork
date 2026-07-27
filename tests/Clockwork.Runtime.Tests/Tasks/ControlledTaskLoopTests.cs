@@ -275,4 +275,19 @@ public sealed class ControlledTaskLoopTests
         Assert.Throws<ControlledSynchronousWaitDeadlockException>(
             () => loop.RunUntil(() => false, "test.wait"));
     }
+
+    [Fact]
+    public void DeadlineDueTimeSaturatesAtTimeSpanMaxValue()
+    {
+        var loop = new ControlledTaskLoop();
+        var elapsed = false;
+        loop.AdvanceTimeTo(TimeSpan.MaxValue - TimeSpan.FromTicks(1));
+
+        loop.RegisterDeadline(TimeSpan.FromTicks(2), () => elapsed = true);
+
+        Assert.Equal(TimeSpan.MaxValue, loop.NextDeadlineDue());
+        loop.AdvanceTimeTo(TimeSpan.MaxValue);
+        Assert.True(elapsed);
+        Assert.Equal(TimeSpan.MaxValue, loop.VirtualNow);
+    }
 }

@@ -168,6 +168,43 @@ public sealed class ControlledDeadlockDetectionTests
     }
 
     [Fact]
+    public void SelfOwnedIndefiniteWaitIsReportedAsASingleOperationDeadlock()
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        var resource = scheduler.CreateResource(ControlledResourceKind.Monitor, "self");
+        ControlledOperation? operation = null;
+        operation = scheduler.Schedule(
+            "recursive-self-wait",
+            () => scheduler.WaitOnResource(resource, Reason("self")));
+        scheduler.MarkResourceOwner(resource, operation);
+
+        Assert.True(scheduler.RunStep());
+
+        var report = scheduler.DetectDeadlock();
+        Assert.Equal(ControlledLivenessState.Deadlocked, report.Liveness);
+        var cycle = Assert.Single(report.Cycles);
+        var entry = Assert.Single(cycle.Entries);
+        Assert.Equal(operation.Id, entry.OperationId);
+        Assert.Equal(operation.Id, entry.OwnerId);
+        Assert.Contains("recursive-self-wait", scheduler.DescribeLiveness(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SelfOwnershipWithoutAWaitIsNotADeadlock()
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        var resource = scheduler.CreateResource(ControlledResourceKind.Monitor, "reentrant");
+        var operation = scheduler.Schedule("permitted-reentrancy", () => { });
+        resource.RecursionCount = 2;
+        scheduler.MarkResourceOwner(resource, operation);
+
+        var report = scheduler.DetectDeadlock();
+
+        Assert.Equal(ControlledLivenessState.Progressing, report.Liveness);
+        Assert.Empty(report.Cycles);
+    }
+
+    [Fact]
     public void ProgressingWhenAnotherOperationIsStillRunnable()
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();

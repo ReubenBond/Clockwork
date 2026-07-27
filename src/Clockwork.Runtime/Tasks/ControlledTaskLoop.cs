@@ -1,5 +1,7 @@
 namespace Clockwork.Runtime.Tasks;
 
+using Clockwork.Runtime.Scheduling.Resources;
+
 /// <summary>
 /// <para>
 /// A self-contained, deterministic, single-threaded work loop that backs the controlled async/task
@@ -109,7 +111,10 @@ public sealed class ControlledTaskLoop
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(delay, TimeSpan.Zero);
         lock (_deadlineGate)
         {
-            var deadline = new Deadline(_virtualNow + delay, ++_deadlineSequence, onElapsed);
+            var deadline = new Deadline(
+                ControlledDeadlineMath.SaturatingAdd(_virtualNow, delay),
+                ++_deadlineSequence,
+                onElapsed);
             deadline.BindCanceller(CancelDeadline);
             _deadlines.Add(deadline);
             return deadline;

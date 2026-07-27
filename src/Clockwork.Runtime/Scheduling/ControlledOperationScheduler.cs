@@ -66,7 +66,7 @@ public sealed class ControlledOperationScheduler : IDisposable
     private IControlledSchedulingStrategy _strategy = new RoundRobinSchedulingStrategy();
     private ISimulationDecisionLog? _decisionLog;
     private SimulationDecisionReplayValidator? _replayValidator;
-    private long _nextSelectionDecisionId;
+    private long _nextReplayDecisionId;
 
     private long _nextOperationId;
     private long _nextResourceId;
@@ -532,6 +532,7 @@ public sealed class ControlledOperationScheduler : IDisposable
                     var waiter = registration.Waiter;
                     if (waiter.TryResolve(ControlledWaitOutcome.TimedOut))
                     {
+                        RecordWaitResolution(waiter, ControlledWaitOutcome.TimedOut);
                         registrations.Add(DetachWaiterRegistrationsUnderLock(waiter));
                         waiter.Resource.RemoveWaiter(waiter);
                         waiter.Operation.ApplyTransition(ControlledOperationState.Runnable);
@@ -892,6 +893,7 @@ public sealed class ControlledOperationScheduler : IDisposable
                     return;
                 }
 
+                RecordWaitResolution(waiter, ControlledWaitOutcome.Canceled);
                 if (waiter.Timeout is { } timeout)
                 {
                     timeout.IsCanceled = true;
@@ -936,6 +938,7 @@ public sealed class ControlledOperationScheduler : IDisposable
                 var next = resource.PeekNextPending();
                 if (next is not null && next.TryResolve(ControlledWaitOutcome.Signaled))
                 {
+                    RecordWaitResolution(next, ControlledWaitOutcome.Signaled);
                     registration = DetachWaiterRegistrationsUnderLock(next);
                     resource.RemoveWaiter(next);
                     next.Operation.ApplyTransition(ControlledOperationState.Runnable);
@@ -977,6 +980,7 @@ public sealed class ControlledOperationScheduler : IDisposable
                 {
                     if (waiter.TryResolve(ControlledWaitOutcome.Signaled))
                     {
+                        RecordWaitResolution(waiter, ControlledWaitOutcome.Signaled);
                         registrations.Add(DetachWaiterRegistrationsUnderLock(waiter));
                         resource.RemoveWaiter(waiter);
                         waiter.Operation.ApplyTransition(ControlledOperationState.Runnable);
@@ -1203,7 +1207,7 @@ public sealed class ControlledOperationScheduler : IDisposable
                     continue;
                 }
 
-                if (waiter.Resource.Owner is { } owner && !owner.IsTerminal && owner.Id != operation.Id)
+                if (waiter.Resource.Owner is { } owner && !owner.IsTerminal)
                 {
                     edges[operation.Id] = new DeadlockEdge(owner.Id, waiter);
                 }
@@ -1512,7 +1516,42 @@ public sealed class ControlledOperationScheduler : IDisposable
         var record = _decisionLog is not null
             ? _decisionLog.Record(request)
             : new SimulationDecisionRecord(
-                new SimulationDecisionId(_nextSelectionDecisionId++),
+                new SimulationDecisionId(_nextReplayDecisionId++),
+                request.Domain,
+                request.Kind,
+                request.SourceId,
+                request.InputMetadata,
+                request.SelectedResult,
+                request.RuntimeId,
+                request.NodeId,
+                request.LogicalExecutionId);
+
+        _replayValidator?.Validate(record);
+    }
+
+    private void RecordWaitResolution(ControlledResourceWaiter waiter, ControlledWaitOutcome outcome)
+    {
+        if (_decisionLog is null && _replayValidator is null)
+        {
+            return;
+        }
+
+        var request = new SimulationDecisionRequest(
+            SimulationSeedDomain.Scheduler,
+            SimulationDecisionKind.Choice,
+            "resource-wait-resolution",
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"operation={waiter.Operation.Id.Value};resource={waiter.Resource.Id.Value};outcomes=Signaled,TimedOut,Canceled"),
+            outcome.ToString(),
+            _runtime.Id,
+            waiter.Operation.Node?.Address,
+            waiter.Operation.LogicalExecutionId);
+
+        var record = _decisionLog is not null
+            ? _decisionLog.Record(request)
+            : new SimulationDecisionRecord(
+                new SimulationDecisionId(_nextReplayDecisionId++),
                 request.Domain,
                 request.Kind,
                 request.SourceId,
