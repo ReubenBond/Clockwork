@@ -58,10 +58,17 @@ public static class ControlledParallel
             return;
         }
 
+        foreach (Action? action in actions)
+        {
+            if (action is null)
+            {
+                throw new ArgumentException("An action in the actions array was null.");
+            }
+        }
+
         var bodies = new List<Action>(actions.Length);
         foreach (Action action in actions)
         {
-            ArgumentNullException.ThrowIfNull(action);
             bodies.Add(action);
         }
 

@@ -81,6 +81,17 @@ public sealed class ParallelConformanceTests : IDisposable
                 values[8] = trace[0] * 100 + trace[1] * 10 + trace[2];
                 return Task.FromResult(values);
             }
+
+            private static int _invokeNullActionSideEffectCount;
+
+            public static void InvokeWithNullAction()
+            {
+                _invokeNullActionSideEffectCount = 0;
+                Action[] actions = { () => _invokeNullActionSideEffectCount++, null };
+                Parallel.Invoke(actions);
+            }
+
+            public static int InvokeNullActionSideEffectCount() => _invokeNullActionSideEffectCount;
         } }
         """;
 
@@ -196,4 +207,16 @@ public sealed class ParallelConformanceTests : IDisposable
     }
 
     public void Dispose() => _fixture.Dispose();
+
+    [Fact]
+    public void InvokeNullActionMatchesBclExceptionShape()
+    {
+        using var host = new SimulationHost(Start);
+
+        var exception = Assert.ThrowsAny<Exception>(() => host.Invoke(Method("InvokeWithNullAction")));
+
+        Assert.Equal(0, (int)host.Invoke(Method("InvokeNullActionSideEffectCount"))!);
+        var argument = Assert.IsType<ArgumentException>(Unwrap(exception));
+        Assert.Null(argument.ParamName);
+    }
 }
