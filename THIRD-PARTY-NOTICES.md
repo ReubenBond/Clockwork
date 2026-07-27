@@ -111,6 +111,24 @@ must be updated in the same change with:
   [docs/coyote-parity.md](docs/coyote-parity.md); the exact controlled/rejected signature list
   is in [docs/rule-inventory.md](docs/rule-inventory.md).
 
+- **Adapted material (Phase 7B):** Phase 7B's controlled event / wait-handle, atomic, and spin
+  surfaces (`src/Clockwork.Runtime/Threading/ControlledWaitHandle.cs`,
+  `ControlledEventWaitHandle.cs`, `ControlledRegisteredWaitHandle.cs`, `ControlledInterlocked.cs`,
+  `ControlledVolatile.cs`, `ControlledSpinWait.cs`) are a **design-level adaptation** of Coyote's
+  controlled synchronization model — its `Microsoft.Coyote.Rewriting.Types.Threading`
+  `AutoResetEvent`/`ManualResetEvent`/`EventWaitHandle`/`WaitHandle`, `Interlocked`, `Volatile`, and
+  `SpinWait` wrappers and their tests informed the surface (auto- vs manual-reset consumption, the
+  multi-handle `WaitAny`/`WaitAll`/`SignalAndWait` registration protocol, indivisible atomic
+  read-modify-write, acquire/release volatile intent, and cooperative spin yielding). **No Coyote
+  source was copied verbatim into these files:** as with Phase 7A, Clockwork's primitives are built on
+  the cooperative logical-thread coordinator (`ControlledTaskRuntime`) with weak-keyed
+  `ConditionalWeakTable` side state and virtual-time deadlines rather than Coyote's scheduler-backed
+  wrappers, so they carry no Coyote copyright header; this entry records the design lineage. The
+  per-member parity ledger (every Coyote event/`WaitHandle`/`Interlocked`/`Volatile`/`SpinWait` entry
+  classified controlled, rejected with a tested reason, or non-applicable on .NET 10) is enumerated in
+  [docs/coyote-parity.md](docs/coyote-parity.md); the exact controlled/rejected signature list is in
+  [docs/rule-inventory.md](docs/rule-inventory.md).
+
 ### Mono.Cecil
 
 - **License:** MIT

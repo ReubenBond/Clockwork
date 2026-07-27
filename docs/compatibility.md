@@ -369,10 +369,10 @@ physical-gate backend lands):
   real thread pool.
 - **OS-specific and un-modellable surfaces are rejected precisely, not silently ignored.** Thread
   `Priority`/apartment-state/`Interrupt`, `Parallel` `ParallelLoopState` (break/stop) and
-  thread-local overloads, `ThreadPool.UnsafeQueueNativeOverlapped`, and the registered-wait APIs
-  (`RegisterWaitForSingleObject`/`UnsafeRegisterWaitForSingleObject`) all fail at the rewritten call
-  site with a diagnostic that names the exact API. Registered waits depend on controlled wait
-  handles that arrive in **Phase 7**; they stay rejected until then.
+  thread-local overloads, and `ThreadPool.UnsafeQueueNativeOverlapped` all fail at the rewritten call
+  site with a diagnostic that names the exact API. The registered-wait APIs
+  (`RegisterWaitForSingleObject`/`UnsafeRegisterWaitForSingleObject`) are **controlled as of Phase 7B**
+  (see below) — they depend on controlled wait handles, which now exist.
 - **Uncontrolled process/termination APIs are rejected *unconditionally*.** `Process.Start`/`Kill`/
   `WaitForExit`/`WaitForExitAsync` and `Environment.Exit`/`FailFast` throw whether or not a
   simulation is active (a rewritten assembly must never launch, kill, or tear down a real OS
@@ -454,19 +454,22 @@ physical-gate backend lands):
   `PulseAll`, and `SemaphoreSlim.Release` serve waiters in arrival (FIFO) order for reproducibility; the
   real BCL makes no such guarantee, so code that depends on a specific non-FIFO wakeup order is not a
   target.
-- **`SemaphoreSlim.AvailableWaitHandle` is rejected precisely.** It exposes a `WaitHandle`, a **Phase 7B**
-  primitive; the rewritten call site throws a `ControlledSemaphoreSlimUnsupportedException` under
-  simulation until then rather than handing back an uncontrolled handle.
+- **`SemaphoreSlim.AvailableWaitHandle` is controlled (Phase 7B).** It exposes a `WaitHandle`; the
+  rewritten getter hands back a bridged controlled manual-reset handle whose signalled state tracks
+  `CurrentCount > 0` and follows disposal, so it composes with the controlled `WaitOne`/`WaitAny`/`WaitAll`
+  surface instead of leaking an uncontrolled OS handle.
 - **Lock objects are never kept alive by the model.** Monitor/semaphore association state lives in a
   `ConditionalWeakTable` keyed weakly by the lock/semaphore object, so a controlled association never
   roots an otherwise-collectible object.
 
-The three-state contract still holds for every Phase 7A shim: outside a simulation each is a transparent
+The three-state contract still holds for every Phase 7A/7B shim: outside a simulation each is a transparent
 pass-through to the real BCL primitive; inside a simulation the operation routes through the coordinator;
 inside a simulation with no registered coordinator the shim throws rather than silently escaping.
-**Phase 7B** owns wait handles / events / `Interlocked` / `Volatile` / `SpinWait`; **Phase 8** owns
-`ReaderWriterLockSlim`/`Mutex`/`Semaphore`/`SpinLock`, timers, cancellation timers, and a future
-virtual implementation for the currently rejected `Task.Delay` surface.
+**Phase 7B** brings wait handles / events (`WaitHandle`/`EventWaitHandle`/`AutoResetEvent`/`ManualResetEvent`,
+including `WaitAny`/`WaitAll`/`SignalAndWait`), `Interlocked`, `Volatile`, `SpinWait`, the
+`SemaphoreSlim.AvailableWaitHandle` bridge, and the `ThreadPool` registered-wait APIs under control;
+**Phase 8** owns `ReaderWriterLockSlim`/`Mutex`/`Semaphore`/`SpinLock`/`ManualResetEventSlim`, timers,
+cancellation timers, and a future virtual implementation for the currently rejected `Task.Delay` surface.
 
 ## Platform and deployment contract
 
@@ -491,8 +494,12 @@ virtual implementation for the currently rejected `Task.Delay` surface.
   exact signatures; all six .NET 10 `Task.Delay` overloads stay rejected, synchronous `ValueTask` blocking remains
   a documented hole. **Phase 7A** additionally brings `Monitor` (and the C# `lock (object)`
   statement), `System.Threading.Lock` (and the C# `lock (Lock)` statement), and `SemaphoreSlim` under
-  control; `SemaphoreSlim.AvailableWaitHandle`, wait handles, and the `ThreadPool` registered-wait
-  APIs stay rejected until **Phase 7B**.
+  control. **Phase 7B** completes the synchronization surface: `Interlocked`, `Volatile`, `SpinWait`,
+  the wait-handle / event family (`WaitHandle`/`EventWaitHandle`/`AutoResetEvent`/`ManualResetEvent`
+  with `WaitOne`/`WaitAny`/`WaitAll`/`SignalAndWait`), the `SemaphoreSlim.AvailableWaitHandle` bridge,
+  and the `ThreadPool` registered-wait APIs
+  (`RegisterWaitForSingleObject`/`UnsafeRegisterWaitForSingleObject`) are all now controlled; named /
+  cross-process event APIs and raw handle accessors are rejected with tested diagnostics.
 - **ReadyToRun inputs** are detected by the build/tool path: the default policy rejects them, while
   `StripToIL` produces an IL-only staged output. Instrument before publishing R2R.
 
