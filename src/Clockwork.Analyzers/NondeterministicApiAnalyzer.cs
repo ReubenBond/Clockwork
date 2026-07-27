@@ -117,6 +117,17 @@ public sealed class NondeterministicApiAnalyzer : DiagnosticAnalyzer
             return;
         }
 
+        if (SymbolEqualityComparer.Default.Equals(type, known.Task) &&
+            method.IsStatic &&
+            method.Name == "Delay")
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                DeterminismDiagnostics.RejectedApi,
+                operation.Syntax.GetLocation(),
+                "Task.Delay"));
+            return;
+        }
+
         if (SymbolEqualityComparer.Default.Equals(type, known.RandomNumberGenerator) &&
             method.IsStatic &&
             method.Name is "Create" or "Fill" or "GetBytes" or "GetInt32" or "GetHexString" or "GetString")
@@ -159,6 +170,7 @@ public sealed class NondeterministicApiAnalyzer : DiagnosticAnalyzer
             Environment = compilation.GetTypeByMetadataName("System.Environment");
             Guid = compilation.GetTypeByMetadataName("System.Guid");
             Random = compilation.GetTypeByMetadataName("System.Random");
+            Task = compilation.GetTypeByMetadataName("System.Threading.Tasks.Task");
             RandomNumberGenerator = compilation.GetTypeByMetadataName("System.Security.Cryptography.RandomNumberGenerator");
         }
 
@@ -174,10 +186,12 @@ public sealed class NondeterministicApiAnalyzer : DiagnosticAnalyzer
 
         public INamedTypeSymbol? Random { get; }
 
+        public INamedTypeSymbol? Task { get; }
+
         public INamedTypeSymbol? RandomNumberGenerator { get; }
 
         public bool AnyResolved =>
-            new[] { DateTime, DateTimeOffset, Stopwatch, Environment, Guid, Random, RandomNumberGenerator }
+            new[] { DateTime, DateTimeOffset, Stopwatch, Environment, Guid, Random, Task, RandomNumberGenerator }
                 .Any(static symbol => symbol is not null);
     }
 }

@@ -111,6 +111,7 @@ public static class BuiltInRuleSets
     // GenericInstanceMethods at the call site (`!!0` target) resolved against their definitions (`TResult`
     // replacement); Func<Task>/Func<Task<TResult>> carry the unwrap overloads.
     private const string CancellationToken = "System.Threading.CancellationToken";
+    private const string TimeProvider = "System.TimeProvider";
     private const string FuncOfTask = "System.Func`1<System.Threading.Tasks.Task>";
     private const string FuncOfTaskResult = "System.Func`1<System.Threading.Tasks.Task`1<!!0>>";
     private const string FuncOfTaskResultDecl = "System.Func`1<System.Threading.Tasks.Task`1<TResult>>";
@@ -408,6 +409,31 @@ public static class BuiltInRuleSets
             "clockwork.tasks.delay.milliseconds",
             MemberSignature.Method(Task, "Delay", Int32),
             Shim(TaskShim, "Delay", Int32),
+            SimulationApiPolicy.Rejected)));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.TaskDeferred, RewriteRule.RedirectCall(
+            "clockwork.tasks.delay.timespan",
+            MemberSignature.Method(Task, "Delay", TimeSpan),
+            Shim(TaskShim, "Delay", TimeSpan),
+            SimulationApiPolicy.Rejected)));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.TaskDeferred, RewriteRule.RedirectCall(
+            "clockwork.tasks.delay.milliseconds.cancellationtoken",
+            MemberSignature.Method(Task, "Delay", Int32, CancellationToken),
+            Shim(TaskShim, "Delay", Int32, CancellationToken),
+            SimulationApiPolicy.Rejected)));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.TaskDeferred, RewriteRule.RedirectCall(
+            "clockwork.tasks.delay.timespan.cancellationtoken",
+            MemberSignature.Method(Task, "Delay", TimeSpan, CancellationToken),
+            Shim(TaskShim, "Delay", TimeSpan, CancellationToken),
+            SimulationApiPolicy.Rejected)));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.TaskDeferred, RewriteRule.RedirectCall(
+            "clockwork.tasks.delay.timespan.timeprovider",
+            MemberSignature.Method(Task, "Delay", TimeSpan, TimeProvider),
+            Shim(TaskShim, "Delay", TimeSpan, TimeProvider),
+            SimulationApiPolicy.Rejected)));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.TaskDeferred, RewriteRule.RedirectCall(
+            "clockwork.tasks.delay.timespan.timeprovider.cancellationtoken",
+            MemberSignature.Method(Task, "Delay", TimeSpan, TimeProvider, CancellationToken),
+            Shim(TaskShim, "Delay", TimeSpan, TimeProvider, CancellationToken),
             SimulationApiPolicy.Rejected)));
 
         // ---- Scheduling: Task.Run (Phase 6B) controlled. The body is queued as a fresh controlled

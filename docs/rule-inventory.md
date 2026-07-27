@@ -120,6 +120,11 @@ Policy: **Rejected**. `Task.Delay` (virtual timers, Phase 8) is rejected under s
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
 | `clockwork.tasks.delay.milliseconds` | `System.Threading.Tasks.Task::Delay(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Delay(System.Int32)` | Rejected |
+| `clockwork.tasks.delay.timespan` | `System.Threading.Tasks.Task::Delay(System.TimeSpan)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Delay(System.TimeSpan)` | Rejected |
+| `clockwork.tasks.delay.milliseconds.cancellationtoken` | `System.Threading.Tasks.Task::Delay(System.Int32,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Delay(System.Int32,System.Threading.CancellationToken)` | Rejected |
+| `clockwork.tasks.delay.timespan.cancellationtoken` | `System.Threading.Tasks.Task::Delay(System.TimeSpan,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Delay(System.TimeSpan,System.Threading.CancellationToken)` | Rejected |
+| `clockwork.tasks.delay.timespan.timeprovider` | `System.Threading.Tasks.Task::Delay(System.TimeSpan,System.TimeProvider)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Delay(System.TimeSpan,System.TimeProvider)` | Rejected |
+| `clockwork.tasks.delay.timespan.timeprovider.cancellationtoken` | `System.Threading.Tasks.Task::Delay(System.TimeSpan,System.TimeProvider,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Delay(System.TimeSpan,System.TimeProvider,System.Threading.CancellationToken)` | Rejected |
 
 ## TaskScheduling family
 

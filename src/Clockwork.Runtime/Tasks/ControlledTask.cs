@@ -340,20 +340,64 @@ public static class ControlledTask
     /// Rejects <c>Task.Delay</c>: virtual-timer support is owned by a later phase. Rejecting here prevents
     /// a rewritten assembly from silently using wall-clock time inside a simulation.
     /// </summary>
-    /// <param name="millisecondsDelay">Ignored.</param>
+    /// <param name="millisecondsDelay">The delay duration.</param>
     /// <returns>Never returns.</returns>
     /// <exception cref="ControlledTaskUnsupportedException">Always thrown inside a simulation.</exception>
     public static Task Delay(int millisecondsDelay)
     {
-        if (ControlledTaskRuntime.IsSimulationActive)
-        {
-            throw new ControlledTaskUnsupportedException(
-                "System.Threading.Tasks.Task.Delay",
-                "virtual time and timers are owned by a later phase; Phase 6A refuses to model a delay with " +
-                "wall-clock time. Use controlled timers when that phase lands.");
-        }
+        RejectDelayInsideSimulation();
 
         return Task.Delay(millisecondsDelay);
+    }
+
+    /// <summary>Rejects <c>Task.Delay(TimeSpan)</c> inside simulation and passes through otherwise.</summary>
+    /// <param name="delay">The delay duration.</param>
+    /// <returns>The real BCL delay task outside simulation.</returns>
+    public static Task Delay(TimeSpan delay)
+    {
+        RejectDelayInsideSimulation();
+        return Task.Delay(delay);
+    }
+
+    /// <summary>Rejects <c>Task.Delay(int, CancellationToken)</c> inside simulation and passes through otherwise.</summary>
+    /// <param name="millisecondsDelay">The delay duration.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The real BCL delay task outside simulation.</returns>
+    public static Task Delay(int millisecondsDelay, CancellationToken cancellationToken)
+    {
+        RejectDelayInsideSimulation();
+        return Task.Delay(millisecondsDelay, cancellationToken);
+    }
+
+    /// <summary>Rejects <c>Task.Delay(TimeSpan, CancellationToken)</c> inside simulation and passes through otherwise.</summary>
+    /// <param name="delay">The delay duration.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The real BCL delay task outside simulation.</returns>
+    public static Task Delay(TimeSpan delay, CancellationToken cancellationToken)
+    {
+        RejectDelayInsideSimulation();
+        return Task.Delay(delay, cancellationToken);
+    }
+
+    /// <summary>Rejects <c>Task.Delay(TimeSpan, TimeProvider)</c> inside simulation and passes through otherwise.</summary>
+    /// <param name="delay">The delay duration.</param>
+    /// <param name="timeProvider">The time provider.</param>
+    /// <returns>The real BCL delay task outside simulation.</returns>
+    public static Task Delay(TimeSpan delay, TimeProvider timeProvider)
+    {
+        RejectDelayInsideSimulation();
+        return Task.Delay(delay, timeProvider);
+    }
+
+    /// <summary>Rejects <c>Task.Delay(TimeSpan, TimeProvider, CancellationToken)</c> inside simulation and passes through otherwise.</summary>
+    /// <param name="delay">The delay duration.</param>
+    /// <param name="timeProvider">The time provider.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>The real BCL delay task outside simulation.</returns>
+    public static Task Delay(TimeSpan delay, TimeProvider timeProvider, CancellationToken cancellationToken)
+    {
+        RejectDelayInsideSimulation();
+        return Task.Delay(delay, timeProvider, cancellationToken);
     }
 
     /// <summary>
@@ -590,6 +634,17 @@ public static class ControlledTask
         }
 
         return true;
+    }
+
+    private static void RejectDelayInsideSimulation()
+    {
+        if (ControlledTaskRuntime.IsSimulationActive)
+        {
+            throw new ControlledTaskUnsupportedException(
+                "System.Threading.Tasks.Task.Delay",
+                "virtual time and timers are owned by Phase 8; using Task.Delay inside a simulation is rejected " +
+                "so no overload can silently consume wall time.");
+        }
     }
 
     private static bool AnyCompleted(Task[] tasks)

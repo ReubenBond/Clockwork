@@ -31,7 +31,12 @@ public sealed class ControlledTaskRuleGoldenTests
                 public static Task AllList(IEnumerable<Task> tasks) => Task.WhenAll(tasks);
                 public static Task<Task> Any(Task a, Task b) => Task.WhenAny(a, b);
                 public static void Block(Task t) => t.Wait();
-                public static Task Delayed() => Task.Delay(5);
+                public static Task DelayMilliseconds() => Task.Delay(5);
+                public static Task DelayTimeSpan() => Task.Delay(System.TimeSpan.FromMilliseconds(5));
+                public static Task DelayMillisecondsCancellation() => Task.Delay(5, default);
+                public static Task DelayTimeSpanCancellation() => Task.Delay(System.TimeSpan.FromMilliseconds(5), default(System.Threading.CancellationToken));
+                public static Task DelayTimeProvider() => Task.Delay(System.TimeSpan.FromMilliseconds(5), System.TimeProvider.System);
+                public static Task DelayTimeProviderCancellation() => Task.Delay(System.TimeSpan.FromMilliseconds(5), System.TimeProvider.System, default);
                 public static Task Offloaded() => Task.Run(() => { });
                 public static Task Started() => Task.Factory.StartNew(() => { });
                 public static Task<int> StartedValue() => Task.Factory.StartNew(() => 7);
@@ -121,13 +126,37 @@ public sealed class ControlledTaskRuleGoldenTests
         using ModuleDefinition module = context.LoadModule(
             Path.Combine(context.Directory, "Fx.TaskDeferred.rewritten.dll"));
 
-        MethodDefinition delayed = CecilInspect.GetMethod(module, "Fx.TaskUser", "Delayed");
-        Assert.True(CecilInspect.CallsAnyContaining(delayed, "ControlledTask::Delay"));
-        Assert.False(CecilInspect.CallsAnyContaining(delayed, "Threading.Tasks.Task::Delay"));
+        string[] methods =
+        [
+            "DelayMilliseconds",
+            "DelayTimeSpan",
+            "DelayMillisecondsCancellation",
+            "DelayTimeSpanCancellation",
+            "DelayTimeProvider",
+            "DelayTimeProviderCancellation",
+        ];
+        foreach (string methodName in methods)
+        {
+            MethodDefinition delayed = CecilInspect.GetMethod(module, "Fx.TaskUser", methodName);
+            Assert.True(CecilInspect.CallsAnyContaining(delayed, "ControlledTask::Delay"));
+            Assert.False(CecilInspect.CallsAnyContaining(delayed, "Threading.Tasks.Task::Delay"));
+        }
 
         ImmutableArray<ManifestTransformation> transformations = result.Manifest.Transformations;
-        Assert.Contains(transformations, t =>
-            t.RuleId == "clockwork.tasks.delay.milliseconds" && t.Policy == SimulationApiPolicy.Rejected);
+        string[] ruleIds =
+        [
+            "clockwork.tasks.delay.milliseconds",
+            "clockwork.tasks.delay.timespan",
+            "clockwork.tasks.delay.milliseconds.cancellationtoken",
+            "clockwork.tasks.delay.timespan.cancellationtoken",
+            "clockwork.tasks.delay.timespan.timeprovider",
+            "clockwork.tasks.delay.timespan.timeprovider.cancellationtoken",
+        ];
+        foreach (string ruleId in ruleIds)
+        {
+            Assert.Contains(transformations, t =>
+                t.RuleId == ruleId && t.Policy == SimulationApiPolicy.Rejected);
+        }
     }
 
     [Fact]

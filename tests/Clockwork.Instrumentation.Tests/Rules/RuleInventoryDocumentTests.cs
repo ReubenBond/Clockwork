@@ -41,6 +41,27 @@ public sealed class RuleInventoryDocumentTests
         }
     }
 
+    [Fact]
+    public void TaskDelayRulesClassifyEveryNet10Overload()
+    {
+        string[] frameworkOverloads = typeof(Task)
+            .GetMethods()
+            .Where(method => method.IsStatic && method.Name == nameof(Task.Delay))
+            .Select(method => string.Join(",", method.GetParameters().Select(parameter => parameter.ParameterType.FullName)))
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        string[] classifiedOverloads = BuiltInRuleSets.ControlledTasksInventory
+            .Where(entry => entry.Family == BuiltInRuleFamily.TaskDeferred)
+            .Select(entry => string.Join(",", entry.Rule.Target.ParameterTypeFullNames))
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(frameworkOverloads, classifiedOverloads);
+        Assert.All(
+            BuiltInRuleSets.ControlledTasksInventory.Where(entry => entry.Family == BuiltInRuleFamily.TaskDeferred),
+            entry => Assert.Equal(Clockwork.Runtime.Policy.SimulationApiPolicy.Rejected, entry.Rule.Policy));
+    }
+
     private static string InventoryPath()
     {
         string dir = Path.GetDirectoryName(ThisFile())!;

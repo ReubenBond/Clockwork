@@ -205,14 +205,28 @@ public sealed class ControlledTaskApiTests
         });
     }
 
-    [Fact]
-    public void DelayIsRejectedInsideSimulation()
+#pragma warning disable xUnit1051 // The token is part of the overload under test; no asynchronous wait occurs.
+    public static TheoryData<Func<Task>> DelayCalls =>
+        new()
+        {
+            () => ControlledTask.Delay(100),
+            () => ControlledTask.Delay(TimeSpan.FromMilliseconds(100)),
+            () => ControlledTask.Delay(100, CancellationToken.None),
+            () => ControlledTask.Delay(TimeSpan.FromMilliseconds(100), CancellationToken.None),
+            () => ControlledTask.Delay(TimeSpan.FromMilliseconds(100), TimeProvider.System),
+            () => ControlledTask.Delay(TimeSpan.FromMilliseconds(100), TimeProvider.System, CancellationToken.None),
+        };
+#pragma warning restore xUnit1051
+
+    [Theory]
+    [MemberData(nameof(DelayCalls))]
+    public void EveryDelayOverloadIsRejectedInsideSimulation(Func<Task> delay)
     {
         var coordinator = new ControlledTaskLoopCoordinator();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            var ex = Assert.Throws<ControlledTaskUnsupportedException>(() => { _ = ControlledTask.Delay(100); });
+            var ex = Assert.Throws<ControlledTaskUnsupportedException>(() => { _ = delay(); });
             Assert.Equal("System.Threading.Tasks.Task.Delay", ex.ApiName);
         });
     }
@@ -307,18 +321,28 @@ public sealed class ControlledTaskApiTests
     }
 
     [Fact]
+#pragma warning disable xUnit1051 // Each exact overload, including those without tokens, is the subject under test.
     public async Task DelayAndRunPassThroughOutsideSimulation()
     {
         Assert.False(ControlledTaskRuntime.IsSimulationActive);
 
         // Outside a simulation these must behave exactly like the real BCL APIs.
-        var delay = ControlledTask.Delay(1);
+        Task[] delays =
+        [
+            ControlledTask.Delay(0),
+            ControlledTask.Delay(TimeSpan.Zero),
+            ControlledTask.Delay(0, TestContext.Current.CancellationToken),
+            ControlledTask.Delay(TimeSpan.Zero, TestContext.Current.CancellationToken),
+            ControlledTask.Delay(TimeSpan.Zero, TimeProvider.System),
+            ControlledTask.Delay(TimeSpan.Zero, TimeProvider.System, TestContext.Current.CancellationToken),
+        ];
         var run = ControlledTask.Run(() => { }, TestContext.Current.CancellationToken);
-        await Task.WhenAll(delay, run);
+        await Task.WhenAll([.. delays, run]);
 
-        Assert.True(delay.IsCompletedSuccessfully);
+        Assert.All(delays, delay => Assert.True(delay.IsCompletedSuccessfully));
         Assert.True(run.IsCompletedSuccessfully);
     }
+#pragma warning restore xUnit1051
 
     [Fact]
     public void TaskFactoryStartNewQueuesBodyAsControlledWork()
