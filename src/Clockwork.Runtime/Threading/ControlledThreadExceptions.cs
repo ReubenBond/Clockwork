@@ -46,3 +46,27 @@ public sealed class ControlledThreadPoolUnsupportedException : InvalidOperationE
     /// <summary>Gets the unsupported thread-pool API.</summary>
     public string? ApiName { get; }
 }
+
+/// <summary>
+/// Thrown when an application invokes a <see cref="System.Threading.Tasks.Parallel"/> overload that
+/// Clockwork's controlled <c>Parallel</c> surface cannot model faithfully inside a simulation - the
+/// overloads whose body receives a <see cref="System.Threading.Tasks.ParallelLoopState"/> (break/stop),
+/// the thread-local (<c>TLocal</c>) overloads, and the <c>Partitioner</c>/<c>OrderablePartitioner</c>
+/// overloads. Modelling these deterministically would require constructing framework types
+/// (<c>ParallelLoopState</c>) that have no public surface, so the rewritten call site rejects them
+/// precisely rather than letting the loop body run on uncontrolled thread-pool threads.
+/// </summary>
+public sealed class ControlledParallelUnsupportedException : InvalidOperationException
+{
+    /// <summary>Initializes a new instance of the <see cref="ControlledParallelUnsupportedException"/> class.</summary>
+    /// <param name="apiName">The unsupported parallel API.</param>
+    /// <param name="reason">Why it cannot be modelled faithfully.</param>
+    public ControlledParallelUnsupportedException(string apiName, string reason)
+        : base($"The parallel API '{apiName}' is not supported inside a Clockwork simulation: {reason}")
+    {
+        ApiName = apiName;
+    }
+
+    /// <summary>Gets the unsupported parallel API.</summary>
+    public string? ApiName { get; }
+}

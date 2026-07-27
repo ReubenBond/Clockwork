@@ -229,6 +229,27 @@ Policy: **Controlled**.
 | `clockwork.threadpool.unsaferegisterwait.int64` | `System.Threading.ThreadPool::UnsafeRegisterWaitForSingleObject(System.Threading.WaitHandle,System.Threading.WaitOrTimerCallback,System.Object,System.Int64,System.Boolean)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThreadPool::RejectRegisteredWait(System.String)` | Rejected |
 | `clockwork.threadpool.unsaferegisterwait.timespan` | `System.Threading.ThreadPool::UnsafeRegisterWaitForSingleObject(System.Threading.WaitHandle,System.Threading.WaitOrTimerCallback,System.Object,System.TimeSpan,System.Boolean)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThreadPool::RejectRegisteredWait(System.String)` | Rejected |
 
+## Parallel family
+
+Policy: **Controlled**. 
+
+| Rule id | BCL target | Shim | Policy |
+| --- | --- | --- | --- |
+| `clockwork.parallel.invoke` | `System.Threading.Tasks.Parallel::Invoke(System.Action[])` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::Invoke(System.Action[])` | Controlled |
+| `clockwork.parallel.invoke.options` | `System.Threading.Tasks.Parallel::Invoke(System.Threading.Tasks.ParallelOptions,System.Action[])` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::Invoke(System.Threading.Tasks.ParallelOptions,System.Action[])` | Controlled |
+| `clockwork.parallel.for.int32` | `System.Threading.Tasks.Parallel::For(System.Int32,System.Int32,System.Action`1<System.Int32>)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::For(System.Int32,System.Int32,System.Action`1<System.Int32>)` | Controlled |
+| `clockwork.parallel.for.int32.options` | `System.Threading.Tasks.Parallel::For(System.Int32,System.Int32,System.Threading.Tasks.ParallelOptions,System.Action`1<System.Int32>)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::For(System.Int32,System.Int32,System.Threading.Tasks.ParallelOptions,System.Action`1<System.Int32>)` | Controlled |
+| `clockwork.parallel.for.int64` | `System.Threading.Tasks.Parallel::For(System.Int64,System.Int64,System.Action`1<System.Int64>)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::For(System.Int64,System.Int64,System.Action`1<System.Int64>)` | Controlled |
+| `clockwork.parallel.for.int64.options` | `System.Threading.Tasks.Parallel::For(System.Int64,System.Int64,System.Threading.Tasks.ParallelOptions,System.Action`1<System.Int64>)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::For(System.Int64,System.Int64,System.Threading.Tasks.ParallelOptions,System.Action`1<System.Int64>)` | Controlled |
+| `clockwork.parallel.foreach` | `System.Threading.Tasks.Parallel::ForEach(System.Collections.Generic.IEnumerable`1<!!0>,System.Action`1<!!0>)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::ForEach(System.Collections.Generic.IEnumerable`1<TSource>,System.Action`1<TSource>)` | Controlled |
+| `clockwork.parallel.foreach.options` | `System.Threading.Tasks.Parallel::ForEach(System.Collections.Generic.IEnumerable`1<!!0>,System.Threading.Tasks.ParallelOptions,System.Action`1<!!0>)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::ForEach(System.Collections.Generic.IEnumerable`1<TSource>,System.Threading.Tasks.ParallelOptions,System.Action`1<TSource>)` | Controlled |
+| `clockwork.parallel.for.int32.loopstate` | `System.Threading.Tasks.Parallel::For(System.Int32,System.Int32,System.Action`2<System.Int32,System.Threading.Tasks.ParallelLoopState>)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.for.int32.loopstate.options` | `System.Threading.Tasks.Parallel::For(System.Int32,System.Int32,System.Threading.Tasks.ParallelOptions,System.Action`2<System.Int32,System.Threading.Tasks.ParallelLoopState>)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.for.int64.loopstate` | `System.Threading.Tasks.Parallel::For(System.Int64,System.Int64,System.Action`2<System.Int64,System.Threading.Tasks.ParallelLoopState>)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.for.int64.loopstate.options` | `System.Threading.Tasks.Parallel::For(System.Int64,System.Int64,System.Threading.Tasks.ParallelOptions,System.Action`2<System.Int64,System.Threading.Tasks.ParallelLoopState>)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.foreach.loopstate` | `System.Threading.Tasks.Parallel::ForEach(System.Collections.Generic.IEnumerable`1<!!0>,System.Action`2<!!0,System.Threading.Tasks.ParallelLoopState>)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.foreach.loopstate.index` | `System.Threading.Tasks.Parallel::ForEach(System.Collections.Generic.IEnumerable`1<!!0>,System.Action`3<!!0,System.Threading.Tasks.ParallelLoopState,System.Int64>)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+
 ## Documented holes (not rewritten in these rule sets)
 
 These nondeterministic or entropy-drawing surfaces are intentionally **not** covered and

@@ -52,6 +52,7 @@ public static class BuiltInRuleSets
     private const string TaskFactoryShim = "Clockwork.Runtime.Tasks.ControlledTaskFactory";
     private const string ThreadShim = "Clockwork.Runtime.Threading.ControlledThread";
     private const string ThreadPoolShim = "Clockwork.Runtime.Threading.ControlledThreadPool";
+    private const string ParallelShim = "Clockwork.Runtime.Threading.ControlledParallel";
 
     // Cecil full names for the exact overload parameters (from the net10 reference assemblies).
     private const string Int32 = "System.Int32";
@@ -147,6 +148,24 @@ public static class BuiltInRuleSets
     private const string WaitHandle = "System.Threading.WaitHandle";
     private const string WaitOrTimerCallback = "System.Threading.WaitOrTimerCallback";
 
+    // Cecil full names for the controlled System.Threading.Tasks.Parallel surface (Phase 6B slice 6). The
+    // generic ForEach<TSource> overloads are GenericInstanceMethods at the call site (`!!0` target) resolved
+    // against their definitions (`TSource` replacement); the ParallelLoopState / TLocal / Partitioner
+    // overloads are rejected at the call site.
+    private const string ParallelType = "System.Threading.Tasks.Parallel";
+    private const string ParallelOptionsType = "System.Threading.Tasks.ParallelOptions";
+    private const string ActionArray = "System.Action[]";
+    private const string ActionOfInt32 = "System.Action`1<System.Int32>";
+    private const string ActionOfInt64 = "System.Action`1<System.Int64>";
+    private const string IEnumerableOfTSourceVar = "System.Collections.Generic.IEnumerable`1<!!0>";
+    private const string IEnumerableOfTSourceDecl = "System.Collections.Generic.IEnumerable`1<TSource>";
+    private const string ActionOfTSourceVar = "System.Action`1<!!0>";
+    private const string ActionOfTSourceDecl = "System.Action`1<TSource>";
+    private const string ActionOfInt32LoopState = "System.Action`2<System.Int32,System.Threading.Tasks.ParallelLoopState>";
+    private const string ActionOfInt64LoopState = "System.Action`2<System.Int64,System.Threading.Tasks.ParallelLoopState>";
+    private const string ActionOfTSourceLoopStateVar = "System.Action`2<!!0,System.Threading.Tasks.ParallelLoopState>";
+    private const string ActionOfTSourceLoopStateInt64Var = "System.Action`3<!!0,System.Threading.Tasks.ParallelLoopState,System.Int64>";
+
     // Cecil full names for the compiler-generated async machinery (BCL) and their controlled substitutes.
     // Nested awaiter types use Cecil's '/' separator; generic arities carry the backtick.
     private const string CompilerNs = "System.Runtime.CompilerServices.";
@@ -211,6 +230,7 @@ public static class BuiltInRuleSets
         BuiltInRuleFamily.TaskFactory,
         BuiltInRuleFamily.Thread,
         BuiltInRuleFamily.ThreadPool,
+        BuiltInRuleFamily.Parallel,
     ];
 
     /// <summary>Gets the (family, rule) entries of the deterministic BCL rule set, for documentation and inventory generation.</summary>
@@ -508,7 +528,54 @@ public static class BuiltInRuleSets
         RegisterWaitRejection(builder, "clockwork.threadpool.unsaferegisterwait.int64", "UnsafeRegisterWaitForSingleObject", Int64);
         RegisterWaitRejection(builder, "clockwork.threadpool.unsaferegisterwait.timespan", "UnsafeRegisterWaitForSingleObject", TimeSpan);
 
+        // ---- Parallel (Phase 6B slice 6): the simple-body Invoke / For / ForEach overloads decompose into
+        // controlled operations on the coordinator (each branch queued, then the loop drained until all
+        // complete). Parallel is static, so the shim signatures match the target exactly. The generic
+        // ForEach<TSource> overloads are GenericInstanceMethods (`!!0` target, `TSource` replacement). The
+        // break/stop (ParallelLoopState) overloads are rejected at the call site; the TLocal and Partitioner
+        // overloads are caught by the uncontrolled-invocation pass. ----
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.invoke",
+            MemberSignature.Method(ParallelType, "Invoke", ActionArray), Shim(ParallelShim, "Invoke", ActionArray));
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.invoke.options",
+            MemberSignature.Method(ParallelType, "Invoke", ParallelOptionsType, ActionArray), Shim(ParallelShim, "Invoke", ParallelOptionsType, ActionArray));
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.for.int32",
+            MemberSignature.Method(ParallelType, "For", Int32, Int32, ActionOfInt32), Shim(ParallelShim, "For", Int32, Int32, ActionOfInt32));
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.for.int32.options",
+            MemberSignature.Method(ParallelType, "For", Int32, Int32, ParallelOptionsType, ActionOfInt32), Shim(ParallelShim, "For", Int32, Int32, ParallelOptionsType, ActionOfInt32));
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.for.int64",
+            MemberSignature.Method(ParallelType, "For", Int64, Int64, ActionOfInt64), Shim(ParallelShim, "For", Int64, Int64, ActionOfInt64));
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.for.int64.options",
+            MemberSignature.Method(ParallelType, "For", Int64, Int64, ParallelOptionsType, ActionOfInt64), Shim(ParallelShim, "For", Int64, Int64, ParallelOptionsType, ActionOfInt64));
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.foreach",
+            MemberSignature.Method(ParallelType, "ForEach", IEnumerableOfTSourceVar, ActionOfTSourceVar),
+            Shim(ParallelShim, "ForEach", IEnumerableOfTSourceDecl, ActionOfTSourceDecl));
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.foreach.options",
+            MemberSignature.Method(ParallelType, "ForEach", IEnumerableOfTSourceVar, ParallelOptionsType, ActionOfTSourceVar),
+            Shim(ParallelShim, "ForEach", IEnumerableOfTSourceDecl, ParallelOptionsType, ActionOfTSourceDecl));
+
+        ParallelRejection(builder, "clockwork.parallel.for.int32.loopstate", "For", Int32, Int32, ActionOfInt32LoopState);
+        ParallelRejection(builder, "clockwork.parallel.for.int32.loopstate.options", "For", Int32, Int32, ParallelOptionsType, ActionOfInt32LoopState);
+        ParallelRejection(builder, "clockwork.parallel.for.int64.loopstate", "For", Int64, Int64, ActionOfInt64LoopState);
+        ParallelRejection(builder, "clockwork.parallel.for.int64.loopstate.options", "For", Int64, Int64, ParallelOptionsType, ActionOfInt64LoopState);
+        ParallelRejection(builder, "clockwork.parallel.foreach.loopstate", "ForEach", IEnumerableOfTSourceVar, ActionOfTSourceLoopStateVar);
+        ParallelRejection(builder, "clockwork.parallel.foreach.loopstate.index", "ForEach", IEnumerableOfTSourceVar, ActionOfTSourceLoopStateInt64Var);
+
         return builder.ToImmutable();
+    }
+
+    // Rejects a Parallel overload at the call site. The BCL methods return ParallelLoopResult, so
+    // InjectRejection is used (it prepends a throwing RejectUnsupported(string) before the original call,
+    // keeping the value-returning invocation in place for stack balance).
+    private static void ParallelRejection(
+        ImmutableArray<BuiltInRuleEntry>.Builder builder,
+        string id,
+        string method,
+        params string[] parameterTypes)
+    {
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Parallel, RewriteRule.InjectRejection(
+            id,
+            MemberSignature.Method(ParallelType, method, parameterTypes),
+            Shim(ParallelShim, "RejectUnsupported", String))));
     }
 
     private static void RejectedRule(

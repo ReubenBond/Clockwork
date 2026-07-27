@@ -114,10 +114,28 @@ public enum BuiltInRuleFamily
     /// the callback as a fresh controlled operation on the coordinator instead of dispatching it to a
     /// physical thread-pool thread, preserving the safe-vs-unsafe <see cref="System.Threading.ExecutionContext"/>
     /// flow distinction (safe variants capture and flow the caller's context; unsafe variants do not).
-    /// The native-I/O surface (<c>UnsafeQueueNativeOverlapped</c>) is <c>Rejected</c>: it cannot be
-    /// modelled by the deterministic scheduler, so the rewritten call site fails precisely under
-    /// simulation. Outside a simulation every shim delegates to the real BCL API unchanged. This goes
-    /// beyond Coyote, which routes thread-pool work through its controlled task types.
+    /// The native-I/O surface (<c>UnsafeQueueNativeOverlapped</c>) and, until Phase 7 provides controlled
+    /// wait handles, the registered-wait surface (<c>RegisterWaitForSingleObject</c> and its unsafe
+    /// variant) are <c>Rejected</c>: they cannot be modelled by the deterministic scheduler, so the
+    /// rewritten call site fails precisely under simulation. Outside a simulation every shim delegates to
+    /// the real BCL API unchanged. This goes beyond Coyote, which routes thread-pool work through its
+    /// controlled task types.
     /// </summary>
     ThreadPool,
+
+    /// <summary>
+    /// <see cref="System.Threading.Tasks.Parallel"/> surface. The simple-body overloads -
+    /// <c>Invoke</c>, <c>For(int/long, ..., Action&lt;int/long&gt;)</c>, and
+    /// <c>ForEach&lt;TSource&gt;(IEnumerable&lt;TSource&gt;, Action&lt;TSource&gt;)</c>, each with and without a
+    /// <see cref="System.Threading.Tasks.ParallelOptions"/> - are classified <c>Controlled</c> (Phase 6B):
+    /// the shim queues each branch as a fresh controlled operation on the coordinator and drains the
+    /// deterministic loop until all branches complete, aggregating faults into an
+    /// <see cref="System.AggregateException"/> and observing the options' cancellation token. The overloads
+    /// whose body receives a <see cref="System.Threading.Tasks.ParallelLoopState"/> (break/stop), the
+    /// thread-local (<c>TLocal</c>) overloads, and the <c>Partitioner</c> overloads are <c>Rejected</c>:
+    /// they cannot be modelled without constructing framework types that have no public surface, so the
+    /// rewritten call site fails precisely under simulation. Outside a simulation every shim delegates to
+    /// the real BCL API unchanged.
+    /// </summary>
+    Parallel,
 }
