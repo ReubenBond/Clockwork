@@ -639,7 +639,8 @@ coordinator, so **`ConfigureAwait(false)` stays controlled** inside a simulation
 and `ValueTask`) while still delegating to normal BCL semantics outside one. Alongside it, call-site
 redirects route the `Task.WhenAll`/`Task.WhenAny` combinators — non-generic **and their generic
 `Task<T>` overloads** — the synchronous `Task.Wait()`/`WaitAll`/`WaitAny(Task[])` waits, the
-blocking generic `Task<T>.Result` accessor, and `Task.ContinueWith(Action<Task>)` to
+blocking generic `Task<T>.Result` accessor, the `TaskExtensions.Unwrap` extension methods, and
+`Task.ContinueWith(Action<Task>)` to
 `Clockwork.Runtime.Tasks.ControlledTask`. Synchronous waits and blocking `Task<T>.Result` reads
 **pump the coordinator loop until completion instead of blocking a physical thread**, so they never
 deadlock the scheduler, then delegate to the real API for its exact `AggregateException` semantics.

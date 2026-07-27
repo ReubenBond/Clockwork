@@ -362,7 +362,8 @@ to normal BCL semantics outside a simulation. A **call-site redirect** half rout
 non-generic `Task.WhenAll` / `Task.WhenAny` (array, span, pair, enumerable) combinators **and their
 generic `Task<T>` overloads** (array, span, enumerable, and the `WhenAny<T>` pair), the synchronous
 `Task.Wait()` / `Task.WaitAll` / `Task.WaitAny(Task[])` waits, the blocking generic
-`Task<T>.Result` accessor, and `Task.ContinueWith(Action<Task>)` to
+`Task<T>.Result` accessor, the `TaskExtensions.Unwrap` extension methods, and
+`Task.ContinueWith(Action<Task>)` to
 `Clockwork.Runtime.Tasks.ControlledTask`. Combinators delegate to the real BCL (their completion
 is driven by antecedents that complete on the logical thread); synchronous waits **pump the
 coordinator loop until completion instead of blocking a physical thread**, then delegate to the
