@@ -109,6 +109,9 @@ internal sealed class ArgumentReader
         return _flags.Contains(name);
     }
 
+    /// <summary>Gets whether an option or flag was supplied without marking it consumed.</summary>
+    public bool IsSupplied(string name) => _options.ContainsKey(name) || _flags.Contains(name);
+
     /// <summary>Gets a tri-state boolean value option (<c>true</c>/<c>false</c>), or <paramref name="fallback"/>.</summary>
     /// <exception cref="UsageException">The value is not a valid boolean.</exception>
     public bool GetBool(string name, bool fallback)

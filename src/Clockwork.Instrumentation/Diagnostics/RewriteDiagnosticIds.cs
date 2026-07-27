@@ -65,4 +65,7 @@ public static class RewriteDiagnosticIds
     /// than silently accepted (Phase 6B cross-assembly enforcement).
     /// </summary>
     public const string UncontrolledTaskReturn = "CWR0200";
+
+    /// <summary>A custom-awaitable return type could not be resolved, so task-like status could not be determined.</summary>
+    public const string AwaitableResolutionFailed = "CWR0201";
 }

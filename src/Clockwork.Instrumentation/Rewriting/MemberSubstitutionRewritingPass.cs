@@ -102,7 +102,7 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
                     {
                         instruction.Operand = mapped;
                         IsMethodBodyModified = true;
-                        RecordType(mapped.FieldType, field.FieldType);
+                        RecordType(mapped.FieldType, field.FieldType, instruction);
                     }
 
                     return instruction;
@@ -136,9 +136,9 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
         MethodReference? mapped = Mapper.MapMethod(method);
         if (mapped is not null)
         {
+            RecordMethod(method, instruction);
             instruction.Operand = mapped;
             IsMethodBodyModified = true;
-            RecordMethod(method);
         }
 
         return instruction;
@@ -153,8 +153,8 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
         }
 
         Instruction replacement = Processor!.Create(OpCodes.Newobj, constructor);
+        RecordType(constructor.DeclaringType, method.ReturnType, instruction);
         Replace(instruction, replacement);
-        RecordType(constructor.DeclaringType, method.ReturnType);
         return replacement;
     }
 
@@ -167,20 +167,20 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
             Session.AddUnresolvedReference(rule.Replacement.ToCanonicalString());
         });
 
-    private void RecordMethod(MethodReference original)
+    private void RecordMethod(MethodReference original, Instruction instruction)
     {
         string normalized = CecilNames.NormalizedTypeFullName(
             original is GenericInstanceMethod generic ? generic.ElementMethod.DeclaringType : original.DeclaringType);
-        Record(normalized, original.DeclaringType.FullName);
+        Record(normalized, original.DeclaringType.FullName, instruction);
     }
 
-    private void RecordType(TypeReference mapped, TypeReference original)
+    private void RecordType(TypeReference mapped, TypeReference original, Instruction? instruction = null)
     {
         string normalized = CecilNames.NormalizedTypeFullName(original);
-        Record(normalized, mapped.FullName);
+        Record(normalized, mapped.FullName, instruction);
     }
 
-    private void Record(string normalizedOriginal, string replacement)
+    private void Record(string normalizedOriginal, string replacement, Instruction? instruction)
     {
         string? ruleId = Mapper.RuleIdFor(normalizedOriginal);
         if (ruleId is null || Method is null)
@@ -188,12 +188,11 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
             return;
         }
 
-        Instruction? first = Method.HasBody ? Method.Body.Instructions.FirstOrDefault() : null;
         string? file = null;
         int line = -1;
-        if (first is not null)
+        if (instruction is not null)
         {
-            RewriteSession.TryGetSequencePoint(Method, first, out file, out line);
+            RewriteSession.TryGetSequencePoint(Method, instruction, out file, out line);
         }
 
         Session.AddTransformation(new ManifestTransformation(
@@ -204,7 +203,7 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
             normalizedOriginal,
             replacement,
             CecilNames.FullyQualifiedMethodName(Method),
-            0,
+            instruction?.Offset ?? -1,
             file,
             line));
     }

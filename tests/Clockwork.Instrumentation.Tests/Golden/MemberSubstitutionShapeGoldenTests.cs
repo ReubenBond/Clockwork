@@ -1,4 +1,5 @@
 using Clockwork.Instrumentation.Rules;
+using Clockwork.Instrumentation.Rewriting;
 using Clockwork.Instrumentation.Tests.Infrastructure;
 using Mono.Cecil;
 
@@ -52,7 +53,8 @@ public sealed class MemberSubstitutionShapeGoldenTests
                     RewriteReplacement.Type(FixtureSources.ShimAssemblyName, "ClockworkFixtures.Shims.ModernShapes/Nested")),
             ]);
 
-        context.Rewrite(fixturePath, rules).EnsureSuccess();
+        RewriteResult result = context.Rewrite(fixturePath, rules);
+        result.EnsureSuccess();
 
         using ModuleDefinition module = context.LoadModule(
             Path.Combine(context.Directory, "Fx.MemberShapes.rewritten.dll"));
@@ -75,6 +77,12 @@ public sealed class MemberSubstitutionShapeGoldenTests
         Assert.Contains(calls, method => HasParameters(method, "ClockworkFixtures.Shims.ModernShapes/Nested"));
         Assert.DoesNotContain(calls, method => HasParameters(method, "System.String") && method.Name == "Choose");
         Assert.DoesNotContain(calls, method => HasParameters(method, "System.Int32&") && method.Name == "Out");
+        Assert.All(result.Manifest.Transformations, transformation =>
+        {
+            Assert.True(transformation.ILOffset > 0);
+            Assert.NotNull(transformation.SourceFile);
+            Assert.True(transformation.SourceLine > 0);
+        });
     }
 
     private static bool HasParameters(MethodReference method, params string[] parameterTypes) =>
