@@ -91,6 +91,16 @@ Clockwork can only control dependencies routed through the simulation:
 - Use `SimulationRandom` or a derived random stream instead of `Random.Shared`.
 - Forward cancellation tokens and use synchronous cancellation callbacks.
 
+## Roadmap and compatibility
+
+See [docs/compatibility.md](docs/compatibility.md) for the intended deterministic
+instrumentation modes (cooperative, controlled, race exploration, optional deep
+instrumentation) and the platform/deployment contract (.NET 10, Windows/Linux/macOS,
+JIT and ReadyToRun today; deferred limitations for single-file, trimming,
+NativeAOT, signed assemblies, and profiler conflicts).
+
 ## License
 
-Clockwork is licensed under the [MIT License](LICENSE).
+Clockwork is licensed under the [MIT License](LICENSE). See
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for the policy on adapting
+third-party material.
