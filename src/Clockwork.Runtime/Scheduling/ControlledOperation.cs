@@ -52,7 +52,8 @@ public sealed class ControlledOperation
         SimulationLogicalExecutionId logicalExecutionId,
         string workDescription,
         Action body,
-        ExecutionContext? capturedContext)
+        ExecutionContext? capturedContext,
+        int priority = 0)
     {
         Scheduler = scheduler;
         Id = id;
@@ -61,6 +62,7 @@ public sealed class ControlledOperation
         Node = node;
         LogicalExecutionId = logicalExecutionId;
         WorkDescription = workDescription;
+        Priority = priority;
         _body = body;
         CapturedContext = capturedContext;
     }
@@ -98,6 +100,15 @@ public sealed class ControlledOperation
     /// deterministic diagnostics. Never embeds non-deterministic data.
     /// </summary>
     public string WorkDescription { get; }
+
+    /// <summary>
+    /// Gets this operation's scheduling priority. Higher values are preferred by the
+    /// <see cref="Clockwork.Runtime.Scheduling.Strategies.PrioritySchedulingStrategy"/>; it has no
+    /// effect under the other strategies. Defaults to <c>0</c>. This is a crisp, caller-supplied
+    /// integer (not a BCL <see cref="System.Threading.ThreadPriority"/>): the scheduler never infers
+    /// or mutates it, so priority-ordered schedules stay reproducible.
+    /// </summary>
+    public int Priority { get; }
 
     /// <summary>Gets the operation's current lifecycle state.</summary>
     public ControlledOperationState State => _state;

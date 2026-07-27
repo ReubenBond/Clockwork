@@ -1,8 +1,11 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
+using Clockwork.Runtime.Decisions;
 using Clockwork.Runtime.Execution;
+using Clockwork.Runtime.Random;
 using Clockwork.Runtime.Scheduling.Resources;
+using Clockwork.Runtime.Scheduling.Strategies;
 
 namespace Clockwork.Runtime.Scheduling;
 
@@ -59,6 +62,11 @@ public sealed class ControlledOperationScheduler : IDisposable
     private readonly SimulationRuntimeIdentity _runtime;
     private readonly IControlledOperationListener? _listener;
 
+    private IControlledSchedulingStrategy _strategy = new RoundRobinSchedulingStrategy();
+    private ISimulationDecisionLog? _decisionLog;
+    private SimulationDecisionReplayValidator? _replayValidator;
+    private long _nextSelectionDecisionId;
+
     private long _nextOperationId;
     private long _nextResourceId;
     private long _nextWaiterSequence;
@@ -93,6 +101,86 @@ public sealed class ControlledOperationScheduler : IDisposable
 
     /// <summary>Gets the runtime identity every operation in this scheduler runs under.</summary>
     public SimulationRuntimeIdentity Runtime => _runtime;
+
+    /// <summary>
+    /// Gets or sets the policy that chooses which runnable operation runs next. Defaults to
+    /// <see cref="RoundRobinSchedulingStrategy"/> - the Phase 3A behavior - so existing simulations are
+    /// unaffected. Assigning a strategy takes effect on the next selection. Set this before driving the
+    /// scheduler for a reproducible schedule.
+    /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="value"/> is <see langword="null"/>.</exception>
+    public IControlledSchedulingStrategy SchedulingStrategy
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _strategy;
+            }
+        }
+
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            lock (_gate)
+            {
+                _strategy = value;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets the decision log that captures every scheduling choice made among two or more
+    /// runnable operations, as a <see cref="SimulationDecisionKind.SchedulingOrder"/> decision in the
+    /// <see cref="SimulationSeedDomain.Scheduler"/> domain. When <see langword="null"/> (the default),
+    /// no scheduling decisions are recorded. Attach a log to capture a schedule for later exact replay
+    /// via <see cref="ReplaySchedulingStrategy"/>. Single-candidate steps are never recorded, so
+    /// recording is stable against interleavings where only one operation is runnable.
+    /// </summary>
+    public ISimulationDecisionLog? DecisionLog
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _decisionLog;
+            }
+        }
+
+        set
+        {
+            lock (_gate)
+            {
+                _decisionLog = value;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets a validator that checks each scheduling choice against a previously recorded run,
+    /// throwing <see cref="SimulationDecisionReplayMismatchException"/> at the first divergence. This
+    /// is orthogonal to <see cref="DecisionLog"/>: a validator can be attached with or without a live
+    /// log, and with or without a <see cref="ReplaySchedulingStrategy"/>, to assert that a re-run's
+    /// scheduling decisions reproduce the original exactly.
+    /// </summary>
+    public SimulationDecisionReplayValidator? ReplayValidator
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _replayValidator;
+            }
+        }
+
+        set
+        {
+            lock (_gate)
+            {
+                _replayValidator = value;
+            }
+        }
+    }
 
     /// <summary>
     /// The single logical-owner identity that both the controlling thread and every operation thread
@@ -146,8 +234,13 @@ public sealed class ControlledOperationScheduler : IDisposable
     /// <param name="workDescription">A short, stable description of the work, for diagnostics.</param>
     /// <param name="body">The operation body. Runs exactly once, on the operation's own thread.</param>
     /// <param name="node">The node the operation is scoped to, or <see langword="null"/> for cluster-level work.</param>
+    /// <param name="priority">
+    /// The operation's scheduling priority (see <see cref="ControlledOperation.Priority"/>). Only the
+    /// <see cref="Strategies.PrioritySchedulingStrategy"/> consults it; it is inert under the other
+    /// strategies. Defaults to <c>0</c>.
+    /// </param>
     /// <returns>The newly created operation.</returns>
-    public ControlledOperation Register(string workDescription, Action body, SimulationNodeIdentity? node = null)
+    public ControlledOperation Register(string workDescription, Action body, SimulationNodeIdentity? node = null, int priority = 0)
     {
         ArgumentException.ThrowIfNullOrEmpty(workDescription);
         ArgumentNullException.ThrowIfNull(body);
@@ -170,7 +263,8 @@ public sealed class ControlledOperationScheduler : IDisposable
                 _logicalIds.Next(),
                 workDescription,
                 body,
-                capturedContext);
+                capturedContext,
+                priority);
             _operations.Add(id, operation);
         }
 
@@ -185,10 +279,14 @@ public sealed class ControlledOperationScheduler : IDisposable
     /// <param name="workDescription">A short, stable description of the work, for diagnostics.</param>
     /// <param name="body">The operation body.</param>
     /// <param name="node">The node the operation is scoped to, or <see langword="null"/>.</param>
+    /// <param name="priority">
+    /// The operation's scheduling priority (see <see cref="ControlledOperation.Priority"/>); only the
+    /// <see cref="Strategies.PrioritySchedulingStrategy"/> consults it. Defaults to <c>0</c>.
+    /// </param>
     /// <returns>The newly created, admitted operation.</returns>
-    public ControlledOperation Schedule(string workDescription, Action body, SimulationNodeIdentity? node = null)
+    public ControlledOperation Schedule(string workDescription, Action body, SimulationNodeIdentity? node = null, int priority = 0)
     {
-        var operation = Register(workDescription, body, node);
+        var operation = Register(workDescription, body, node, priority);
         Admit(operation);
         return operation;
     }
@@ -1238,11 +1336,10 @@ public sealed class ControlledOperationScheduler : IDisposable
 
     private ControlledOperation? SelectRunnable()
     {
-        // Deterministic round-robin: the runnable operation with the smallest id strictly greater
-        // than the last-selected one, or - if none is greater - the smallest runnable id (wrap).
-        // _operations is a SortedDictionary, so iteration is ascending by id.
-        ControlledOperation? firstOverall = null;
-        ControlledOperation? firstAfterLast = null;
+        // Collect the runnable operations in ascending id order (_operations is a SortedDictionary),
+        // then delegate the choice to the pluggable strategy. The default RoundRobinSchedulingStrategy
+        // reproduces the Phase 3A behavior exactly.
+        List<ControlledOperation>? runnable = null;
         foreach (var operation in _operations.Values)
         {
             if (operation.State != ControlledOperationState.Runnable)
@@ -1250,20 +1347,80 @@ public sealed class ControlledOperationScheduler : IDisposable
                 continue;
             }
 
-            firstOverall ??= operation;
-            if (firstAfterLast is null && operation.Id > _lastSelected)
-            {
-                firstAfterLast = operation;
-            }
+            (runnable ??= new List<ControlledOperation>()).Add(operation);
         }
 
-        var chosen = firstAfterLast ?? firstOverall;
-        if (chosen is not null)
+        if (runnable is null)
         {
-            _lastSelected = chosen.Id;
+            return null;
         }
 
+        ControlledOperation chosen;
+        if (runnable.Count == 1)
+        {
+            // No real choice - do not consult the strategy's hidden state or record a decision, so
+            // single-candidate steps never perturb a seeded/replayed schedule.
+            chosen = runnable[0];
+        }
+        else
+        {
+            chosen = _strategy.ChooseNext(new ControlledSchedulingContext(runnable, _lastSelected));
+            RecordSelection(chosen, runnable);
+        }
+
+        _lastSelected = chosen.Id;
         return chosen;
+    }
+
+    /// <summary>
+    /// Records the scheduling choice among two-or-more candidates as a
+    /// <see cref="SimulationDecisionKind.SchedulingOrder"/> decision and/or validates it against a
+    /// recorded run. Called under <see cref="_gate"/> on the controlling thread, so the runtime
+    /// identity is taken directly from <see cref="_runtime"/> rather than the ambient context (the
+    /// controlling thread has no operation scope installed).
+    /// </summary>
+    private void RecordSelection(ControlledOperation chosen, List<ControlledOperation> runnable)
+    {
+        if (_decisionLog is null && _replayValidator is null)
+        {
+            return;
+        }
+
+        var request = new SimulationDecisionRequest(
+            SimulationSeedDomain.Scheduler,
+            SimulationDecisionKind.SchedulingOrder,
+            _strategy.Name,
+            FormatCandidateIds(runnable),
+            ReplaySchedulingStrategy.FormatId(chosen.Id),
+            _runtime.Id,
+            NodeId: null,
+            SimulationLogicalExecutionId.None);
+
+        var record = _decisionLog is not null
+            ? _decisionLog.Record(request)
+            : new SimulationDecisionRecord(
+                new SimulationDecisionId(_nextSelectionDecisionId++),
+                request.Domain,
+                request.Kind,
+                request.SourceId,
+                request.InputMetadata,
+                request.SelectedResult,
+                request.RuntimeId,
+                request.NodeId,
+                request.LogicalExecutionId);
+
+        _replayValidator?.Validate(record);
+    }
+
+    private static string FormatCandidateIds(List<ControlledOperation> runnable)
+    {
+        var ids = new string[runnable.Count];
+        for (var i = 0; i < runnable.Count; i++)
+        {
+            ids[i] = ReplaySchedulingStrategy.FormatId(runnable[i].Id);
+        }
+
+        return string.Join(",", ids);
     }
 
     private void EnsureThreadStarted(ControlledOperation operation)
