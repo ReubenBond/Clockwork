@@ -387,9 +387,29 @@ is either newly ambient/observable data or an explicit, additive constructor par
   without an explicit `ambientContext` argument, their node-level queues get no ambient scope,
   preserving their exact prior behavior. This distinction is deliberate and tested.
 
-None of this is wired into any interception, scheduling, or IL-rewriting layer - see
-`docs/compatibility.md` for what remains deferred to later phases (controlled-operation
-physical-thread gating, resource pause/resume, deadlock detection, the Cecil-based deep
+### Controlled-operation kernel (Phase 3A)
+
+`Clockwork.Runtime.Scheduling` adds the *controlled-operation kernel* - the foundational
+scheduling layer for controlled mode. `ControlledOperationScheduler` guarantees that **at most
+one logical operation executes system-under-test code at a time, even across multiple physical
+threads**, using a single permission baton handed off through wait handles (no busy-spin, no
+`Thread.Abort`). The scheduler owns every state transition
+(`Created → Runnable → Running → {Paused, Completed, Faulted, Canceled}`); illegal transitions
+throw with diagnostics. Each operation carries a `SimulationLogicalExecutionId` that is distinct
+from `Environment.CurrentManagedThreadId` (a logical operation may hop physical threads) and is
+installed into `SimulationExecutionContext` automatically, so decision records pick it up with no
+Phase 2 API change. Generic pause/resume primitives let an operation yield the baton
+deterministically and later resume without physical concurrency.
+
+The kernel is available to the existing `SimulationTaskQueue` as an **opt-in** compatibility
+bridge (one controlled operation per user callback); it is off by default, so every existing
+simulation and trace snapshot is byte-identical. The actual `Monitor`/`Semaphore`/wait-handle
+shims, resource ownership and wait queues, virtual timeouts, and deadlock detection that build on
+this kernel are deferred to Phase 3B - see `docs/compatibility.md`.
+
+None of this is wired into any interception or IL-rewriting layer - see
+`docs/compatibility.md` for what remains deferred to later phases (Phase 3B resource
+pause/resume and `Monitor`/`Semaphore` shims, deadlock detection, the Cecil-based deep
 instrumentation mode, BCL shims, a public Buggify API, Generic Host integration, and HTTP support).
 
 

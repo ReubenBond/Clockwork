@@ -86,6 +86,48 @@ classification model, and the external-entry guard) is the substrate this mode i
 expected to build on; it does not itself intercept or redirect any API yet - see the
 README's "Deterministic instrumentation runtime plumbing" section.
 
+#### Controlled-operation kernel (Phase 3A)
+
+Controlled mode's *scheduling substrate* is the controlled-operation kernel in
+`Clockwork.Runtime/Scheduling/` (`ControlledOperation`, `ControlledOperationScheduler`).
+It establishes the one invariant every future controlled primitive depends on: **at
+most one logical operation executes system-under-test code at a time, even when
+operations run on multiple physical threads.** Each operation runs on its own
+dedicated background thread, but a single permission "baton" (handed off via wait
+handles - no busy-spin, no `Thread.Abort`) guarantees exactly-one-running. The
+scheduler - not arbitrary callers - owns every state transition
+(`Created → Runnable → Running → {Paused, Completed, Faulted, Canceled}`); illegal
+edges throw `InvalidControlledOperationTransitionException` with diagnostics rather
+than silently misbehaving. Teardown unparks paused/running operations through an
+explicit control signal and joins their threads with a timeout, so disposal cannot
+strand a thread.
+
+Each operation carries a logical execution identity
+(`SimulationLogicalExecutionId`) that is **distinct from
+`Environment.CurrentManagedThreadId`** - because a single logical operation may hop
+physical threads. The scheduler installs it into `SimulationExecutionContext` on the
+operation thread, so Phase 2 decision records pick it up automatically with no Phase 2
+API change.
+
+The kernel is wired into the existing `SimulationTaskQueue` as an **opt-in
+compatibility bridge**: when a scheduler is supplied, each *ready item* (one user
+callback) runs as a single controlled operation; internal bookkeeping callbacks are
+deliberately **not** wrapped, to avoid needless behavioral churn. The bridge is off by
+default - a queue built without a scheduler behaves exactly as before, so every
+existing Phase 0/1 trace snapshot stays byte-identical. The one intended difference on
+the controlled path is that item bodies observe a non-null logical execution id
+(inline items observe `None`). Always-on migration of the whole kernel to controlled
+operations is deferred until the resource model exists.
+
+**Deferred to Phase 3B (explicitly not in the kernel):** `Monitor`/`Semaphore`/
+wait-handle/synchronous-`Task`-wait shims, the resource ownership + wait-queue model,
+virtual timeout/cancellation races, deadlock detection, and fairness/priority
+selection strategies beyond the kernel's deterministic round-robin. The kernel only
+provides *generic* pause/resume primitives and pause-reason metadata sufficient for
+those primitives to be built on top; it implements none of them itself. A paused
+operation yields the baton deterministically and later becomes runnable again without
+ever introducing physical concurrency.
+
 ### Race exploration mode
 
 Beyond redirecting nondeterminism, this mode actively perturbs scheduling decisions
