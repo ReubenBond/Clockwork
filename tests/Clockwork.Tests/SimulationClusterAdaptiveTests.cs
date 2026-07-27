@@ -196,7 +196,7 @@ public sealed class SimulationClusterAdaptiveTests
     private sealed class AdaptiveTestCluster : SimulationCluster<AdaptiveTestNode>
     {
         public AdaptiveTestCluster(int seed, DateTimeOffset? startDateTime = null, CancellationToken cancellationToken = default)
-            : base(seed, startDateTime ?? DateTimeOffset.UnixEpoch, cancellationToken)
+            : base(seed, startDateTime ?? DateTimeOffset.UnixEpoch, cancellationToken: cancellationToken)
         {
         }
 

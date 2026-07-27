@@ -1,9 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>Future home of Roslyn analyzers that flag simulation determinism violations at compile time (e.g., use of Task.Run, Random.Shared, or wall-clock APIs inside simulated code). Placeholder for now - no analyzers or Microsoft.CodeAnalysis dependency yet. Will need to target netstandard2.0 once implemented, for analyzer host compatibility.</Description>
+    <Description>Roslyn analyzers that flag nondeterministic BCL usage at compile time. Diagnostics mirror the Clockwork built-in deterministic rule set: controlled time/identity/random surfaces that require instrumentation (CW1001) and cryptographic randomness surfaces that are rejected under simulation by default (CW1002).</Description>
     <RootNamespace>Clockwork.Analyzers</RootNamespace>
     <IsPackable>false</IsPackable>
+    <!-- Analyzers load into the C# compiler host and must target netstandard2.0. -->
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="AnalyzerReleases.Shipped.md" />
+    <AdditionalFiles Include="AnalyzerReleases.Unshipped.md" />
+  </ItemGroup>
 
 </Project>

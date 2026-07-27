@@ -26,8 +26,11 @@ public sealed class BuiltSimulation : SimulationCluster<SimulationNode>
         int seed,
         DateTimeOffset? startDateTime,
         IReadOnlyList<SimulationBuilderPendingNode> pendingNodes,
-        CancellationToken cancellationToken)
-        : base(seed, startDateTime, cancellationToken)
+        CancellationToken cancellationToken,
+        TimeZoneInfo? simulationTimeZone = null,
+        Clockwork.Runtime.Shims.SimulationCryptoRandomnessPolicy cryptoRandomnessPolicy =
+            Clockwork.Runtime.Shims.SimulationCryptoRandomnessPolicy.Reject)
+        : base(seed, startDateTime, simulationTimeZone, cryptoRandomnessPolicy, cancellationToken)
     {
         _materializedNodes = new List<SimulationNode>(pendingNodes.Count);
         foreach (var pending in pendingNodes)

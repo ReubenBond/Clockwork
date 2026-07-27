@@ -297,6 +297,43 @@ IL, it must run **before** crossgen/R2R publish, single-file bundling, and Nativ
 instrument first, then publish. Runtime/product-mode hooking of an already-published R2R or
 single-file binary remains deferred (see below).
 
+#### First deterministic BCL rule set (Phase 5)
+
+The first production built-in rule set, `clockwork.bcl.deterministic` (version `1.0.0`),
+redirects the direct **static** time / identity / random BCL surface to Cecil-free runtime
+shims in `Clockwork.Runtime` (namespace `Clockwork.Runtime.Shims`). The complete, exhaustive
+list of controlled and rejected signatures is generated into
+[`rule-inventory.md`](rule-inventory.md) and verified against the shipped rules by a test, so
+the published inventory can never drift from the code.
+
+The redirect is a three-state contract enforced by the shim, never a silent fallback:
+
+- **Outside a simulation** the shim runs the real BCL API unchanged (production pass-through).
+- **Inside a simulation with a registered runtime environment** it dispatches to the node's
+  simulated clock and the correct independent seed domain (Application/Identity only - never
+  the scheduler, network, or Buggify domains).
+- **Inside a simulation with no registered environment** it throws
+  `SimulationServiceMissingException` rather than read real wall-clock time or OS entropy.
+
+Semantics: local-time clocks (`DateTime.Now`/`Today`, `DateTimeOffset.Now`) honour the
+configured simulation time zone; `Environment.TickCount`/`TickCount64` wrap with correct
+`int`/`long` behaviour; `Stopwatch.GetTimestamp`/`GetElapsedTime(long)` are machine-independent.
+`Guid.NewGuid` draws deterministic bytes while preserving RFC 4122 variant and version 4;
+`Guid.CreateVersion7` encodes the simulated UTC millisecond timestamp in the first 48 bits with
+version 7 (no monotonicity guarantee beyond the BCL contract). `Random.Shared` and unseeded
+`new Random()` become per-node deterministic streams; explicitly seeded `new Random(int)`
+preserves the caller's seed exactly. Cryptographic randomness (`RandomNumberGenerator` static
+entropy APIs) is **rejected by default** under simulation with a precise diagnostic; a strictly
+test-only opt-in (`SimulationBuilder.WithCryptoRandomnessPolicy(DeterministicInsecureForTesting)`)
+can substitute deterministic-insecure bytes - production security semantics are never changed.
+
+**Opt-in.** No JSON authoring is required. MSBuild consumers set
+`<ClockworkUseBuiltInRules>true</ClockworkUseBuiltInRules>` (strict by default via
+`ClockworkStrictBuiltIns`); CLI consumers pass `--builtin clockwork.bcl.deterministic`
+(or `--builtin all`) with optional `--builtin-include`/`--builtin-exclude` family filters and
+`--builtin-strict`. The selected families are versioned and folded into the rule-set signature,
+so incremental rebuilds stay correct.
+
 Each mode is intended to be strictly additive: an application written for
 cooperative mode should continue to work unmodified under controlled, race
 exploration, or deep instrumentation mode.
@@ -309,6 +346,9 @@ exploration, or deep instrumentation mode.
 - **Windows, Linux, and macOS** are all supported for the existing kernel; it has no
   platform-specific dependencies (no P/Invoke, no OS-specific I/O).
 - **JIT execution** (the default `dotnet run`/`dotnet test` path) is fully supported.
+- **Deterministic BCL rule set** (`clockwork.bcl.deterministic`) covers the direct static
+  time/identity/random surface enumerated in [`rule-inventory.md`](rule-inventory.md).
+  Determinism is claimed **only** for those exact signatures.
 - **ReadyToRun (R2R) published assemblies** are expected to work for the existing
   kernel and for cooperative/controlled/race-exploration modes, since none of those
   modes require rewriting already-compiled method bodies at load time. This is a
@@ -339,6 +379,13 @@ surprise:
   policy (fail, or re-sign with a supplied key, verifying public-key-token consistency
   across the rewritten closure) and detects but does not re-apply Authenticode. What
   remains deferred is *product-mode* (runtime/load-time) handling of signed assemblies.
+- **Nondeterministic BCL surface beyond the rule inventory.** Only the exact signatures in
+  [`rule-inventory.md`](rule-inventory.md) are rewritten. Documented holes include `Stopwatch`
+  instance APIs and `GetElapsedTime(long, long)`; generic crypto helpers `GetItems<T>`/`Shuffle<T>`
+  and unlisted `GetString`/`GetHexString` overloads; and `DateTime`/`DateTimeOffset`
+  parse/format/convert helpers. Everything outside time/identity/random - task/thread/
+  synchronization primitives, timers, collections, Buggify, hosting, and network/HTTP - is out
+  of scope for Phase 5.
 - **Profiler conflicts.** Deep instrumentation that uses the .NET profiling APIs
   (ICorProfilerCallback) cannot coexist with other profilers (coverage tools, APM
   agents, debuggers attaching a profiler) without explicit multi-profiler

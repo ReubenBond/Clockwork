@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Random;
+using Clockwork.Runtime.Shims;
 using Microsoft.Extensions.Logging;
 
 namespace Clockwork;
@@ -24,6 +25,8 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     private readonly CancellationTokenSource _teardownCts;
     private readonly SimulationDriveLoop _driveLoop;
     private readonly SimulationActivationToken _activationToken;
+    private readonly SimulationRuntimeEnvironment _runtimeEnvironment;
+    private readonly IDisposable _runtimeRegistration;
     private bool _disposed;
 
     /// <summary>
@@ -32,13 +35,29 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     /// </summary>
     /// <param name="seed">The seed for deterministic random number generation.</param>
     /// <param name="startDateTime">Optional starting date/time for the simulation. Defaults to UTC now.</param>
+    /// <param name="simulationTimeZone">
+    /// Optional local time zone the deterministic <c>DateTime.Now</c>/<c>Today</c> shims observe.
+    /// Defaults to <see cref="TimeZoneInfo.Utc"/> so local and UTC time coincide deterministically.
+    /// </param>
+    /// <param name="cryptoRandomnessPolicy">
+    /// Optional policy for cryptographic-randomness calls during simulation. Defaults to
+    /// <see cref="SimulationCryptoRandomnessPolicy.Reject"/>, which fails such calls with a precise
+    /// diagnostic rather than ever substituting insecure bytes.
+    /// </param>
     /// <param name="cancellationToken">Optional cancellation token to link with the cluster teardown.</param>
-    protected SimulationCluster(int seed, DateTimeOffset? startDateTime = null, CancellationToken cancellationToken = default)
+    protected SimulationCluster(
+        int seed,
+        DateTimeOffset? startDateTime = null,
+        TimeZoneInfo? simulationTimeZone = null,
+        SimulationCryptoRandomnessPolicy cryptoRandomnessPolicy = SimulationCryptoRandomnessPolicy.Reject,
+        CancellationToken cancellationToken = default)
     {
         _teardownCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         TeardownCancellationToken = _teardownCts.Token;
         Seed = seed;
         StartDateTime = startDateTime ?? DateTimeOffset.UtcNow;
+        SimulationTimeZone = simulationTimeZone ?? TimeZoneInfo.Utc;
+        CryptoRandomnessPolicy = cryptoRandomnessPolicy;
 
         Random = new SimulationRandom(seed);
 
@@ -66,6 +85,24 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
             Clock.Advance,
             CapturePendingWorkSummary,
             TeardownCancellationToken);
+
+        // Deterministic BCL shim wiring: back the process-wide runtime environment with this
+        // cluster's virtual clock and seed authority, drawing only from the Application/Identity
+        // seed domains so it never perturbs the scheduler, network, or Buggify streams. The
+        // registration is capability-gated by this cluster's activation token and keyed by the
+        // runtime identity, so parallel clusters never collide; it is torn down in DisposeAsync.
+        // The default crypto policy rejects OS-entropy calls during simulation (no silent
+        // substitution); a UTC local zone keeps DateTime.Now/Today deterministic by default.
+        _runtimeEnvironment = new SimulationRuntimeEnvironment(
+            SeedAuthority,
+            () => _timeProvider.GetUtcNow(),
+            SimulationTimeZone,
+            StartDateTime,
+            CryptoRandomnessPolicy);
+        _runtimeRegistration = SimulationRuntimeServices.Register(
+            _activationToken,
+            RuntimeIdentity,
+            _runtimeEnvironment);
     }
 
     /// <summary>
@@ -96,6 +133,26 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     /// fork order.
     /// </summary>
     public SimulationSeedAuthority SeedAuthority { get; }
+
+    /// <summary>
+    /// Gets the local time zone the deterministic <c>DateTime.Now</c>/<c>DateTime.Today</c> shims
+    /// observe for nodes in this cluster. Defaults to <see cref="TimeZoneInfo.Utc"/> so local and UTC
+    /// time coincide deterministically regardless of the host machine's zone.
+    /// </summary>
+    public TimeZoneInfo SimulationTimeZone { get; }
+
+    /// <summary>
+    /// Gets the cryptographic-randomness policy the deterministic crypto shims enforce during this
+    /// simulation. Defaults to <see cref="SimulationCryptoRandomnessPolicy.Reject"/>: OS-entropy calls
+    /// fail with a precise diagnostic rather than ever silently substituting insecure bytes.
+    /// </summary>
+    public SimulationCryptoRandomnessPolicy CryptoRandomnessPolicy { get; }
+
+    /// <summary>
+    /// Gets the deterministic runtime environment the BCL shims dispatch to while this cluster's
+    /// ambient runtime is active. Backed by this cluster's virtual clock and seed authority.
+    /// </summary>
+    public ISimulationRuntimeEnvironment RuntimeEnvironment => _runtimeEnvironment;
 
     /// <summary>
     /// Gets a cancellation token used to signal when the simulation is being torn down.
@@ -691,6 +748,10 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
             SafeCancel(_teardownCts);
             await DisposeAsyncCore();
         });
+
+        // Tear down the deterministic runtime environment registration so a later simulation with a
+        // fresh runtime identity starts clean and this cluster's environment stops serving shims.
+        _runtimeRegistration.Dispose();
 
         _teardownCts.Dispose();
         GC.SuppressFinalize(this);

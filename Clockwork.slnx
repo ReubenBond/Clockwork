@@ -14,6 +14,8 @@
     <Project Path="tests/Clockwork.Tests/Clockwork.Tests.csproj" />
     <Project Path="tests/Clockwork.Runtime.Tests/Clockwork.Runtime.Tests.csproj" />
     <Project Path="tests/Clockwork.Instrumentation.Tests/Clockwork.Instrumentation.Tests.csproj" />
+    <Project Path="tests/Clockwork.Conformance.Tests/Clockwork.Conformance.Tests.csproj" />
+    <Project Path="tests/Clockwork.Analyzers.Tests/Clockwork.Analyzers.Tests.csproj" />
     <Project Path="tests/Clockwork.Testing.Tests/Clockwork.Testing.Tests.csproj" />
   </Folder>
 </Solution>

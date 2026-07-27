@@ -1,0 +1,193 @@
+using System.Collections.Immutable;
+using Clockwork.Runtime.Policy;
+
+namespace Clockwork.Instrumentation.Rules.BuiltIn;
+
+/// <summary>
+/// The catalogue of Clockwork's built-in, versioned rewrite rule sets. These ship with the
+/// instrumentation package so MSBuild and CLI users can turn on deterministic BCL behaviour without
+/// hand-authoring JSON signatures. The only rule set today is
+/// <see cref="DeterministicBclId"/> - the first production deterministic BCL shim set - which
+/// redirects the direct static time / identity / random surface to the Cecil-free runtime shims in
+/// the <c>Clockwork.Runtime</c> assembly (namespace <c>Clockwork.Runtime.Shims</c>).
+/// </summary>
+/// <remarks>
+/// <para>
+/// Rules are grouped into <see cref="BuiltInRuleFamily"/> values so a caller can include or exclude a
+/// whole family (the granular, safe unit) while the exact per-signature mapping stays fixed and
+/// coherent. The rule set's <em>content</em> changes when the selected families change, so its
+/// <see cref="RewriteRuleSet.ComputeSignature"/> - and therefore the incremental build key - reflects
+/// the selection even though the id and version are stable.
+/// </para>
+/// <para>
+/// The clock, identity, and random families are <see cref="SimulationApiPolicy.Controlled"/>
+/// redirections. The crypto family is classified <see cref="SimulationApiPolicy.Rejected"/> - the
+/// operation is still a redirect to <c>DeterministicCryptoRandom</c>, but the shim rejects the call by
+/// default at runtime and only serves deterministic-insecure bytes under an explicit test-only opt-in.
+/// Outside a simulation every shim runs the real BCL API unchanged.
+/// </para>
+/// </remarks>
+public static class BuiltInRuleSets
+{
+    /// <summary>The stable id of the first production deterministic BCL rule set.</summary>
+    public const string DeterministicBclId = "clockwork.bcl.deterministic";
+
+    /// <summary>The version of the deterministic BCL rule set.</summary>
+    public const string DeterministicBclVersion = "1.0.0";
+
+    /// <summary>The simple name of the assembly declaring every built-in shim.</summary>
+    public const string ShimAssemblyName = "Clockwork.Runtime";
+
+    private const string ClockShim = "Clockwork.Runtime.Shims.DeterministicClock";
+    private const string GuidShim = "Clockwork.Runtime.Shims.DeterministicGuid";
+    private const string RandomShim = "Clockwork.Runtime.Shims.DeterministicRandom";
+    private const string CryptoShim = "Clockwork.Runtime.Shims.DeterministicCryptoRandom";
+
+    // Cecil full names for the exact overload parameters (from the net10 reference assemblies).
+    private const string Int32 = "System.Int32";
+    private const string Int64 = "System.Int64";
+    private const string String = "System.String";
+    private const string Boolean = "System.Boolean";
+    private const string DateTimeOffset = "System.DateTimeOffset";
+    private const string SpanByte = "System.Span`1<System.Byte>";
+    private const string SpanChar = "System.Span`1<System.Char>";
+    private const string ReadOnlySpanChar = "System.ReadOnlySpan`1<System.Char>";
+
+    private static readonly ImmutableArray<BuiltInRuleEntry> DeterministicBcl = BuildDeterministicBclEntries();
+
+    /// <summary>Gets the ids of every built-in rule set that can be enabled by name.</summary>
+    public static ImmutableArray<string> AvailableIds { get; } = [DeterministicBclId];
+
+    /// <summary>Gets every rule family in canonical (declared) order.</summary>
+    public static ImmutableArray<BuiltInRuleFamily> AllFamilies { get; } =
+        [BuiltInRuleFamily.Clock, BuiltInRuleFamily.Identity, BuiltInRuleFamily.Random, BuiltInRuleFamily.Crypto];
+
+    /// <summary>Gets the (family, rule) entries of the deterministic BCL rule set, for documentation and inventory generation.</summary>
+    public static ImmutableArray<(BuiltInRuleFamily Family, RewriteRule Rule)> DeterministicBclInventory { get; } =
+        [.. DeterministicBcl.Select(e => (e.Family, e.Rule))];
+
+    /// <summary>Gets a value indicating whether <paramref name="id"/> names a known built-in rule set.</summary>
+    public static bool IsKnownId(string id) => AvailableIds.Contains(id, StringComparer.Ordinal);
+
+    /// <summary>Parses a case-insensitive family name (e.g. <c>Clock</c>, <c>crypto</c>).</summary>
+    public static bool TryParseFamily(string text, out BuiltInRuleFamily family) =>
+        Enum.TryParse(text, ignoreCase: true, out family) && Enum.IsDefined(family);
+
+    /// <summary>
+    /// Builds the deterministic BCL rule set restricted to <paramref name="families"/>, preserving the
+    /// canonical family and rule order so the result is stable across runs.
+    /// </summary>
+    /// <param name="families">The families to include. An empty set produces an empty rule set.</param>
+    /// <returns>The versioned rule set.</returns>
+    public static RewriteRuleSet BuildDeterministicBcl(IEnumerable<BuiltInRuleFamily> families)
+    {
+        ArgumentNullException.ThrowIfNull(families);
+        var selected = new HashSet<BuiltInRuleFamily>(families);
+        IEnumerable<RewriteRule> rules = DeterministicBcl
+            .Where(e => selected.Contains(e.Family))
+            .Select(e => e.Rule);
+        return new RewriteRuleSet(DeterministicBclId, DeterministicBclVersion, rules);
+    }
+
+    private static ImmutableArray<BuiltInRuleEntry> BuildDeterministicBclEntries()
+    {
+        var builder = ImmutableArray.CreateBuilder<BuiltInRuleEntry>();
+
+        // ---- Clock family: wall-clock, offset clock, monotonic timestamp, tick counters ----
+        Clock(builder, "clockwork.bcl.datetime.now", "System.DateTime", "get_Now", "GetNow");
+        Clock(builder, "clockwork.bcl.datetime.utcnow", "System.DateTime", "get_UtcNow", "GetUtcNow");
+        Clock(builder, "clockwork.bcl.datetime.today", "System.DateTime", "get_Today", "GetToday");
+        Clock(builder, "clockwork.bcl.datetimeoffset.now", "System.DateTimeOffset", "get_Now", "GetOffsetNow");
+        Clock(builder, "clockwork.bcl.datetimeoffset.utcnow", "System.DateTimeOffset", "get_UtcNow", "GetOffsetUtcNow");
+        Clock(builder, "clockwork.bcl.stopwatch.gettimestamp", "System.Diagnostics.Stopwatch", "GetTimestamp", "GetTimestamp");
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Clock, RewriteRule.RedirectCall(
+            "clockwork.bcl.stopwatch.getelapsedtime",
+            MemberSignature.Method("System.Diagnostics.Stopwatch", "GetElapsedTime", Int64),
+            Shim(ClockShim, "GetElapsedTime", Int64))));
+        Clock(builder, "clockwork.bcl.environment.tickcount", "System.Environment", "get_TickCount", "GetTickCount");
+        Clock(builder, "clockwork.bcl.environment.tickcount64", "System.Environment", "get_TickCount64", "GetTickCount64");
+
+        // ---- Guid family: deterministic identity bytes with preserved RFC variant/version ----
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Identity, RewriteRule.RedirectCall(
+            "clockwork.bcl.guid.newguid",
+            MemberSignature.Method("System.Guid", "NewGuid"),
+            Shim(GuidShim, "NewGuid"))));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Identity, RewriteRule.RedirectCall(
+            "clockwork.bcl.guid.createversion7",
+            MemberSignature.Method("System.Guid", "CreateVersion7"),
+            Shim(GuidShim, "CreateVersion7"))));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Identity, RewriteRule.RedirectCall(
+            "clockwork.bcl.guid.createversion7.timestamp",
+            MemberSignature.Method("System.Guid", "CreateVersion7", DateTimeOffset),
+            Shim(GuidShim, "CreateVersion7", DateTimeOffset))));
+
+        // ---- Random family: shared instance and both constructors ----
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Random, RewriteRule.RedirectCall(
+            "clockwork.bcl.random.shared",
+            MemberSignature.Method("System.Random", "get_Shared"),
+            Shim(RandomShim, "GetShared"))));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Random, RewriteRule.RedirectNewObj(
+            "clockwork.bcl.random.ctor.unseeded",
+            MemberSignature.Constructor("System.Random"),
+            Shim(RandomShim, "CreateUnseeded"))));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Random, RewriteRule.RedirectNewObj(
+            "clockwork.bcl.random.ctor.seeded",
+            MemberSignature.Constructor("System.Random", Int32),
+            Shim(RandomShim, "CreateSeeded", Int32))));
+
+        // ---- Crypto family: rejected-by-default policy shims for OS-entropy statics ----
+        Crypto(builder, "clockwork.bcl.rng.create", "Create", Shim(CryptoShim, "Create"),
+            MemberSignature.Method("System.Security.Cryptography.RandomNumberGenerator", "Create"));
+        Crypto(builder, "clockwork.bcl.rng.create.named", "Create", Shim(CryptoShim, "Create", String),
+            MemberSignature.Method("System.Security.Cryptography.RandomNumberGenerator", "Create", String));
+        Crypto(builder, "clockwork.bcl.rng.fill", "Fill", Shim(CryptoShim, "Fill", SpanByte),
+            MemberSignature.Method("System.Security.Cryptography.RandomNumberGenerator", "Fill", SpanByte));
+        Crypto(builder, "clockwork.bcl.rng.getbytes.count", "GetBytes", Shim(CryptoShim, "GetBytes", Int32),
+            MemberSignature.Method("System.Security.Cryptography.RandomNumberGenerator", "GetBytes", Int32));
+        Crypto(builder, "clockwork.bcl.rng.getint32.exclusive", "GetInt32", Shim(CryptoShim, "GetInt32", Int32),
+            MemberSignature.Method("System.Security.Cryptography.RandomNumberGenerator", "GetInt32", Int32));
+        Crypto(builder, "clockwork.bcl.rng.getint32.range", "GetInt32", Shim(CryptoShim, "GetInt32", Int32, Int32),
+            MemberSignature.Method("System.Security.Cryptography.RandomNumberGenerator", "GetInt32", Int32, Int32));
+        Crypto(builder, "clockwork.bcl.rng.gethexstring.span", "GetHexString", Shim(CryptoShim, "GetHexString", SpanChar, Boolean),
+            MemberSignature.Method("System.Security.Cryptography.RandomNumberGenerator", "GetHexString", SpanChar, Boolean));
+        Crypto(builder, "clockwork.bcl.rng.gethexstring.length", "GetHexString", Shim(CryptoShim, "GetHexString", Int32, Boolean),
+            MemberSignature.Method("System.Security.Cryptography.RandomNumberGenerator", "GetHexString", Int32, Boolean));
+        Crypto(builder, "clockwork.bcl.rng.getstring", "GetString", Shim(CryptoShim, "GetString", ReadOnlySpanChar, Int32),
+            MemberSignature.Method("System.Security.Cryptography.RandomNumberGenerator", "GetString", ReadOnlySpanChar, Int32));
+
+        return builder.ToImmutable();
+    }
+
+    private static void Clock(
+        ImmutableArray<BuiltInRuleEntry>.Builder builder,
+        string id,
+        string declaringType,
+        string member,
+        string shimMember)
+    {
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Clock, RewriteRule.RedirectCall(
+            id,
+            MemberSignature.Method(declaringType, member),
+            Shim(ClockShim, shimMember))));
+    }
+
+    private static void Crypto(
+        ImmutableArray<BuiltInRuleEntry>.Builder builder,
+        string id,
+        string member,
+        RewriteReplacement replacement,
+        MemberSignature target)
+    {
+        _ = member;
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Crypto, RewriteRule.RedirectCall(
+            id, target, replacement, SimulationApiPolicy.Rejected)));
+    }
+
+    // A collection expression always yields a non-default ImmutableArray - even when empty - so the
+    // resolver treats the replacement as having an exact parameter constraint and picks the intended
+    // overload deterministically (never the metadata-order first match).
+    private static RewriteReplacement Shim(string declaringType, string member, params string[] parameterTypes) =>
+        new(ShimAssemblyName, declaringType, member, [.. parameterTypes]);
+
+    private readonly record struct BuiltInRuleEntry(BuiltInRuleFamily Family, RewriteRule Rule);
+}

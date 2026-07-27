@@ -286,6 +286,13 @@ Clockwork can only control dependencies routed through the simulation:
 - Use `SimulationRandom` or a derived random stream instead of `Random.Shared`.
 - Forward cancellation tokens and use synchronous cancellation callbacks.
 
+> With the built-in `clockwork.bcl.deterministic` rule set enabled (see
+> [First deterministic BCL rule set](#first-deterministic-bcl-rule-set-phase-5)), the direct
+> **static** calls in this list - wall-clock APIs and `Random.Shared`/`new Random()` among them -
+> are rewritten to deterministic shims automatically, so unmodified source becomes deterministic
+> under simulation without manual `TimeProvider`/`SimulationRandom` threading. The guidance above
+> still applies to APIs outside that inventory and to instance-based nondeterminism.
+
 `SimulationSynchronizationContext.Send` supports exactly two safe cases, and rejects everything
 else with a precise diagnostic rather than papering over it: if the calling thread is already on
 the context's owning simulated operation (`SynchronizationContext.Current` or
@@ -542,6 +549,70 @@ Verified end-to-end by process-execution tests (an enabled staged executable dis
 shim while a normal one does not, across Debug/Release, symbols present/absent, config-loaded rules,
 rejected calls, incremental rebuilds, exclusions, a signed closure, and the R2R policy) and by
 package smoke tests that pack, install, and run the real targets and tool.
+
+## First deterministic BCL rule set (Phase 5)
+
+The first production built-in rule set, **`clockwork.bcl.deterministic`** (version `1.0.0`),
+makes ordinary source that calls the direct **static** time / identity / random BCL surface
+deterministic - with no dependency injection, no `TimeProvider` threading, and no manual shim
+wiring. Enabling it rewrites those call sites to Cecil-free runtime shims in `Clockwork.Runtime`.
+The complete, exhaustive list of controlled and rejected signatures is generated into
+[`docs/rule-inventory.md`](docs/rule-inventory.md) and verified against the shipped rules by a
+test, so the documentation cannot drift from the code.
+
+**Enabling it (no JSON required).**
+
+```xml
+<!-- MSBuild: strict by default -->
+<PropertyGroup>
+  <ClockworkUseBuiltInRules>true</ClockworkUseBuiltInRules>
+</PropertyGroup>
+```
+
+```
+# CLI
+clockwork rewrite --input <dir-or-assembly> --output <dir> --builtin clockwork.bcl.deterministic
+#   --builtin all                 enable every shipped rule set
+#   --builtin-include Clock Random restrict to specific families
+#   --builtin-exclude Crypto      drop a family
+#   --builtin-strict false        relax strict validation (strict is the default)
+```
+
+**Three-state contract (never a silent fallback).** Each shim checks whether a simulation is
+active:
+
+- **Outside a simulation** - runs the real BCL API unchanged (production pass-through).
+- **Inside a simulation with a registered runtime environment** - dispatches to the current
+  node's simulated clock and the correct independent seed domain (Application/Identity only;
+  the scheduler, network, and Buggify seed streams are never perturbed).
+- **Inside a simulation with no registered environment** - throws
+  `SimulationServiceMissingException` rather than read real wall-clock time or OS entropy.
+
+**Semantics.** Local-time clocks (`DateTime.Now`/`Today`, `DateTimeOffset.Now`) honour the
+configured simulation time zone, while UTC clocks return the node's virtual UTC time.
+`Environment.TickCount`/`TickCount64` wrap with correct `int`/`long` behaviour, and
+`Stopwatch.GetTimestamp`/`GetElapsedTime(long)` are machine-independent. `Guid.NewGuid`
+draws deterministic bytes while preserving the RFC 4122 variant and version 4;
+`Guid.CreateVersion7` encodes the simulated UTC millisecond timestamp in the first 48 bits with
+version 7 (no monotonicity guarantee beyond the BCL contract). `Random.Shared` and unseeded
+`new Random()` become **per-node** deterministic streams that replay under a fixed seed and
+schedule and never share mutable state across nodes; explicitly seeded `new Random(int)`
+preserves the caller's seed exactly. Cryptographic randomness (`RandomNumberGenerator` static
+entropy APIs) is **rejected by default** with a precise diagnostic naming the assembly, method,
+and location; a strictly test-only opt-in,
+`SimulationBuilder.WithCryptoRandomnessPolicy(SimulationCryptoRandomnessPolicy.DeterministicInsecureForTesting)`,
+can substitute deterministic-insecure bytes - production security semantics are never changed and
+insecure bytes are never silently substituted.
+
+**Compile-time guidance.** The `Clockwork.Analyzers` project ships two diagnostics that mirror
+the rule set: `CW1001` flags controlled time/identity/random members that require instrumentation,
+and `CW1002` flags cryptographic randomness that is rejected under simulation.
+
+Verified end to end by a conformance test project that compiles unmodified BCL-calling source,
+rewrites it with the built-in rule set, and observes deterministic behaviour under a live
+simulation (and normal BCL behaviour outside one). Determinism is claimed **only** for the exact
+rules tabulated in the [rule inventory](docs/rule-inventory.md); see
+[compatibility](docs/compatibility.md) for the documented holes.
 
 
 ## License
