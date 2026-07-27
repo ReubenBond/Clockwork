@@ -27,11 +27,11 @@ jobs:
         run: dotnet build Clockwork.slnx --configuration Release
       - name: Test kernel
         run: dotnet run --project tests/Clockwork.Tests/Clockwork.Tests.csproj --configuration Release --no-build -- --timeout 60s
-      - name: Test Runtime scaffold
+      - name: Test Runtime
         run: dotnet run --project tests/Clockwork.Runtime.Tests/Clockwork.Runtime.Tests.csproj --configuration Release --no-build -- --timeout 60s
-      - name: Test Instrumentation scaffold
+      - name: Test Instrumentation
         run: dotnet run --project tests/Clockwork.Instrumentation.Tests/Clockwork.Instrumentation.Tests.csproj --configuration Release --no-build -- --timeout 180s
-      - name: Test Testing scaffold
+      - name: Test Testing
         run: dotnet run --project tests/Clockwork.Testing.Tests/Clockwork.Testing.Tests.csproj --configuration Release --no-build -- --timeout 60s
       - name: Test analyzers
         run: dotnet run --project tests/Clockwork.Analyzers.Tests/Clockwork.Analyzers.Tests.csproj --configuration Release --no-build -- --timeout 60s
@@ -64,7 +64,7 @@ jobs:
     # Validates the Windows/Linux/macOS platform claim in docs/compatibility.md by
     # running the deterministic kernel's own test suite on every supported OS. This
     # is the "full" lane; the "build" job above stays the fast, single-OS lane that
-    # also covers the scaffold projects and packing.
+    # also covers all solution projects and packing.
     strategy:
       fail-fast: false
       matrix:

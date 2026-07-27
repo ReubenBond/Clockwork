@@ -560,10 +560,10 @@ The implemented package boundaries under `src/` map to the modes above:
 | `Clockwork.Instrumentation.Build` | `Clockwork.Instrumentation` | Opt-in MSBuild task + targets that instrument the resolved output closure out-of-place. |
 | `Clockwork.Tool` | `Clockwork.Instrumentation` | `clockwork rewrite` / `inspect` CLI over the shared orchestrator. |
 | `Clockwork.Analyzers` | *(none)* | Roslyn diagnostics aligned with controlled/rejected direct BCL usage. |
-| `Clockwork.Hosting` | `Clockwork.Runtime` | Integration with `Microsoft.Extensions.Hosting`. |
-| `Clockwork.Http` | `Clockwork.Runtime` | `HttpMessageHandler` routed through the simulated network. |
 | `Clockwork.Testing` | `Clockwork.Runtime` | Reusable test helpers and scenario builders for consumers. |
 
-`Clockwork.Hosting`, `Clockwork.Http`, and `Clockwork.Testing` remain separate integration/helper
-packages. Exact shipped interception behavior is defined by [`rule-inventory.md`](rule-inventory.md),
-not by historical phase prose.
+`Clockwork.Testing` remains a separate helper package. Application hosting and transport models are
+consumer-owned and outside the Clockwork core; consumers compose them over `SimulationNetwork` and
+the generic application-composition APIs, and no dedicated hosting or HTTP packages ship. Exact
+shipped interception behavior is defined by [`rule-inventory.md`](rule-inventory.md), not by
+historical phase prose.
