@@ -17,5 +17,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Clockwork.Instrumentation\Clockwork.Instrumentation.csproj" />
+    <ProjectReference Include="..\..\src\Clockwork.Tool\Clockwork.Tool.csproj" />
   </ItemGroup>
 </Project>
