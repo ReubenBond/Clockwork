@@ -13,6 +13,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    env:
+      # Redirect transient process-test artifacts (staged closures, manifests, packed feeds) to a
+      # known path so the failure-retention step below can surface them for debugging.
+      CLOCKWORK_TEST_ARTIFACTS: ${{ runner.temp }}/clockwork-artifacts
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -25,9 +30,29 @@ jobs:
       - name: Test Runtime scaffold
         run: dotnet run --project tests/Clockwork.Runtime.Tests/Clockwork.Runtime.Tests.csproj --configuration Release --no-build -- --timeout 60s
       - name: Test Instrumentation scaffold
-        run: dotnet run --project tests/Clockwork.Instrumentation.Tests/Clockwork.Instrumentation.Tests.csproj --configuration Release --no-build -- --timeout 60s
+        run: dotnet run --project tests/Clockwork.Instrumentation.Tests/Clockwork.Instrumentation.Tests.csproj --configuration Release --no-build -- --timeout 180s
       - name: Test Testing scaffold
         run: dotnet run --project tests/Clockwork.Testing.Tests/Clockwork.Testing.Tests.csproj --configuration Release --no-build -- --timeout 60s
+      - name: Package smoke tests
+        # Exercises the real packed NuGet artifacts end-to-end: packs Clockwork.Instrumentation.Build
+        # and Clockwork.Tool into an isolated feed, consumes the build package through the real MSBuild
+        # targets, and installs + runs the tool. Gated behind CLOCKWORK_SMOKE_TESTS so ordinary runs
+        # skip these slower flows. CLOCKWORK_TEST_ARTIFACTS redirects transient fixtures/manifests to a
+        # known path so they can be retained on failure.
+        env:
+          CLOCKWORK_SMOKE_TESTS: "1"
+        run: dotnet run --project tests/Clockwork.Instrumentation.Tests/Clockwork.Instrumentation.Tests.csproj --configuration Release --no-build -- --timeout 600s --filter-namespace Clockwork.Instrumentation.Tests.Packaging
+      - name: Upload instrumentation artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clockwork-instrumentation-artifacts
+          path: |
+            ${{ runner.temp }}/clockwork-artifacts/**/*.manifest.json
+            ${{ runner.temp }}/clockwork-artifacts/**/staged/**
+            ${{ runner.temp }}/clockwork-artifacts/**/clockwork/**
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Pack
         run: dotnet pack Clockwork.csproj --configuration Release --no-build --output artifacts/packages
 

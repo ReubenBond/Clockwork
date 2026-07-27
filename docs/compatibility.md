@@ -250,6 +250,53 @@ and profiler/native detours. Mixed-mode (native) assemblies are rejected (`CWR00
 The engine performs the IL transformation mechanics only; it is wired to no build or
 deployment step yet.
 
+#### Build and tool integration (Phase 4B)
+
+Phase 4B wires the Phase 4A engine to a build and a command line. It adds **no BCL shim
+rules** - it is generic, strictly opt-in plumbing that fails explicitly rather than
+silently degrading. It ships two packages: `Clockwork.Instrumentation.Build` (an MSBuild
+task with `build/` props and targets, a development dependency) and `Clockwork.Tool`
+(the `clockwork` CLI).
+
+**Opt-in only.** An ordinary build never instruments. The `ClockworkInstrument` target
+runs `AfterTargets="Build"` only when the consumer sets
+`ClockworkInstrumentationEnabled=true` and supplies at least one `@(ClockworkRuleSet)`
+document. It discovers the resolved output closure (honoring `.deps.json`, runtimeconfig,
+satellite/resource/native assets, include/exclude globs, and framework/reference-assembly
+exclusion), rewrites **only managed IL** out-of-place under
+`obj/<Config>/<Tfm>/clockwork/instrumented/`, copies the non-managed assets needed to run
+the staged app unchanged, and emits a manifest under
+`obj/<Config>/<Tfm>/clockwork/clockwork.manifest.json`. Source and `bin` outputs are never
+mutated. The work is incremental, keyed by input assembly/symbol hashes, the rule-set
+signature, engine version, configuration, and reference set.
+
+**Task package requires the .NET 10 SDK.** The task and its Cecil-based engine target
+`net10.0` and load only under `dotnet build` / `dotnet msbuild`; .NET Framework MSBuild
+(classic `msbuild.exe`) cannot host them. The `Clockwork.Tool` CLI exposes `rewrite`
+(with `--dry-run`) and `inspect` (text or `--json`), with nonzero exit codes classified
+by failure kind. `run`/`replay`/`minimize` are deferred to later replay work.
+
+**Configuration is data, not code.** Configuration and rule sets are JSON documents,
+validated strictly for schema, types, and signatures; **no arbitrary code is executed
+from configuration**. Multiple rule sets merge deterministically by a defined precedence -
+the mechanism future built-in, application, and third-party rules will share.
+
+**Strong naming (build/tool scope).** Signed, public-signed, and delay-signed inputs are
+detected. Re-signing happens only when a key is supplied (`ClockworkStrongNamePolicy=Resign`
++ `ClockworkStrongNameKeyPath`); when re-signing is required but no key is available the
+build fails clearly rather than emitting a broken signature. Public-key-token consistency
+across a rewritten dependency closure is verified. **Authenticode** signatures are detected
+and reported as unsupported - they are never re-applied, and a rewritten assembly does not
+retain its Authenticode signature; re-sign such outputs with your own toolchain after
+instrumentation.
+
+**ReadyToRun (build/tool scope).** R2R/native sections are detected. The default `Reject`
+policy fails rather than emit stale native code; the opt-in `StripToIL` policy round-trips
+through Cecil to produce IL-only staged output. Because instrumentation rewrites managed
+IL, it must run **before** crossgen/R2R publish, single-file bundling, and Native AOT -
+instrument first, then publish. Runtime/product-mode hooking of an already-published R2R or
+single-file binary remains deferred (see below).
+
 Each mode is intended to be strictly additive: an application written for
 cooperative mode should continue to work unmodified under controlled, race
 exploration, or deep instrumentation mode.
@@ -277,18 +324,21 @@ surprise:
 - **Single-file deployment.** Deep instrumentation that rewrites assemblies at build
   time or hooks module loading at runtime is expected to need adaptation for
   single-file bundles, where assemblies are embedded rather than present as
-  discrete files on disk.
+  discrete files on disk. The Phase 4B build/tool path addresses this only by ordering:
+  instrument the IL closure *before* single-file bundling, never after.
 - **Trimming.** IL trimming can remove members that instrumentation depends on
   reflecting over or rewriting; deep instrumentation and any reflection-based
   redirection in controlled mode will need explicit trimming annotations or to be
   incompatible with trimming until those annotations exist.
 - **NativeAOT.** Build-time IL rewriting after NativeAOT's own compilation step, or
   runtime hooking of a NativeAOT binary (no JIT, no standard profiling APIs in the
-  same form), is out of scope until deep instrumentation's design is settled.
+  same form), is out of scope until deep instrumentation's design is settled. As with
+  R2R and single-file, Phase 4B's build path must run before AOT compilation.
 - **Signed (strong-named) assemblies.** Build-time IL rewriting invalidates existing
-  assembly signatures; re-signing requires access to the signing key, which may not
-  be available in the build environment doing the rewriting. This needs an explicit
-  policy (skip, re-sign, or delay-sign) before deep instrumentation ships.
+  assembly signatures. The Phase 4B build/tool path implements an explicit strong-name
+  policy (fail, or re-sign with a supplied key, verifying public-key-token consistency
+  across the rewritten closure) and detects but does not re-apply Authenticode. What
+  remains deferred is *product-mode* (runtime/load-time) handling of signed assemblies.
 - **Profiler conflicts.** Deep instrumentation that uses the .NET profiling APIs
   (ICorProfilerCallback) cannot coexist with other profilers (coverage tools, APM
   agents, debuggers attaching a profiler) without explicit multi-profiler
@@ -306,17 +356,18 @@ The package boundaries scaffolded under `src/` map to the modes above:
 |---|---|---|
 | `Clockwork.Runtime` | *(none)* | **Phase 2 (current):** ambient `SimulationExecutionContext`, secure activation, named seed domains, the decision-log/replay contract, and the API policy classification model - see the README's "Deterministic instrumentation runtime plumbing" section. Eventual home of the deterministic kernel itself (currently the root `Clockwork.csproj` / `Clockwork.Simulation` package), which the root package now references. |
 | `Clockwork.Instrumentation` | `Clockwork.Runtime` | Contracts and hooks shared by controlled, race exploration, and deep instrumentation modes. |
-| `Clockwork.Instrumentation.Build` | `Clockwork.Instrumentation` | Build-time IL rewriting for deep instrumentation mode. |
-| `Clockwork.Tool` | `Clockwork.Instrumentation` | CLI for running/inspecting instrumented simulations. |
+| `Clockwork.Instrumentation.Build` | `Clockwork.Instrumentation` | **Phase 4B (current):** opt-in MSBuild task + `build/` targets that instrument the resolved output closure out-of-place during `dotnet build`. |
+| `Clockwork.Tool` | `Clockwork.Instrumentation` | **Phase 4B (current):** the `clockwork` CLI (`rewrite`, `inspect`) over the shared orchestrator. |
 | `Clockwork.Analyzers` | *(none)* | Roslyn diagnostics for cooperative/controlled-mode misuse (direct wall-clock, thread pool, `Random.Shared` usage). |
 | `Clockwork.Hosting` | `Clockwork.Runtime` | Integration with `Microsoft.Extensions.Hosting`. |
 | `Clockwork.Http` | `Clockwork.Runtime` | `HttpMessageHandler` routed through the simulated network. |
 | `Clockwork.Testing` | `Clockwork.Runtime` | Reusable test helpers and scenario builders for consumers. |
 
 As of Phase 2, `Clockwork.Runtime` hosts the runtime plumbing described above (and is
-referenced by the root `Clockwork.csproj`); `Clockwork.Instrumentation`,
-`Clockwork.Instrumentation.Build`, `Clockwork.Tool`, `Clockwork.Analyzers`,
-`Clockwork.Hosting`, `Clockwork.Http`, and `Clockwork.Testing` remain empty, minimal
-placeholder projects with no behavior. See the root `Clockwork.csproj` for the
-deterministic kernel's current, real implementation. No public behavior of the
-existing kernel changed as a result of this or prior scaffolding phases.
+referenced by the root `Clockwork.csproj`). As of Phase 4A/4B, `Clockwork.Instrumentation`
+carries the generic IL rewrite engine and `Clockwork.Instrumentation.Build` /
+`Clockwork.Tool` expose it through an opt-in build task and the `clockwork` CLI;
+`Clockwork.Analyzers`, `Clockwork.Hosting`, `Clockwork.Http`, and `Clockwork.Testing`
+remain empty, minimal placeholder projects with no behavior. See the root
+`Clockwork.csproj` for the deterministic kernel's current, real implementation. No public
+behavior of the existing kernel changed as a result of this or prior scaffolding phases.

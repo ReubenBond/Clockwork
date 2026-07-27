@@ -39,4 +39,19 @@ public static class RewriteDiagnosticIds
 
     /// <summary>A mixed-mode assembly cannot be rewritten by Mono.Cecil.</summary>
     public const string MixedModeAssembly = "CWR0011";
+
+    /// <summary>A ReadyToRun input was rejected by the configured <see cref="Configuration.ReadyToRunPolicy"/>.</summary>
+    public const string ReadyToRunRejected = "CWR0100";
+
+    /// <summary>A ReadyToRun input's native image was stripped, producing IL-only staged output.</summary>
+    public const string ReadyToRunStripped = "CWR0101";
+
+    /// <summary>A strong-named input requires re-signing but the policy forbids it or no usable key is available.</summary>
+    public const string StrongNameReSignRequired = "CWR0102";
+
+    /// <summary>A rewritten assembly was re-signed with the supplied strong-name key.</summary>
+    public const string StrongNameReSigned = "CWR0103";
+
+    /// <summary>An Authenticode-signed input's signature cannot be preserved across a rewrite and is dropped.</summary>
+    public const string AuthenticodeDropped = "CWR0104";
 }

@@ -1,0 +1,28 @@
+<Project>
+
+  <!--
+    Clockwork.Instrumentation.Build - default properties (imported early).
+
+    Instrumentation is strictly opt-in. Ordinary builds do nothing unless a consumer sets
+    ClockworkInstrumentationEnabled=true. All paths below are overridable by the consuming project.
+  -->
+
+  <PropertyGroup>
+    <!-- Master opt-in switch. Never instrument unless this is explicitly true. -->
+    <ClockworkInstrumentationEnabled Condition="'$(ClockworkInstrumentationEnabled)' == ''">false</ClockworkInstrumentationEnabled>
+
+    <!-- Policy defaults mirror the safe library defaults. -->
+    <ClockworkExcludeFrameworkAssemblies Condition="'$(ClockworkExcludeFrameworkAssemblies)' == ''">true</ClockworkExcludeFrameworkAssemblies>
+    <ClockworkRewriteDependencies Condition="'$(ClockworkRewriteDependencies)' == ''">true</ClockworkRewriteDependencies>
+    <ClockworkReadyToRunPolicy Condition="'$(ClockworkReadyToRunPolicy)' == ''">Reject</ClockworkReadyToRunPolicy>
+    <ClockworkStrongNamePolicy Condition="'$(ClockworkStrongNamePolicy)' == ''">Fail</ClockworkStrongNamePolicy>
+  </PropertyGroup>
+
+  <!--
+    NOTE: The out-of-place staging and manifest paths are intentionally NOT defaulted here.
+    They depend on $(IntermediateOutputPath), which the SDK computes after package .props are
+    imported. Defaulting them here would bake in an empty prefix (writing to the project root).
+    They are defaulted in the accompanying .targets file, which is imported after the SDK props.
+  -->
+
+</Project>

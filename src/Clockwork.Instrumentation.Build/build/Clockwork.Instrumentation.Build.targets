@@ -1,0 +1,70 @@
+<Project>
+
+  <!--
+    Clockwork.Instrumentation.Build - targets.
+
+    Loads the ClockworkInstrumentTask from tasks/net10.0 and runs it out-of-place after Build,
+    but only when ClockworkInstrumentationEnabled=true. Requires the .NET 10 SDK: the task
+    assembly and its Mono.Cecil-based engine target net10.0 and cannot be loaded by .NET
+    Framework MSBuild (Visual Studio's classic msbuild.exe). Use `dotnet build`/`dotnet msbuild`.
+  -->
+
+  <UsingTask TaskName="Clockwork.Instrumentation.Build.ClockworkInstrumentTask"
+             AssemblyFile="$(MSBuildThisFileDirectory)..\tasks\net10.0\Clockwork.Instrumentation.Build.dll" />
+
+  <PropertyGroup>
+    <!-- The resolved application output directory to instrument (defaults to this project's output). -->
+    <ClockworkSourceDirectory Condition="'$(ClockworkSourceDirectory)' == ''">$(TargetDir)</ClockworkSourceDirectory>
+    <ClockworkEntryAssemblyName Condition="'$(ClockworkEntryAssemblyName)' == ''">$(TargetName)</ClockworkEntryAssemblyName>
+
+    <!--
+      Out-of-place staging and manifest defaults. These are defined here (not in the .props file)
+      because they depend on $(IntermediateOutputPath), which the SDK only computes after package
+      .props are imported. Both remain overridable by the consuming project.
+    -->
+    <!-- Out-of-place staging under obj; the task fully owns and recreates this directory. -->
+    <ClockworkStagingDirectory Condition="'$(ClockworkStagingDirectory)' == ''">$(IntermediateOutputPath)clockwork\instrumented\</ClockworkStagingDirectory>
+
+    <!-- Manifest lives outside the staged closure so it never ships with the app. -->
+    <ClockworkManifestPath Condition="'$(ClockworkManifestPath)' == ''">$(IntermediateOutputPath)clockwork\clockwork.manifest.json</ClockworkManifestPath>
+
+    <!-- Auto-discover a project-adjacent config file when the consumer has not set one. -->
+    <ClockworkConfigurationPath Condition="'$(ClockworkConfigurationPath)' == '' and Exists('$(MSBuildProjectDirectory)\clockwork.config.json')">$(MSBuildProjectDirectory)\clockwork.config.json</ClockworkConfigurationPath>
+  </PropertyGroup>
+
+  <!--
+    Incremental gate. Inputs are the produced output assembly, symbols, config and rule-set
+    documents; Output is the manifest. The task additionally keeps a content-hash cache, so this
+    coarse MSBuild gate and the fine-grained task cache both protect against needless work.
+  -->
+  <Target Name="ClockworkInstrument"
+          AfterTargets="Build"
+          Condition="'$(ClockworkInstrumentationEnabled)' == 'true'"
+          Inputs="$(TargetPath);@(ClockworkRuleSet);$(ClockworkConfigurationPath);$(MSBuildAllProjects)"
+          Outputs="$(ClockworkManifestPath)">
+
+    <Message Importance="high" Text="Clockwork: instrumenting '$(ClockworkSourceDirectory)' -> '$(ClockworkStagingDirectory)'" />
+
+    <ClockworkInstrumentTask
+        SourceDirectory="$(ClockworkSourceDirectory)"
+        StagingDirectory="$(ClockworkStagingDirectory)"
+        ConfigurationPath="$(ClockworkConfigurationPath)"
+        RuleSetPaths="@(ClockworkRuleSet)"
+        IncludePatterns="@(ClockworkInclude)"
+        ExcludePatterns="@(ClockworkExclude)"
+        ExcludeFrameworkAssemblies="$(ClockworkExcludeFrameworkAssemblies)"
+        RewriteDependencies="$(ClockworkRewriteDependencies)"
+        ReadyToRunPolicy="$(ClockworkReadyToRunPolicy)"
+        StrongNamePolicy="$(ClockworkStrongNamePolicy)"
+        StrongNameKeyPath="$(ClockworkStrongNameKeyPath)"
+        TargetRuntime="$(ClockworkTargetRuntime)"
+        EntryAssemblyName="$(ClockworkEntryAssemblyName)"
+        ManifestPath="$(ClockworkManifestPath)">
+      <Output TaskParameter="ResolvedManifestPath" PropertyName="ClockworkResolvedManifestPath" />
+      <Output TaskParameter="WasIncremental" PropertyName="ClockworkWasIncremental" />
+    </ClockworkInstrumentTask>
+
+    <Message Importance="normal" Text="Clockwork: manifest at '$(ClockworkResolvedManifestPath)' (incremental: $(ClockworkWasIncremental))" />
+  </Target>
+
+</Project>

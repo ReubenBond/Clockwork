@@ -1,14 +1,109 @@
+using Clockwork.Instrumentation.Closure;
+using Clockwork.Instrumentation.Configuration;
+
 namespace Clockwork.Tool;
 
 /// <summary>
-/// Placeholder entry point for the future Clockwork CLI tool. Not yet implemented -
-/// see docs/compatibility.md for the roadmap.
+/// Entry point for the <c>clockwork</c> CLI. It dispatches to a command, maps every failure class to a
+/// distinct <see cref="ExitCode"/>, and keeps output deterministic (no timestamps, stable ordering) so
+/// it is scriptable and testable.
 /// </summary>
 internal static class Program
 {
-    private static int Main(string[] _)
+    private static int Main(string[] args) => (int)Run(args, Console.Out, Console.Error);
+
+    /// <summary>Runs the CLI with explicit streams; used directly by tests.</summary>
+    /// <param name="args">The process arguments.</param>
+    /// <param name="output">The standard output writer.</param>
+    /// <param name="error">The standard error writer.</param>
+    /// <returns>The process exit code.</returns>
+    public static ExitCode Run(string[] args, TextWriter output, TextWriter error)
     {
-        Console.Error.WriteLine("Clockwork.Tool is a placeholder scaffold and does not implement any commands yet.");
-        return 1;
+        if (args.Length == 0 || IsHelp(args[0]))
+        {
+            WriteUsage(output);
+            return args.Length == 0 ? ExitCode.UsageError : ExitCode.Success;
+        }
+
+        if (args[0] is "--version")
+        {
+            output.WriteLine(Instrumentation.Rewriting.RewriteEngine.EngineVersion);
+            return ExitCode.Success;
+        }
+
+        string command = args[0];
+        string[] rest = args[1..];
+        try
+        {
+            return command switch
+            {
+                "rewrite" => RewriteCommand.Run(rest, output, error),
+                "inspect" => InspectCommand.Run(rest, output, error),
+                _ => Fail(error, $"Unknown command '{command}'.", ExitCode.UsageError),
+            };
+        }
+        catch (UsageException ex)
+        {
+            return Fail(error, ex.Message, ExitCode.UsageError);
+        }
+        catch (ConfigurationException ex)
+        {
+            return Fail(error, ex.Message, ExitCode.ConfigurationError);
+        }
+        catch (RuleSetFormatException ex)
+        {
+            return Fail(error, ex.Message, ExitCode.ConfigurationError);
+        }
+        catch (ClosureException ex)
+        {
+            return Fail(error, ex.Message, ExitCode.ClosureError);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FileNotFoundException or BadImageFormatException)
+        {
+            return Fail(error, ex.Message, ExitCode.IoError);
+        }
+    }
+
+    private static ExitCode Fail(TextWriter error, string message, ExitCode code)
+    {
+        error.WriteLine($"clockwork: {message}");
+        return code;
+    }
+
+    private static bool IsHelp(string arg) => arg is "-h" or "--help" or "help";
+
+    private static void WriteUsage(TextWriter output)
+    {
+        output.WriteLine("clockwork - deterministic IL instrumentation tool");
+        output.WriteLine();
+        output.WriteLine("Usage:");
+        output.WriteLine("  clockwork rewrite --source <dir> --output <dir> [options]");
+        output.WriteLine("  clockwork inspect <assembly|dir>... [options]");
+        output.WriteLine();
+        output.WriteLine("rewrite options:");
+        output.WriteLine("  --source <dir>              application output/publish directory to read (required)");
+        output.WriteLine("  --output <dir>             staging directory to write the instrumented closure (required unless --dry-run)");
+        output.WriteLine("  --config <path>            JSON configuration file (source of policy settings)");
+        output.WriteLine("  --rule-set <path>          rule-set JSON document (repeatable; appended to config)");
+        output.WriteLine("  --include <glob>           include pattern (repeatable)");
+        output.WriteLine("  --exclude <glob>           exclude pattern (repeatable)");
+        output.WriteLine("  --entry <name>             entry assembly simple name (else auto-detected)");
+        output.WriteLine("  --manifest <path>          manifest output path (else a sibling of --output)");
+        output.WriteLine("  --r2r <Reject|StripToIL>   ReadyToRun policy (default Reject)");
+        output.WriteLine("  --strong-name <Fail|ReSign> strong-name policy (default Fail)");
+        output.WriteLine("  --key <path>               strong-name key for ReSign");
+        output.WriteLine("  --exclude-framework <bool> exclude framework/reference assemblies (default true)");
+        output.WriteLine("  --rewrite-dependencies <bool> rewrite managed dependencies (default true)");
+        output.WriteLine("  --target-runtime <version> runtime version rules are evaluated against");
+        output.WriteLine("  --dry-run                  report the planned transformation without writing");
+        output.WriteLine("  --json                     emit JSON instead of text");
+        output.WriteLine();
+        output.WriteLine("inspect options:");
+        output.WriteLine("  <assembly|dir>...          assemblies or directories to inspect");
+        output.WriteLine("  --config <path>            configuration file (to report the merged rule set)");
+        output.WriteLine("  --rule-set <path>          rule-set document (repeatable)");
+        output.WriteLine("  --json                     emit JSON instead of text");
+        output.WriteLine();
+        output.WriteLine("Exit codes: 0 success, 1 usage, 2 configuration, 3 closure, 4 instrumentation, 5 I/O.");
     }
 }
