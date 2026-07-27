@@ -20,6 +20,7 @@ public abstract class SimulationCluster<TNode> : IAsyncDisposable
     private readonly SortedDictionary<string, TNode> _nodes = new(StringComparer.Ordinal);
     private readonly SimulationTimeProvider _timeProvider;
     private readonly CancellationTokenSource _teardownCts;
+    private readonly SimulationDriveLoop _driveLoop;
     private bool _disposed;
 
     /// <summary>
@@ -45,6 +46,15 @@ public abstract class SimulationCluster<TNode> : IAsyncDisposable
 
         // Create time provider using cluster queue (for GetUtcNow queries)
         _timeProvider = new SimulationTimeProvider(TaskQueue, Clock);
+
+        // The single engine that drives RunUntil/RunUntilIdle/RunForDuration.
+        _driveLoop = new SimulationDriveLoop(
+            () => _timeProvider.GetUtcNow(),
+            RunOneTaskRoundRobin,
+            GetNextWaitingDueTime,
+            Clock.Advance,
+            CapturePendingWorkSummary,
+            TeardownCancellationToken);
     }
 
     /// <summary>
@@ -62,6 +72,12 @@ public abstract class SimulationCluster<TNode> : IAsyncDisposable
     /// Default is 10 minutes of simulated time.
     /// </summary>
     public TimeSpan MaxSimulatedTimeAdvance { get; set; } = TimeSpan.FromMinutes(10);
+
+    /// <summary>
+    /// Gets or sets the maximum number of consecutive time advances allowed without executing any
+    /// work in between, before considering the simulation stuck. Default is 10,000.
+    /// </summary>
+    public int MaxConsecutiveTimeAdvances { get; set; } = 10_000;
 
     /// <summary>
     /// Gets the starting date/time for the simulation.
@@ -197,10 +213,27 @@ public abstract class SimulationCluster<TNode> : IAsyncDisposable
     /// <summary>
     /// Runs the simulation until the specified condition is met.
     /// </summary>
+    /// <param name="condition">The condition that ends the run when it becomes true.</param>
+    /// <param name="maxIterations">The maximum number of loop iterations to execute.</param>
+    /// <returns><see langword="true"/> if the condition was met; <see langword="false"/> for any other stopping reason.</returns>
     public bool RunUntil(Func<bool> condition, int maxIterations = 100000)
     {
         ArgumentNullException.ThrowIfNull(condition);
         return RunUntilCore(condition, maxIterations);
+    }
+
+    /// <summary>
+    /// Runs the simulation until the specified condition is met, returning a detailed result
+    /// describing exactly why the run stopped, how much work it did, and what (if anything) is
+    /// still pending. This is the detailed counterpart to <see cref="RunUntil(Func{bool}, int)"/>.
+    /// </summary>
+    /// <param name="condition">The condition that ends the run when it becomes true.</param>
+    /// <param name="maxIterations">The maximum number of loop iterations to execute.</param>
+    /// <returns>A detailed result describing the execution.</returns>
+    public SimulationExecutionResult RunUntilDetailed(Func<bool> condition, int maxIterations = 100000)
+    {
+        ArgumentNullException.ThrowIfNull(condition);
+        return ExecuteDriveLoop(condition, MaxSimulatedTimeAdvance, maxIterations, observeTeardownCancellation: false);
     }
 
     /// <summary>
@@ -210,61 +243,7 @@ public abstract class SimulationCluster<TNode> : IAsyncDisposable
     protected bool RunUntilCore(Func<bool> condition, int maxIterations)
     {
         ArgumentNullException.ThrowIfNull(condition);
-        using var _ = Guard.Enter();
-        var startTime = TimeProvider.GetUtcNow();
-        var maxEndTime = MaxSimulatedTimeAdvance;
-        var timeAdvanceCount = 0;
-
-        for (var i = 0; i < maxIterations; i++)
-        {
-            if (condition())
-            {
-                OnConditionMet(i);
-                return true;
-            }
-
-            // Try to execute one ready task using round-robin across all sources
-            if (RunOneTaskRoundRobin())
-            {
-                timeAdvanceCount = 0; // Reset time advance counter when real work happens
-                continue;
-            }
-
-            // No tasks to execute - need to advance time
-            var nextScheduledTime = GetNextWaitingDueTime();
-            if (!nextScheduledTime.HasValue)
-            {
-                // No more scheduled work - simulation is idle and cannot make progress
-                OnSimulationIdleNoPendingWork(i);
-                return false;
-            }
-
-            // Check if we've been advancing time without making progress
-            var timeDelta = nextScheduledTime.Value - Clock.UtcNow;
-            if (timeDelta > maxEndTime)
-            {
-                OnSimulationStuckMaxTime(timeDelta);
-                return false;
-            }
-
-            // Advance time to the next scheduled task
-            if (timeDelta > TimeSpan.Zero)
-            {
-                Clock.Advance(timeDelta);
-            }
-
-            timeAdvanceCount++;
-
-            // Safety check: if we've advanced time many times without executing tasks, we might be stuck
-            if (timeAdvanceCount > 10000)
-            {
-                OnSimulationStuckConsecutiveTimeAdvances(timeAdvanceCount);
-                return false;
-            }
-        }
-
-        OnMaxIterationsReached(maxIterations);
-        return false;
+        return ExecuteDriveLoop(condition, MaxSimulatedTimeAdvance, maxIterations, observeTeardownCancellation: false).ConditionMet;
     }
 
     /// <summary>
@@ -311,65 +290,22 @@ public abstract class SimulationCluster<TNode> : IAsyncDisposable
     public int RunUntilIdle(TimeSpan? maxSimulatedTime = null, int maxIterations = 100000) => RunUntilIdleCore(maxSimulatedTime, maxIterations);
 
     /// <summary>
+    /// Runs the simulation until it becomes idle, returning a detailed result describing exactly
+    /// why the run stopped, how much work it did, and what (if anything) is still pending. This is
+    /// the detailed counterpart to <see cref="RunUntilIdle(TimeSpan?, int)"/>.
+    /// </summary>
+    /// <param name="maxSimulatedTime">The maximum simulated-time gap to jump in a single advance. Defaults to <see cref="MaxSimulatedTimeAdvance"/>.</param>
+    /// <param name="maxIterations">The maximum number of loop iterations to execute.</param>
+    /// <returns>A detailed result describing the execution.</returns>
+    public SimulationExecutionResult RunUntilIdleDetailed(TimeSpan? maxSimulatedTime = null, int maxIterations = 100000) =>
+        ExecuteDriveLoop(condition: null, maxSimulatedTime ?? MaxSimulatedTimeAdvance, maxIterations, observeTeardownCancellation: true);
+
+    /// <summary>
     /// Core implementation of RunUntilIdle without context installation (for internal use).
     /// Uses round-robin execution across all non-suspended node contexts, plus the cluster queue.
     /// </summary>
     /// <returns>The number of iterations executed.</returns>
-    protected int RunUntilIdleCore(TimeSpan? maxSimulatedTime, int maxIterations)
-    {
-        using var _ = Guard.Enter();
-        var startTime = TimeProvider.GetUtcNow();
-        var maxEndTime = maxSimulatedTime ?? MaxSimulatedTimeAdvance;
-        var timeAdvanceCount = 0;
-
-        for (var i = 0; i < maxIterations; i++)
-        {
-            // Check for teardown cancellation
-            if (TeardownCancellationToken.IsCancellationRequested)
-            {
-                OnTeardownCancellationRequested();
-                return i;
-            }
-
-            if (RunOneTaskRoundRobin())
-            {
-                timeAdvanceCount = 0; // Reset time advance counter when real work happens
-                continue;
-            }
-
-            var nextScheduledTime = GetNextWaitingDueTime();
-            if (!nextScheduledTime.HasValue)
-            {
-                OnSimulationReachedIdleState();
-                return i;
-            }
-
-            var timeDelta = nextScheduledTime.Value - Clock.UtcNow;
-            if (timeDelta > maxEndTime)
-            {
-                OnSimulationStuckMaxTime(timeDelta);
-                return i;
-            }
-
-            // Advance time to the next scheduled task
-            if (timeDelta > TimeSpan.Zero)
-            {
-                Clock.Advance(timeDelta);
-            }
-
-            timeAdvanceCount++;
-
-            // Safety check: if we've advanced time many times without executing tasks, we might be stuck
-            if (timeAdvanceCount > 10000)
-            {
-                OnSimulationStuckConsecutiveTimeAdvances(timeAdvanceCount);
-                return i;
-            }
-        }
-
-        OnMaxIterationsReached(maxIterations);
-        return maxIterations;
-    }
+    protected int RunUntilIdleCore(TimeSpan? maxSimulatedTime, int maxIterations) => RunUntilIdleDetailed(maxSimulatedTime, maxIterations).Iterations;
 
     /// <summary>
     /// Drives a task to completion by running the simulation.
@@ -438,6 +374,59 @@ public abstract class SimulationCluster<TNode> : IAsyncDisposable
         return RunUntilIdleCore(maxSimulatedTime: null, remainingIterations) < remainingIterations;
     }
 
+    /// <summary>
+    /// Runs the simulation for the specified duration or until the maximum iterations are
+    /// exceeded, returning a detailed result describing exactly why the run stopped, how much work
+    /// it did, and what (if anything) is still pending. This is the detailed counterpart to
+    /// <see cref="RunForDuration(TimeSpan, int)"/>.
+    /// </summary>
+    /// <param name="delta">The amount of time to advance.</param>
+    /// <param name="maxIterations">Maximum iterations to run while processing tasks.</param>
+    /// <returns>A detailed result describing the execution.</returns>
+    public SimulationExecutionResult RunForDurationDetailed(TimeSpan delta, int maxIterations = 100000)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(delta, TimeSpan.Zero);
+
+        using var lockScope = Guard.Enter();
+        var startTime = TimeProvider.GetUtcNow();
+
+        if (delta == TimeSpan.Zero)
+        {
+            return new SimulationExecutionResult(
+                SimulationExecutionReason.Idle,
+                startTime,
+                startTime,
+                iterations: 0,
+                stepsExecuted: 0,
+                timeAdvanceCount: 0,
+                consecutiveTimeAdvanceCount: 0,
+                CapturePendingWorkSummary(),
+                new SimulationExecutionLimits(maxIterations, MaxSimulatedTimeAdvance, MaxConsecutiveTimeAdvances),
+                attemptedTimeAdvance: null);
+        }
+
+        OnTimeAdvancing(delta);
+
+        var targetTime = Clock.UtcNow + delta;
+        var first = RunUntilIdleDetailed(maxSimulatedTime: delta, maxIterations);
+
+        var forcedTimeAdvance = 0;
+        if (Clock.UtcNow < targetTime)
+        {
+            Clock.Advance(targetTime - Clock.UtcNow);
+            forcedTimeAdvance = 1;
+        }
+
+        var remainingIterations = maxIterations - first.Iterations;
+        if (remainingIterations <= 0)
+        {
+            return CombineExecutionResults(startTime, first, second: null, forcedTimeAdvance);
+        }
+
+        var second = RunUntilIdleDetailed(maxSimulatedTime: null, remainingIterations);
+        return CombineExecutionResults(startTime, first, second, forcedTimeAdvance);
+    }
+
     /// <summary>Called when a RunUntil condition is met.</summary>
     protected virtual void OnConditionMet(int iterations) { }
 
@@ -461,6 +450,142 @@ public abstract class SimulationCluster<TNode> : IAsyncDisposable
 
     /// <summary>Called when time is about to be advanced.</summary>
     protected virtual void OnTimeAdvancing(TimeSpan delta) { }
+
+    /// <summary>
+    /// Runs the consolidated drive-loop engine for one logical RunUntil/RunUntilIdle operation and
+    /// dispatches the appropriate <c>On*</c> hook(s) based on the outcome, preserving the exact
+    /// hook-firing behavior of the original, separate implementations.
+    /// </summary>
+    private SimulationExecutionResult ExecuteDriveLoop(Func<bool>? condition, TimeSpan maxSimulatedTimeAdvance, int maxIterations, bool observeTeardownCancellation)
+    {
+        using var _ = Guard.Enter();
+        var options = new SimulationDriveLoopOptions(condition, maxSimulatedTimeAdvance, maxIterations, MaxConsecutiveTimeAdvances, observeTeardownCancellation);
+        var result = _driveLoop.Execute(options);
+        DispatchExecutionHooks(result, isConditionBased: condition is not null);
+        return result;
+    }
+
+    /// <summary>
+    /// Fires the legacy <c>On*</c> extensibility hooks that correspond to <paramref name="result"/>,
+    /// with the same arguments and under the same circumstances as the original, un-consolidated
+    /// RunUntilCore/RunUntilIdleCore implementations.
+    /// </summary>
+    private void DispatchExecutionHooks(SimulationExecutionResult result, bool isConditionBased)
+    {
+        switch (result.Reason)
+        {
+            case SimulationExecutionReason.ConditionMet:
+                OnConditionMet(result.Iterations);
+                break;
+
+            case SimulationExecutionReason.Idle:
+            case SimulationExecutionReason.IdleWithPendingWork:
+                if (isConditionBased)
+                {
+                    OnSimulationIdleNoPendingWork(result.Iterations);
+                }
+                else
+                {
+                    OnSimulationReachedIdleState();
+                }
+
+                break;
+
+            case SimulationExecutionReason.MaxSimulatedTimeAdvanceExceeded:
+                OnSimulationStuckMaxTime(result.AttemptedTimeAdvance ?? TimeSpan.Zero);
+                break;
+
+            case SimulationExecutionReason.MaxConsecutiveTimeAdvancesExceeded:
+                OnSimulationStuckConsecutiveTimeAdvances(result.ConsecutiveTimeAdvanceCount);
+                break;
+
+            case SimulationExecutionReason.MaxIterationsReached:
+                OnMaxIterationsReached(result.Limits.MaxIterations);
+                break;
+
+            case SimulationExecutionReason.TeardownCancellationRequested:
+                OnTeardownCancellationRequested();
+                break;
+
+            default:
+                throw new ArgumentOutOfRangeException(nameof(result), result.Reason, "Unrecognized execution reason.");
+        }
+    }
+
+    /// <summary>
+    /// Combines the two RunUntilIdleDetailed phases of <see cref="RunForDurationDetailed"/> (plus the
+    /// forced advance to the target time, if any) into a single result describing the whole operation.
+    /// </summary>
+    private static SimulationExecutionResult CombineExecutionResults(
+        DateTimeOffset startTime,
+        SimulationExecutionResult first,
+        SimulationExecutionResult? second,
+        int forcedTimeAdvanceCount)
+    {
+        var final = second ?? first;
+        return new SimulationExecutionResult(
+            final.Reason,
+            startTime,
+            final.EndTime,
+            first.Iterations + (second?.Iterations ?? 0),
+            first.StepsExecuted + (second?.StepsExecuted ?? 0),
+            first.TimeAdvanceCount + (second?.TimeAdvanceCount ?? 0) + forcedTimeAdvanceCount,
+            final.ConsecutiveTimeAdvanceCount,
+            final.PendingWork,
+            final.Limits,
+            final.AttemptedTimeAdvance);
+    }
+
+    /// <summary>
+    /// Captures a snapshot of runnable, waiting, and blocked work across the cluster queue and
+    /// every node queue (including suspended nodes), with per-item diagnostics in stable order.
+    /// </summary>
+    private SimulationPendingWorkSummary CapturePendingWorkSummary()
+    {
+        using var _ = Guard.Enter();
+        var now = Clock.UtcNow;
+        var diagnostics = new List<SimulationScheduledItemDiagnostic>();
+        var runnableCount = 0;
+        var waitingCount = 0;
+        var blockedCount = 0;
+
+        CollectQueueDiagnostics("cluster", TaskQueue, isSuspended: false);
+        foreach (var node in Nodes)
+        {
+            CollectQueueDiagnostics(node.NetworkAddress, node.Context.TaskQueue, node.Context.State == SimulationNodeState.Suspended);
+        }
+
+        var orderedDiagnostics = diagnostics
+            .OrderBy(static d => d.DueTime)
+            .ThenBy(static d => d.SequenceNumber)
+            .ThenBy(static d => d.QueueIdentity, StringComparer.Ordinal)
+            .ToArray();
+
+        return new SimulationPendingWorkSummary(runnableCount, waitingCount, blockedCount, orderedDiagnostics);
+
+        void CollectQueueDiagnostics(string queueIdentity, SimulationTaskQueue queue, bool isSuspended)
+        {
+            foreach (var item in queue.ScheduledItems)
+            {
+                var isReady = item.DueTime <= now;
+                var isBlocked = isReady && isSuspended;
+                diagnostics.Add(new SimulationScheduledItemDiagnostic(queueIdentity, item.GetType().Name, item.DueTime, item.SequenceNumber, isReady, isBlocked));
+
+                if (isBlocked)
+                {
+                    blockedCount++;
+                }
+                else if (isReady)
+                {
+                    runnableCount++;
+                }
+                else
+                {
+                    waitingCount++;
+                }
+            }
+        }
+    }
 
     /// <summary>
     /// Safely cancels a CancellationTokenSource, catching and optionally logging any exceptions.
