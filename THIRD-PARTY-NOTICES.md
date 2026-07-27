@@ -31,6 +31,22 @@ must be updated in the same change with:
   document, referencing the file) and note the adaptation here. Wholesale copying
   without attribution is not permitted; substantial adaptation should credit Coyote
   in code comments at the adaptation site as well.
+- **Adapted material (Phase 4A):** The following files in
+  `src/Clockwork.Instrumentation/Rewriting/` adapt portions of Coyote's Mono.Cecil
+  rewriting engine and carry Coyote's copyright/license header at the top of the
+  file, per the policy above:
+  - `RewritePass.cs` — adapts the IL visitor traversal
+    (`VisitAssembly`/`Module`/`Type`/`Method`/`Instruction`), the `Replace` helper
+    that fixes up branch targets and exception-handler boundaries, and the
+    `SimplifyMacros`/`OptimizeMacros` offset-fix pattern from Coyote's
+    `Source/Test/Rewriting/Passes/Pass.cs` and
+    `Source/Test/Rewriting/Passes/Rewriting/RewritingPass.cs`.
+  - `AssemblyRewriteContext.cs` — adapts Coyote's assembly load/write, symbol
+    detection, and rewrite-signature-attribute handling (from Coyote's
+    `AssemblyInfo`/rewriting-engine assembly handling).
+
+  Clockwork-specific changes are noted in each file header and are developed in
+  commits separate from the mechanical adaptation.
 
 ### Mono.Cecil
 
@@ -39,14 +55,16 @@ must be updated in the same change with:
 - **Why it's relevant:** Cecil is the leading .NET IL manipulation library and the
   most likely dependency for "deep instrumentation mode" build-time IL rewriting
   (`Clockwork.Instrumentation.Build`, see [docs/compatibility.md](docs/compatibility.md)).
-  It is **not** added as a dependency in this phase (Phase 0 explicitly defers deep
-  instrumentation and the Cecil dependency it requires).
-- **Adaptation policy:** When Cecil is added as a package dependency, that is a
-  binary/package reference, not source adaptation, and only requires standard NuGet
-  license acknowledgment (already covered by `PackageLicenseExpression`/consumer
-  tooling) plus an entry here noting the dependency and its MIT license. If any
-  Cecil source is ever copied or adapted directly (rather than referenced as a
-  package), the same attribution requirements as Coyote above apply.
+  As of Phase 4A it is a **package dependency** of `Clockwork.Instrumentation`
+  (`Mono.Cecil` 0.11.6), used by the rewrite engine. It is not referenced by the
+  runtime or simulation projects.
+- **Adaptation policy:** Cecil is added as a NuGet **package** reference, not source
+  adaptation, so it only requires standard NuGet license acknowledgment (MIT, covered
+  by the package's `PackageLicenseExpression` and consumer tooling) plus this entry
+  noting the dependency and its MIT license. No Cecil source has been copied or
+  adapted into this repository; the Coyote-adapted files above use Cecil purely
+  through its public API. If any Cecil source is ever copied or adapted directly, the
+  same attribution requirements as Coyote above apply.
 
 ### FoundationDB
 
@@ -69,10 +87,11 @@ must be updated in the same change with:
 
 ## General policy
 
-- This phase (Phase 0) adds no third-party source code, and no new third-party
-  package dependencies beyond what already existed in `Directory.Packages.props`
-  (`Microsoft.Extensions.Logging.Abstractions`, xunit.v3.mtp-v2 and its transitive
-  test-platform packages).
+- Phase 4A adds the `Mono.Cecil` (0.11.6, MIT) package dependency to
+  `Clockwork.Instrumentation`, and the `Microsoft.CodeAnalysis.CSharp` (Roslyn, MIT)
+  package to `Clockwork.Instrumentation.Tests` (used only to compile fixture
+  assemblies at test time). It also adapts two Coyote source files as recorded above.
+  The runtime and simulation projects remain free of any IL-rewriting dependency.
 - Before adapting source from any of the projects above, or from any other
   third-party project, update this document in the same pull request as the
   adaptation.

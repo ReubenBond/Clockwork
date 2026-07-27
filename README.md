@@ -436,6 +436,33 @@ None of this is wired into any interception or IL-rewriting layer - see
 instrumentation mode, public BCL shims, a public Buggify API, Generic Host integration, and HTTP
 support).
 
+### Rewrite-engine core (Phase 4A)
+
+`Clockwork.Instrumentation` (namespaces `Rules`, `Rewriting`, `Manifest`, `Diagnostics`) adds the
+**generic IL rewrite-engine core** on top of `Mono.Cecil` 0.11.6. It is **internal and
+experimental**: a deterministic, rule-driven Cecil transformation pipeline plus an extensive golden
+test corpus, and nothing else. `RewriteEngine.Rewrite` applies a caller-supplied, versioned
+`RewriteRuleSet` (integrating the Phase 2 `Controlled`/`Rejected`/`PassThrough` policy classification)
+against an input assembly using caller-supplied replacement ("shim") assemblies, then validates the
+output by reading it back and emits a deterministic `InstrumentationManifest`.
+
+Verified transformations: static/instance `call`/`callvirt` redirection, `newobj` redirection to a
+static factory, generic-instance methods, type-reference substitution, post-call wrapping,
+deterministic rejection injection, and correct rewriting inside by-ref/array/constrained/delegate/
+async/iterator/nested shapes and `try`/`catch`/filter/`finally` regions (with handler and branch
+boundaries repaired). Portable/embedded PDBs and per-site source mapping are preserved; absent
+symbols are reported, not dropped. Assembly/rule-set-level idempotence makes a re-run with the same
+rules a verified no-op and fails clearly on an incompatible rule-set version; a targeted call whose
+replacement cannot be resolved is a hard failure.
+
+Explicitly **not** in Phase 4A (deferred to Phase 4B or later): MSBuild target/task activation and
+CLI commands, recursive publish-output rewriting, strong-name re-signing and Authenticode, load-time
+`AssemblyLoadContext` hooks, any concrete BCL deterministic shim, the Phase 6/7 synchronization shims
+and Coyote-style task/lock substitutions, `Buggify`, Generic Host, HTTP, and profiler/native detours.
+The engine performs the IL mechanics only and is wired to no build or deployment step yet. The
+Cecil-based passes adapt parts of Microsoft Coyote's rewriting engine under the MIT license - see
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
 
 ## License
 

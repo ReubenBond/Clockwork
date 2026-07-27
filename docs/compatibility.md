@@ -205,6 +205,51 @@ implementation cost and the most platform constraints (see below), so it should
 only be built once the lower-cost modes have proven insufficient for a concrete
 scenario.
 
+#### Rewrite-engine core (Phase 4A)
+
+Phase 4A adds the **generic IL rewrite-engine core** to `Clockwork.Instrumentation`
+(`Mono.Cecil` 0.11.6). It is **internal and experimental**: a deterministic,
+rule-driven Cecil transformation pipeline plus an extensive golden test corpus, and
+nothing else. The engine (`RewriteEngine.Rewrite`) takes a caller-supplied, versioned
+`RewriteRuleSet` and a set of replacement ("shim") assemblies, applies an ordered set
+of passes to the input assembly, validates the result by reading it back, and emits a
+deterministic `InstrumentationManifest`. The rule model integrates the Phase 2 API
+policy classification (`Controlled`/`Rejected`/`PassThrough`) without the engine
+referencing any concrete shim by identity.
+
+**Supported IL transformations (verified by the golden corpus):**
+
+- static and instance `call`/`callvirt` redirection to a static replacement method
+  (the instance receiver becomes the replacement's first argument);
+- `newobj` redirection to a static factory method;
+- generic-instance methods (type arguments carried onto the replacement) and calls
+  embedded in generic types;
+- type-reference substitution in method bodies (`newarr`, `castclass`, `isinst`,
+  `box`, `unbox(.any)`, `ldtoken`, `initobj`, `sizeof`, `constrained.`);
+- optional post-call wrapping (interception after a matched call);
+- deterministic rejection injection before an unsupported/forbidden invocation;
+- correct behavior when the redirected site sits inside by-ref/array/constrained-
+  generic/delegate/async-state-machine/iterator/nested-type shapes and inside
+  `try`/`catch`/filter/`finally` regions, with exception-handler and branch
+  boundaries repaired when instructions are inserted or replaced;
+- portable and embedded PDB preservation with per-site source mapping; absent or
+  unsupported symbol forms are reported (`CWR0004`/`CWR0005`), never silently dropped;
+- assembly/rule-set-level idempotence markers: re-running with the same rule set is a
+  verified no-op, and an incompatible rule-set version fails clearly (`CWR0008`)
+  rather than double-rewriting;
+- strict resolution — a targeted member whose replacement cannot be resolved is a hard
+  failure (`CWR0001`); a targeted call is never silently skipped.
+
+**Explicitly not in Phase 4A (deferred to Phase 4B or later):** MSBuild target/task
+activation and CLI rewrite commands; recursive publish-output rewriting; strong-name
+re-signing and Authenticode; load-time `AssemblyLoadContext` hooks (the in-process
+execution *tests* load rewritten fixtures only as a test mechanism); any concrete BCL
+deterministic shim; the Phase 6/7 `Monitor`/`Semaphore`/`WaitHandle`/`Task` shims and
+Coyote-style task/lock type substitutions; `Buggify`; Generic Host / HTTP integration;
+and profiler/native detours. Mixed-mode (native) assemblies are rejected (`CWR0011`).
+The engine performs the IL transformation mechanics only; it is wired to no build or
+deployment step yet.
+
 Each mode is intended to be strictly additive: an application written for
 cooperative mode should continue to work unmodified under controlled, race
 exploration, or deep instrumentation mode.
