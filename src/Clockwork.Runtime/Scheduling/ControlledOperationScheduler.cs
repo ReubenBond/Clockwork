@@ -1,6 +1,11 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Text;
+using Clockwork.Runtime.Decisions;
 using Clockwork.Runtime.Execution;
+using Clockwork.Runtime.Random;
+using Clockwork.Runtime.Scheduling.Resources;
+using Clockwork.Runtime.Scheduling.Strategies;
 
 namespace Clockwork.Runtime.Scheduling;
 
@@ -10,8 +15,10 @@ namespace Clockwork.Runtime.Scheduling;
 /// <see cref="ControlledOperation"/>s, chooses exactly one runnable operation at a time, grants and
 /// revokes the permission baton, drives every legal state transition, and performs terminal
 /// cleanup. This is the foundational scheduling layer future controlled <c>Monitor</c>, semaphore,
-/// wait-handle, and synchronous <see cref="Task"/> waits (Phase 3B) will build on; it deliberately
-/// contains no resource model, no timeouts, and no deadlock detection yet.
+/// wait-handle, and synchronous <see cref="Task"/> waits (Phase 3B) will build on. It owns the
+/// reusable controlled-resource model, atomic resource waits with virtual-time timeouts, and the
+/// modeled clock those timeouts fire against; cancellation-token races and deadlock detection are
+/// layered on in later Phase 3B increments.
 /// </para>
 /// <para>
 /// <b>Physical-thread gating.</b> Each operation runs on its own dedicated physical thread, but the
@@ -47,13 +54,22 @@ public sealed class ControlledOperationScheduler : IDisposable
 
     private readonly object _gate = new();
     private readonly SortedDictionary<ControlledOperationId, ControlledOperation> _operations = new();
+    private readonly SortedDictionary<ControlledResourceId, ControlledResource> _resources = new();
     private readonly SemaphoreSlim _handback = new(0, 1);
     private readonly SimulationLogicalExecutionIdSource _logicalIds = new();
+    private readonly ControlledVirtualClock _clock = new();
     private readonly SimulationActivationToken _activationToken;
     private readonly SimulationRuntimeIdentity _runtime;
     private readonly IControlledOperationListener? _listener;
 
+    private IControlledSchedulingStrategy _strategy = new RoundRobinSchedulingStrategy();
+    private ISimulationDecisionLog? _decisionLog;
+    private SimulationDecisionReplayValidator? _replayValidator;
+    private long _nextSelectionDecisionId;
+
     private long _nextOperationId;
+    private long _nextResourceId;
+    private long _nextWaiterSequence;
     private ControlledOperationId _lastSelected = ControlledOperationId.None;
     private ControlledOperation? _current;
     private int _controlThreadId;
@@ -85,6 +101,86 @@ public sealed class ControlledOperationScheduler : IDisposable
 
     /// <summary>Gets the runtime identity every operation in this scheduler runs under.</summary>
     public SimulationRuntimeIdentity Runtime => _runtime;
+
+    /// <summary>
+    /// Gets or sets the policy that chooses which runnable operation runs next. Defaults to
+    /// <see cref="RoundRobinSchedulingStrategy"/> - the Phase 3A behavior - so existing simulations are
+    /// unaffected. Assigning a strategy takes effect on the next selection. Set this before driving the
+    /// scheduler for a reproducible schedule.
+    /// </summary>
+    /// <exception cref="ArgumentNullException"><paramref name="value"/> is <see langword="null"/>.</exception>
+    public IControlledSchedulingStrategy SchedulingStrategy
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _strategy;
+            }
+        }
+
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+            lock (_gate)
+            {
+                _strategy = value;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets the decision log that captures every scheduling choice made among two or more
+    /// runnable operations, as a <see cref="SimulationDecisionKind.SchedulingOrder"/> decision in the
+    /// <see cref="SimulationSeedDomain.Scheduler"/> domain. When <see langword="null"/> (the default),
+    /// no scheduling decisions are recorded. Attach a log to capture a schedule for later exact replay
+    /// via <see cref="ReplaySchedulingStrategy"/>. Single-candidate steps are never recorded, so
+    /// recording is stable against interleavings where only one operation is runnable.
+    /// </summary>
+    public ISimulationDecisionLog? DecisionLog
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _decisionLog;
+            }
+        }
+
+        set
+        {
+            lock (_gate)
+            {
+                _decisionLog = value;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets a validator that checks each scheduling choice against a previously recorded run,
+    /// throwing <see cref="SimulationDecisionReplayMismatchException"/> at the first divergence. This
+    /// is orthogonal to <see cref="DecisionLog"/>: a validator can be attached with or without a live
+    /// log, and with or without a <see cref="ReplaySchedulingStrategy"/>, to assert that a re-run's
+    /// scheduling decisions reproduce the original exactly.
+    /// </summary>
+    public SimulationDecisionReplayValidator? ReplayValidator
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _replayValidator;
+            }
+        }
+
+        set
+        {
+            lock (_gate)
+            {
+                _replayValidator = value;
+            }
+        }
+    }
 
     /// <summary>
     /// The single logical-owner identity that both the controlling thread and every operation thread
@@ -138,8 +234,13 @@ public sealed class ControlledOperationScheduler : IDisposable
     /// <param name="workDescription">A short, stable description of the work, for diagnostics.</param>
     /// <param name="body">The operation body. Runs exactly once, on the operation's own thread.</param>
     /// <param name="node">The node the operation is scoped to, or <see langword="null"/> for cluster-level work.</param>
+    /// <param name="priority">
+    /// The operation's scheduling priority (see <see cref="ControlledOperation.Priority"/>). Only the
+    /// <see cref="Strategies.PrioritySchedulingStrategy"/> consults it; it is inert under the other
+    /// strategies. Defaults to <c>0</c>.
+    /// </param>
     /// <returns>The newly created operation.</returns>
-    public ControlledOperation Register(string workDescription, Action body, SimulationNodeIdentity? node = null)
+    public ControlledOperation Register(string workDescription, Action body, SimulationNodeIdentity? node = null, int priority = 0)
     {
         ArgumentException.ThrowIfNullOrEmpty(workDescription);
         ArgumentNullException.ThrowIfNull(body);
@@ -162,7 +263,8 @@ public sealed class ControlledOperationScheduler : IDisposable
                 _logicalIds.Next(),
                 workDescription,
                 body,
-                capturedContext);
+                capturedContext,
+                priority);
             _operations.Add(id, operation);
         }
 
@@ -177,12 +279,79 @@ public sealed class ControlledOperationScheduler : IDisposable
     /// <param name="workDescription">A short, stable description of the work, for diagnostics.</param>
     /// <param name="body">The operation body.</param>
     /// <param name="node">The node the operation is scoped to, or <see langword="null"/>.</param>
+    /// <param name="priority">
+    /// The operation's scheduling priority (see <see cref="ControlledOperation.Priority"/>); only the
+    /// <see cref="Strategies.PrioritySchedulingStrategy"/> consults it. Defaults to <c>0</c>.
+    /// </param>
     /// <returns>The newly created, admitted operation.</returns>
-    public ControlledOperation Schedule(string workDescription, Action body, SimulationNodeIdentity? node = null)
+    public ControlledOperation Schedule(string workDescription, Action body, SimulationNodeIdentity? node = null, int priority = 0)
     {
-        var operation = Register(workDescription, body, node);
+        var operation = Register(workDescription, body, node, priority);
         Admit(operation);
         return operation;
+    }
+
+    /// <summary>
+    /// Creates a new <see cref="ControlledResource"/> owned by this scheduler, with a stable,
+    /// monotonically-assigned <see cref="ControlledResourceId"/>. The resource starts unowned, with no
+    /// waiters; acquire/release policy and waits are layered on top by callers via the scheduler's
+    /// wait/signal primitives and the resource's own bookkeeping fields. This is the entry point a
+    /// future controlled primitive (Phase 6/7) uses to obtain the resource backing one sync object.
+    /// </summary>
+    /// <param name="kind">The diagnostic classification of the primitive the resource models.</param>
+    /// <param name="name">A short, stable, human-readable name for diagnostics.</param>
+    /// <returns>The newly created resource.</returns>
+    public ControlledResource CreateResource(ControlledResourceKind kind, string name)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(name);
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            var id = new ControlledResourceId(++_nextResourceId);
+            var resource = new ControlledResource(this, id, kind, name);
+            _resources.Add(id, resource);
+            return resource;
+        }
+    }
+
+    /// <summary>
+    /// Captures a deterministic snapshot of every resource currently registered with this scheduler,
+    /// in stable <see cref="ControlledResourceId"/> order, for diagnostics and deadlock reporting.
+    /// </summary>
+    /// <returns>An ordered, immutable list of resources.</returns>
+    public IReadOnlyList<ControlledResource> CaptureResources()
+    {
+        lock (_gate)
+        {
+            return [.. _resources.Values];
+        }
+    }
+
+
+    /// <summary>
+    /// Records (or clears) the operation that owns <paramref name="resource"/>. Ownership is the raw
+    /// metadata the wait-for graph reads to draw a "waiter -&gt; owner" edge and the hook a future
+    /// controlled <c>Monitor</c> or synchronous <c>Task</c> wait sets when it acquires a resource; this
+    /// method deliberately performs no acquire/release policy of its own (it does not block or count),
+    /// so each primitive composes its own semantics on top. Must be given operations/resources that
+    /// belong to this scheduler.
+    /// </summary>
+    /// <param name="resource">The resource whose owner is being set. Must belong to this scheduler.</param>
+    /// <param name="owner">The owning operation, or <see langword="null"/> to mark the resource unowned.</param>
+    public void MarkResourceOwner(ControlledResource resource, ControlledOperation? owner)
+    {
+        ArgumentNullException.ThrowIfNull(resource);
+        ValidateResourceOwnership(resource);
+        if (owner is not null)
+        {
+            ValidateOwnership(owner);
+        }
+
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            resource.Owner = owner;
+        }
     }
 
     /// <summary>
@@ -268,20 +437,92 @@ public sealed class ControlledOperationScheduler : IDisposable
     }
 
     /// <summary>
-    /// Repeatedly runs steps until no operation is runnable, returning the number of steps executed.
-    /// A step count that keeps growing without the set of operations shrinking indicates operations
-    /// that only ever yield; callers that need a bound should cap iterations themselves.
+    /// Repeatedly runs steps until no operation is runnable, advancing modeled virtual time to fire
+    /// the next due timeout whenever the runnable set is exhausted, and repeating until neither any
+    /// operation is runnable nor any timeout is pending. Returns the number of steps executed (time
+    /// advances are not steps). A step count that keeps growing without the set of operations
+    /// shrinking indicates operations that only ever yield; callers that need a bound should cap
+    /// iterations themselves.
     /// </summary>
     /// <returns>The number of steps executed.</returns>
     public int Drain()
     {
         var steps = 0;
-        while (RunStep())
+        while (true)
         {
-            steps++;
+            while (RunStep())
+            {
+                steps++;
+            }
+
+            if (!TryAdvanceVirtualTime())
+            {
+                break;
+            }
         }
 
         return steps;
+    }
+
+    /// <summary>
+    /// Advances modeled virtual time to the earliest pending timeout and fires every timeout due at
+    /// that instant, resolving each affected waiter as <see cref="ControlledWaitOutcome.TimedOut"/>
+    /// and making its operation runnable. Advancing is only legal when no operation is currently
+    /// runnable (the controlling thread is idle and nothing can make progress in the present instant);
+    /// this is what guarantees a pending signal always precedes a same-instant timeout. It is a no-op
+    /// - returning <see langword="false"/> - when an operation is still runnable or no timeout is
+    /// pending.
+    /// </summary>
+    /// <returns><see langword="true"/> if time advanced and at least one waiter timed out; otherwise <see langword="false"/>.</returns>
+    public bool TryAdvanceVirtualTime()
+    {
+        List<ControlledOperation> timedOut = [];
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            if (_controlThreadBusy)
+            {
+                throw new ControlledOperationException(
+                    "Cannot advance virtual time while an operation is running; drive RunStep to quiescence first.");
+            }
+
+            if (HasRunnableUnderLock() || !_clock.HasPending)
+            {
+                return false;
+            }
+
+            foreach (var registration in _clock.AdvanceToNextDue())
+            {
+                var waiter = registration.Waiter;
+                if (waiter.TryResolve(ControlledWaitOutcome.TimedOut))
+                {
+                    DisposeWaiterRegistrations(waiter);
+                    waiter.Resource.RemoveWaiter(waiter);
+                    waiter.Operation.ApplyTransition(ControlledOperationState.Runnable);
+                    timedOut.Add(waiter.Operation);
+                }
+            }
+        }
+
+        foreach (var operation in timedOut)
+        {
+            Notify(operation, ControlledOperationState.Runnable);
+        }
+
+        return timedOut.Count > 0;
+    }
+
+    private bool HasRunnableUnderLock()
+    {
+        foreach (var operation in _operations.Values)
+        {
+            if (operation.State == ControlledOperationState.Runnable)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -332,6 +573,7 @@ public sealed class ControlledOperationScheduler : IDisposable
             }
 
             operation.RequestTermination();
+            DetachWaiterUnderLock(operation);
             operation.ApplyTransition(ControlledOperationState.Canceled);
             needsUnwind = operation.Thread is not null;
         }
@@ -379,6 +621,362 @@ public sealed class ControlledOperationScheduler : IDisposable
 
         Notify(operation, ControlledOperationState.Runnable);
         HandBackAndPark(operation);
+    }
+
+    /// <summary>
+    /// <para>
+    /// Blocks the calling operation on <paramref name="resource"/> until another operation signals it
+    /// (see <see cref="SignalOne"/>/<see cref="SignalAll"/>). This is the reusable wait primitive the
+    /// later <c>Monitor</c>/<c>SemaphoreSlim</c>/wait-handle/synchronous-<c>Task</c>-wait shims are
+    /// built on; this overload waits indefinitely (an infinite timeout, no cancellation).
+    /// </para>
+    /// <para>
+    /// The transition is atomic under the scheduler lock: the operation is enqueued onto the
+    /// resource's deterministic FIFO wait queue and moved <c>Running -&gt; Paused</c> in one critical
+    /// section before the baton is yielded, so a signal delivered by the very next operation cannot be
+    /// lost. An operation can be parked on at most one resource at a time (it is paused), which is why
+    /// duplicate queue entries are impossible; a resolved waiter is skipped by every subsequent signal,
+    /// which is why stale wakeups cannot occur.
+    /// </para>
+    /// </summary>
+    /// <param name="resource">The resource to wait on. Must belong to this scheduler.</param>
+    /// <param name="reason">The stable pause reason recorded for diagnostics and the wait-for graph.</param>
+    /// <returns>
+    /// The outcome of the wait. For this overload that is always <see cref="ControlledWaitOutcome.Signaled"/>
+    /// - the wait only ends when the operation is signaled.
+    /// </returns>
+    public ControlledWaitOutcome WaitOnResource(ControlledResource resource, ControlledOperationPauseReason reason) =>
+        WaitOnResourceCore(resource, Timeout.InfiniteTimeSpan, reason, CancellationToken.None);
+
+    /// <summary>
+    /// Blocks the calling operation on <paramref name="resource"/> until it is signaled or the
+    /// modeled (virtual) timeout elapses, whichever happens first, resolving the race
+    /// deterministically. Timeouts are driven purely by Clockwork's virtual time, never by a
+    /// real-time timer, so the wait is fully replayable.
+    /// <para>
+    /// <b>Timeout semantics.</b> A <see cref="TimeSpan.Zero"/> timeout never parks: it resolves
+    /// <see cref="ControlledWaitOutcome.TimedOut"/> immediately (a signal cannot arrive synchronously
+    /// to the still-running operation). <see cref="Timeout.InfiniteTimeSpan"/> registers no timeout
+    /// and behaves exactly like the signal-only overload. A finite, strictly positive timeout
+    /// registers a virtual-time deadline; the deadline can only fire while no operation is runnable
+    /// (see <see cref="TryAdvanceVirtualTime"/>), so a pending signal at the same instant always wins.
+    /// </para>
+    /// </summary>
+    /// <param name="resource">The resource to wait on. Must belong to this scheduler.</param>
+    /// <param name="timeout">
+    /// The modeled wait budget: <see cref="TimeSpan.Zero"/> to poll, <see cref="Timeout.InfiniteTimeSpan"/>
+    /// to wait forever, or any strictly positive span for a virtual-time deadline.
+    /// </param>
+    /// <param name="reason">The stable pause reason recorded for diagnostics and the wait-for graph.</param>
+    /// <returns>
+    /// <see cref="ControlledWaitOutcome.Signaled"/> if signaled first, otherwise
+    /// <see cref="ControlledWaitOutcome.TimedOut"/>.
+    /// </returns>
+    public ControlledWaitOutcome WaitOnResource(ControlledResource resource, TimeSpan timeout, ControlledOperationPauseReason reason) =>
+        WaitOnResourceCore(resource, timeout, reason, CancellationToken.None);
+
+    /// <summary>
+    /// Blocks the calling operation on <paramref name="resource"/> until it is signaled, the modeled
+    /// (virtual) timeout elapses, or <paramref name="cancellationToken"/> is canceled - whichever
+    /// happens first - resolving the three-way race deterministically. Cancellation is observed
+    /// <b>synchronously</b>: the token's registration runs on the thread that cancels the token, under
+    /// the scheduler lock, so there is no thread-pool hop and no <c>CancelAsync</c>. The registration
+    /// is always disposed when the wait ends, so no callback leaks past it.
+    /// <para>
+    /// <b>Race resolution.</b> The waiter carries a single-assignment resolution; the first of
+    /// signal/timeout/cancel to claim it under the lock wins and the terminal reason is exactly that
+    /// outcome. An already-canceled token resolves <see cref="ControlledWaitOutcome.Canceled"/>
+    /// immediately without parking (cancellation takes precedence over a zero timeout). Timeout still
+    /// fires only during virtual-time advance, so a signal or cancellation delivered while the
+    /// operation set is still making progress always precedes a same-instant timeout.
+    /// </para>
+    /// </summary>
+    /// <param name="resource">The resource to wait on. Must belong to this scheduler.</param>
+    /// <param name="timeout">
+    /// The modeled wait budget: <see cref="TimeSpan.Zero"/> to poll, <see cref="Timeout.InfiniteTimeSpan"/>
+    /// to wait until signaled/canceled, or any strictly positive span for a virtual-time deadline.
+    /// </param>
+    /// <param name="reason">The stable pause reason recorded for diagnostics and the wait-for graph.</param>
+    /// <param name="cancellationToken">A token whose synchronous cancellation ends the wait.</param>
+    /// <returns>The deterministic terminal outcome of the wait.</returns>
+    public ControlledWaitOutcome WaitOnResource(
+        ControlledResource resource,
+        TimeSpan timeout,
+        ControlledOperationPauseReason reason,
+        CancellationToken cancellationToken) =>
+        WaitOnResourceCore(resource, timeout, reason, cancellationToken);
+
+    /// <summary>
+    /// The shared implementation behind every <c>WaitOnResource</c> overload. Validates ownership and
+    /// the timeout, resolves the non-parking fast paths (already-canceled token, then zero timeout),
+    /// then atomically enqueues the waiter (with an optional virtual-time timeout and synchronous
+    /// cancellation registration) and parks the operation under the scheduler lock before yielding the
+    /// baton, so no signal, timeout, or cancellation can be lost.
+    /// </summary>
+    private ControlledWaitOutcome WaitOnResourceCore(
+        ControlledResource resource,
+        TimeSpan timeout,
+        ControlledOperationPauseReason reason,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(resource);
+        ArgumentNullException.ThrowIfNull(reason);
+        ValidateResourceOwnership(resource);
+        var operation = RequireCurrentOperation();
+
+        var infinite = timeout == Timeout.InfiniteTimeSpan;
+        if (!infinite && timeout < TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(timeout),
+                timeout,
+                "A resource wait timeout must be non-negative, TimeSpan.Zero, or Timeout.InfiniteTimeSpan.");
+        }
+
+        // Already-canceled token: resolve without parking. Cancellation takes precedence over a zero
+        // timeout so the terminal reason is exactly Canceled.
+        if (cancellationToken.IsCancellationRequested)
+        {
+            lock (_gate)
+            {
+                ThrowIfDisposed();
+            }
+
+            return ControlledWaitOutcome.Canceled;
+        }
+
+        // Zero timeout: never park. A signal cannot arrive synchronously to the running operation, so
+        // the deterministic outcome is an immediate timeout.
+        if (!infinite && timeout == TimeSpan.Zero)
+        {
+            lock (_gate)
+            {
+                ThrowIfDisposed();
+            }
+
+            return ControlledWaitOutcome.TimedOut;
+        }
+
+        ControlledResourceWaiter waiter;
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            waiter = new ControlledResourceWaiter(operation, resource, ++_nextWaiterSequence, reason);
+            resource.EnqueueWaiter(waiter);
+            operation.Waiter = waiter;
+            if (!infinite)
+            {
+                waiter.Timeout = _clock.Schedule(timeout, waiter);
+            }
+
+            operation.ApplyTransition(ControlledOperationState.Paused, pauseReason: reason);
+
+            // Register cancellation while still holding the lock so a concurrent cancel is serialized
+            // against enqueue/park. If the token is canceled between the fast-path check above and
+            // here, Register invokes the callback synchronously on this thread; the lock is reentrant,
+            // the waiter is resolved Canceled, and the operation is moved back to Runnable - it will
+            // simply be re-granted the baton and observe the Canceled resolution in FinishWait.
+            if (cancellationToken.CanBeCanceled)
+            {
+                waiter.CancellationRegistration = cancellationToken.Register(
+                    static state =>
+                    {
+                        var (scheduler, canceledWaiter) = ((ControlledOperationScheduler, ControlledResourceWaiter))state!;
+                        scheduler.OnWaiterCanceled(canceledWaiter);
+                    },
+                    (this, waiter));
+            }
+        }
+
+        Notify(operation, ControlledOperationState.Paused);
+        HandBackAndPark(operation);
+
+        return FinishWait(operation, waiter);
+    }
+
+    /// <summary>
+    /// The synchronous cancellation callback: resolves <paramref name="waiter"/> as
+    /// <see cref="ControlledWaitOutcome.Canceled"/> (if it has not already been signaled or timed out),
+    /// cancels its virtual-time timeout, removes it from the resource queue, and makes its operation
+    /// runnable so it observes the cancellation. Runs on the thread that cancels the token, under the
+    /// scheduler lock; never touches the thread pool. The cancellation registration itself is disposed
+    /// later in <see cref="FinishWait"/> (never from inside its own callback).
+    /// </summary>
+    private void OnWaiterCanceled(ControlledResourceWaiter waiter)
+    {
+        ControlledOperation? runnable = null;
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (!waiter.TryResolve(ControlledWaitOutcome.Canceled))
+            {
+                return;
+            }
+
+            if (waiter.Timeout is { } timeout)
+            {
+                timeout.IsCanceled = true;
+            }
+
+            waiter.Resource.RemoveWaiter(waiter);
+            if (waiter.Operation.State == ControlledOperationState.Paused)
+            {
+                waiter.Operation.ApplyTransition(ControlledOperationState.Runnable);
+                runnable = waiter.Operation;
+            }
+        }
+
+        if (runnable is not null)
+        {
+            Notify(runnable, ControlledOperationState.Runnable);
+        }
+    }
+
+    /// <summary>
+    /// Wakes the earliest-enqueued unresolved waiter on <paramref name="resource"/> (deterministic
+    /// FIFO order), resolving it as <see cref="ControlledWaitOutcome.Signaled"/> and transitioning its
+    /// operation back to <see cref="ControlledOperationState.Runnable"/>. This is the building block a
+    /// monitor pulse / semaphore release / auto-reset-event set is composed from. Safe to call from a
+    /// running operation body or the controlling thread.
+    /// </summary>
+    /// <param name="resource">The resource to signal. Must belong to this scheduler.</param>
+    /// <returns>The operation that was woken, or <see langword="null"/> if no waiter was pending.</returns>
+    public ControlledOperation? SignalOne(ControlledResource resource)
+    {
+        ArgumentNullException.ThrowIfNull(resource);
+        ValidateResourceOwnership(resource);
+
+        ControlledOperation? woken = null;
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            var next = resource.PeekNextPending();
+            if (next is not null && next.TryResolve(ControlledWaitOutcome.Signaled))
+            {
+                DisposeWaiterRegistrations(next);
+                resource.RemoveWaiter(next);
+                next.Operation.ApplyTransition(ControlledOperationState.Runnable);
+                woken = next.Operation;
+            }
+        }
+
+        if (woken is not null)
+        {
+            Notify(woken, ControlledOperationState.Runnable);
+        }
+
+        return woken;
+    }
+
+    /// <summary>
+    /// Wakes every unresolved waiter on <paramref name="resource"/>, in deterministic FIFO order,
+    /// resolving each as <see cref="ControlledWaitOutcome.Signaled"/> and making its operation
+    /// runnable. This is the building block a monitor <c>PulseAll</c> / manual-reset-event set is
+    /// composed from.
+    /// </summary>
+    /// <param name="resource">The resource to signal. Must belong to this scheduler.</param>
+    /// <returns>The woken operations, in the deterministic order they were signaled.</returns>
+    public IReadOnlyList<ControlledOperation> SignalAll(ControlledResource resource)
+    {
+        ArgumentNullException.ThrowIfNull(resource);
+        ValidateResourceOwnership(resource);
+
+        List<ControlledOperation> woken = [];
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            foreach (var waiter in resource.SnapshotPendingWaiters())
+            {
+                if (waiter.TryResolve(ControlledWaitOutcome.Signaled))
+                {
+                    DisposeWaiterRegistrations(waiter);
+                    resource.RemoveWaiter(waiter);
+                    waiter.Operation.ApplyTransition(ControlledOperationState.Runnable);
+                    woken.Add(waiter.Operation);
+                }
+            }
+        }
+
+        foreach (var operation in woken)
+        {
+            Notify(operation, ControlledOperationState.Runnable);
+        }
+
+        return woken;
+    }
+
+    /// <summary>
+    /// Completes a wait once the operation has been granted the baton again: reads the deterministic
+    /// resolution assigned while it was parked, disposes any timeout/cancellation registrations (so a
+    /// cancellation callback that resolved the waiter without disposing its own registration cannot
+    /// leak), detaches the waiter from the resource and the operation, and returns the outcome. The
+    /// resolution is always present here because an operation is only ever made runnable again after
+    /// its waiter has been resolved.
+    /// </summary>
+    private ControlledWaitOutcome FinishWait(ControlledOperation operation, ControlledResourceWaiter waiter)
+    {
+        lock (_gate)
+        {
+            var resolution = waiter.Resolution ?? throw new ControlledOperationException(
+                string.Create(CultureInfo.InvariantCulture, $"Controlled operation {operation.Id} resumed from a resource wait with no resolution recorded."));
+            DisposeWaiterRegistrations(waiter);
+            waiter.Resource.RemoveWaiter(waiter);
+            if (ReferenceEquals(operation.Waiter, waiter))
+            {
+                operation.Waiter = null;
+            }
+
+            return resolution;
+        }
+    }
+
+    /// <summary>
+    /// Detaches a paused operation's waiter (if any) during cancellation/teardown: resolves it as
+    /// <see cref="ControlledWaitOutcome.Canceled"/> so a later signal never tries to wake a terminal
+    /// operation, disposes its timeout/cancellation registrations, removes it from the resource queue,
+    /// and clears the operation's waiter slot. Caller must hold the lock.
+    /// </summary>
+    private static void DetachWaiterUnderLock(ControlledOperation operation)
+    {
+        var waiter = operation.Waiter;
+        if (waiter is null)
+        {
+            return;
+        }
+
+        waiter.TryResolve(ControlledWaitOutcome.Canceled);
+        DisposeWaiterRegistrations(waiter);
+        waiter.Resource.RemoveWaiter(waiter);
+        operation.Waiter = null;
+    }
+
+    /// <summary>
+    /// Releases the timeout and cancellation registrations attached to a waiter so no virtual-time
+    /// item or cancellation callback outlives the wait. A no-op for waits that had neither. Timeout
+    /// and cancellation wiring are added in later Phase 3B increments; this is the single release point
+    /// they hook into.
+    /// </summary>
+    private static void DisposeWaiterRegistrations(ControlledResourceWaiter waiter)
+    {
+        if (waiter.Timeout is { } timeout)
+        {
+            timeout.IsCanceled = true;
+        }
+
+        waiter.CancellationRegistration.Dispose();
+        waiter.CancellationRegistration = default;
+    }
+
+    private void ValidateResourceOwnership(ControlledResource resource)
+    {
+        if (!ReferenceEquals(resource.Scheduler, this))
+        {
+            throw new ControlledOperationException("The resource belongs to a different scheduler.");
+        }
     }
 
     /// <summary>
@@ -432,6 +1030,248 @@ public sealed class ControlledOperationScheduler : IDisposable
     }
 
     /// <summary>
+    /// Gets the current modeled (virtual) time, as a monotonic offset from simulation start. Advanced
+    /// only by <see cref="TryAdvanceVirtualTime"/>; never tied to wall-clock time.
+    /// </summary>
+    public TimeSpan VirtualTime
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _clock.Now;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets a deterministic snapshot of the timed waits currently pending in virtual time, ordered by
+    /// due time then registration sequence, for diagnostics and deadlock reports.
+    /// </summary>
+    /// <returns>An ordered, immutable list of pending timeout descriptors.</returns>
+    public IReadOnlyList<ControlledPendingTimeoutInfo> CapturePendingTimeouts()
+    {
+        lock (_gate)
+        {
+            return _clock.SnapshotPending();
+        }
+    }
+
+    /// <summary>
+    /// Analyzes the current wait-for graph and classifies whether outstanding work can still make
+    /// progress, distinguishing a genuine resource-ownership deadlock from a paused-until-time state,
+    /// an externally-completable wait, an idle-with-pending-work state, or quiescence. Every detected
+    /// cycle is reported deterministically (operations and resources by stable id/name, owners, waiter
+    /// order, and originating pause reason), so a stuck simulation explains itself instead of hanging.
+    /// <para>
+    /// Only <b>indefinite</b> waits contribute deadlock edges: a wait with a pending virtual-time
+    /// timeout can always be broken by advancing modeled time, so it never counts as a true cycle.
+    /// </para>
+    /// </summary>
+    /// <returns>A deterministic deadlock/liveness report.</returns>
+    public ControlledDeadlockReport DetectDeadlock()
+    {
+        lock (_gate)
+        {
+            var edges = new Dictionary<ControlledOperationId, DeadlockEdge>();
+            var runnable = 0;
+            var blocked = 0;
+            var nonTerminal = 0;
+            foreach (var operation in _operations.Values)
+            {
+                if (!operation.IsTerminal)
+                {
+                    nonTerminal++;
+                }
+
+                if (operation.State == ControlledOperationState.Runnable)
+                {
+                    runnable++;
+                }
+
+                if (operation.State != ControlledOperationState.Paused || operation.Waiter is not { } waiter)
+                {
+                    continue;
+                }
+
+                blocked++;
+
+                // Only an indefinite wait (no pending timeout) can form a true deadlock: a timed wait
+                // is always broken by advancing virtual time.
+                if (waiter.Timeout is not null)
+                {
+                    continue;
+                }
+
+                if (waiter.Resource.Owner is { } owner && !owner.IsTerminal && owner.Id != operation.Id)
+                {
+                    edges[operation.Id] = new DeadlockEdge(owner.Id, waiter);
+                }
+            }
+
+            var cycles = FindWaitForCyclesUnderLock(edges);
+            var pendingTimeouts = _clock.PendingCount;
+            var liveness = ClassifyLiveness(nonTerminal, runnable, cycles.Count, pendingTimeouts);
+            return new ControlledDeadlockReport(liveness, cycles, runnable, blocked, pendingTimeouts);
+        }
+    }
+
+    /// <summary>
+    /// Produces a deterministic, multi-line human-readable diagnostic that folds the operation-status
+    /// snapshot (<see cref="CaptureStatus"/>) together with the <see cref="DetectDeadlock"/> liveness
+    /// classification and any wait-for cycles. This is the summary intended to be surfaced by
+    /// higher-level execution diagnostics when a simulation appears stuck.
+    /// </summary>
+    /// <returns>A stable, replayable multi-line description of scheduler liveness.</returns>
+    public string DescribeLiveness()
+    {
+        ControlledDeadlockReport report;
+        List<(ControlledOperationId Id, ControlledOperationState State, string Work, ControlledOperationPauseReason? Reason)> operations;
+        TimeSpan now;
+        lock (_gate)
+        {
+            report = DetectDeadlock();
+            now = _clock.Now;
+            operations = new List<(ControlledOperationId, ControlledOperationState, string, ControlledOperationPauseReason?)>(_operations.Count);
+            foreach (var operation in _operations.Values)
+            {
+                operations.Add((operation.Id, operation.State, operation.WorkDescription, operation.PauseReason));
+            }
+        }
+
+        var builder = new StringBuilder();
+        builder.Append(CultureInfo.InvariantCulture, $"Liveness: {report.Liveness} (virtual-time {now}, runnable {report.RunnableCount}, blocked {report.BlockedCount}, pending-timeouts {report.PendingTimeoutCount})");
+        foreach (var (id, state, work, reason) in operations)
+        {
+            builder.Append(CultureInfo.InvariantCulture, $"{Environment.NewLine}  {id} [{state}] {work}");
+            if (reason is not null && state == ControlledOperationState.Paused)
+            {
+                builder.Append(CultureInfo.InvariantCulture, $" waiting: {reason}");
+            }
+        }
+
+        for (var i = 0; i < report.Cycles.Count; i++)
+        {
+            builder.Append(CultureInfo.InvariantCulture, $"{Environment.NewLine}  Deadlock cycle {i + 1}:");
+            foreach (var entry in report.Cycles[i].Entries)
+            {
+                builder.Append(CultureInfo.InvariantCulture, $"{Environment.NewLine}    {entry.OperationId} '{entry.WorkDescription}' waits on {entry.ResourceId} '{entry.ResourceName}' (seq {entry.EnqueueSequence}, {entry.Reason}) owned by {entry.OwnerId}");
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    private List<ControlledWaitCycle> FindWaitForCyclesUnderLock(Dictionary<ControlledOperationId, DeadlockEdge> edges)
+    {
+        var cycles = new List<ControlledWaitCycle>();
+        var globallyVisited = new HashSet<ControlledOperationId>();
+
+        // The wait-for graph is functional here (each paused operation waits on exactly one resource,
+        // hence has at most one successor), so following the single successor chain from each start
+        // node detects every cycle deterministically. _operations is id-sorted, so starts are ordered.
+        foreach (var operation in _operations.Values)
+        {
+            var start = operation.Id;
+            if (!edges.ContainsKey(start) || globallyVisited.Contains(start))
+            {
+                continue;
+            }
+
+            var path = new List<ControlledOperationId>();
+            var indexInPath = new Dictionary<ControlledOperationId, int>();
+            var current = start;
+            while (true)
+            {
+                if (globallyVisited.Contains(current))
+                {
+                    break;
+                }
+
+                if (indexInPath.TryGetValue(current, out var index))
+                {
+                    cycles.Add(BuildCycle(path.GetRange(index, path.Count - index), edges));
+                    break;
+                }
+
+                if (!edges.TryGetValue(current, out var edge))
+                {
+                    break;
+                }
+
+                indexInPath[current] = path.Count;
+                path.Add(current);
+                current = edge.OwnerId;
+            }
+
+            foreach (var id in path)
+            {
+                globallyVisited.Add(id);
+            }
+        }
+
+        // Order cycles deterministically by their (already smallest-first) leading operation id.
+        cycles.Sort(static (a, b) => a.Entries[0].OperationId.CompareTo(b.Entries[0].OperationId));
+        return cycles;
+    }
+
+    private ControlledWaitCycle BuildCycle(List<ControlledOperationId> cycleIds, Dictionary<ControlledOperationId, DeadlockEdge> edges)
+    {
+        // Rotate so the cycle starts at its smallest operation id for a stable representation.
+        var minIndex = 0;
+        for (var i = 1; i < cycleIds.Count; i++)
+        {
+            if (cycleIds[i] < cycleIds[minIndex])
+            {
+                minIndex = i;
+            }
+        }
+
+        var entries = new List<ControlledWaitCycleEntry>(cycleIds.Count);
+        for (var i = 0; i < cycleIds.Count; i++)
+        {
+            var id = cycleIds[(minIndex + i) % cycleIds.Count];
+            var edge = edges[id];
+            var waiter = edge.Waiter;
+            entries.Add(new ControlledWaitCycleEntry(
+                id,
+                _operations[id].WorkDescription,
+                waiter.Resource.Id,
+                waiter.Resource.Name,
+                edge.OwnerId,
+                waiter.EnqueueSequence,
+                waiter.Reason.ToString()));
+        }
+
+        return new ControlledWaitCycle(entries);
+    }
+
+    private static ControlledLivenessState ClassifyLiveness(int nonTerminal, int runnable, int cycleCount, int pendingTimeouts)
+    {
+        if (nonTerminal == 0)
+        {
+            return ControlledLivenessState.Quiescent;
+        }
+
+        if (runnable > 0)
+        {
+            return ControlledLivenessState.Progressing;
+        }
+
+        if (cycleCount > 0)
+        {
+            return ControlledLivenessState.Deadlocked;
+        }
+
+        return pendingTimeouts > 0
+            ? ControlledLivenessState.PausedUntilTime
+            : ControlledLivenessState.ExternallyCompletable;
+    }
+
+    /// <summary>A single wait-for edge used during deadlock analysis: the owner to follow and the waiter that drew it.</summary>
+    private readonly record struct DeadlockEdge(ControlledOperationId OwnerId, ControlledResourceWaiter Waiter);
+
+    /// <summary>
     /// Tears the scheduler down: cancels every non-terminal operation, cooperatively unwinds and
     /// joins their parked physical threads (bounded by <see cref="ThreadJoinTimeout"/>), and releases
     /// all wait handles. No operation is aborted unsafely; no thread is left stranded. Idempotent.
@@ -457,6 +1297,10 @@ public sealed class ControlledOperationScheduler : IDisposable
 
                 operation.RequestTermination();
 
+                // Detach any resource wait first so a resolved-Canceled waiter is removed from its
+                // resource queue and never wakes a terminal operation.
+                DetachWaiterUnderLock(operation);
+
                 // Force every non-terminal operation to Canceled. Running is not expected here
                 // because Dispose must not race an in-flight step; the Created/Runnable/Paused ->
                 // Canceled and Running -> Canceled edges are all legal, so a single transition call
@@ -464,6 +1308,9 @@ public sealed class ControlledOperationScheduler : IDisposable
                 operation.ApplyTransition(ControlledOperationState.Canceled);
                 victims.Add(operation);
             }
+
+            // Drop any pending virtual-time timeouts; their waiters were just detached and canceled.
+            _clock.Clear();
         }
 
         foreach (var victim in victims)
@@ -489,11 +1336,10 @@ public sealed class ControlledOperationScheduler : IDisposable
 
     private ControlledOperation? SelectRunnable()
     {
-        // Deterministic round-robin: the runnable operation with the smallest id strictly greater
-        // than the last-selected one, or - if none is greater - the smallest runnable id (wrap).
-        // _operations is a SortedDictionary, so iteration is ascending by id.
-        ControlledOperation? firstOverall = null;
-        ControlledOperation? firstAfterLast = null;
+        // Collect the runnable operations in ascending id order (_operations is a SortedDictionary),
+        // then delegate the choice to the pluggable strategy. The default RoundRobinSchedulingStrategy
+        // reproduces the Phase 3A behavior exactly.
+        List<ControlledOperation>? runnable = null;
         foreach (var operation in _operations.Values)
         {
             if (operation.State != ControlledOperationState.Runnable)
@@ -501,20 +1347,80 @@ public sealed class ControlledOperationScheduler : IDisposable
                 continue;
             }
 
-            firstOverall ??= operation;
-            if (firstAfterLast is null && operation.Id > _lastSelected)
-            {
-                firstAfterLast = operation;
-            }
+            (runnable ??= new List<ControlledOperation>()).Add(operation);
         }
 
-        var chosen = firstAfterLast ?? firstOverall;
-        if (chosen is not null)
+        if (runnable is null)
         {
-            _lastSelected = chosen.Id;
+            return null;
         }
 
+        ControlledOperation chosen;
+        if (runnable.Count == 1)
+        {
+            // No real choice - do not consult the strategy's hidden state or record a decision, so
+            // single-candidate steps never perturb a seeded/replayed schedule.
+            chosen = runnable[0];
+        }
+        else
+        {
+            chosen = _strategy.ChooseNext(new ControlledSchedulingContext(runnable, _lastSelected));
+            RecordSelection(chosen, runnable);
+        }
+
+        _lastSelected = chosen.Id;
         return chosen;
+    }
+
+    /// <summary>
+    /// Records the scheduling choice among two-or-more candidates as a
+    /// <see cref="SimulationDecisionKind.SchedulingOrder"/> decision and/or validates it against a
+    /// recorded run. Called under <see cref="_gate"/> on the controlling thread, so the runtime
+    /// identity is taken directly from <see cref="_runtime"/> rather than the ambient context (the
+    /// controlling thread has no operation scope installed).
+    /// </summary>
+    private void RecordSelection(ControlledOperation chosen, List<ControlledOperation> runnable)
+    {
+        if (_decisionLog is null && _replayValidator is null)
+        {
+            return;
+        }
+
+        var request = new SimulationDecisionRequest(
+            SimulationSeedDomain.Scheduler,
+            SimulationDecisionKind.SchedulingOrder,
+            _strategy.Name,
+            FormatCandidateIds(runnable),
+            ReplaySchedulingStrategy.FormatId(chosen.Id),
+            _runtime.Id,
+            NodeId: null,
+            SimulationLogicalExecutionId.None);
+
+        var record = _decisionLog is not null
+            ? _decisionLog.Record(request)
+            : new SimulationDecisionRecord(
+                new SimulationDecisionId(_nextSelectionDecisionId++),
+                request.Domain,
+                request.Kind,
+                request.SourceId,
+                request.InputMetadata,
+                request.SelectedResult,
+                request.RuntimeId,
+                request.NodeId,
+                request.LogicalExecutionId);
+
+        _replayValidator?.Validate(record);
+    }
+
+    private static string FormatCandidateIds(List<ControlledOperation> runnable)
+    {
+        var ids = new string[runnable.Count];
+        for (var i = 0; i < runnable.Count; i++)
+        {
+            ids[i] = ReplaySchedulingStrategy.FormatId(runnable[i].Id);
+        }
+
+        return string.Join(",", ids);
     }
 
     private void EnsureThreadStarted(ControlledOperation operation)

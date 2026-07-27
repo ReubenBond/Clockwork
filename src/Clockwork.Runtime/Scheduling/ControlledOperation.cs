@@ -52,7 +52,8 @@ public sealed class ControlledOperation
         SimulationLogicalExecutionId logicalExecutionId,
         string workDescription,
         Action body,
-        ExecutionContext? capturedContext)
+        ExecutionContext? capturedContext,
+        int priority = 0)
     {
         Scheduler = scheduler;
         Id = id;
@@ -61,6 +62,7 @@ public sealed class ControlledOperation
         Node = node;
         LogicalExecutionId = logicalExecutionId;
         WorkDescription = workDescription;
+        Priority = priority;
         _body = body;
         CapturedContext = capturedContext;
     }
@@ -99,6 +101,15 @@ public sealed class ControlledOperation
     /// </summary>
     public string WorkDescription { get; }
 
+    /// <summary>
+    /// Gets this operation's scheduling priority. Higher values are preferred by the
+    /// <see cref="Clockwork.Runtime.Scheduling.Strategies.PrioritySchedulingStrategy"/>; it has no
+    /// effect under the other strategies. Defaults to <c>0</c>. This is a crisp, caller-supplied
+    /// integer (not a BCL <see cref="System.Threading.ThreadPriority"/>): the scheduler never infers
+    /// or mutates it, so priority-ordered schedules stay reproducible.
+    /// </summary>
+    public int Priority { get; }
+
     /// <summary>Gets the operation's current lifecycle state.</summary>
     public ControlledOperationState State => _state;
 
@@ -126,6 +137,14 @@ public sealed class ControlledOperation
 
     /// <summary>The physical thread carrying this operation, created lazily when first granted the baton.</summary>
     internal Thread? Thread { get; set; }
+
+    /// <summary>
+    /// The resource waiter this operation is currently parked on, or <see langword="null"/> when the
+    /// operation is not waiting on a resource. Set by the scheduler when the operation pauses onto a
+    /// resource and cleared when the wait resolves; it is how the scheduler resolves a wakeup back to
+    /// the right waiter and how the wait-for graph discovers what an operation is blocked on.
+    /// </summary>
+    internal Scheduling.Resources.ControlledResourceWaiter? Waiter { get; set; }
 
     /// <summary>The caller's captured execution context, restored on the operation thread so ambient flows in.</summary>
     internal ExecutionContext? CapturedContext { get; }
