@@ -131,7 +131,14 @@ public static class ControlledTaskRuntime
         ArgumentNullException.ThrowIfNull(work);
         if (TryGetCoordinator(apiName, out var coordinator, out var node))
         {
-            coordinator.Schedule(node, work);
+            // Each queued unit of work is an independently-schedulable controlled strand, so it runs under
+            // a fresh logical-strand identity (see Clockwork.Runtime.Threading.ControlledSynchronizationFlow).
+            // That identity is what lets the controlled Monitor/Lock distinguish a reentrant acquire by the
+            // owning strand from a contended acquire by a different strand, since every strand shares the one
+            // cooperative logical thread. It is inert for callers that do not use those primitives.
+            coordinator.Schedule(
+                node,
+                () => Clockwork.Runtime.Threading.ControlledSynchronizationFlow.RunAsNewStrand(work));
         }
         else
         {
