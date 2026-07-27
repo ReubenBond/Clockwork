@@ -1,0 +1,27 @@
+<Project>
+
+  <!--
+    Clockwork.Instrumentation.Build - default properties (imported early).
+
+    Instrumentation is strictly opt-in. Ordinary builds do nothing unless a consumer sets
+    ClockworkInstrumentationEnabled=true. All paths below are overridable by the consuming project.
+  -->
+
+  <PropertyGroup>
+    <!-- Master opt-in switch. Never instrument unless this is explicitly true. -->
+    <ClockworkInstrumentationEnabled Condition="'$(ClockworkInstrumentationEnabled)' == ''">false</ClockworkInstrumentationEnabled>
+
+    <!-- Out-of-place staging under obj; the task fully owns and recreates this directory. -->
+    <ClockworkStagingDirectory Condition="'$(ClockworkStagingDirectory)' == ''">$(IntermediateOutputPath)clockwork\instrumented\</ClockworkStagingDirectory>
+
+    <!-- Manifest lives outside the staged closure so it never ships with the app. -->
+    <ClockworkManifestPath Condition="'$(ClockworkManifestPath)' == ''">$(IntermediateOutputPath)clockwork\clockwork.manifest.json</ClockworkManifestPath>
+
+    <!-- Policy defaults mirror the safe library defaults. -->
+    <ClockworkExcludeFrameworkAssemblies Condition="'$(ClockworkExcludeFrameworkAssemblies)' == ''">true</ClockworkExcludeFrameworkAssemblies>
+    <ClockworkRewriteDependencies Condition="'$(ClockworkRewriteDependencies)' == ''">true</ClockworkRewriteDependencies>
+    <ClockworkReadyToRunPolicy Condition="'$(ClockworkReadyToRunPolicy)' == ''">Reject</ClockworkReadyToRunPolicy>
+    <ClockworkStrongNamePolicy Condition="'$(ClockworkStrongNamePolicy)' == ''">Fail</ClockworkStrongNamePolicy>
+  </PropertyGroup>
+
+</Project>
