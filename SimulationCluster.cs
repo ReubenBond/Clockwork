@@ -14,7 +14,7 @@ namespace Clockwork;
 /// </summary>
 /// <typeparam name="TNode">The concrete simulation node type.</typeparam>
 [DebuggerDisplay("{DebuggerDisplay,nq}")]
-public abstract class SimulationCluster<TNode> : IAsyncDisposable
+public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     where TNode : SimulationNode
 {
     private readonly SortedDictionary<string, TNode> _nodes = new(StringComparer.Ordinal);
