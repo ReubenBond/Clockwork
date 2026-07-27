@@ -276,6 +276,371 @@ public static class ControlledWaitHandle
         return WaitControlled(instance, ToMilliseconds(timeout), WaitOneApi);
     }
 
+    // ---- WaitAny / WaitAll / SignalAndWait (static multi-handle operations) ----
+
+    /// <summary>The value returned by <see cref="WaitHandle.WaitAny(WaitHandle[])"/> when the wait times out.</summary>
+    public const int WaitTimeout = 258;
+
+    /// <summary>Controlled <see cref="WaitHandle.WaitAny(WaitHandle[])"/>.</summary>
+    /// <param name="waitHandles">The handles to wait on.</param>
+    /// <returns>The array index of the handle that satisfied the wait.</returns>
+    public static int WaitAny(WaitHandle[] waitHandles)
+    {
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return WaitHandle.WaitAny(waitHandles);
+        }
+
+        return WaitAnyControlled(waitHandles, Timeout.Infinite);
+    }
+
+    /// <summary>Controlled <see cref="WaitHandle.WaitAny(WaitHandle[], int)"/>.</summary>
+    /// <param name="waitHandles">The handles to wait on.</param>
+    /// <param name="millisecondsTimeout">The virtual-time timeout, <see cref="Timeout.Infinite"/>, or zero.</param>
+    /// <returns>The signalled handle's index, or <see cref="WaitTimeout"/> on timeout.</returns>
+    public static int WaitAny(WaitHandle[] waitHandles, int millisecondsTimeout)
+    {
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return WaitHandle.WaitAny(waitHandles, millisecondsTimeout);
+        }
+
+        return WaitAnyControlled(waitHandles, millisecondsTimeout);
+    }
+
+    /// <summary>Controlled <see cref="WaitHandle.WaitAny(WaitHandle[], TimeSpan)"/>.</summary>
+    /// <param name="waitHandles">The handles to wait on.</param>
+    /// <param name="timeout">The virtual-time timeout.</param>
+    /// <returns>The signalled handle's index, or <see cref="WaitTimeout"/> on timeout.</returns>
+    public static int WaitAny(WaitHandle[] waitHandles, TimeSpan timeout)
+    {
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return WaitHandle.WaitAny(waitHandles, timeout);
+        }
+
+        return WaitAnyControlled(waitHandles, ToMilliseconds(timeout));
+    }
+
+    /// <summary>Controlled <see cref="WaitHandle.WaitAny(WaitHandle[], int, bool)"/>. The <paramref name="exitContext"/> flag has no meaning to the cooperative scheduler.</summary>
+    /// <param name="waitHandles">The handles to wait on.</param>
+    /// <param name="millisecondsTimeout">The virtual-time timeout, <see cref="Timeout.Infinite"/>, or zero.</param>
+    /// <param name="exitContext">Ignored inside a simulation.</param>
+    /// <returns>The signalled handle's index, or <see cref="WaitTimeout"/> on timeout.</returns>
+    public static int WaitAny(WaitHandle[] waitHandles, int millisecondsTimeout, bool exitContext)
+    {
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return WaitHandle.WaitAny(waitHandles, millisecondsTimeout, exitContext);
+        }
+
+        return WaitAnyControlled(waitHandles, millisecondsTimeout);
+    }
+
+    /// <summary>Controlled <see cref="WaitHandle.WaitAny(WaitHandle[], TimeSpan, bool)"/>. The <paramref name="exitContext"/> flag has no meaning to the cooperative scheduler.</summary>
+    /// <param name="waitHandles">The handles to wait on.</param>
+    /// <param name="timeout">The virtual-time timeout.</param>
+    /// <param name="exitContext">Ignored inside a simulation.</param>
+    /// <returns>The signalled handle's index, or <see cref="WaitTimeout"/> on timeout.</returns>
+    public static int WaitAny(WaitHandle[] waitHandles, TimeSpan timeout, bool exitContext)
+    {
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return WaitHandle.WaitAny(waitHandles, timeout, exitContext);
+        }
+
+        return WaitAnyControlled(waitHandles, ToMilliseconds(timeout));
+    }
+
+    /// <summary>Controlled <see cref="WaitHandle.WaitAll(WaitHandle[])"/>.</summary>
+    /// <param name="waitHandles">The handles to wait on.</param>
+    /// <returns><see langword="true"/> when every handle became signalled.</returns>
+    public static bool WaitAll(WaitHandle[] waitHandles)
+    {
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return WaitHandle.WaitAll(waitHandles);
+        }
+
+        return WaitAllControlled(waitHandles, Timeout.Infinite);
+    }
+
+    /// <summary>Controlled <see cref="WaitHandle.WaitAll(WaitHandle[], int)"/>.</summary>
+    /// <param name="waitHandles">The handles to wait on.</param>
+    /// <param name="millisecondsTimeout">The virtual-time timeout, <see cref="Timeout.Infinite"/>, or zero.</param>
+    /// <returns><see langword="true"/> when every handle became signalled before the deadline.</returns>
+    public static bool WaitAll(WaitHandle[] waitHandles, int millisecondsTimeout)
+    {
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return WaitHandle.WaitAll(waitHandles, millisecondsTimeout);
+        }
+
+        return WaitAllControlled(waitHandles, millisecondsTimeout);
+    }
+
+    /// <summary>Controlled <see cref="WaitHandle.WaitAll(WaitHandle[], TimeSpan)"/>.</summary>
+    /// <param name="waitHandles">The handles to wait on.</param>
+    /// <param name="timeout">The virtual-time timeout.</param>
+    /// <returns><see langword="true"/> when every handle became signalled before the deadline.</returns>
+    public static bool WaitAll(WaitHandle[] waitHandles, TimeSpan timeout)
+    {
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return WaitHandle.WaitAll(waitHandles, timeout);
+        }
+
+        return WaitAllControlled(waitHandles, ToMilliseconds(timeout));
+    }
+
+    /// <summary>Controlled <see cref="WaitHandle.WaitAll(WaitHandle[], int, bool)"/>. The <paramref name="exitContext"/> flag has no meaning to the cooperative scheduler.</summary>
+    /// <param name="waitHandles">The handles to wait on.</param>
+    /// <param name="millisecondsTimeout">The virtual-time timeout, <see cref="Timeout.Infinite"/>, or zero.</param>
+    /// <param name="exitContext">Ignored inside a simulation.</param>
+    /// <returns><see langword="true"/> when every handle became signalled before the deadline.</returns>
+    public static bool WaitAll(WaitHandle[] waitHandles, int millisecondsTimeout, bool exitContext)
+    {
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return WaitHandle.WaitAll(waitHandles, millisecondsTimeout, exitContext);
+        }
+
+        return WaitAllControlled(waitHandles, millisecondsTimeout);
+    }
+
+    /// <summary>Controlled <see cref="WaitHandle.WaitAll(WaitHandle[], TimeSpan, bool)"/>. The <paramref name="exitContext"/> flag has no meaning to the cooperative scheduler.</summary>
+    /// <param name="waitHandles">The handles to wait on.</param>
+    /// <param name="timeout">The virtual-time timeout.</param>
+    /// <param name="exitContext">Ignored inside a simulation.</param>
+    /// <returns><see langword="true"/> when every handle became signalled before the deadline.</returns>
+    public static bool WaitAll(WaitHandle[] waitHandles, TimeSpan timeout, bool exitContext)
+    {
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return WaitHandle.WaitAll(waitHandles, timeout, exitContext);
+        }
+
+        return WaitAllControlled(waitHandles, ToMilliseconds(timeout));
+    }
+
+    /// <summary>Controlled <see cref="WaitHandle.SignalAndWait(WaitHandle, WaitHandle)"/>.</summary>
+    /// <param name="toSignal">The handle to signal.</param>
+    /// <param name="toWaitOn">The handle to then wait on.</param>
+    /// <returns><see langword="true"/> when <paramref name="toWaitOn"/> became signalled.</returns>
+    public static bool SignalAndWait(WaitHandle toSignal, WaitHandle toWaitOn)
+    {
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return WaitHandle.SignalAndWait(toSignal, toWaitOn);
+        }
+
+        return SignalAndWaitControlled(toSignal, toWaitOn, Timeout.Infinite);
+    }
+
+    /// <summary>Controlled <see cref="WaitHandle.SignalAndWait(WaitHandle, WaitHandle, int, bool)"/>. The <paramref name="exitContext"/> flag has no meaning to the cooperative scheduler.</summary>
+    /// <param name="toSignal">The handle to signal.</param>
+    /// <param name="toWaitOn">The handle to then wait on.</param>
+    /// <param name="millisecondsTimeout">The virtual-time timeout, <see cref="Timeout.Infinite"/>, or zero.</param>
+    /// <param name="exitContext">Ignored inside a simulation.</param>
+    /// <returns><see langword="true"/> when <paramref name="toWaitOn"/> became signalled before the deadline.</returns>
+    public static bool SignalAndWait(WaitHandle toSignal, WaitHandle toWaitOn, int millisecondsTimeout, bool exitContext)
+    {
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return WaitHandle.SignalAndWait(toSignal, toWaitOn, millisecondsTimeout, exitContext);
+        }
+
+        return SignalAndWaitControlled(toSignal, toWaitOn, millisecondsTimeout);
+    }
+
+    /// <summary>Controlled <see cref="WaitHandle.SignalAndWait(WaitHandle, WaitHandle, TimeSpan, bool)"/>. The <paramref name="exitContext"/> flag has no meaning to the cooperative scheduler.</summary>
+    /// <param name="toSignal">The handle to signal.</param>
+    /// <param name="toWaitOn">The handle to then wait on.</param>
+    /// <param name="timeout">The virtual-time timeout.</param>
+    /// <param name="exitContext">Ignored inside a simulation.</param>
+    /// <returns><see langword="true"/> when <paramref name="toWaitOn"/> became signalled before the deadline.</returns>
+    public static bool SignalAndWait(WaitHandle toSignal, WaitHandle toWaitOn, TimeSpan timeout, bool exitContext)
+    {
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return WaitHandle.SignalAndWait(toSignal, toWaitOn, timeout, exitContext);
+        }
+
+        return SignalAndWaitControlled(toSignal, toWaitOn, ToMilliseconds(timeout));
+    }
+
+    // ---- multi-handle kernel ----
+
+    // The largest handle array WaitAny/WaitAll accept, matching the BCL's WAIT_OBJECT limit.
+    private const int MaxWaitHandles = 64;
+
+    private const string WaitAnyApi = "System.Threading.WaitHandle.WaitAny";
+    private const string WaitAllApi = "System.Threading.WaitHandle.WaitAll";
+    private const string SignalAndWaitApi = "System.Threading.WaitHandle.SignalAndWait";
+
+    private static int WaitAnyControlled(WaitHandle[] waitHandles, int millisecondsTimeout)
+    {
+        ValidateTimeout(millisecondsTimeout);
+        EventState[] states = ResolveStates(waitHandles, WaitAnyApi, requireUnique: false);
+
+        // Fast path: serve the lowest-index already-signalled handle, consuming it (auto-reset clears).
+        int index = FirstSignaled(states);
+        if (index >= 0)
+        {
+            TryConsume(states[index]);
+            return index;
+        }
+
+        if (millisecondsTimeout == 0)
+        {
+            return WaitTimeout;
+        }
+
+        bool timedOut = false;
+        IControlledTimeout? deadline = millisecondsTimeout == Timeout.Infinite
+            ? null
+            : ControlledTaskRuntime.RegisterTimeout(
+                TimeSpan.FromMilliseconds(millisecondsTimeout), onElapsed: () => timedOut = true, WaitAnyApi);
+
+        ControlledTaskRuntime.DrainUntil(() => timedOut || FirstSignaled(states) >= 0, WaitAnyApi);
+
+        index = FirstSignaled(states);
+        if (index >= 0)
+        {
+            deadline?.Cancel();
+            TryConsume(states[index]);
+            return index;
+        }
+
+        return WaitTimeout;
+    }
+
+    private static bool WaitAllControlled(WaitHandle[] waitHandles, int millisecondsTimeout)
+    {
+        ValidateTimeout(millisecondsTimeout);
+        EventState[] states = ResolveStates(waitHandles, WaitAllApi, requireUnique: true);
+
+        // Fast path: only succeeds if every handle is simultaneously signalled, and then consumes them all
+        // atomically (an auto-reset handle is never partially consumed).
+        if (AllSignaled(states))
+        {
+            ConsumeAll(states);
+            return true;
+        }
+
+        if (millisecondsTimeout == 0)
+        {
+            return false;
+        }
+
+        bool timedOut = false;
+        IControlledTimeout? deadline = millisecondsTimeout == Timeout.Infinite
+            ? null
+            : ControlledTaskRuntime.RegisterTimeout(
+                TimeSpan.FromMilliseconds(millisecondsTimeout), onElapsed: () => timedOut = true, WaitAllApi);
+
+        ControlledTaskRuntime.DrainUntil(() => timedOut || AllSignaled(states), WaitAllApi);
+
+        if (AllSignaled(states))
+        {
+            deadline?.Cancel();
+            ConsumeAll(states);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool SignalAndWaitControlled(WaitHandle toSignal, WaitHandle toWaitOn, int millisecondsTimeout)
+    {
+        ArgumentNullException.ThrowIfNull(toSignal);
+        ArgumentNullException.ThrowIfNull(toWaitOn);
+
+        // The signal handle must be a controlled event (only events are settable in Phase 7B); a Mutex /
+        // Semaphore release is Phase 8 and would reject here via the missing modelled state.
+        EventState signalState = StateForOperation(toSignal, SignalAndWaitApi);
+        signalState.Signaled = true;
+        ReleaseWaiters(signalState);
+
+        // Then block on the second handle, exactly as a controlled WaitOne would.
+        return WaitControlled(toWaitOn, millisecondsTimeout, SignalAndWaitApi);
+    }
+
+    private static EventState[] ResolveStates(WaitHandle[] waitHandles, string api, bool requireUnique)
+    {
+        ArgumentNullException.ThrowIfNull(waitHandles);
+        if (waitHandles.Length == 0)
+        {
+            throw new ArgumentException("Waithandles cannot be empty.", nameof(waitHandles));
+        }
+
+        if (waitHandles.Length > MaxWaitHandles)
+        {
+            throw new NotSupportedException($"The number of WaitHandles must be less than or equal to {MaxWaitHandles}.");
+        }
+
+        var states = new EventState[waitHandles.Length];
+        for (int i = 0; i < waitHandles.Length; i++)
+        {
+            WaitHandle handle = waitHandles[i];
+            if (handle is null)
+            {
+                throw new ArgumentNullException(nameof(waitHandles), "A wait handle in the array was null.");
+            }
+
+            if (requireUnique)
+            {
+                for (int j = 0; j < i; j++)
+                {
+                    if (ReferenceEquals(waitHandles[j], handle))
+                    {
+                        throw new DuplicateWaitObjectException(nameof(waitHandles), "The wait-handle array contains a duplicate handle.");
+                    }
+                }
+            }
+
+            EventState state = StateOrThrow(handle, api);
+            ThrowIfDisposed(state);
+            states[i] = state;
+        }
+
+        return states;
+    }
+
+    private static int FirstSignaled(EventState[] states)
+    {
+        for (int i = 0; i < states.Length; i++)
+        {
+            if (states[i].Signaled)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private static bool AllSignaled(EventState[] states)
+    {
+        for (int i = 0; i < states.Length; i++)
+        {
+            if (!states[i].Signaled)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static void ConsumeAll(EventState[] states)
+    {
+        for (int i = 0; i < states.Length; i++)
+        {
+            TryConsume(states[i]);
+        }
+    }
+
     // ---- lifecycle ----
 
     /// <summary>Controlled <see cref="WaitHandle.Dispose()"/>.</summary>

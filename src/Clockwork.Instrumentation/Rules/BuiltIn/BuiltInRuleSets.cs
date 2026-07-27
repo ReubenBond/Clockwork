@@ -267,6 +267,7 @@ public static class BuiltInRuleSets
     private const string NamedWaitHandleOptionsType = "System.Threading.NamedWaitHandleOptions";
     private const string SafeWaitHandleType = "Microsoft.Win32.SafeHandles.SafeWaitHandle";
     private const string EventWaitHandleRef = "System.Threading.EventWaitHandle&";
+    private const string WaitHandleArray = "System.Threading.WaitHandle[]";
     private const string WaitHandleShim = "Clockwork.Runtime.Threading.ControlledWaitHandle";
     private const string EventWaitHandleShim = "Clockwork.Runtime.Threading.ControlledEventWaitHandle";
 
@@ -988,6 +989,38 @@ public static class BuiltInRuleSets
             MemberSignature.Method(WaitHandleType, "WaitOne", Int32, Boolean), Shim(WaitHandleShim, "WaitOne", WaitHandleType, Int32, Boolean));
         TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitone.timespan.exitcontext",
             MemberSignature.Method(WaitHandleType, "WaitOne", TimeSpan, Boolean), Shim(WaitHandleShim, "WaitOne", WaitHandleType, TimeSpan, Boolean));
+
+        // ---- WaitHandle.WaitAny -> controlled multi-handle kernel (first-signalled, lowest index) ----
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitany",
+            MemberSignature.Method(WaitHandleType, "WaitAny", WaitHandleArray), Shim(WaitHandleShim, "WaitAny", WaitHandleArray));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitany.milliseconds",
+            MemberSignature.Method(WaitHandleType, "WaitAny", WaitHandleArray, Int32), Shim(WaitHandleShim, "WaitAny", WaitHandleArray, Int32));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitany.timespan",
+            MemberSignature.Method(WaitHandleType, "WaitAny", WaitHandleArray, TimeSpan), Shim(WaitHandleShim, "WaitAny", WaitHandleArray, TimeSpan));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitany.milliseconds.exitcontext",
+            MemberSignature.Method(WaitHandleType, "WaitAny", WaitHandleArray, Int32, Boolean), Shim(WaitHandleShim, "WaitAny", WaitHandleArray, Int32, Boolean));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitany.timespan.exitcontext",
+            MemberSignature.Method(WaitHandleType, "WaitAny", WaitHandleArray, TimeSpan, Boolean), Shim(WaitHandleShim, "WaitAny", WaitHandleArray, TimeSpan, Boolean));
+
+        // ---- WaitHandle.WaitAll -> controlled multi-handle kernel (all-signalled, atomic consume) ----
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitall",
+            MemberSignature.Method(WaitHandleType, "WaitAll", WaitHandleArray), Shim(WaitHandleShim, "WaitAll", WaitHandleArray));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitall.milliseconds",
+            MemberSignature.Method(WaitHandleType, "WaitAll", WaitHandleArray, Int32), Shim(WaitHandleShim, "WaitAll", WaitHandleArray, Int32));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitall.timespan",
+            MemberSignature.Method(WaitHandleType, "WaitAll", WaitHandleArray, TimeSpan), Shim(WaitHandleShim, "WaitAll", WaitHandleArray, TimeSpan));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitall.milliseconds.exitcontext",
+            MemberSignature.Method(WaitHandleType, "WaitAll", WaitHandleArray, Int32, Boolean), Shim(WaitHandleShim, "WaitAll", WaitHandleArray, Int32, Boolean));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitall.timespan.exitcontext",
+            MemberSignature.Method(WaitHandleType, "WaitAll", WaitHandleArray, TimeSpan, Boolean), Shim(WaitHandleShim, "WaitAll", WaitHandleArray, TimeSpan, Boolean));
+
+        // ---- WaitHandle.SignalAndWait -> atomic signal-then-wait on the controlled kernel ----
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.signalandwait",
+            MemberSignature.Method(WaitHandleType, "SignalAndWait", WaitHandleType, WaitHandleType), Shim(WaitHandleShim, "SignalAndWait", WaitHandleType, WaitHandleType));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.signalandwait.milliseconds.exitcontext",
+            MemberSignature.Method(WaitHandleType, "SignalAndWait", WaitHandleType, WaitHandleType, Int32, Boolean), Shim(WaitHandleShim, "SignalAndWait", WaitHandleType, WaitHandleType, Int32, Boolean));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.signalandwait.timespan.exitcontext",
+            MemberSignature.Method(WaitHandleType, "SignalAndWait", WaitHandleType, WaitHandleType, TimeSpan, Boolean), Shim(WaitHandleShim, "SignalAndWait", WaitHandleType, WaitHandleType, TimeSpan, Boolean));
 
         // ---- WaitHandle disposal ----
         TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.dispose",

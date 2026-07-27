@@ -123,6 +123,78 @@ public sealed class EventWaitHandleConformanceTests : IDisposable
                     return Task.FromResult(ex.GetType().Name.Contains("WaitHandle"));
                 }
             }
+
+            // WaitAny returns the lowest-index signalled handle.
+            public static Task<int> WaitAnyReturnsLowestIndex()
+            {
+                var a = new AutoResetEvent(false);
+                var b = new ManualResetEvent(true);
+                var c = new AutoResetEvent(true);
+                return Task.FromResult(WaitHandle.WaitAny(new WaitHandle[] { a, b, c }));
+            }
+
+            // WaitAny blocks until a controlled thread signals one of the handles.
+            public static Task<int> WaitAnyWakesOnSignal()
+            {
+                var a = new AutoResetEvent(false);
+                var b = new AutoResetEvent(false);
+                var t = new Thread(() => { b.Set(); });
+                t.Start();
+                int index = WaitHandle.WaitAny(new WaitHandle[] { a, b });
+                t.Join();
+                return Task.FromResult(index);
+            }
+
+            // WaitAny with a finite timeout returns WaitTimeout via the virtual deadline.
+            public static Task<bool> WaitAnyTimesOut()
+            {
+                var a = new AutoResetEvent(false);
+                var b = new AutoResetEvent(false);
+                int index = WaitHandle.WaitAny(new WaitHandle[] { a, b }, 50);
+                return Task.FromResult(index == WaitHandle.WaitTimeout);
+            }
+
+            // WaitAll succeeds only when all handles are simultaneously signalled and consumes atomically.
+            public static Task<bool> WaitAllAtomicConsume()
+            {
+                var a = new AutoResetEvent(false);
+                var b = new AutoResetEvent(false);
+                bool beforeAll = WaitHandle.WaitAll(new WaitHandle[] { a, b }, 0);
+                a.Set();
+                b.Set();
+                bool all = WaitHandle.WaitAll(new WaitHandle[] { a, b });
+                // Both auto-reset handles consumed atomically, so neither remains signalled.
+                bool aConsumed = !a.WaitOne(0);
+                bool bConsumed = !b.WaitOne(0);
+                return Task.FromResult(!beforeAll && all && aConsumed && bConsumed);
+            }
+
+            // WaitAll rejects duplicate handles with DuplicateWaitObjectException.
+            public static Task<bool> WaitAllRejectsDuplicates()
+            {
+                var a = new AutoResetEvent(false);
+                try
+                {
+                    WaitHandle.WaitAll(new WaitHandle[] { a, a });
+                    return Task.FromResult(false);
+                }
+                catch (DuplicateWaitObjectException)
+                {
+                    return Task.FromResult(true);
+                }
+            }
+
+            // SignalAndWait atomically signals the first handle then waits on the second.
+            public static Task<bool> SignalAndWaitSignalsThenWaits()
+            {
+                var gate = new ManualResetEvent(false);
+                var proceed = new AutoResetEvent(false);
+                var partner = new Thread(() => { gate.WaitOne(); proceed.Set(); });
+                partner.Start();
+                bool got = WaitHandle.SignalAndWait(gate, proceed);
+                partner.Join();
+                return Task.FromResult(got);
+            }
         } }
         """;
 
@@ -209,6 +281,60 @@ public sealed class EventWaitHandleConformanceTests : IDisposable
     {
         using var host = new SimulationHost(Start);
         var task = (Task<bool>)host.Invoke(Method("NamedEventRejected", optimize))!;
+        Assert.True(Result<bool>(task));
+    }
+
+    [Theory]
+    [MemberData(nameof(Optimize))]
+    public void WaitAnyReturnsLowestIndex(bool optimize)
+    {
+        using var host = new SimulationHost(Start);
+        var task = (Task<int>)host.Invoke(Method("WaitAnyReturnsLowestIndex", optimize))!;
+        Assert.Equal(1, Result<int>(task));
+    }
+
+    [Theory]
+    [MemberData(nameof(Optimize))]
+    public void WaitAnyWakesOnSignal(bool optimize)
+    {
+        using var host = new SimulationHost(Start);
+        var task = (Task<int>)host.Invoke(Method("WaitAnyWakesOnSignal", optimize))!;
+        Assert.Equal(1, Result<int>(task));
+    }
+
+    [Theory]
+    [MemberData(nameof(Optimize))]
+    public void WaitAnyTimesOut(bool optimize)
+    {
+        using var host = new SimulationHost(Start);
+        var task = (Task<bool>)host.Invoke(Method("WaitAnyTimesOut", optimize))!;
+        Assert.True(Result<bool>(task));
+    }
+
+    [Theory]
+    [MemberData(nameof(Optimize))]
+    public void WaitAllAtomicConsume(bool optimize)
+    {
+        using var host = new SimulationHost(Start);
+        var task = (Task<bool>)host.Invoke(Method("WaitAllAtomicConsume", optimize))!;
+        Assert.True(Result<bool>(task));
+    }
+
+    [Theory]
+    [MemberData(nameof(Optimize))]
+    public void WaitAllRejectsDuplicates(bool optimize)
+    {
+        using var host = new SimulationHost(Start);
+        var task = (Task<bool>)host.Invoke(Method("WaitAllRejectsDuplicates", optimize))!;
+        Assert.True(Result<bool>(task));
+    }
+
+    [Theory]
+    [MemberData(nameof(Optimize))]
+    public void SignalAndWaitSignalsThenWaits(bool optimize)
+    {
+        using var host = new SimulationHost(Start);
+        var task = (Task<bool>)host.Invoke(Method("SignalAndWaitSignalsThenWaits", optimize))!;
         Assert.True(Result<bool>(task));
     }
 

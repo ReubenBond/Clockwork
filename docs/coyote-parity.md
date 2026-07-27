@@ -406,6 +406,19 @@ Outside a simulation every shim delegates to the real BCL primitive.
 | `WaitHandle.WaitOne(TimeSpan)` | ✅ Controlled | `clockwork.waithandle.waitone.timespan` |
 | `WaitHandle.WaitOne(int, bool)` | ✅ Controlled | `clockwork.waithandle.waitone.milliseconds.exitcontext` |
 | `WaitHandle.WaitOne(TimeSpan, bool)` | ✅ Controlled | `clockwork.waithandle.waitone.timespan.exitcontext` |
+| `WaitHandle.WaitAny(WaitHandle[])` | ✅ Controlled | `clockwork.waithandle.waitany` |
+| `WaitHandle.WaitAny(WaitHandle[], int)` | ✅ Controlled | `clockwork.waithandle.waitany.milliseconds` |
+| `WaitHandle.WaitAny(WaitHandle[], TimeSpan)` | ✅ Controlled | `clockwork.waithandle.waitany.timespan` |
+| `WaitHandle.WaitAny(WaitHandle[], int, bool)` | ✅ Controlled | `clockwork.waithandle.waitany.milliseconds.exitcontext` |
+| `WaitHandle.WaitAny(WaitHandle[], TimeSpan, bool)` | ✅ Controlled | `clockwork.waithandle.waitany.timespan.exitcontext` |
+| `WaitHandle.WaitAll(WaitHandle[])` | ✅ Controlled | `clockwork.waithandle.waitall` |
+| `WaitHandle.WaitAll(WaitHandle[], int)` | ✅ Controlled | `clockwork.waithandle.waitall.milliseconds` |
+| `WaitHandle.WaitAll(WaitHandle[], TimeSpan)` | ✅ Controlled | `clockwork.waithandle.waitall.timespan` |
+| `WaitHandle.WaitAll(WaitHandle[], int, bool)` | ✅ Controlled | `clockwork.waithandle.waitall.milliseconds.exitcontext` |
+| `WaitHandle.WaitAll(WaitHandle[], TimeSpan, bool)` | ✅ Controlled | `clockwork.waithandle.waitall.timespan.exitcontext` |
+| `WaitHandle.SignalAndWait(WaitHandle, WaitHandle)` | ✅ Controlled | `clockwork.waithandle.signalandwait` |
+| `WaitHandle.SignalAndWait(WaitHandle, WaitHandle, int, bool)` | ✅ Controlled | `clockwork.waithandle.signalandwait.milliseconds.exitcontext` |
+| `WaitHandle.SignalAndWait(WaitHandle, WaitHandle, TimeSpan, bool)` | ✅ Controlled | `clockwork.waithandle.signalandwait.timespan.exitcontext` |
 | `WaitHandle.Dispose()` | ✅ Controlled | `clockwork.waithandle.dispose` |
 | `WaitHandle.Close()` | ✅ Controlled | `clockwork.waithandle.close` |
 | `EventWaitHandle.Set()` | ✅ Controlled | `clockwork.eventwaithandle.set` |
@@ -415,8 +428,12 @@ Outside a simulation every shim delegates to the real BCL primitive.
 | `EventWaitHandle.OpenExisting(string)` / `(string, NamedWaitHandleOptions)` | ⛔ Rejected (tested) | `clockwork.eventwaithandle.openexisting[.options]` — cross-process |
 | `EventWaitHandle.TryOpenExisting(string, out)` / `(string, NamedWaitHandleOptions, out)` | ⛔ Rejected (tested) | `clockwork.eventwaithandle.tryopenexisting[.options]` — cross-process |
 
-**Semantics:** enumerated against the .NET 10 reference assemblies. `WaitHandle.WaitAny`/`WaitAll`/
-`SignalAndWait` (the multi-handle operations) are completed in the next Phase 7B slice. A non-null event
+**Semantics:** enumerated against the .NET 10 reference assemblies. The static multi-handle operations
+`WaitHandle.WaitAny` (returns the lowest-index signalled handle), `WaitAll` (waits until every handle is
+simultaneously signalled, then consumes them atomically so an auto-reset handle is never partially
+consumed), and `SignalAndWait` (atomically signals the first handle then waits on the second) register
+across all handles with no lost signals; they validate null / empty / over-64 arrays and — for `WaitAll`
+— reject duplicate handles with `DuplicateWaitObjectException`. A non-null event
 name and the `OpenExisting`/`TryOpenExisting` open-by-name APIs model a **system-wide kernel object** that
 a single simulation process cannot faithfully represent, so they are rejected with a precise diagnostic; a
 `null` name is a degenerate unnamed event and stays fully controlled. The raw `Handle`/`SafeWaitHandle`
@@ -434,7 +451,7 @@ lands.
 
 | Coyote type(s) | Owning phase | Current posture |
 | --- | --- | --- |
-| `WaitHandle`, `EventWaitHandle`, `AutoResetEvent`, `ManualResetEvent` | ✅ **Controlled (Phase 7B)** — see the events section above | ctors → `Create` factories, `WaitOne`/`Dispose`/`Close` and `Set`/`Reset` controlled; named/cross-process + raw-handle APIs rejected. `WaitAny`/`WaitAll`/`SignalAndWait` land in the next 7B slice |
+| `WaitHandle`, `EventWaitHandle`, `AutoResetEvent`, `ManualResetEvent` | ✅ **Controlled (Phase 7B)** — see the events section above | ctors → `Create` factories, `WaitOne`/`WaitAny`/`WaitAll`/`SignalAndWait`/`Dispose`/`Close` and `Set`/`Reset` controlled; named/cross-process + raw-handle APIs rejected |
 | `Interlocked` | ✅ **Controlled (Phase 7B)** — see the `Interlocked` section above | full .NET 10 surface redirected to `clockwork.interlocked.*` |
 | `Volatile` | ✅ **Controlled (Phase 7B)** — see the `Volatile` section above | full .NET 10 surface redirected to `clockwork.volatile.*` |
 | `SpinWait` (struct) | ✅ **Controlled (Phase 7B)** — see the `SpinWait` section above | value-type substitution `clockwork.spinwait.type` (the `Thread.SpinWait(int)` *static* is also controlled — `clockwork.thread.spinwait`) |
@@ -477,11 +494,12 @@ lands.
   (Phase 7B) — ctors redirect to `Create` factories, the five `WaitOne` overloads plus `Dispose`/`Close`
   and `Set`/`Reset` are receiver-first shims over a modelled signalled state and deterministic FIFO waiter
   set (auto-reset wakes exactly one waiter, manual-reset releases all and stays signalled), finite timeouts
-  use a virtual-time deadline; named/cross-process open APIs and the raw `Handle`/`SafeWaitHandle`
-  accessors are rejected with tested diagnostics. `WaitAny`/`WaitAll`/`SignalAndWait` complete in the next
-  7B slice.
-- **Deferred by phase plan:** `WaitAny`/`WaitAll`/`SignalAndWait`, `SemaphoreSlim.AvailableWaitHandle`, and
-  the `ThreadPool` registered-wait APIs (remaining Phase 7B slices);
+  use a virtual-time deadline; the static `WaitAny` (lowest-index signalled), `WaitAll` (all-signalled,
+  atomic consume) and `SignalAndWait` (atomic signal-then-wait) multi-handle operations are controlled with
+  full array validation; named/cross-process open APIs and the raw `Handle`/`SafeWaitHandle` accessors are
+  rejected with tested diagnostics.
+- **Deferred by phase plan:** `SemaphoreSlim.AvailableWaitHandle` and the `ThreadPool` registered-wait APIs
+  (remaining Phase 7B slices);
   `ReaderWriterLockSlim`/`Mutex`/`Semaphore`/`SpinLock` and timers/`Task.Delay` (Phase 8).
 
 Every Coyote entry above is therefore **controlled** (with a cited rule id or by architecture),

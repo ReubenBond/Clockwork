@@ -337,6 +337,206 @@ public sealed class ControlledEventWaitHandleTests
         ControlledWaitHandle.Dispose(evt);
     }
 
+    // ---- WaitAny / WaitAll / SignalAndWait ----
+
+    [Fact]
+    public void WaitAnyReturnsLowestSignalledIndex()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            AutoResetEvent a = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: false);
+            ManualResetEvent b = ControlledEventWaitHandle.CreateManualResetEvent(initialState: true);
+            AutoResetEvent c = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: true);
+
+            // Both b (index 1) and c (index 2) are signalled; WaitAny serves the lowest index.
+            Assert.Equal(1, ControlledWaitHandle.WaitAny([a, b, c]));
+        });
+    }
+
+    [Fact]
+    public void WaitAnyConsumesExactlyOneAutoResetSignal()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            AutoResetEvent a = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: false);
+            AutoResetEvent b = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: true);
+
+            Assert.Equal(1, ControlledWaitHandle.WaitAny([a, b])); // Consumes b.
+            Assert.Equal(ControlledWaitHandle.WaitTimeout, ControlledWaitHandle.WaitAny([a, b], 0));
+        });
+    }
+
+    [Fact]
+    public void WaitAnyTimesOutWhenNoneSignalled()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            AutoResetEvent a = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: false);
+            AutoResetEvent b = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: false);
+
+            Assert.Equal(ControlledWaitHandle.WaitTimeout, ControlledWaitHandle.WaitAny([a, b], 100));
+            Assert.True(coordinator.Loop.IsIdle);
+        });
+    }
+
+    [Fact]
+    public void WaitAnyWakesWhenAnotherStrandSetsAHandle()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            AutoResetEvent a = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: false);
+            AutoResetEvent b = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: false);
+            var index = -1;
+
+            var waiter = ControlledThread.Create(() => index = ControlledWaitHandle.WaitAny([a, b]));
+            var setter = ControlledThread.Create(() => ControlledEventWaitHandle.Set(b));
+
+            ControlledThread.Start(waiter);
+            ControlledThread.Start(setter);
+            ControlledThread.Join(waiter);
+            ControlledThread.Join(setter);
+
+            Assert.Equal(1, index);
+            Assert.True(coordinator.Loop.IsIdle);
+        });
+    }
+
+    [Fact]
+    public void WaitAllSucceedsOnlyWhenAllSignalled()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            ManualResetEvent a = ControlledEventWaitHandle.CreateManualResetEvent(initialState: true);
+            AutoResetEvent b = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: false);
+
+            // Not all signalled -> zero-timeout WaitAll fails and consumes nothing.
+            Assert.False(ControlledWaitHandle.WaitAll([a, b], 0));
+            Assert.True(ControlledWaitHandle.WaitOne(a, 0)); // 'a' was never consumed.
+
+            ControlledEventWaitHandle.Set(b);
+            Assert.True(ControlledWaitHandle.WaitAll([a, b], 0)); // Both signalled now.
+            Assert.False(ControlledWaitHandle.WaitOne(b, 0)); // 'b' (auto-reset) was consumed atomically.
+        });
+    }
+
+    [Fact]
+    public void WaitAllWakesWhenAllHandlesEventuallySet()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            AutoResetEvent a = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: false);
+            AutoResetEvent b = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: false);
+            var all = false;
+
+            var waiter = ControlledThread.Create(() => all = ControlledWaitHandle.WaitAll([a, b]));
+            var setter = ControlledThread.Create(() =>
+            {
+                ControlledEventWaitHandle.Set(a);
+                ControlledEventWaitHandle.Set(b);
+            });
+
+            ControlledThread.Start(waiter);
+            ControlledThread.Start(setter);
+            ControlledThread.Join(waiter);
+            ControlledThread.Join(setter);
+
+            Assert.True(all);
+            Assert.True(coordinator.Loop.IsIdle);
+        });
+    }
+
+    [Fact]
+    public void WaitAllRejectsDuplicateHandles()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            AutoResetEvent a = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: false);
+            Assert.Throws<DuplicateWaitObjectException>(() => ControlledWaitHandle.WaitAll([a, a]));
+        });
+    }
+
+    [Fact]
+    public void WaitAnyAllowsDuplicateHandles()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            AutoResetEvent a = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: true);
+            Assert.Equal(0, ControlledWaitHandle.WaitAny([a, a]));
+        });
+    }
+
+    [Fact]
+    public void WaitAnyRejectsEmptyArray()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            Assert.Throws<ArgumentException>(() => ControlledWaitHandle.WaitAny([]));
+        });
+    }
+
+    [Fact]
+    public void WaitAllRejectsNullElement()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            AutoResetEvent a = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: false);
+            Assert.Throws<ArgumentNullException>(() => ControlledWaitHandle.WaitAll([a, null!]));
+        });
+    }
+
+    [Fact]
+    public void SignalAndWaitSignalsFirstThenWaitsOnSecond()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            ManualResetEvent gate = ControlledEventWaitHandle.CreateManualResetEvent(initialState: false);
+            AutoResetEvent proceed = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: false);
+            var order = new List<int>();
+
+            var partner = ControlledThread.Create(() =>
+            {
+                ControlledWaitHandle.WaitOne(gate); // Wait until SignalAndWait sets the gate.
+                order.Add(1);
+                ControlledEventWaitHandle.Set(proceed); // Release the SignalAndWait caller.
+            });
+            ControlledThread.Start(partner);
+
+            // Atomically signal 'gate' (waking the partner) then wait on 'proceed'.
+            Assert.True(ControlledWaitHandle.SignalAndWait(gate, proceed));
+            order.Add(2);
+
+            ControlledThread.Join(partner);
+            Assert.Equal([1, 2], order);
+            Assert.True(coordinator.Loop.IsIdle);
+        });
+    }
+
+    [Fact]
+    public void SignalAndWaitTimesOutOnSecondHandle()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            ManualResetEvent gate = ControlledEventWaitHandle.CreateManualResetEvent(initialState: false);
+            AutoResetEvent proceed = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: false);
+
+            Assert.False(ControlledWaitHandle.SignalAndWait(gate, proceed, 100, exitContext: false));
+            Assert.True(ControlledWaitHandle.WaitOne(gate, 0)); // The gate was still signalled.
+            Assert.True(coordinator.Loop.IsIdle);
+        });
+    }
+
     // A "virtual delay" built from a never-set finite Wait sequences an action at a chosen virtual instant,
     // with no wall-clock time anywhere, for exact before/at/after timeout coverage.
     private static void VirtualDelayThenRun(int delayMilliseconds, Action action)
