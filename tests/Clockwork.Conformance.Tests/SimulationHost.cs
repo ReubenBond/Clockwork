@@ -76,5 +76,48 @@ internal sealed class SimulationHost : IDisposable
         return result;
     }
 
+    /// <summary>
+    /// Invokes the probe as node work and then enqueues <paramref name="afterWork"/> as further node
+    /// work (each at the same logical instant, in order), so a probe that awaits an initially-incomplete
+    /// task suspends first and is only resumed once the later work completes its antecedents. Everything
+    /// runs on the single logical thread; a single <c>RunUntilIdle</c> drains the
+    /// probe, the completions, and every controlled continuation deterministically.
+    /// </summary>
+    public object? InvokeWithWork(MethodInfo method, object?[] args, params Action[] afterWork)
+    {
+        SimulationNodeHandle<object?> node = _nodes[_defaultAddress];
+
+        object? result = null;
+        Exception? error = null;
+        node.Context.TaskQueue.EnqueueAfter(
+            () =>
+            {
+                try
+                {
+                    result = method.Invoke(null, args.Length == 0 ? null : args);
+                }
+                catch (TargetInvocationException ex)
+                {
+                    error = ex.InnerException ?? ex;
+                }
+            },
+            TimeSpan.Zero);
+
+        foreach (Action work in afterWork)
+        {
+            Action captured = work;
+            node.Context.TaskQueue.EnqueueAfter(captured, TimeSpan.Zero);
+        }
+
+        _cluster.RunUntilIdle();
+
+        if (error is not null)
+        {
+            throw error;
+        }
+
+        return result;
+    }
+
     public void Dispose() => _cluster.DisposeAsync().AsTask().GetAwaiter().GetResult();
 }

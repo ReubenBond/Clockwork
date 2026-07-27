@@ -40,11 +40,40 @@ internal sealed class RewriteFixture : IDisposable
         string typeName,
         string source,
         IEnumerable<BuiltInRuleFamily>? families = null)
+        => StageWith(
+            assemblyName,
+            typeName,
+            source,
+            BuiltInRuleSets.BuildDeterministicBcl(families ?? BuiltInRuleSets.AllFamilies));
+
+    /// <summary>
+    /// Compiles, rewrites with the controlled-task rule set, and loads the rewritten probe type. The
+    /// <paramref name="optimize"/> flag selects Debug vs Release codegen, which the C# compiler lowers to
+    /// materially different async state machines - both must be retargeted onto the controlled machinery.
+    /// </summary>
+    public StagedProbe StageControlledTasks(
+        string assemblyName,
+        string typeName,
+        string source,
+        bool optimize,
+        IEnumerable<BuiltInRuleFamily>? families = null)
+        => StageWith(
+            assemblyName,
+            typeName,
+            source,
+            BuiltInRuleSets.BuildControlledTasks(families ?? BuiltInRuleSets.AllFamilies),
+            optimize);
+
+    private StagedProbe StageWith(
+        string assemblyName,
+        string typeName,
+        string source,
+        RewriteRuleSet ruleSet,
+        bool optimize = true)
     {
-        string sourceDll = Compile(assemblyName, source);
+        string sourceDll = Compile(assemblyName, source, optimize);
         string stagedDll = Path.Combine(StagingDir, assemblyName + ".dll");
 
-        RewriteRuleSet ruleSet = BuiltInRuleSets.BuildDeterministicBcl(families ?? BuiltInRuleSets.AllFamilies);
         string runtimeDll = typeof(DeterministicClock).Assembly.Location;
         var options = new RewriteOptions
         {
@@ -67,12 +96,14 @@ internal sealed class RewriteFixture : IDisposable
         return new StagedProbe(type, result, sourceDll, stagedDll, ruleSet, options);
     }
 
-    private string Compile(string assemblyName, string source)
+    private string Compile(string assemblyName, string source, bool optimize = true)
     {
         SyntaxTree tree = CSharpSyntaxTree.ParseText(
             source, new CSharpParseOptions(LanguageVersion.Latest), path: assemblyName + ".cs", encoding: Encoding.UTF8);
         var options = new CSharpCompilationOptions(
-            OutputKind.DynamicallyLinkedLibrary, optimizationLevel: OptimizationLevel.Release, deterministic: true);
+            OutputKind.DynamicallyLinkedLibrary,
+            optimizationLevel: optimize ? OptimizationLevel.Release : OptimizationLevel.Debug,
+            deterministic: true);
         CSharpCompilation compilation = CSharpCompilation.Create(assemblyName, [tree], RuntimeReferences, options);
 
         string path = Path.Combine(SourceDir, assemblyName + ".dll");
