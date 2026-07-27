@@ -76,6 +76,7 @@ public sealed class ControlledOperationScheduler : IDisposable
     private int _controlThreadId;
     private bool _controlThreadBusy;
     private bool _disposed;
+    private ControlledOperation? _pendingTerminalNotification;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ControlledOperationScheduler"/> class.
@@ -250,6 +251,7 @@ public sealed class ControlledOperationScheduler : IDisposable
         ControlledOperation operation;
         lock (_transitionPublicationGate)
         {
+            WaitForPendingTerminalNotificationUnderLock();
             lock (_gate)
             {
                 ThrowIfDisposed();
@@ -370,6 +372,7 @@ public sealed class ControlledOperationScheduler : IDisposable
         ValidateOwnership(operation);
         lock (_transitionPublicationGate)
         {
+            WaitForPendingTerminalNotificationUnderLock();
             lock (_gate)
             {
                 ThrowIfDisposed();
@@ -401,6 +404,7 @@ public sealed class ControlledOperationScheduler : IDisposable
         ControlledOperation operation;
         lock (_transitionPublicationGate)
         {
+            WaitForPendingTerminalNotificationUnderLock();
             lock (_gate)
             {
                 ThrowIfDisposed();
@@ -513,6 +517,7 @@ public sealed class ControlledOperationScheduler : IDisposable
         List<CancellationTokenRegistration> registrations = [];
         lock (_transitionPublicationGate)
         {
+            WaitForPendingTerminalNotificationUnderLock();
             lock (_gate)
             {
                 ThrowIfDisposed();
@@ -577,6 +582,7 @@ public sealed class ControlledOperationScheduler : IDisposable
         ValidateOwnership(operation);
         lock (_transitionPublicationGate)
         {
+            WaitForPendingTerminalNotificationUnderLock();
             lock (_gate)
             {
                 ThrowIfDisposed();
@@ -605,6 +611,7 @@ public sealed class ControlledOperationScheduler : IDisposable
         CancellationTokenRegistration registration;
         lock (_transitionPublicationGate)
         {
+            WaitForPendingTerminalNotificationUnderLock();
             lock (_gate)
             {
                 if (operation.IsTerminal)
@@ -648,6 +655,7 @@ public sealed class ControlledOperationScheduler : IDisposable
         var operation = RequireCurrentOperation();
         lock (_transitionPublicationGate)
         {
+            WaitForPendingTerminalNotificationUnderLock();
             lock (_gate)
             {
                 operation.ApplyTransition(ControlledOperationState.Paused, pauseReason: reason);
@@ -669,6 +677,7 @@ public sealed class ControlledOperationScheduler : IDisposable
         var operation = RequireCurrentOperation();
         lock (_transitionPublicationGate)
         {
+            WaitForPendingTerminalNotificationUnderLock();
             lock (_gate)
             {
                 operation.ApplyTransition(ControlledOperationState.Runnable);
@@ -818,6 +827,7 @@ public sealed class ControlledOperationScheduler : IDisposable
         CancellationTokenRegistration detachedRegistration = default;
         lock (_transitionPublicationGate)
         {
+            WaitForPendingTerminalNotificationUnderLock();
             lock (_gate)
             {
                 ThrowIfDisposed();
@@ -881,6 +891,7 @@ public sealed class ControlledOperationScheduler : IDisposable
         ControlledOperation? runnable = null;
         lock (_transitionPublicationGate)
         {
+            WaitForPendingTerminalNotificationUnderLock();
             lock (_gate)
             {
                 if (_disposed)
@@ -932,6 +943,7 @@ public sealed class ControlledOperationScheduler : IDisposable
         CancellationTokenRegistration registration = default;
         lock (_transitionPublicationGate)
         {
+            WaitForPendingTerminalNotificationUnderLock();
             lock (_gate)
             {
                 ThrowIfDisposed();
@@ -973,6 +985,7 @@ public sealed class ControlledOperationScheduler : IDisposable
         List<CancellationTokenRegistration> registrations = [];
         lock (_transitionPublicationGate)
         {
+            WaitForPendingTerminalNotificationUnderLock();
             lock (_gate)
             {
                 ThrowIfDisposed();
@@ -1392,6 +1405,7 @@ public sealed class ControlledOperationScheduler : IDisposable
         List<CancellationTokenRegistration> registrations;
         lock (_transitionPublicationGate)
         {
+            WaitForPendingTerminalNotificationUnderLock();
             lock (_gate)
             {
                 if (_disposed)
@@ -1674,6 +1688,7 @@ public sealed class ControlledOperationScheduler : IDisposable
     {
         lock (_transitionPublicationGate)
         {
+            WaitForPendingTerminalNotificationUnderLock();
             lock (_gate)
             {
                 // Only apply if a controlling thread is still waiting for this operation (it holds the
@@ -1685,20 +1700,48 @@ public sealed class ControlledOperationScheduler : IDisposable
                 }
 
                 operation.ApplyTransition(terminal, terminalException: terminalException);
+                _pendingTerminalNotification = operation;
             }
-
-            Notify(operation, terminal);
         }
 
         _handback.Release();
     }
 
-    private static void FinalizeTerminal(ControlledOperation operation)
+    private void FinalizeTerminal(ControlledOperation operation)
     {
         // The worker thread released the handback and is returning from its loop; join it so no
-        // physical thread outlives the operation, then release its signal.
+        // physical thread outlives the operation, then release its signal and publish the deferred
+        // terminal transition from the controlling thread.
         operation.Thread?.Join(ThreadJoinTimeout);
         operation.DisposeSignals();
+        lock (_transitionPublicationGate)
+        {
+            if (!ReferenceEquals(_pendingTerminalNotification, operation))
+            {
+                throw new ControlledOperationException(
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"Controlled operation {operation.Id} reached {operation.State} without its terminal listener notification being pending."));
+            }
+
+            _pendingTerminalNotification = null;
+            try
+            {
+                Notify(operation, operation.State);
+            }
+            finally
+            {
+                Monitor.PulseAll(_transitionPublicationGate);
+            }
+        }
+    }
+
+    private void WaitForPendingTerminalNotificationUnderLock()
+    {
+        while (_pendingTerminalNotification is not null)
+        {
+            Monitor.Wait(_transitionPublicationGate);
+        }
     }
 
     private static void UnwindParkedThread(ControlledOperation operation)

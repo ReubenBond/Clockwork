@@ -395,6 +395,20 @@ public sealed class ControlledOperationSchedulerTests
     }
 
     [Fact]
+    public void TerminalListenerCanDisposeSchedulerAfterHandback()
+    {
+        var listener = new DisposeOnCompletionListener();
+        using var scheduler = SchedulerTestHarness.NewScheduler(listener);
+        listener.Scheduler = scheduler;
+        var operation = scheduler.Schedule("complete", () => { });
+
+        Assert.True(scheduler.RunStep());
+
+        Assert.Equal(ControlledOperationState.Completed, operation.State);
+        Assert.Contains(ControlledOperationState.Completed, listener.Events);
+    }
+
+    [Fact]
     public void CaptureStatusReturnsOperationsInStableIdOrder()
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();
@@ -436,6 +450,24 @@ public sealed class ControlledOperationSchedulerTests
 
             var snapshot = Assert.Single(Scheduler.CaptureStatus(), status => status.Id == operation.Id);
             _events.Enqueue((newState, snapshot.State));
+        }
+    }
+
+    private sealed class DisposeOnCompletionListener : IControlledOperationListener
+    {
+        private readonly ConcurrentQueue<ControlledOperationState> _events = new();
+
+        public ControlledOperationScheduler Scheduler { get; set; } = null!;
+
+        public IReadOnlyList<ControlledOperationState> Events => _events.ToArray();
+
+        public void OnStateChanged(ControlledOperation operation, ControlledOperationState newState)
+        {
+            _events.Enqueue(newState);
+            if (newState == ControlledOperationState.Completed)
+            {
+                Scheduler.Dispose();
+            }
         }
     }
 }
