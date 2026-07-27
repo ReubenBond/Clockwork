@@ -31,7 +31,8 @@ public abstract partial class SimulationCluster<TNode>
     /// advance (<c>StepsExecuted + TimeAdvanceCount == Iterations</c> for that batch) - there is
     /// always more forward motion to give a bigger budget a chance to reach, and a scenario that is
     /// truly spinning without making progress is instead caught by the separate, always-enforced
-    /// <see cref="MaxConsecutiveTimeAdvances"/> safety net, which surfaces as
+    /// <see cref="MaxConsecutiveTimeAdvances"/> safety net. Its consecutive-advance count is carried
+    /// across batch boundaries and surfaces as
     /// <see cref="SimulationExecutionReason.MaxConsecutiveTimeAdvancesExceeded"/> rather than
     /// <see cref="SimulationExecutionReason.MaxIterationsReached"/>.
     /// </para>
@@ -43,7 +44,9 @@ public abstract partial class SimulationCluster<TNode>
     /// while still needing more iterations, the returned result's
     /// <see cref="SimulationExecutionResult.Reason"/> is
     /// <see cref="SimulationExecutionReason.MaxIterationsReached"/>, exactly as it would be for a
-    /// plain <see cref="RunUntilDetailed(Func{bool}, int)"/> call whose fixed budget ran out.
+    /// plain <see cref="RunUntilDetailed(Func{bool}, int)"/> call whose fixed budget ran out. The
+    /// returned <see cref="SimulationExecutionResult.Limits"/> reports this overall adaptive ceiling,
+    /// not the size of the final batch.
     /// </para>
     /// </summary>
     /// <param name="condition">The condition that ends the run when it becomes true.</param>
@@ -58,7 +61,12 @@ public abstract partial class SimulationCluster<TNode>
         using var _ = Guard.Enter();
         return RunConvergedCore(
             budget ?? SimulationAdaptiveBudget.Default,
-            batchMaxIterations => RunUntilDetailed(condition, batchMaxIterations));
+            (batchMaxIterations, consecutiveTimeAdvances) => ExecuteDriveLoop(
+                condition,
+                MaxSimulatedTimeAdvance,
+                batchMaxIterations,
+                observeTeardownCancellation: false,
+                initialConsecutiveTimeAdvances: consecutiveTimeAdvances));
     }
 
     /// <summary>
@@ -85,7 +93,12 @@ public abstract partial class SimulationCluster<TNode>
         using var _ = Guard.Enter();
         return RunConvergedCore(
             budget ?? SimulationAdaptiveBudget.Default,
-            batchMaxIterations => RunUntilIdleDetailed(maxSimulatedTime, batchMaxIterations));
+            (batchMaxIterations, consecutiveTimeAdvances) => ExecuteDriveLoop(
+                condition: null,
+                maxSimulatedTime ?? MaxSimulatedTimeAdvance,
+                batchMaxIterations,
+                observeTeardownCancellation: true,
+                initialConsecutiveTimeAdvances: consecutiveTimeAdvances));
     }
 
     /// <summary>
@@ -95,7 +108,7 @@ public abstract partial class SimulationCluster<TNode>
     /// <see cref="SimulationExecutionReason.MaxIterationsReached"/> or the hard
     /// <see cref="SimulationAdaptiveBudget.MaxTotalIterations"/> cap is reached.
     /// </summary>
-    private SimulationExecutionResult RunConvergedCore(SimulationAdaptiveBudget budget, Func<int, SimulationExecutionResult> runBatch)
+    private SimulationExecutionResult RunConvergedCore(SimulationAdaptiveBudget budget, Func<int, int, SimulationExecutionResult> runBatch)
     {
         var startTime = TimeProvider.GetUtcNow();
         var totalIterations = 0;
@@ -106,9 +119,10 @@ public abstract partial class SimulationCluster<TNode>
         {
             var remaining = budget.MaxTotalIterations - totalIterations;
             var batchMaxIterations = Math.Min(currentBatchSize, remaining);
-            var batch = runBatch(batchMaxIterations);
+            var batch = runBatch(batchMaxIterations, combined?.ConsecutiveTimeAdvanceCount ?? 0);
 
             combined = combined is null ? batch : CombineExecutionResults(startTime, combined, batch, forcedTimeAdvanceCount: 0);
+            combined = WithOverallAdaptiveLimits(combined, budget.MaxTotalIterations);
             totalIterations += batch.Iterations;
 
             if (batch.Reason != SimulationExecutionReason.MaxIterationsReached || totalIterations >= budget.MaxTotalIterations)
@@ -120,4 +134,20 @@ public abstract partial class SimulationCluster<TNode>
             currentBatchSize = nextBatchSize >= int.MaxValue ? int.MaxValue : (int)Math.Ceiling(nextBatchSize);
         }
     }
+
+    private static SimulationExecutionResult WithOverallAdaptiveLimits(SimulationExecutionResult result, int maxTotalIterations) =>
+        new(
+            result.Reason,
+            result.StartTime,
+            result.EndTime,
+            result.Iterations,
+            result.StepsExecuted,
+            result.TimeAdvanceCount,
+            result.ConsecutiveTimeAdvanceCount,
+            result.PendingWork,
+            new SimulationExecutionLimits(
+                maxTotalIterations,
+                result.Limits.MaxSimulatedTimeAdvance,
+                result.Limits.MaxConsecutiveTimeAdvances),
+            result.AttemptedTimeAdvance);
 }

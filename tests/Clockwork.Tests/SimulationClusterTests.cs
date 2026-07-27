@@ -1,3 +1,6 @@
+using Clockwork.Runtime.Shims;
+using Clockwork.Runtime.Tasks;
+
 namespace Clockwork.Tests;
 
 public sealed class SimulationClusterTests
@@ -99,6 +102,26 @@ public sealed class SimulationClusterTests
         Assert.Equal(first.Random.Next(), second.Random.Next());
     }
 
+    [Fact]
+    public async Task DisposeFailureStillReleasesInfrastructureAndSecondDisposeIsANoOp()
+    {
+        var cluster = new FailingDisposeCluster(seed: 42);
+        var runtime = cluster.RuntimeIdentity;
+        var teardownToken = cluster.TeardownCancellationToken;
+
+        var exception = await Assert.ThrowsAsync<AggregateException>(() => cluster.DisposeAsync().AsTask());
+
+        var failure = Assert.Single(exception.InnerExceptions);
+        Assert.Equal("cluster cleanup failed", failure.Message);
+        Assert.Equal(1, cluster.DisposeCallCount);
+        Assert.True(teardownToken.IsCancellationRequested);
+        Assert.False(SimulationRuntimeServices.TryGet(runtime, out _));
+        Assert.False(SimulationTaskCoordination.TryGet(runtime, out _));
+
+        await cluster.DisposeAsync();
+        Assert.Equal(1, cluster.DisposeCallCount);
+    }
+
     private sealed class TestCluster : SimulationCluster<TestNode>
     {
         public TestCluster(int seed)
@@ -127,5 +150,16 @@ public sealed class SimulationClusterTests
         public override string NetworkAddress { get; } = address;
 
         public override bool IsInitialized => true;
+    }
+
+    private sealed class FailingDisposeCluster(int seed) : SimulationCluster<TestNode>(seed, DateTimeOffset.UnixEpoch)
+    {
+        public int DisposeCallCount { get; private set; }
+
+        protected override ValueTask DisposeAsyncCore()
+        {
+            DisposeCallCount++;
+            throw new InvalidOperationException("cluster cleanup failed");
+        }
     }
 }

@@ -68,6 +68,23 @@ public sealed class ControlledTaskLoop
     }
 
     /// <summary>
+    /// Promotes newly-ready waits and executes at most one ready continuation.
+    /// </summary>
+    /// <returns><see langword="true"/> if a continuation was executed; otherwise, <see langword="false"/>.</returns>
+    public bool RunOnce()
+    {
+        PromoteReady();
+        if (_ready.Count == 0)
+        {
+            return false;
+        }
+
+        var continuation = _ready.Dequeue();
+        continuation();
+        return true;
+    }
+
+    /// <summary>
     /// Registers a virtual-time deadline that elapses <paramref name="delay"/> of modelled time from now.
     /// The deadline never consumes real time or a physical timer: it fires only when the loop has nothing
     /// else to run and advances modelled time to it (see <see cref="RunUntil"/> and

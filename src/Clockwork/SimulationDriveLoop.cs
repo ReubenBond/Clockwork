@@ -14,12 +14,14 @@ namespace Clockwork;
 /// <param name="MaxIterations">The maximum number of loop iterations to execute.</param>
 /// <param name="MaxConsecutiveTimeAdvances">The maximum number of consecutive time advances without executed work.</param>
 /// <param name="ObserveTeardownCancellation">Whether to check the teardown cancellation token each iteration.</param>
+/// <param name="InitialConsecutiveTimeAdvances">The consecutive time-advance count carried into this execution.</param>
 internal readonly record struct SimulationDriveLoopOptions(
     Func<bool>? Condition,
     TimeSpan MaxSimulatedTimeAdvance,
     int MaxIterations,
     int MaxConsecutiveTimeAdvances,
-    bool ObserveTeardownCancellation);
+    bool ObserveTeardownCancellation,
+    int InitialConsecutiveTimeAdvances = 0);
 
 /// <summary>
 /// <para>
@@ -57,7 +59,7 @@ internal sealed class SimulationDriveLoop(
     public SimulationExecutionResult Execute(SimulationDriveLoopOptions options)
     {
         var startTime = getUtcNow();
-        var consecutiveTimeAdvances = 0;
+        var consecutiveTimeAdvances = options.InitialConsecutiveTimeAdvances;
         var totalTimeAdvances = 0;
         var stepsExecuted = 0;
 
