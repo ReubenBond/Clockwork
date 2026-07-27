@@ -79,7 +79,46 @@ cluster.RunForDuration(TimeSpan.FromMinutes(5));
 cluster.Network.HealBidirectionalPartition(node1.NetworkAddress, node2.NetworkAddress);
 ```
 
-`RunUntil`, `RunUntilIdle`, and `RunForDuration` execute one queued operation at a time and advance the shared clock only when no work is ready.
+`RunUntil`, `RunUntilIdle`, and `RunForDuration` execute one queued operation at a time and advance the shared clock only when no work is ready. Internally, all three are thin wrappers around a single consolidated drive-loop engine, so their hook-firing order, time-advancement behavior, and stuck/limit detection are guaranteed to stay in sync with each other.
+
+## Detailed execution results and diagnostics
+
+Each `bool`/`int`-returning method above has a `*Detailed` counterpart that returns a
+`SimulationExecutionResult` describing exactly why the run stopped, instead of collapsing that
+information into a single boolean or count:
+
+```csharp
+var result = cluster.RunUntilDetailed(() => completed, maxIterations: 10_000);
+
+if (result.Reason != SimulationExecutionReason.ConditionMet)
+{
+    // ToDetailedString() includes the reason, simulated start/end/elapsed time, iteration and
+    // time-advance counts, and a stable, invariant-culture-formatted snapshot of any runnable,
+    // waiting, or blocked work left in the cluster and node queues.
+    throw new InvalidOperationException(result.ToDetailedString());
+}
+```
+
+- `RunUntilDetailed(Func<bool>, int)` - detailed counterpart to `RunUntil`.
+- `RunUntilIdleDetailed(TimeSpan?, int)` - detailed counterpart to `RunUntilIdle`.
+- `RunForDurationDetailed(TimeSpan, int)` - detailed counterpart to `RunForDuration`.
+
+`SimulationExecutionResult.Reason` (a `SimulationExecutionReason`) distinguishes every way a run
+can stop: `ConditionMet`, `Idle`, `IdleWithPendingWork` (idle, but a suspended node has ready work
+it cannot execute), `MaxSimulatedTimeAdvanceExceeded`, `MaxConsecutiveTimeAdvancesExceeded`,
+`MaxIterationsReached`, and `TeardownCancellationRequested`. `SimulationExecutionResult.PendingWork`
+(a `SimulationPendingWorkSummary`) reports runnable/waiting/blocked counts plus a stably-ordered
+list of per-item diagnostics (queue identity, scheduled item type, due time, sequence number, and
+readiness) - useful for diagnosing a stuck or failed-to-progress simulation without adding any
+production-code instrumentation. `SimulationCluster<TNode>.MaxConsecutiveTimeAdvances` (default
+10,000) makes the previously hardcoded stuck-detection threshold configurable and inspectable,
+alongside the existing `MaxSimulatedTimeAdvance` property.
+
+The existing `RunUntil`/`RunUntilIdle`/`RunForDuration` methods, their `protected`
+`RunUntilCore`/`RunUntilIdleCore` helpers, and every `On*` extensibility hook keep their exact
+signatures and behavior - the detailed APIs are purely additive. Prefer the detailed APIs in new
+code and in test-failure diagnostics; keep using the existing APIs anywhere you only need a
+boolean/count result.
 
 ## Determinism requirements
 
