@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.ExceptionServices;
 
 namespace Clockwork;
 
@@ -36,6 +37,12 @@ public sealed class SimulationSynchronizationContext(SimulationTaskQueue taskQue
     /// returns. This can never deadlock: the calling thread does its own pumping rather than
     /// waiting for another thread to make progress, and every item already in the queue has a
     /// smaller sequence number than the scheduled callback, so pumping is guaranteed to reach it.
+    /// </para>
+    /// <para>
+    /// Failures from earlier queued items do not orphan the sent callback: pumping continues until
+    /// that callback has executed exactly once. Afterward, a single failure is rethrown directly;
+    /// multiple failures (including a failure from the sent callback) are reported in deterministic
+    /// FIFO order using <see cref="AggregateException"/>.
     /// </para>
     /// <para>
     /// If neither case applies - because another thread is genuinely, concurrently executing
@@ -82,10 +89,21 @@ public sealed class SimulationSynchronizationContext(SimulationTaskQueue taskQue
     private void ScheduleAndPumpUntilExecuted(SendOrPostCallback d, object? state)
     {
         var executed = false;
+        ExceptionDispatchInfo? sentFailure = null;
         void WrappedCallback(object? s)
         {
-            d(s);
-            executed = true;
+            try
+            {
+                d(s);
+            }
+            catch (Exception ex)
+            {
+                sentFailure = ExceptionDispatchInfo.Capture(ex);
+            }
+            finally
+            {
+                executed = true;
+            }
         }
 
         try
@@ -105,15 +123,44 @@ public sealed class SimulationSynchronizationContext(SimulationTaskQueue taskQue
 #pragma warning restore EPC20 // Avoid using default ToString implementation
         }
 
+        List<ExceptionDispatchInfo>? failures = null;
         while (!executed)
         {
-            if (!taskQueue.RunOnce())
+            bool ran;
+            try
+            {
+                ran = taskQueue.RunOnce();
+            }
+            catch (Exception ex)
+            {
+                (failures ??= []).Add(ExceptionDispatchInfo.Capture(ex));
+                continue;
+            }
+
+            if (!ran)
             {
                 // Unreachable in practice: the scheduled callback is always due immediately (at
                 // UtcNow) and its sequence number guarantees it is eventually the minimum ready
                 // item, so the queue can never go idle before it runs.
                 throw new InvalidOperationException("Send could not complete: the simulation queue went idle before the scheduled callback executed.");
             }
+        }
+
+        if (sentFailure is not null)
+        {
+            (failures ??= []).Add(sentFailure);
+        }
+
+        if (failures is [var failure])
+        {
+            failure.Throw();
+        }
+
+        if (failures is { Count: > 1 })
+        {
+            throw new AggregateException(
+                "One or more callbacks failed while synchronously pumping the simulation queue.",
+                failures.Select(static failure => failure.SourceException));
         }
     }
 
