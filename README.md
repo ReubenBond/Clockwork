@@ -630,28 +630,33 @@ clockwork rewrite --input <dir-or-assembly> --output <dir> --builtin clockwork.t
 **How it works.** A member-aware substitution pass retargets the compiler-generated builder and
 awaiter types of an `async` state machine onto controlled value-type equivalents
 (`AsyncTaskMethodBuilder`(`<T>`), `TaskAwaiter`(`<T>`), `ConfiguredTaskAwaitable`(`<T>`)`/…Awaiter`,
-`YieldAwaitable`/`YieldAwaiter` → their `Controlled…` counterparts), rewriting every field, local,
-member reference, and closed-generic type operand so both Debug and Release state machines are
-controlled. The controlled awaiter hands each continuation to the simulation coordinator, so
-**`ConfigureAwait(false)` stays controlled** inside a simulation while still delegating to normal
-BCL semantics outside one. Alongside it, call-site redirects route the non-generic `Task.WhenAll`/
-`Task.WhenAny` combinators, the synchronous `Task.Wait()`/`WaitAll`/`WaitAny(Task[])` waits, and
-`Task.ContinueWith(Action<Task>)` to `Clockwork.Runtime.Tasks.ControlledTask`. Synchronous waits
+`YieldAwaitable`/`YieldAwaiter`, and the `async ValueTask`/`ValueTask<T>` machinery
+`AsyncValueTaskMethodBuilder`(`<T>`), `ValueTaskAwaiter`(`<T>`),
+`ConfiguredValueTaskAwaitable`(`<T>`)`/…Awaiter` → their `Controlled…` counterparts), rewriting
+every field, local, member reference, and closed-generic type operand so both Debug and Release
+state machines are controlled. The controlled awaiter hands each continuation to the simulation
+coordinator, so **`ConfigureAwait(false)` stays controlled** inside a simulation (for both `Task`
+and `ValueTask`) while still delegating to normal BCL semantics outside one. Alongside it, call-site
+redirects route the `Task.WhenAll`/`Task.WhenAny` combinators — non-generic **and their generic
+`Task<T>` overloads** — the synchronous `Task.Wait()`/`WaitAll`/`WaitAny(Task[])` waits, the
+blocking generic `Task<T>.Result` accessor, and `Task.ContinueWith(Action<Task>)` to
+`Clockwork.Runtime.Tasks.ControlledTask`. Synchronous waits and blocking `Task<T>.Result` reads
 **pump the coordinator loop until completion instead of blocking a physical thread**, so they never
 deadlock the scheduler, then delegate to the real API for its exact `AggregateException` semantics.
 
 **Three-state contract.** As with the BCL rule set: outside a simulation everything is a
 transparent pass-through to the real BCL; inside a simulation continuations and waits route through
 the coordinator; inside a simulation with no registered task coordinator the shim throws
-`ControlledTaskServiceMissingException` rather than escaping to the thread pool. `Task.Delay` and
-`Task.Run` are **rejected** under simulation with a precise diagnostic rather than modelled with
-wall-clock time or an uncontrolled thread.
+`ControlledTaskServiceMissingException` rather than escaping to the thread pool. `Task.Delay`,
+`Task.Run`, and `TaskFactory.StartNew`/`TaskFactory<T>.StartNew` are **rejected** under simulation
+with a precise diagnostic rather than modelled with wall-clock time or an uncontrolled thread.
 
 **Deferred to Phase 6B:** `Thread`/`ThreadPool`/`Parallel`, `Monitor`/semaphore/wait-handle shims,
-timers and the `Task.Delay` implementation, cancellation timers, the generic `Task<T>` combinator
-overloads and `Task<T>.Result` redirect, `ValueTask`/`TaskCompletionSource`/`TaskFactory` rule
-coverage, cross-assembly enforcement, and exception-filter hardening. Control parity is claimed
-**only** for the exact signatures in the [rule inventory](docs/rule-inventory.md). This work adapts
+timers and the `Task.Delay` implementation, cancellation timers, synchronous blocking on
+`ValueTask`/`ValueTask<T>`, generic `Task<T>.ContinueWith` overloads,
+`TaskCompletionSource`/`TaskFactory` surfaces beyond the rejected `StartNew` sites, cross-assembly
+enforcement, and exception-filter hardening. Control parity is claimed **only** for the exact
+signatures in the [rule inventory](docs/rule-inventory.md). This work adapts
 the *design* of Microsoft Coyote's controlled-task model (MIT); see
 [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES.md) for the attribution.
 

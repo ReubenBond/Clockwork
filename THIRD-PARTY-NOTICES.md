@@ -53,8 +53,10 @@ must be updated in the same change with:
   member-aware substitution pass in `src/Clockwork.Instrumentation/Rewriting/`) is a
   **design-level adaptation** of Coyote's controlled-task model — its
   `Microsoft.Coyote.Runtime.CompilerServices` builder/awaiter types
-  (`AsyncTaskMethodBuilder`, `TaskAwaiter`, `ConfiguredTaskAwaitable`, `YieldAwaitable`
-  and their awaiters), its `Microsoft.Coyote.Runtime.CompilerServices` rewriting pass
+  (`AsyncTaskMethodBuilder`, `TaskAwaiter`, `ConfiguredTaskAwaitable`, `YieldAwaitable`,
+  the `AsyncValueTaskMethodBuilder`, `ValueTaskAwaiter`, and `ConfiguredValueTaskAwaitable`
+  value-task equivalents, and their awaiters), its `Microsoft.Coyote.Runtime.CompilerServices`
+  rewriting pass
   that retargets compiler-generated state machines, and the shape of its controlled
   task/awaiter tests. **No Coyote source was copied verbatim into these files:** unlike
   Coyote's from-scratch task reimplementation, Clockwork's controlled builders/awaiters

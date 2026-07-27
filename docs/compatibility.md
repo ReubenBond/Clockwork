@@ -351,17 +351,25 @@ value-type equivalents in `Clockwork.Runtime.Tasks.CompilerServices`
 `ConfiguredTaskAwaitable`(`<T>`)`/ConfiguredTaskAwaiter`, and `YieldAwaitable`/`YieldAwaiter` →
 their `Controlled…` counterparts), rewriting field, local, method- and field-reference, and
 type-operand metadata (including closed generic instances such as `TaskAwaiter<int>`) so a Debug
-or Release state machine is fully controlled. The controlled awaiter hands every continuation to
-the simulation coordinator rather than the awaited task's completion callback, which is exactly
-why **`ConfigureAwait(false)` stays controlled** while still delegating to normal BCL semantics
-outside a simulation. A **call-site redirect** half routes the non-generic `Task.WhenAll` /
-`Task.WhenAny` (array, span, pair, enumerable) combinators, the synchronous `Task.Wait()` /
-`Task.WaitAll` / `Task.WaitAny(Task[])` waits, and `Task.ContinueWith(Action<Task>)` to
+or Release state machine is fully controlled. The same pass also retargets the
+`async ValueTask`/`async ValueTask<T>` machinery — `AsyncValueTaskMethodBuilder`(`<T>`),
+`ValueTaskAwaiter`(`<T>`), and `ConfiguredValueTaskAwaitable`(`<T>`)`/ConfiguredValueTaskAwaiter` →
+their `Controlled…` counterparts (the `ValueTaskMachinery` family) — so value-task `async`/`await`
+and `ValueTask.ConfigureAwait(false)` are controlled identically. The controlled awaiter hands
+every continuation to the simulation coordinator rather than the awaited task's completion
+callback, which is exactly why **`ConfigureAwait(false)` stays controlled** while still delegating
+to normal BCL semantics outside a simulation. A **call-site redirect** half routes both the
+non-generic `Task.WhenAll` / `Task.WhenAny` (array, span, pair, enumerable) combinators **and their
+generic `Task<T>` overloads** (array, span, enumerable, and the `WhenAny<T>` pair), the synchronous
+`Task.Wait()` / `Task.WaitAll` / `Task.WaitAny(Task[])` waits, the blocking generic
+`Task<T>.Result` accessor, and `Task.ContinueWith(Action<Task>)` to
 `Clockwork.Runtime.Tasks.ControlledTask`. Combinators delegate to the real BCL (their completion
 is driven by antecedents that complete on the logical thread); synchronous waits **pump the
 coordinator loop until completion instead of blocking a physical thread**, then delegate to the
-real API to reproduce its exact `AggregateException` semantics, so a synchronous wait on
-controlled work never deadlocks the scheduler.
+real API to reproduce its exact `AggregateException` semantics, so a synchronous wait or a blocking
+`Task<T>.Result` read on incomplete controlled work never deadlocks the scheduler.
+`TaskFactory.StartNew` / `TaskFactory<T>.StartNew` are **rejected** at the rewritten call site (they
+offload onto a task scheduler / the thread pool) rather than escaping onto a physical thread.
 
 The redirect obeys the same three-state contract as the BCL rule set: outside a simulation every
 controlled builder/awaiter/shim is a transparent pass-through to the real BCL; inside a simulation
@@ -373,9 +381,10 @@ or an uncontrolled thread — they are owned by later phases.
 
 **Deferred to Phase 6B** (deliberately *not* in this rule set): `Thread`/`ThreadPool`/`Parallel`,
 `Monitor`/semaphore/wait-handle public shims, timers and the `Task.Delay` implementation,
-cancellation timers, the generic `Task<TResult>` combinator overloads and the `Task<T>.Result`
-accessor redirect (which need generic-arity call-site matching), `ValueTask`/`TaskCompletionSource`/
-`TaskFactory` rule coverage, cross-assembly enforcement, and hardening of exception
+cancellation timers, synchronous blocking on `ValueTask`/`ValueTask<T>` (a value task may be
+consumed only once, so a blocking drain is unsafe — `await` is the supported controlled path),
+generic `Task<T>.ContinueWith<TNewResult>` overloads, `TaskCompletionSource`/`TaskFactory` surfaces
+beyond the rejected `StartNew` sites, cross-assembly enforcement, and hardening of exception
 filters/handlers against swallowing scheduler-control flow. Phase 6A already prefers explicit
 gate/state transitions over control exceptions, so a user `catch` cannot swallow the scheduler; the
 remaining filter-level hardening is reported to Phase 6B as a boundary.
@@ -396,12 +405,13 @@ exploration, or deep instrumentation mode.
   time/identity/random surface enumerated in [`rule-inventory.md`](rule-inventory.md).
   Determinism is claimed **only** for those exact signatures.
 - **Controlled task rule set** (`clockwork.tasks.controlled`) controls the compiler-generated
-  async machinery and the non-generic `Task` combinator/synchronous-wait/continuation surface
-  enumerated in [`rule-inventory.md`](rule-inventory.md), routing `async`/`await` and synchronous
-  waits through the simulation coordinator. Control is claimed **only** for those exact
-  signatures; `Task.Delay`/`Task.Run` are rejected, and generic `Task<T>` combinators,
-  `ValueTask`/`TaskCompletionSource`/`TaskFactory`, and threading primitives are deferred to
-  Phase 6B.
+  `async Task`/`async ValueTask` machinery and the direct `Task`/`Task<T>` combinator (non-generic
+  and generic `WhenAll`/`WhenAny`), synchronous-wait, blocking `Task<T>.Result`, and continuation
+  surface enumerated in [`rule-inventory.md`](rule-inventory.md), routing `async`/`await` and
+  synchronous waits through the simulation coordinator. Control is claimed **only** for those exact
+  signatures; `Task.Delay`/`Task.Run` and `TaskFactory.StartNew` are rejected, and
+  `TaskCompletionSource`, generic `Task<T>.ContinueWith`, synchronous `ValueTask` blocking, and
+  threading primitives are deferred to Phase 6B.
 - **ReadyToRun (R2R) published assemblies** are expected to work for the existing
   kernel and for cooperative/controlled/race-exploration modes, since none of those
   modes require rewriting already-compiled method bodies at load time. This is a
