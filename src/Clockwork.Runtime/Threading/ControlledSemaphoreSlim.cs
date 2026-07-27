@@ -122,8 +122,18 @@ public static class ControlledSemaphoreSlim
 
     private static readonly ConditionalWeakTable<SemaphoreSlim, State> States = new();
 
-    private static State StateOf(SemaphoreSlim instance) =>
-        States.GetValue(instance, s => new State(s.CurrentCount, int.MaxValue));
+    private static State StateOf(SemaphoreSlim instance, string apiName)
+    {
+        if (States.TryGetValue(instance, out State? state))
+        {
+            return state;
+        }
+
+        throw new ControlledSemaphoreSlimUnsupportedException(
+            apiName,
+            "the semaphore was not created through the controlled SemaphoreSlim surface, so its maximum " +
+            "count and controlled waiter state are unknown.");
+    }
 
     /// <summary>Controlled <c>new SemaphoreSlim(int)</c>.</summary>
     /// <param name="initialCount">The initial number of permits.</param>
@@ -157,7 +167,7 @@ public static class ControlledSemaphoreSlim
             return instance.CurrentCount;
         }
 
-        var state = StateOf(instance);
+        var state = StateOf(instance, "System.Threading.SemaphoreSlim.get_CurrentCount");
         lock (state.Gate)
         {
             return state.Count;
@@ -368,7 +378,7 @@ public static class ControlledSemaphoreSlim
             throw new ArgumentOutOfRangeException(nameof(releaseCount), releaseCount, "The release count must be greater than zero.");
         }
 
-        var state = StateOf(instance);
+        var state = StateOf(instance, "System.Threading.SemaphoreSlim.Release");
         List<WaiterCleanup> completed = [];
         int previous;
         lock (state.Gate)
@@ -415,7 +425,7 @@ public static class ControlledSemaphoreSlim
             return;
         }
 
-        var state = StateOf(instance);
+        var state = StateOf(instance, "System.Threading.SemaphoreSlim.Dispose");
         List<WaiterCleanup> completed = [];
         WaitHandle? availableHandle;
         lock (state.Gate)
@@ -462,7 +472,7 @@ public static class ControlledSemaphoreSlim
             return instance.AvailableWaitHandle;
         }
 
-        var state = StateOf(instance);
+        var state = StateOf(instance, "System.Threading.SemaphoreSlim.get_AvailableWaitHandle");
         lock (state.Gate)
         {
             ThrowIfDisposed(state);
@@ -473,7 +483,7 @@ public static class ControlledSemaphoreSlim
     private static bool WaitControlled(SemaphoreSlim instance, int millisecondsTimeout, CancellationToken cancellationToken)
     {
         ValidateTimeout(millisecondsTimeout);
-        var state = StateOf(instance);
+        var state = StateOf(instance, "System.Threading.SemaphoreSlim.Wait");
         Waiter waiter;
         lock (state.Gate)
         {
@@ -514,7 +524,7 @@ public static class ControlledSemaphoreSlim
             return Task.FromException<bool>(exception);
         }
 
-        var state = StateOf(instance);
+        var state = StateOf(instance, "System.Threading.SemaphoreSlim.WaitAsync");
         Waiter waiter;
         lock (state.Gate)
         {
