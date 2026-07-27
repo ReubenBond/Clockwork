@@ -11,6 +11,19 @@ namespace Clockwork.Runtime.Tests.Shims;
 public sealed class DeterministicRandomTests
 {
     [Fact]
+    public void SharedRandomSupportsConcurrentEscapedDrawsWithoutCorruptingState()
+    {
+        var env = ShimTestHarness.CreateEnvironment(ShimTestHarness.CreateClock());
+        System.Random shared = ShimTestHarness.RunInSimulation(env, DeterministicRandom.GetShared);
+        var values = new int[256];
+
+        Parallel.For(0, values.Length, index => values[index] = shared.Next());
+
+        Assert.All(values, value => Assert.InRange(value, 0, int.MaxValue - 1));
+        Assert.True(values.Distinct().Count() > 1);
+    }
+
+    [Fact]
     public void SharedReturnsAStableInstanceForTheSameNode()
     {
         var env = ShimTestHarness.CreateEnvironment(ShimTestHarness.CreateClock());
@@ -200,4 +213,3 @@ public sealed class DeterministicRandomTests
         Assert.Equal(new System.Random(7).Next(), DeterministicRandom.CreateSeeded(7).Next());
     }
 }
-

@@ -160,7 +160,7 @@ public sealed class SimulationRuntimeEnvironment : ISimulationRuntimeEnvironment
         var insecureSeed = _seedAuthority.GetSiteSeed(SimulationSeedDomain.Identity, InsecureCryptoSite + key);
         return new NodeStreams(
             key,
-            shared: new System.Random(sharedSeed),
+            shared: new SynchronizedRandom(sharedSeed),
             identity: new System.Random(identitySeed),
             insecureCrypto: new System.Random(insecureSeed));
     }
@@ -180,5 +180,99 @@ public sealed class SimulationRuntimeEnvironment : ISimulationRuntimeEnvironment
         public object InsecureCryptoGate { get; } = new();
 
         public int UnseededCount;
+    }
+
+    private sealed class SynchronizedRandom(int seed) : System.Random
+    {
+        private readonly object _gate = new();
+        private readonly System.Random _inner = new(seed);
+
+        public override int Next()
+        {
+            lock (_gate)
+            {
+                return _inner.Next();
+            }
+        }
+
+        public override int Next(int maxValue)
+        {
+            lock (_gate)
+            {
+                return _inner.Next(maxValue);
+            }
+        }
+
+        public override int Next(int minValue, int maxValue)
+        {
+            lock (_gate)
+            {
+                return _inner.Next(minValue, maxValue);
+            }
+        }
+
+        public override long NextInt64()
+        {
+            lock (_gate)
+            {
+                return _inner.NextInt64();
+            }
+        }
+
+        public override long NextInt64(long maxValue)
+        {
+            lock (_gate)
+            {
+                return _inner.NextInt64(maxValue);
+            }
+        }
+
+        public override long NextInt64(long minValue, long maxValue)
+        {
+            lock (_gate)
+            {
+                return _inner.NextInt64(minValue, maxValue);
+            }
+        }
+
+        public override float NextSingle()
+        {
+            lock (_gate)
+            {
+                return _inner.NextSingle();
+            }
+        }
+
+        public override double NextDouble()
+        {
+            lock (_gate)
+            {
+                return _inner.NextDouble();
+            }
+        }
+
+        public override void NextBytes(byte[] buffer)
+        {
+            lock (_gate)
+            {
+                _inner.NextBytes(buffer);
+            }
+        }
+
+        public override void NextBytes(Span<byte> buffer)
+        {
+            lock (_gate)
+            {
+                _inner.NextBytes(buffer);
+            }
+        }
+
+        protected override double Sample()
+        {
+            lock (_gate)
+            {
+                return _inner.NextDouble();
+            }
+        }
     }
 }

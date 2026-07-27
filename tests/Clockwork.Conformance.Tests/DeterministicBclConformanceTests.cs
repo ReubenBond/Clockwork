@@ -230,4 +230,166 @@ public sealed class DeterministicBclConformanceTests : IDisposable
     }
 
     public void Dispose() => _fixture.Dispose();
+
+    [Fact]
+    public void CryptoValidationMatchesBclThroughRewrittenCalls()
+    {
+        StagedProbe probe = _fixture.Stage(
+            "Conf.CryptoContracts",
+            "Conf.CryptoContractProbe",
+            CryptoContractSource,
+            [BuiltInRuleFamily.Crypto]);
+        using var host = new SimulationHost(
+            Start,
+            cryptoPolicy: SimulationCryptoRandomnessPolicy.DeterministicInsecureForTesting);
+
+        var byteErrors = new List<Exception?>();
+        foreach (int count in new[] { -1, int.MinValue })
+        {
+            byteErrors.Add(Record.Exception(() => { _ = host.Invoke(probe.Method("Bytes"), count); }));
+        }
+
+        var singleBoundErrors = new List<Exception?>();
+        foreach (int toExclusive in new[] { 0, -1, int.MinValue })
+        {
+            singleBoundErrors.Add(Record.Exception(() => { _ = host.Invoke(probe.Method("Int"), toExclusive); }));
+        }
+
+        var rangeErrors = new List<Exception?>();
+        foreach ((int fromInclusive, int toExclusive) in new[]
+                 {
+                     (0, 0),
+                     (1, 0),
+                     (int.MaxValue, int.MinValue),
+                 })
+        {
+            rangeErrors.Add(Record.Exception(
+                () => { _ = host.Invoke(probe.Method("Range"), fromInclusive, toExclusive); }));
+        }
+
+        Assert.All(
+            byteErrors,
+            error => AssertArgumentExceptionShape<ArgumentOutOfRangeException>(error, "count"));
+        Assert.All(
+            singleBoundErrors,
+            error => AssertArgumentExceptionShape<ArgumentOutOfRangeException>(error, "toExclusive"));
+        Assert.All(
+            rangeErrors,
+            error => AssertArgumentExceptionShape<ArgumentException>(error, expectedParamName: null));
+    }
+
+    [Fact]
+    public void NamedCryptoFactoryHonorsKnownAndUnknownNames()
+    {
+        const string KnownName = "RandomNumberGenerator";
+        const string UnknownName =
+            "Clockwork.Tests.Unknown.RandomNumberGenerator.7f9c7706-3f19-42a8-b8f2-20af41a52d68";
+        StagedProbe probe = _fixture.Stage(
+            "Conf.NamedCryptoContracts",
+            "Conf.CryptoContractProbe",
+            CryptoContractSource,
+            [BuiltInRuleFamily.Crypto]);
+
+        (string TypeName, byte[] Bytes) DrawKnown()
+        {
+            using var host = new SimulationHost(
+                Start,
+                seed: 71,
+                cryptoPolicy: SimulationCryptoRandomnessPolicy.DeterministicInsecureForTesting);
+            string typeName = (string)host.Invoke(probe.Method("NamedType"), KnownName)!;
+            byte[] bytes = (byte[])host.Invoke(probe.Method("NamedBytes"), KnownName, 24)!;
+            return (typeName, bytes);
+        }
+
+        (string TypeName, byte[] Bytes) first = DrawKnown();
+        (string TypeName, byte[] Bytes) replay = DrawKnown();
+
+        Assert.Equal(typeof(InsecureDeterministicRandomNumberGenerator).FullName, first.TypeName);
+        Assert.Equal(24, first.Bytes.Length);
+        Assert.Equal(first.TypeName, replay.TypeName);
+        Assert.Equal(first.Bytes, replay.Bytes);
+        Assert.Contains(first.Bytes, static value => value != 0);
+
+        Assert.Null(probe.Method("NamedType").Invoke(null, [UnknownName]));
+        using var unknownHost = new SimulationHost(
+            Start,
+            cryptoPolicy: SimulationCryptoRandomnessPolicy.DeterministicInsecureForTesting);
+        Assert.Null(unknownHost.Invoke(probe.Method("NamedType"), UnknownName));
+    }
+
+    [Fact]
+    public void GuidVersion7RejectsPreEpochThroughRewrittenCall()
+    {
+        StagedProbe probe = _fixture.Stage(
+            "Conf.GuidPreEpoch",
+            "Conf.GuidProbe",
+            GuidSource,
+            [BuiltInRuleFamily.Identity]);
+        using var host = new SimulationHost(Start);
+        DateTimeOffset[] timestamps =
+        [
+            DateTimeOffset.UnixEpoch.AddTicks(-1),
+            DateTimeOffset.MinValue,
+        ];
+        Exception?[] errors = timestamps
+            .Select(timestamp => Record.Exception(
+                () => { _ = host.Invoke(probe.Method("V7At"), timestamp); }))
+            .ToArray();
+
+        Assert.All(
+            errors,
+            error => AssertArgumentExceptionShape<ArgumentOutOfRangeException>(error, "timestamp"));
+    }
+
+    [Fact]
+    public void GuidVersion7UnixEpochBitsAreWellFormed()
+    {
+        StagedProbe probe = _fixture.Stage(
+            "Conf.GuidUnixEpoch",
+            "Conf.GuidProbe",
+            GuidSource,
+            [BuiltInRuleFamily.Identity]);
+        using var host = new SimulationHost(Start);
+
+        var guid = (Guid)host.Invoke(probe.Method("V7At"), DateTimeOffset.UnixEpoch)!;
+        byte[] bytes = guid.ToByteArray(bigEndian: true);
+
+        Assert.Equal(new byte[6], bytes[..6]);
+        Assert.Equal(0x70, bytes[6] & 0xF0);
+        Assert.Equal(7, guid.Version);
+        Assert.Equal(0x80, bytes[8] & 0xC0);
+    }
+
+    private static void AssertArgumentExceptionShape<TException>(
+        Exception? error,
+        string? expectedParamName)
+        where TException : ArgumentException
+    {
+        var exception = Assert.IsType<TException>(error);
+        Assert.Equal(expectedParamName, exception.ParamName);
+    }
+
+    private const string CryptoContractSource = """
+        using System;
+        using System.Security.Cryptography;
+        namespace Conf { public static class CryptoContractProbe {
+            public static byte[] Bytes(int n) => RandomNumberGenerator.GetBytes(n);
+            public static int Int(int max) => RandomNumberGenerator.GetInt32(max);
+            public static int Range(int min, int max) => RandomNumberGenerator.GetInt32(min, max);
+
+        #pragma warning disable SYSLIB0045
+            public static string NamedType(string name) {
+                using var rng = RandomNumberGenerator.Create(name);
+                return rng?.GetType().FullName;
+            }
+            public static byte[] NamedBytes(string name, int count) {
+                using var rng = RandomNumberGenerator.Create(name);
+                if (rng is null) return null;
+                var bytes = new byte[count];
+                rng.GetBytes(bytes);
+                return bytes;
+            }
+        #pragma warning restore SYSLIB0045
+        } }
+        """;
 }

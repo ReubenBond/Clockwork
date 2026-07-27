@@ -76,6 +76,8 @@ public static class DeterministicGuid
         ISimulationRuntimeEnvironment environment,
         Clockwork.Runtime.Execution.SimulationNodeIdentity? node)
     {
+        ArgumentOutOfRangeException.ThrowIfLessThan(timestamp, DateTimeOffset.UnixEpoch);
+
         // Matches Guid.CreateVersion7: a 48-bit big-endian Unix-millisecond timestamp in bytes 0-5,
         // deterministic random bits elsewhere, version 7 and the RFC variant applied. Repeated calls
         // at the same instant differ in their random bits but carry no monotonicity guarantee - the

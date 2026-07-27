@@ -15,9 +15,9 @@ namespace Clockwork.Runtime.Shims;
 /// <item><description>
 /// <see cref="GetShared"/> (<c>Random.Shared</c>): one stable <see cref="System.Random"/> per node for the
 /// life of the simulation, seeded from the application seed domain. Successive draws advance that one
-/// per-node stream; the instance is isolated per node so nodes never share mutable state. (Unlike the
-/// real <c>Random.Shared</c> it is not thread-safe, which is safe here because a simulated node runs
-/// single-threaded under the scheduler.)
+/// per-node stream; the instance is isolated per node so nodes never share mutable state. The returned
+/// wrapper synchronizes every mutable draw so an accidentally escaped concurrent caller cannot corrupt
+/// the deterministic stream.
 /// </description></item>
 /// <item><description>
 /// <see cref="CreateUnseeded"/> (<c>new Random()</c>): a fresh independent <see cref="System.Random"/> per
@@ -81,4 +81,3 @@ public static class DeterministicRandom
         return new System.Random(seed);
     }
 }
-

@@ -151,4 +151,42 @@ public sealed class DeterministicGuidTests
 
         return ms;
     }
+
+    public static TheoryData<DateTimeOffset> PreUnixEpochTimestamps =>
+    [
+        DateTimeOffset.UnixEpoch.AddTicks(-1),
+        DateTimeOffset.MinValue,
+    ];
+
+    [Theory]
+    [MemberData(nameof(PreUnixEpochTimestamps))]
+    public void CreateVersion7RejectsPreUnixEpochTimestamp(DateTimeOffset timestamp)
+    {
+        var bclException = Assert.Throws<ArgumentOutOfRangeException>(
+            () => Guid.CreateVersion7(timestamp));
+        Assert.Equal("timestamp", bclException.ParamName);
+
+        var env = ShimTestHarness.CreateEnvironment(ShimTestHarness.CreateClock());
+        var controlledException = ShimTestHarness.RunInSimulation(
+            env,
+            () => Assert.Throws<ArgumentOutOfRangeException>(
+                () => DeterministicGuid.CreateVersion7(timestamp)));
+
+        Assert.Equal("timestamp", controlledException.ParamName);
+    }
+
+    [Fact]
+    public void CreateVersion7AtUnixEpochSetsTimestampVersionAndVariantBits()
+    {
+        var env = ShimTestHarness.CreateEnvironment(ShimTestHarness.CreateClock());
+        Guid guid = ShimTestHarness.RunInSimulation(
+            env,
+            () => DeterministicGuid.CreateVersion7(DateTimeOffset.UnixEpoch));
+        byte[] bytes = guid.ToByteArray(bigEndian: true);
+
+        Assert.Equal(new byte[6], bytes[..6]);
+        Assert.Equal(0x70, bytes[6] & 0xF0);
+        Assert.Equal(7, guid.Version);
+        Assert.Equal(0x80, bytes[8] & 0xC0);
+    }
 }

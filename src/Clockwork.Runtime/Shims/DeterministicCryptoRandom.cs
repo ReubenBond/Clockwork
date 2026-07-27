@@ -60,7 +60,12 @@ public static class DeterministicCryptoRandom
 #pragma warning restore SYSLIB0045
         }
 
-        return new InsecureDeterministicRandomNumberGenerator(env, node);
+#pragma warning disable SYSLIB0045 // Probe the BCL registry so known and unknown names retain its contract.
+        using RandomNumberGenerator? knownAlgorithm = RandomNumberGenerator.Create(name);
+#pragma warning restore SYSLIB0045
+        return knownAlgorithm is null
+            ? null
+            : new InsecureDeterministicRandomNumberGenerator(env, node);
     }
 
     /// <summary>Policy shim for <see cref="RandomNumberGenerator.Fill(Span{byte})"/>.</summary>
@@ -88,6 +93,7 @@ public static class DeterministicCryptoRandom
             return RandomNumberGenerator.GetBytes(count);
         }
 
+        ArgumentOutOfRangeException.ThrowIfNegative(count);
         var buffer = new byte[count];
         env.FillInsecureCryptoBytes(node, buffer);
         return buffer;
@@ -104,6 +110,7 @@ public static class DeterministicCryptoRandom
             return RandomNumberGenerator.GetInt32(toExclusive);
         }
 
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(toExclusive);
         return GetInt32(0, toExclusive, env, node);
     }
 
@@ -222,11 +229,11 @@ public static class DeterministicCryptoRandom
     {
         if (fromInclusive >= toExclusive)
         {
-            throw new ArgumentException("fromInclusive must be less than toExclusive.", nameof(fromInclusive));
+            throw new ArgumentException("fromInclusive must be less than toExclusive.");
         }
 
-        var range = (uint)(toExclusive - fromInclusive);
-        return fromInclusive + (int)(NextUInt32(environment, node) % range);
+        var range = (uint)((long)toExclusive - fromInclusive);
+        return (int)(fromInclusive + (long)(NextUInt32(environment, node) % range));
     }
 
     private static void FillHex(Span<char> destination, bool lowercase, ISimulationRuntimeEnvironment environment, SimulationNodeIdentity? node)
