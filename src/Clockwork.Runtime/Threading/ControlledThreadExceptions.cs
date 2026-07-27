@@ -23,3 +23,26 @@ public sealed class ControlledThreadUnsupportedException : InvalidOperationExcep
     /// <summary>Gets the unsupported thread API.</summary>
     public string? ApiName { get; }
 }
+
+/// <summary>
+/// Thrown when an application invokes a <see cref="System.Threading.ThreadPool"/> operation that
+/// Clockwork's controlled thread-pool surface cannot model faithfully inside a simulation - the native
+/// I/O family (<c>UnsafeQueueNativeOverlapped</c>) and, until Phase 7 provides controlled wait handles,
+/// the registered-wait family (<c>RegisterWaitForSingleObject</c> and its unsafe variant). The rewritten
+/// call site rejects these precisely with the reason and the phase that would own them, rather than
+/// silently ignoring the call or letting it reach uncontrolled native/OS machinery.
+/// </summary>
+public sealed class ControlledThreadPoolUnsupportedException : InvalidOperationException
+{
+    /// <summary>Initializes a new instance of the <see cref="ControlledThreadPoolUnsupportedException"/> class.</summary>
+    /// <param name="apiName">The unsupported thread-pool API.</param>
+    /// <param name="reason">Why it cannot be modelled faithfully.</param>
+    public ControlledThreadPoolUnsupportedException(string apiName, string reason)
+        : base($"The thread-pool API '{apiName}' is not supported inside a Clockwork simulation: {reason}")
+    {
+        ApiName = apiName;
+    }
+
+    /// <summary>Gets the unsupported thread-pool API.</summary>
+    public string? ApiName { get; }
+}

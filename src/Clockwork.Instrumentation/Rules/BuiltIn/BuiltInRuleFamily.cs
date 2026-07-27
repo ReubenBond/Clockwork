@@ -107,4 +107,17 @@ public enum BuiltInRuleFamily
     /// call site fails precisely under simulation and runs the real API unchanged outside one.
     /// </summary>
     Thread,
+
+    /// <summary>
+    /// <see cref="System.Threading.ThreadPool"/> queueing surface. The <c>QueueUserWorkItem</c> /
+    /// <c>UnsafeQueueUserWorkItem</c> family is classified <c>Controlled</c> (Phase 6B) - the shim queues
+    /// the callback as a fresh controlled operation on the coordinator instead of dispatching it to a
+    /// physical thread-pool thread, preserving the safe-vs-unsafe <see cref="System.Threading.ExecutionContext"/>
+    /// flow distinction (safe variants capture and flow the caller's context; unsafe variants do not).
+    /// The native-I/O surface (<c>UnsafeQueueNativeOverlapped</c>) is <c>Rejected</c>: it cannot be
+    /// modelled by the deterministic scheduler, so the rewritten call site fails precisely under
+    /// simulation. Outside a simulation every shim delegates to the real BCL API unchanged. This goes
+    /// beyond Coyote, which routes thread-pool work through its controlled task types.
+    /// </summary>
+    ThreadPool,
 }

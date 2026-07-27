@@ -51,6 +51,7 @@ public static class BuiltInRuleSets
     private const string TaskShim = "Clockwork.Runtime.Tasks.ControlledTask";
     private const string TaskFactoryShim = "Clockwork.Runtime.Tasks.ControlledTaskFactory";
     private const string ThreadShim = "Clockwork.Runtime.Threading.ControlledThread";
+    private const string ThreadPoolShim = "Clockwork.Runtime.Threading.ControlledThreadPool";
 
     // Cecil full names for the exact overload parameters (from the net10 reference assemblies).
     private const string Int32 = "System.Int32";
@@ -126,6 +127,18 @@ public static class BuiltInRuleSets
     private const string ThreadPriority = "System.Threading.ThreadPriority";
     private const string ApartmentState = "System.Threading.ApartmentState";
 
+    // Cecil full names for the controlled System.Threading.ThreadPool queueing surface (Phase 6B). The
+    // generic QueueUserWorkItem<TState>(Action<TState>, TState, bool) overloads are GenericInstanceMethods
+    // at the call site (`!!0` target) resolved against their definitions (`TState` replacement).
+    private const string ThreadPoolType = "System.Threading.ThreadPool";
+    private const string WaitCallback = "System.Threading.WaitCallback";
+    private const string IThreadPoolWorkItem = "System.Threading.IThreadPoolWorkItem";
+    private const string ActionOfTStateVar = "System.Action`1<!!0>";
+    private const string TStateVar = "!!0";
+    private const string ActionOfTStateDecl = "System.Action`1<TState>";
+    private const string TStateDecl = "TState";
+    private const string NativeOverlappedPtr = "System.Threading.NativeOverlapped*";
+
     // Cecil full names for the compiler-generated async machinery (BCL) and their controlled substitutes.
     // Nested awaiter types use Cecil's '/' separator; generic arities carry the backtick.
     private const string CompilerNs = "System.Runtime.CompilerServices.";
@@ -189,6 +202,7 @@ public static class BuiltInRuleSets
         BuiltInRuleFamily.ValueTaskMachinery,
         BuiltInRuleFamily.TaskFactory,
         BuiltInRuleFamily.Thread,
+        BuiltInRuleFamily.ThreadPool,
     ];
 
     /// <summary>Gets the (family, rule) entries of the deterministic BCL rule set, for documentation and inventory generation.</summary>
@@ -446,6 +460,31 @@ public static class BuiltInRuleSets
             MemberSignature.Method(ThreadType, "SetApartmentState", ApartmentState), Shim(ThreadShim, "SetApartmentState", ThreadType, ApartmentState));
         RejectedRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.trysetapartmentstate",
             MemberSignature.Method(ThreadType, "TrySetApartmentState", ApartmentState), Shim(ThreadShim, "TrySetApartmentState", ThreadType, ApartmentState));
+
+        // ---- ThreadPool: QueueUserWorkItem / UnsafeQueueUserWorkItem queue the callback as a fresh
+        // controlled operation on the coordinator. ThreadPool methods are static, so the shim signatures
+        // match the target parameters exactly (no receiver prepended). The safe variants flow the caller's
+        // ExecutionContext; the unsafe variants do not. The generic overloads are GenericInstanceMethods
+        // (`!!0` target, `TState` replacement). UnsafeQueueNativeOverlapped is rejected at the call site. ----
+        TaskRule(builder, BuiltInRuleFamily.ThreadPool, "clockwork.threadpool.queue.waitcallback",
+            MemberSignature.Method(ThreadPoolType, "QueueUserWorkItem", WaitCallback), Shim(ThreadPoolShim, "QueueUserWorkItem", WaitCallback));
+        TaskRule(builder, BuiltInRuleFamily.ThreadPool, "clockwork.threadpool.queue.waitcallback.state",
+            MemberSignature.Method(ThreadPoolType, "QueueUserWorkItem", WaitCallback, ObjectType), Shim(ThreadPoolShim, "QueueUserWorkItem", WaitCallback, ObjectType));
+        TaskRule(builder, BuiltInRuleFamily.ThreadPool, "clockwork.threadpool.queue.generic",
+            MemberSignature.Method(ThreadPoolType, "QueueUserWorkItem", ActionOfTStateVar, TStateVar, Boolean),
+            Shim(ThreadPoolShim, "QueueUserWorkItem", ActionOfTStateDecl, TStateDecl, Boolean));
+        TaskRule(builder, BuiltInRuleFamily.ThreadPool, "clockwork.threadpool.unsafequeue.waitcallback.state",
+            MemberSignature.Method(ThreadPoolType, "UnsafeQueueUserWorkItem", WaitCallback, ObjectType), Shim(ThreadPoolShim, "UnsafeQueueUserWorkItem", WaitCallback, ObjectType));
+        TaskRule(builder, BuiltInRuleFamily.ThreadPool, "clockwork.threadpool.unsafequeue.workitem",
+            MemberSignature.Method(ThreadPoolType, "UnsafeQueueUserWorkItem", IThreadPoolWorkItem, Boolean), Shim(ThreadPoolShim, "UnsafeQueueUserWorkItem", IThreadPoolWorkItem, Boolean));
+        TaskRule(builder, BuiltInRuleFamily.ThreadPool, "clockwork.threadpool.unsafequeue.generic",
+            MemberSignature.Method(ThreadPoolType, "UnsafeQueueUserWorkItem", ActionOfTStateVar, TStateVar, Boolean),
+            Shim(ThreadPoolShim, "UnsafeQueueUserWorkItem", ActionOfTStateDecl, TStateDecl, Boolean));
+
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.ThreadPool, RewriteRule.InjectRejection(
+            "clockwork.threadpool.unsafequeuenativeoverlapped",
+            MemberSignature.Method(ThreadPoolType, "UnsafeQueueNativeOverlapped", NativeOverlappedPtr),
+            Shim(ThreadPoolShim, "RejectNativeOverlapped", String))));
 
         return builder.ToImmutable();
     }
