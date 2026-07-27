@@ -10,7 +10,7 @@ namespace Clockwork.Instrumentation.Rewriting;
 /// <summary>
 /// The member-aware half of <see cref="RewriteOperationKind.SubstituteType"/>: where
 /// <see cref="TypeReferenceRewritingPass"/> only replaces type-reference <em>operands</em>, this pass
-/// projects the same substitutions onto field types, local-variable types, and the declaring types of
+/// projects the same substitutions onto method signatures, field types, local-variable types, and the declaring types of
 /// method and field references, and rewrites the two awaiter-source calls the C# compiler emits
 /// (<c>task.GetAwaiter()</c> and <c>task.ConfigureAwait(bool)</c>) into a <c>newobj</c> of the
 /// controlled awaitable/awaiter. Together these let a compiler-generated <c>async</c> state machine be
@@ -59,6 +59,45 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
             {
                 RecordType(mapped, field.FieldType);
                 field.FieldType = mapped;
+            }
+        }
+
+        foreach (PropertyDefinition property in type.Properties)
+        {
+            TypeReference? mappedProperty = Mapper.MapType(property.PropertyType);
+            if (mappedProperty is not null)
+            {
+                property.PropertyType = mappedProperty;
+            }
+
+            foreach (ParameterDefinition parameter in property.Parameters)
+            {
+                TypeReference? mappedParameter = Mapper.MapType(parameter.ParameterType);
+                if (mappedParameter is not null)
+                {
+                    parameter.ParameterType = mappedParameter;
+                }
+            }
+        }
+
+        // A substituted type can occur directly or inside a generic method signature, such as
+        // Action<Barrier> in a compiler-generated callback. Leaving these signatures unchanged would
+        // produce incompatible closure and public API references after the whole-type substitution.
+        foreach (MethodDefinition method in type.Methods)
+        {
+            TypeReference? mappedReturn = Mapper.MapType(method.ReturnType);
+            if (mappedReturn is not null)
+            {
+                method.ReturnType = mappedReturn;
+            }
+
+            foreach (ParameterDefinition parameter in method.Parameters)
+            {
+                TypeReference? mappedParameter = Mapper.MapType(parameter.ParameterType);
+                if (mappedParameter is not null)
+                {
+                    parameter.ParameterType = mappedParameter;
+                }
             }
         }
     }

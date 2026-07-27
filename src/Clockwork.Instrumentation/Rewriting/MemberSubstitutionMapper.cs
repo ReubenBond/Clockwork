@@ -166,7 +166,7 @@ internal sealed class MemberSubstitutionMapper
     }
 
     /// <summary>
-    /// Maps a method reference whose declaring type (or generic arguments) are substituted, returning
+    /// Maps a method reference whose declaring type, return type, parameter types, or generic arguments are substituted, returning
     /// <see langword="null"/> when unaffected.
     /// </summary>
     public MethodReference? MapMethod(MethodReference method)
@@ -190,9 +190,16 @@ internal sealed class MemberSubstitutionMapper
         }
 
         TypeReference? mappedDeclaring = MapType(method.DeclaringType);
-        if (mappedDeclaring is null)
+        TypeReference? mappedReturn = MapType(method.ReturnType);
+        TypeReference[]? mappedParameters = MapParameters(method.Parameters);
+        if (mappedDeclaring is null && mappedReturn is null && mappedParameters is null)
         {
             return null;
+        }
+
+        if (mappedDeclaring is null)
+        {
+            return Rebuild(method, method.DeclaringType, mappedReturn, mappedParameters);
         }
 
         TypeReference mappedElementType = mappedDeclaring is GenericInstanceType instance
@@ -405,6 +412,105 @@ internal sealed class MemberSubstitutionMapper
         }
 
         return rebased;
+    }
+
+    private static MethodReference Rebuild(
+        MethodReference original,
+        TypeReference declaringType,
+        TypeReference? mappedReturn,
+        TypeReference[]? mappedParameters)
+    {
+        var rebuilt = new MethodReference(
+            original.Name,
+            mappedReturn ?? original.ReturnType,
+            declaringType)
+        {
+            HasThis = original.HasThis,
+            ExplicitThis = original.ExplicitThis,
+            CallingConvention = original.CallingConvention,
+        };
+
+        var genericParameters = new Dictionary<GenericParameter, GenericParameter>();
+        foreach (GenericParameter parameter in original.GenericParameters)
+        {
+            var replacement = new GenericParameter(parameter.Name, rebuilt);
+            rebuilt.GenericParameters.Add(replacement);
+            genericParameters.Add(parameter, replacement);
+        }
+
+        rebuilt.ReturnType = RebindMethodGenericParameters(rebuilt.ReturnType, genericParameters);
+        for (int i = 0; i < original.Parameters.Count; i++)
+        {
+            ParameterDefinition parameter = original.Parameters[i];
+            rebuilt.Parameters.Add(new ParameterDefinition(
+                parameter.Name,
+                parameter.Attributes,
+                RebindMethodGenericParameters(
+                    mappedParameters?[i] ?? parameter.ParameterType,
+                    genericParameters)));
+        }
+
+        return rebuilt;
+    }
+
+    private static TypeReference RebindMethodGenericParameters(
+        TypeReference type,
+        IReadOnlyDictionary<GenericParameter, GenericParameter> genericParameters) =>
+        type switch
+        {
+            GenericParameter parameter when genericParameters.TryGetValue(parameter, out GenericParameter? replacement) =>
+                replacement,
+            GenericInstanceType generic => RebindGenericInstance(generic, genericParameters),
+            ByReferenceType byReference => new ByReferenceType(
+                RebindMethodGenericParameters(byReference.ElementType, genericParameters)),
+            ArrayType array when array.IsVector => new ArrayType(
+                RebindMethodGenericParameters(array.ElementType, genericParameters)),
+            ArrayType array => new ArrayType(
+                RebindMethodGenericParameters(array.ElementType, genericParameters),
+                array.Rank),
+            PointerType pointer => new PointerType(
+                RebindMethodGenericParameters(pointer.ElementType, genericParameters)),
+            RequiredModifierType modifier => new RequiredModifierType(
+                RebindMethodGenericParameters(modifier.ModifierType, genericParameters),
+                RebindMethodGenericParameters(modifier.ElementType, genericParameters)),
+            OptionalModifierType modifier => new OptionalModifierType(
+                RebindMethodGenericParameters(modifier.ModifierType, genericParameters),
+                RebindMethodGenericParameters(modifier.ElementType, genericParameters)),
+            PinnedType pinned => new PinnedType(
+                RebindMethodGenericParameters(pinned.ElementType, genericParameters)),
+            SentinelType sentinel => new SentinelType(
+                RebindMethodGenericParameters(sentinel.ElementType, genericParameters)),
+            _ => type,
+        };
+
+    private static GenericInstanceType RebindGenericInstance(
+        GenericInstanceType generic,
+        IReadOnlyDictionary<GenericParameter, GenericParameter> genericParameters)
+    {
+        var result = new GenericInstanceType(
+            RebindMethodGenericParameters(generic.ElementType, genericParameters));
+        foreach (TypeReference argument in generic.GenericArguments)
+        {
+            result.GenericArguments.Add(RebindMethodGenericParameters(argument, genericParameters));
+        }
+
+        return result;
+    }
+
+    private TypeReference[]? MapParameters(Mono.Collections.Generic.Collection<ParameterDefinition> parameters)
+    {
+        TypeReference[]? mapped = null;
+        for (int i = 0; i < parameters.Count; i++)
+        {
+            TypeReference? result = MapType(parameters[i].ParameterType);
+            if (result is not null)
+            {
+                mapped ??= new TypeReference[parameters.Count];
+                mapped[i] = result;
+            }
+        }
+
+        return mapped;
     }
 
     private TypeReference[]? MapMany(Mono.Collections.Generic.Collection<TypeReference> types)

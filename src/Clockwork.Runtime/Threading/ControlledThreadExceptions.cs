@@ -48,6 +48,40 @@ public sealed class ControlledThreadPoolUnsupportedException : InvalidOperationE
 }
 
 /// <summary>
+/// Thrown when a synchronization-context member would expose physical wait-handle behaviour that the
+/// deterministic scheduler cannot model.
+/// </summary>
+public sealed class ControlledSynchronizationContextUnsupportedException : InvalidOperationException
+{
+    /// <summary>Initializes a new instance of the exception.</summary>
+    public ControlledSynchronizationContextUnsupportedException(string apiName, string reason)
+        : base($"The synchronization-context API '{apiName}' is not supported inside a Clockwork simulation: {reason}")
+    {
+        ApiName = apiName;
+    }
+
+    /// <summary>Gets the unsupported API.</summary>
+    public string? ApiName { get; }
+}
+
+/// <summary>
+/// Thrown when a legacy execution-context member would invoke BCL behavior outside Clockwork's controlled
+/// logical-context model.
+/// </summary>
+public sealed class ControlledExecutionContextUnsupportedException : InvalidOperationException
+{
+    /// <summary>Initializes a new instance of the exception.</summary>
+    public ControlledExecutionContextUnsupportedException(string apiName, string reason)
+        : base($"The execution-context API '{apiName}' is not supported inside a Clockwork simulation: {reason}")
+    {
+        ApiName = apiName;
+    }
+
+    /// <summary>Gets the unsupported API.</summary>
+    public string? ApiName { get; }
+}
+
+/// <summary>
 /// Thrown when an application invokes a <see cref="System.Threading.Tasks.Parallel"/> overload that
 /// Clockwork's controlled <c>Parallel</c> surface cannot model faithfully inside a simulation - the
 /// overloads whose body receives a <see cref="System.Threading.Tasks.ParallelLoopState"/> (break/stop),

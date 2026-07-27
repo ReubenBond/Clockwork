@@ -129,6 +129,60 @@ public sealed class BuiltInRuleSetsTests
         }
     }
 
+    [Fact]
+    public void ControlledTaskInventoryIsVersionTwoAndEveryReplacementResolves()
+    {
+        Assert.Equal("2.0.0", BuiltInRuleSets.ControlledTasksVersion);
+        using ModuleDefinition module = ModuleDefinition.ReadModule(ShimAssemblyPath);
+
+        foreach ((_, RewriteRule rule) in BuiltInRuleSets.ControlledTasksInventory)
+        {
+            RewriteReplacement replacement = rule.Replacement;
+            TypeDefinition? type = module.GetType(replacement.DeclaringTypeFullName);
+            Assert.True(type is not null, $"Shim type '{replacement.DeclaringTypeFullName}' missing for rule '{rule.Id}'.");
+
+            if (rule.Operation == RewriteOperationKind.SubstituteType)
+            {
+                continue;
+            }
+
+            List<MethodDefinition> matches = type!.Methods
+                .Where(m => m.Name == replacement.MemberName
+                    && m.IsStatic
+                    && m.IsPublic
+                    && ParametersMatch(m, replacement.ParameterTypeFullNames))
+                .ToList();
+            Assert.True(matches.Count == 1, $"Rule '{rule.Id}' resolved {matches.Count} shim methods for '{replacement.ToCanonicalString()}'.");
+        }
+    }
+
+    [Fact]
+    public void Phase8AFamiliesHaveExactControlledAndRejectedRuleCounts()
+    {
+        (BuiltInRuleFamily Family, int Controlled, int Rejected)[] expected =
+        [
+            (BuiltInRuleFamily.ReaderWriterLockSlim, 26, 0),
+            (BuiltInRuleFamily.ManualResetEventSlim, 15, 0),
+            (BuiltInRuleFamily.Mutex, 3, 9),
+            (BuiltInRuleFamily.KernelSemaphore, 3, 8),
+            (BuiltInRuleFamily.SpinLock, 1, 0),
+            (BuiltInRuleFamily.ExecutionContext, 8, 1),
+            (BuiltInRuleFamily.SynchronizationContext, 8, 1),
+            (BuiltInRuleFamily.Barrier, 1, 0),
+            (BuiltInRuleFamily.CountdownEvent, 1, 0),
+        ];
+
+        foreach ((BuiltInRuleFamily family, int controlled, int rejected) in expected)
+        {
+            RewriteRule[] rules = BuiltInRuleSets.ControlledTasksInventory
+                .Where(entry => entry.Family == family)
+                .Select(entry => entry.Rule)
+                .ToArray();
+            Assert.Equal(controlled, rules.Count(rule => rule.Policy == SimulationApiPolicy.Controlled));
+            Assert.Equal(rejected, rules.Count(rule => rule.Policy == SimulationApiPolicy.Rejected));
+        }
+    }
+
     private static bool ParametersMatch(MethodDefinition method, ImmutableArray<string> parameterTypeFullNames)
     {
         if (parameterTypeFullNames.IsDefault)

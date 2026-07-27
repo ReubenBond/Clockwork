@@ -69,10 +69,7 @@ public readonly struct ControlledConfiguredTaskAwaiter : ICriticalNotifyCompleti
 
     private void Register(Action continuation, bool flowExecutionContext)
     {
-        var (coordinator, node) = ControlledTaskRuntime.RequireCoordinator(ApiName);
-        ArgumentNullException.ThrowIfNull(continuation);
-        var task = _task;
-        coordinator.ScheduleWhenReady(node, () => task.IsCompleted, continuation);
+        ControlledTaskRuntime.ScheduleContinuation(_task, continuation, ApiName, flowExecutionContext);
     }
 }
 
@@ -137,9 +134,6 @@ public readonly struct ControlledConfiguredTaskAwaiter<TResult> : ICriticalNotif
 
     private void Register(Action continuation, bool flowExecutionContext)
     {
-        var (coordinator, node) = ControlledTaskRuntime.RequireCoordinator(ApiName);
-        ArgumentNullException.ThrowIfNull(continuation);
-        var task = _task;
-        coordinator.ScheduleWhenReady(node, () => task.IsCompleted, continuation);
+        ControlledTaskRuntime.ScheduleContinuation(_task, continuation, ApiName, flowExecutionContext);
     }
 }

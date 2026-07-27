@@ -46,13 +46,52 @@ public static class ControlledWaitHandle
     {
         public readonly TaskCompletionSource<bool> Completion = new();
 
+        public long OwnerId { get; init; }
+
         // The virtual-time deadline for a finite wait, or null for an infinite wait. Cancelled when the
         // waiter completes for any other reason so a stale timeout cannot fire.
         public IControlledTimeout? Deadline;
     }
 
+    internal sealed class MultiWaiter
+    {
+        public required HandleState[] States { get; init; }
+
+        public required bool WaitAll { get; init; }
+
+        // The logical strand which started this multi-handle wait. Completion can be driven by a
+        // different signaler's strand, but mutex acquisition must remain owned by the waiter.
+        public required long OwnerId { get; init; }
+
+        public TaskCompletionSource<bool> Completion { get; } = new();
+
+        public IControlledTimeout? Deadline { get; set; }
+
+        public int WinnerIndex { get; set; } = -1;
+
+        public bool Pending { get; set; } = true;
+    }
+
+    /// <summary>Base state for a controlled wait handle.</summary>
+    internal abstract class HandleState
+    {
+        public bool Disposed { get; set; }
+
+        // Callers blocked in WaitOne, in arrival order.
+        public List<Waiter> Waiters { get; } = new();
+
+        // Coordinated WaitAny/WaitAll callers registered across this and their other target handles.
+        internal List<MultiWaiter> MultiWaiters { get; } = new();
+
+        /// <summary>Returns whether this handle can be acquired by <paramref name="strandId"/>.</summary>
+        internal abstract bool IsAvailable(long strandId);
+
+        /// <summary>Acquires this handle for <paramref name="strandId"/> if available.</summary>
+        internal abstract bool TryAcquire(long strandId);
+    }
+
     /// <summary>The modelled signalled state of one controlled event/wait handle.</summary>
-    internal sealed class EventState
+    internal sealed class EventState : HandleState
     {
         public EventState(EventResetMode mode, bool signaled)
         {
@@ -64,25 +103,123 @@ public static class ControlledWaitHandle
 
         public bool Signaled { get; set; }
 
-        public bool Disposed { get; set; }
+        internal override bool IsAvailable(long strandId) => Signaled;
 
-        // Callers blocked in WaitOne, in arrival order. A signal serves the front waiter(s).
-        public List<Waiter> Waiters { get; } = new();
+        internal override bool TryAcquire(long strandId) => TryConsume(this);
     }
 
-    private static readonly ConditionalWeakTable<WaitHandle, EventState> States = new();
+    /// <summary>The modelled ownership state of one controlled mutex.</summary>
+    internal sealed class MutexState : HandleState
+    {
+        // A null owner represents an available mutex. Zero is a valid root-strand identity.
+        public long? OwnerId { get; private set; }
+
+        public int RecursionCount { get; private set; }
+
+        internal override bool IsAvailable(long strandId) => OwnerId is null || OwnerId == strandId;
+
+        internal override bool TryAcquire(long strandId)
+        {
+            if (OwnerId is null)
+            {
+                OwnerId = strandId;
+                RecursionCount = 1;
+                return true;
+            }
+
+            if (OwnerId == strandId)
+            {
+                RecursionCount++;
+                return true;
+            }
+
+            return false;
+        }
+
+        internal void Release(long strandId)
+        {
+            if (OwnerId != strandId)
+            {
+#pragma warning disable CA2201 // ApplicationException is the BCL Mutex.ReleaseMutex contract.
+                throw new ApplicationException("Object synchronization method was called from an unsynchronized block of code.");
+#pragma warning restore CA2201
+            }
+
+            if (--RecursionCount != 0)
+            {
+                return;
+            }
+
+            OwnerId = null;
+            ReleaseNextWaiter(this);
+        }
+
+        // Intentionally not called today: a controlled mutex remains owned when its logical owner exits
+        // without ReleaseMutex, so a later waiter produces the scheduler's deadlock diagnostic rather than
+        // pretending an OS thread abandoned a kernel mutex. Thread/task lifecycle integration can call this
+        // seam in a later phase to implement explicit AbandonedMutexException delivery.
+        internal void NotifyOwnerStrandCompleted(long strandId)
+        {
+            if (OwnerId == strandId)
+            {
+                return;
+            }
+        }
+    }
+
+    /// <summary>The modelled permit count of one controlled kernel semaphore.</summary>
+    internal sealed class SemaphoreState : HandleState
+    {
+        public SemaphoreState(int count, int maximumCount)
+        {
+            Count = count;
+            MaximumCount = maximumCount;
+        }
+
+        public int Count { get; private set; }
+
+        public int MaximumCount { get; }
+
+        internal override bool IsAvailable(long strandId) => Count > 0;
+
+        internal override bool TryAcquire(long strandId)
+        {
+            if (Count == 0)
+            {
+                return false;
+            }
+
+            Count--;
+            return true;
+        }
+
+        internal int Release(int releaseCount)
+        {
+            int previous = Count;
+            if ((long)Count + releaseCount > MaximumCount)
+            {
+                throw new SemaphoreFullException();
+            }
+
+            Count += releaseCount;
+            ReleaseWaiters(this);
+            return previous;
+        }
+    }
+
+    private static readonly ConditionalWeakTable<WaitHandle, HandleState> States = new();
 
     /// <summary>Associates a modelled signalled state with a controlled wait handle. Used by the event and bridge factories.</summary>
     /// <param name="handle">The real wait-handle identity object.</param>
     /// <param name="state">The modelled state to associate.</param>
-    internal static void Register(WaitHandle handle, EventState state) => States.AddOrUpdate(handle, state);
+    internal static void Register(WaitHandle handle, HandleState state) => States.AddOrUpdate(handle, state);
 
     /// <summary>Attempts to resolve the modelled state of a wait handle.</summary>
-    internal static bool TryGetState(WaitHandle handle, out EventState state) => States.TryGetValue(handle, out state!);
+    internal static bool TryGetState(WaitHandle handle, out HandleState state) => States.TryGetValue(handle, out state!);
 
-    private static EventState StateOrThrow(WaitHandle handle, string api)
+    private static HandleState StateOrThrow(WaitHandle handle, string api)
     {
-        if (States.TryGetValue(handle, out EventState? state))
+        if (States.TryGetValue(handle, out HandleState? state))
         {
             return state;
         }
@@ -97,9 +234,39 @@ public static class ControlledWaitHandle
     /// <summary>Resolves the modelled state of a controlled event, throwing if unknown or disposed. Used by Set/Reset.</summary>
     internal static EventState StateForOperation(WaitHandle handle, string api)
     {
-        EventState state = StateOrThrow(handle, api);
+        HandleState state = StateOrThrow(handle, api);
+        ThrowIfDisposed(state);
+        return state as EventState ?? throw new ControlledWaitHandleUnsupportedException(
+            api,
+            "the requested operation is not supported by this controlled wait-handle type.");
+    }
+
+    /// <summary>Resolves the modelled ownership state of a controlled mutex.</summary>
+    internal static MutexState MutexStateForOperation(Mutex handle, string api)
+    {
+        HandleState state = StateOrThrow(handle, api);
+        ThrowIfDisposed(state);
+        return state as MutexState ?? throw new ControlledWaitHandleUnsupportedException(
+            api,
+            "the requested operation is not supported by this controlled wait-handle type.");
+    }
+
+    /// <summary>Resolves the modelled state of a controlled handle for an operation which can wait on any handle kind.</summary>
+    internal static HandleState StateForWaitOperation(WaitHandle handle, string api)
+    {
+        HandleState state = StateOrThrow(handle, api);
         ThrowIfDisposed(state);
         return state;
+    }
+
+    /// <summary>Resolves the modelled state of a controlled kernel semaphore.</summary>
+    internal static SemaphoreState SemaphoreStateForOperation(Semaphore handle, string api)
+    {
+        HandleState state = StateOrThrow(handle, api);
+        ThrowIfDisposed(state);
+        return state as SemaphoreState ?? throw new ControlledWaitHandleUnsupportedException(
+            api,
+            "the requested operation is not supported by this controlled wait-handle type.");
     }
 
     // ---- externally-driven bridge handle (SemaphoreSlim.AvailableWaitHandle) ----
@@ -115,7 +282,9 @@ public static class ControlledWaitHandle
     /// <returns>The identity handle registered with a manual-reset modelled state.</returns>
     internal static ManualResetEvent CreateBridge(bool signaled)
     {
-        var handle = new ManualResetEvent(signaled);
+        // The real event is only an identity object. Its kernel state is never observed or mutated by the
+        // controlled surface; EventState below is the sole source of truth for its signal.
+        var handle = new ManualResetEvent(false);
         Register(handle, new EventState(EventResetMode.ManualReset, signaled));
         return handle;
     }
@@ -129,15 +298,15 @@ public static class ControlledWaitHandle
     /// <param name="signaled">The new signalled state.</param>
     internal static void UpdateBridgeSignal(WaitHandle handle, bool signaled)
     {
-        if (!TryGetState(handle, out EventState state) || state.Disposed)
+        if (!TryGetState(handle, out HandleState state) || state is not EventState eventState || state.Disposed)
         {
             return;
         }
 
-        state.Signaled = signaled;
+        eventState.Signaled = signaled;
         if (signaled)
         {
-            ReleaseWaiters(state);
+            ReleaseWaiters(eventState);
         }
     }
 
@@ -145,9 +314,21 @@ public static class ControlledWaitHandle
     /// <param name="handle">The bridge identity handle, or <see langword="null"/> if none was materialised.</param>
     internal static void DisposeBridge(WaitHandle? handle)
     {
-        if (handle is not null && TryGetState(handle, out EventState state))
+        if (handle is not null && TryGetState(handle, out HandleState state))
         {
             state.Disposed = true;
+            foreach (Waiter waiter in state.Waiters)
+            {
+                waiter.Deadline?.Cancel();
+                waiter.Completion.TrySetException(new ObjectDisposedException(nameof(WaitHandle)));
+            }
+
+            state.Waiters.Clear();
+            foreach (MultiWaiter waiter in state.MultiWaiters.ToArray())
+            {
+                FaultMultiWaiter(waiter, new ObjectDisposedException(nameof(WaitHandle)));
+            }
+            handle.Dispose();
         }
     }
 
@@ -179,6 +360,8 @@ public static class ControlledWaitHandle
     /// </summary>
     internal static void ReleaseWaiters(EventState state)
     {
+        NotifyMultiWaiters(state);
+
         if (state.Mode == EventResetMode.ManualReset)
         {
             if (!state.Signaled)
@@ -211,13 +394,55 @@ public static class ControlledWaitHandle
         waiter.Completion.TrySetResult(true);
     }
 
+    private static void ReleaseNextWaiter(MutexState state)
+    {
+        NotifyMultiWaiters(state);
+        if (state.OwnerId is not null)
+        {
+            return;
+        }
+
+        while (state.Waiters.Count > 0)
+        {
+            Waiter waiter = state.Waiters[0];
+            state.Waiters.RemoveAt(0);
+            if (!state.TryAcquire(waiter.OwnerId))
+            {
+                continue;
+            }
+
+            Complete(waiter);
+            return;
+        }
+    }
+
+    private static void ReleaseWaiters(SemaphoreState state)
+    {
+        NotifyMultiWaiters(state);
+
+        while (state.Count > 0 && state.Waiters.Count > 0)
+        {
+            Waiter waiter = state.Waiters[0];
+            state.Waiters.RemoveAt(0);
+            if (state.TryAcquire(waiter.OwnerId))
+            {
+                Complete(waiter);
+            }
+        }
+    }
+
     internal static bool WaitControlled(WaitHandle handle, int millisecondsTimeout, string api)
     {
         ValidateTimeout(millisecondsTimeout);
-        EventState state = StateOrThrow(handle, api);
-        ThrowIfDisposed(state);
+        HandleState state = StateForWaitOperation(handle, api);
+        return WaitControlled(state, millisecondsTimeout, api);
+    }
 
-        if (TryConsume(state))
+    private static bool WaitControlled(HandleState state, int millisecondsTimeout, string api)
+    {
+        ValidateTimeout(millisecondsTimeout);
+
+        if (state.TryAcquire(ControlledSynchronizationFlow.CurrentId))
         {
             return true;
         }
@@ -227,7 +452,7 @@ public static class ControlledWaitHandle
             return false;
         }
 
-        var waiter = new Waiter();
+        var waiter = new Waiter { OwnerId = ControlledSynchronizationFlow.CurrentId };
         state.Waiters.Add(waiter);
         if (millisecondsTimeout != Timeout.Infinite)
         {
@@ -458,13 +683,14 @@ public static class ControlledWaitHandle
     private static int WaitAnyControlled(WaitHandle[] waitHandles, int millisecondsTimeout)
     {
         ValidateTimeout(millisecondsTimeout);
-        EventState[] states = ResolveStates(waitHandles, WaitAnyApi, requireUnique: false);
+        HandleState[] states = ResolveStates(waitHandles, WaitAnyApi, requireUnique: false);
+        long owner = ControlledSynchronizationFlow.CurrentId;
 
-        // Fast path: serve the lowest-index already-signalled handle, consuming it (auto-reset clears).
-        int index = FirstSignaled(states);
+        // Fast path: serve the lowest-index available handle, acquiring it (auto-reset clears).
+        int index = FirstAvailable(states, owner);
         if (index >= 0)
         {
-            TryConsume(states[index]);
+            _ = states[index].TryAcquire(owner);
             return index;
         }
 
@@ -473,35 +699,32 @@ public static class ControlledWaitHandle
             return WaitTimeout;
         }
 
-        bool timedOut = false;
-        IControlledTimeout? deadline = millisecondsTimeout == Timeout.Infinite
-            ? null
-            : ControlledTaskRuntime.RegisterTimeout(
-                TimeSpan.FromMilliseconds(millisecondsTimeout), onElapsed: () => timedOut = true, WaitAnyApi);
-
-        ControlledTaskRuntime.DrainUntil(() => timedOut || FirstSignaled(states) >= 0, WaitAnyApi);
-
-        index = FirstSignaled(states);
-        if (index >= 0)
+        var waiter = new MultiWaiter { States = states, WaitAll = false, OwnerId = owner };
+        RegisterMultiWaiter(waiter);
+        if (TryResolveMultiWaiter(waiter))
         {
-            deadline?.Cancel();
-            TryConsume(states[index]);
-            return index;
+            return waiter.WinnerIndex;
         }
 
-        return WaitTimeout;
+        ArmMultiWaiterTimeout(waiter, millisecondsTimeout, WaitAnyApi);
+        ControlledTaskRuntime.DrainUntil(() => !waiter.Pending, WaitAnyApi);
+        return waiter.Completion.Task.GetAwaiter().GetResult()
+            ? waiter.WinnerIndex
+            : WaitTimeout;
     }
 
     private static bool WaitAllControlled(WaitHandle[] waitHandles, int millisecondsTimeout)
     {
         ValidateTimeout(millisecondsTimeout);
-        EventState[] states = ResolveStates(waitHandles, WaitAllApi, requireUnique: true);
+        HandleState[] states = ResolveStates(waitHandles, WaitAllApi, requireUnique: true);
+        RejectWaitAllWithMutex(states);
+        long owner = ControlledSynchronizationFlow.CurrentId;
 
         // Fast path: only succeeds if every handle is simultaneously signalled, and then consumes them all
         // atomically (an auto-reset handle is never partially consumed).
-        if (AllSignaled(states))
+        if (AllSignaled(states, owner))
         {
-            ConsumeAll(states);
+            ConsumeAll(states, owner);
             return true;
         }
 
@@ -510,40 +733,36 @@ public static class ControlledWaitHandle
             return false;
         }
 
-        bool timedOut = false;
-        IControlledTimeout? deadline = millisecondsTimeout == Timeout.Infinite
-            ? null
-            : ControlledTaskRuntime.RegisterTimeout(
-                TimeSpan.FromMilliseconds(millisecondsTimeout), onElapsed: () => timedOut = true, WaitAllApi);
-
-        ControlledTaskRuntime.DrainUntil(() => timedOut || AllSignaled(states), WaitAllApi);
-
-        if (AllSignaled(states))
+        var waiter = new MultiWaiter { States = states, WaitAll = true, OwnerId = owner };
+        RegisterMultiWaiter(waiter);
+        if (TryResolveMultiWaiter(waiter))
         {
-            deadline?.Cancel();
-            ConsumeAll(states);
             return true;
         }
 
-        return false;
+        ArmMultiWaiterTimeout(waiter, millisecondsTimeout, WaitAllApi);
+        ControlledTaskRuntime.DrainUntil(() => !waiter.Pending, WaitAllApi);
+        return waiter.Completion.Task.GetAwaiter().GetResult();
     }
 
     private static bool SignalAndWaitControlled(WaitHandle toSignal, WaitHandle toWaitOn, int millisecondsTimeout)
     {
         ArgumentNullException.ThrowIfNull(toSignal);
         ArgumentNullException.ThrowIfNull(toWaitOn);
+        ValidateTimeout(millisecondsTimeout);
 
-        // The signal handle must be a controlled event (only events are settable in Phase 7B); a Mutex /
-        // Semaphore release is Phase 8 and would reject here via the missing modelled state.
-        EventState signalState = StateForOperation(toSignal, SignalAndWaitApi);
-        signalState.Signaled = true;
-        ReleaseWaiters(signalState);
+        // Validate both handles before mutating either. This matches the BCL contract that an invalid wait
+        // target cannot leave the signal target changed.
+        HandleState signalState = StateOrThrow(toSignal, SignalAndWaitApi);
+        ThrowIfDisposed(signalState);
+        HandleState waitState = StateForWaitOperation(toWaitOn, SignalAndWaitApi);
+        Signal(signalState);
 
         // Then block on the second handle, exactly as a controlled WaitOne would.
-        return WaitControlled(toWaitOn, millisecondsTimeout, SignalAndWaitApi);
+        return WaitControlled(waitState, millisecondsTimeout, SignalAndWaitApi);
     }
 
-    private static EventState[] ResolveStates(WaitHandle[] waitHandles, string api, bool requireUnique)
+    private static HandleState[] ResolveStates(WaitHandle[] waitHandles, string api, bool requireUnique)
     {
         ArgumentNullException.ThrowIfNull(waitHandles);
         if (waitHandles.Length == 0)
@@ -556,7 +775,7 @@ public static class ControlledWaitHandle
             throw new NotSupportedException($"The number of WaitHandles must be less than or equal to {MaxWaitHandles}.");
         }
 
-        var states = new EventState[waitHandles.Length];
+        var states = new HandleState[waitHandles.Length];
         for (int i = 0; i < waitHandles.Length; i++)
         {
             WaitHandle handle = waitHandles[i];
@@ -576,7 +795,7 @@ public static class ControlledWaitHandle
                 }
             }
 
-            EventState state = StateOrThrow(handle, api);
+            HandleState state = StateOrThrow(handle, api);
             ThrowIfDisposed(state);
             states[i] = state;
         }
@@ -584,11 +803,11 @@ public static class ControlledWaitHandle
         return states;
     }
 
-    private static int FirstSignaled(EventState[] states)
+    private static int FirstAvailable(HandleState[] states, long owner)
     {
         for (int i = 0; i < states.Length; i++)
         {
-            if (states[i].Signaled)
+            if (states[i].IsAvailable(owner))
             {
                 return i;
             }
@@ -597,11 +816,11 @@ public static class ControlledWaitHandle
         return -1;
     }
 
-    private static bool AllSignaled(EventState[] states)
+    private static bool AllSignaled(HandleState[] states, long owner)
     {
         for (int i = 0; i < states.Length; i++)
         {
-            if (!states[i].Signaled)
+            if (!states[i].IsAvailable(owner))
             {
                 return false;
             }
@@ -610,31 +829,181 @@ public static class ControlledWaitHandle
         return true;
     }
 
-    private static void ConsumeAll(EventState[] states)
+    private static void ConsumeAll(HandleState[] states, long owner)
     {
         for (int i = 0; i < states.Length; i++)
         {
-            TryConsume(states[i]);
+            _ = states[i].TryAcquire(owner);
+        }
+    }
+
+    private static void RegisterMultiWaiter(MultiWaiter waiter)
+    {
+        foreach (HandleState state in UniqueStates(waiter.States))
+        {
+            state.MultiWaiters.Add(waiter);
+        }
+    }
+
+    private static void ArmMultiWaiterTimeout(MultiWaiter waiter, int millisecondsTimeout, string api)
+    {
+        if (millisecondsTimeout == Timeout.Infinite || !waiter.Pending)
+        {
+            return;
+        }
+
+        waiter.Deadline = ControlledTaskRuntime.RegisterTimeout(
+            TimeSpan.FromMilliseconds(millisecondsTimeout),
+            () => CompleteMultiWaiter(waiter, succeeded: false),
+            api);
+    }
+
+    private static void NotifyMultiWaiters(HandleState state)
+    {
+        foreach (MultiWaiter waiter in state.MultiWaiters.ToArray())
+        {
+            _ = TryResolveMultiWaiter(waiter);
+        }
+    }
+
+    private static bool TryResolveMultiWaiter(MultiWaiter waiter)
+    {
+        if (!waiter.Pending)
+        {
+            return false;
+        }
+
+        if (waiter.WaitAll)
+        {
+            if (!AllSignaled(waiter.States, waiter.OwnerId))
+            {
+                return false;
+            }
+
+            ConsumeAll(waiter.States, waiter.OwnerId);
+            CompleteMultiWaiter(waiter, succeeded: true);
+            return true;
+        }
+
+        int index = FirstAvailable(waiter.States, waiter.OwnerId);
+        if (index < 0 || !waiter.States[index].TryAcquire(waiter.OwnerId))
+        {
+            return false;
+        }
+
+        waiter.WinnerIndex = index;
+        CompleteMultiWaiter(waiter, succeeded: true);
+        return true;
+    }
+
+    private static void CompleteMultiWaiter(MultiWaiter waiter, bool succeeded)
+    {
+        if (!waiter.Pending)
+        {
+            return;
+        }
+
+        waiter.Pending = false;
+        foreach (HandleState state in UniqueStates(waiter.States))
+        {
+            state.MultiWaiters.Remove(waiter);
+        }
+
+        waiter.Deadline?.Cancel();
+        waiter.Deadline = null;
+        waiter.Completion.TrySetResult(succeeded);
+    }
+
+    private static void FaultMultiWaiter(MultiWaiter waiter, Exception exception)
+    {
+        if (!waiter.Pending)
+        {
+            return;
+        }
+
+        waiter.Pending = false;
+        foreach (HandleState state in UniqueStates(waiter.States))
+        {
+            state.MultiWaiters.Remove(waiter);
+        }
+
+        waiter.Deadline?.Cancel();
+        waiter.Deadline = null;
+        waiter.Completion.TrySetException(exception);
+    }
+
+    private static IEnumerable<HandleState> UniqueStates(HandleState[] states)
+    {
+        for (int i = 0; i < states.Length; i++)
+        {
+            bool seen = false;
+            for (int j = 0; j < i; j++)
+            {
+                if (ReferenceEquals(states[j], states[i]))
+                {
+                    seen = true;
+                    break;
+                }
+            }
+
+            if (!seen)
+            {
+                yield return states[i];
+            }
+        }
+    }
+
+    private static void RejectWaitAllWithMutex(HandleState[] states)
+    {
+        foreach (HandleState state in states)
+        {
+            if (state is MutexState)
+            {
+                throw new ControlledWaitHandleUnsupportedException(
+                    WaitAllApi,
+                    "WaitAll containing a Mutex is not supported until the shared wait kernel can model the BCL's atomic multi-mutex acquisition semantics.");
+            }
+        }
+    }
+
+    private static void Signal(HandleState state)
+    {
+        switch (state)
+        {
+            case EventState eventState:
+                eventState.Signaled = true;
+                ReleaseWaiters(eventState);
+                return;
+            case MutexState mutexState:
+                mutexState.Release(ControlledSynchronizationFlow.CurrentId);
+                return;
+            case SemaphoreState semaphoreState:
+                _ = semaphoreState.Release(1);
+                return;
+            default:
+                throw new ControlledWaitHandleUnsupportedException(
+                    SignalAndWaitApi,
+                    "the requested signal operation is not supported by this controlled wait-handle type.");
         }
     }
 
     // ---- registered-wait kernel (ThreadPool.RegisterWaitForSingleObject) ----
 
     /// <summary>
-    /// Arms one passive, non-blocking registered-wait iteration: adds a waiter to the target event's FIFO
-    /// waiter set (so an auto-reset signal is consumed exactly once, in arrival order, by
-    /// <see cref="ReleaseWaiters"/>) and registers a virtual-time deadline that completes the waiter with
+    /// Arms one passive, non-blocking registered-wait iteration: adds a waiter to the target handle's FIFO
+    /// waiter set (so an auto-reset signal or semaphore permit is consumed exactly once, in arrival order)
+    /// and registers a virtual-time deadline that completes the waiter with
     /// <see langword="false"/> on elapse. The caller schedules a controlled continuation on the returned
     /// waiter's completion task rather than blocking the logical thread, so a background registration never
     /// occupies the cooperative scheduler. A result of <see langword="true"/> means signalled;
     /// <see langword="false"/> means the deadline elapsed (or the waiter was cancelled by
     /// <see cref="CancelRegisteredWaiter"/>).
     /// </summary>
-    /// <param name="state">The controlled target event's modelled state.</param>
+    /// <param name="state">The controlled target handle's modelled state.</param>
     /// <param name="millisecondsTimeout">The virtual-time timeout, or <see cref="Timeout.Infinite"/>.</param>
     /// <param name="api">The originating API name, used for diagnostics.</param>
     /// <returns>The registered waiter, whose completion task the caller continues on.</returns>
-    internal static Waiter ArmRegisteredWaiter(EventState state, int millisecondsTimeout, string api)
+    internal static Waiter ArmRegisteredWaiter(HandleState state, int millisecondsTimeout, string api)
     {
         var waiter = new Waiter();
         state.Waiters.Add(waiter);
@@ -660,9 +1029,9 @@ public static class ControlledWaitHandle
     /// waiter set, cancels its virtual-time deadline, and completes it with <see langword="false"/> so the
     /// caller's scheduled continuation runs and observes the cancellation. Idempotent if already completed.
     /// </summary>
-    /// <param name="state">The event the waiter is registered on.</param>
+    /// <param name="state">The handle the waiter is registered on.</param>
     /// <param name="waiter">The pending waiter to cancel.</param>
-    internal static void CancelRegisteredWaiter(EventState state, Waiter waiter)
+    internal static void CancelRegisteredWaiter(HandleState state, Waiter waiter)
     {
         state.Waiters.Remove(waiter);
         waiter.Deadline?.Cancel();
@@ -677,10 +1046,10 @@ public static class ControlledWaitHandle
     /// <param name="handle">The handle to signal, or <see langword="null"/>.</param>
     internal static void TrySignal(WaitHandle? handle)
     {
-        if (handle is not null && TryGetState(handle, out EventState state) && !state.Disposed)
+        if (handle is not null && TryGetState(handle, out HandleState state) && state is EventState eventState && !state.Disposed)
         {
-            state.Signaled = true;
-            ReleaseWaiters(state);
+            eventState.Signaled = true;
+            ReleaseWaiters(eventState);
         }
     }
 
@@ -692,9 +1061,20 @@ public static class ControlledWaitHandle
     {
         SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.WaitHandle.Dispose");
         ArgumentNullException.ThrowIfNull(instance);
-        if (States.TryGetValue(instance, out EventState? state))
+        if (States.TryGetValue(instance, out HandleState? state))
         {
             state.Disposed = true;
+            foreach (Waiter waiter in state.Waiters)
+            {
+                waiter.Deadline?.Cancel();
+                waiter.Completion.TrySetException(new ObjectDisposedException(nameof(WaitHandle)));
+            }
+
+            state.Waiters.Clear();
+            foreach (MultiWaiter waiter in state.MultiWaiters.ToArray())
+            {
+                FaultMultiWaiter(waiter, new ObjectDisposedException(nameof(WaitHandle)));
+            }
         }
 
         // Always release the real identity object's OS handle; the modelled state above is what a
@@ -753,7 +1133,7 @@ public static class ControlledWaitHandle
             "it exposes the underlying OS wait handle, which would let code block a physical thread or " +
             "signal a kernel object outside the deterministic scheduler.");
 
-    private static void ThrowIfDisposed(EventState state) =>
+    private static void ThrowIfDisposed(HandleState state) =>
         ObjectDisposedException.ThrowIf(state.Disposed, typeof(WaitHandle));
 
     private static void ValidateTimeout(int millisecondsTimeout)

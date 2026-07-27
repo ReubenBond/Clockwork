@@ -83,4 +83,6 @@ public static class ControlledSynchronizationFlow
             Ambient.Value = previous;
         }
     }
+
+    internal static void RestoreCurrentId(long strandId) => Ambient.Value = strandId;
 }

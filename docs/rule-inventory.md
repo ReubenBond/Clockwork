@@ -66,7 +66,7 @@ Policy: **Rejected**. Static entropy APIs are redirected to `ControlledRandomNum
 # Controlled task rule set
 
 Rule set id: `clockwork.tasks.controlled`
-Version: `1.0.0`
+Version: `2.0.0`
 Shim assembly: `Clockwork.Runtime`
 
 ## TaskCombinators family
@@ -115,7 +115,7 @@ Policy: **Controlled**. `Task.ContinueWith(Action<Task>)`, `Task<T>.ContinueWith
 
 ## TaskDeferred family
 
-Policy: **Rejected**. `Task.Delay` (virtual timers, Phase 8) is rejected under simulation with a precise diagnostic rather than silently using wall time. The instrumented entry point requires an active simulation.
+Policy: **Rejected**. `Task.Delay` (virtual timers, Phase 8B) is rejected under simulation with a precise diagnostic rather than silently using wall time. The instrumented entry point requires an active simulation.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -309,7 +309,7 @@ Policy: **Controlled**. The .NET 9+ `System.Threading.Lock` type and nested `Sco
 
 ## Semaphore family
 
-Policy: **Controlled**. The .NET 10 `SemaphoreSlim` constructors, counts, waits, releases, and disposal are controlled; `AvailableWaitHandle` is explicitly rejected until general wait handles are modelled.
+Policy: **Controlled**. The .NET 10 `SemaphoreSlim` constructors, counts, waits, releases, and disposal are controlled; `AvailableWaitHandle` returns a controlled manual-reset bridge whose signal tracks whether the permit count is positive and which composes with the controlled wait-handle surface.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -481,6 +481,154 @@ Policy: **Controlled**. The controlled event / wait-handle surface - `AutoResetE
 | `clockwork.eventwaithandle.tryopenexisting` | `System.Threading.EventWaitHandle::TryOpenExisting(System.String,System.Threading.EventWaitHandle&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledEventWaitHandle::TryOpenExisting(System.String,System.Threading.EventWaitHandle&)` | Rejected |
 | `clockwork.eventwaithandle.tryopenexisting.options` | `System.Threading.EventWaitHandle::TryOpenExisting(System.String,System.Threading.NamedWaitHandleOptions,System.Threading.EventWaitHandle&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledEventWaitHandle::TryOpenExisting(System.String,System.Threading.NamedWaitHandleOptions,System.Threading.EventWaitHandle&)` | Rejected |
 
+## ReaderWriterLockSlim family
+
+Policy: **Controlled**. Every public .NET 10 `ReaderWriterLockSlim` constructor, property, enter/try-enter/exit overload, and `Dispose` member redirects to receiver-first controlled shims. The real BCL instance is only an identity key; logical-strand ownership, recursion, wait queues, and deadlines are modelled without blocking a physical thread.
+
+| Rule id | BCL target | Shim | Policy |
+| --- | --- | --- | --- |
+| `clockwork.readerwriterlockslim.ctor` | `new System.Threading.ReaderWriterLockSlim()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledReaderWriterLockSlim::Create()` | Controlled |
+| `clockwork.readerwriterlockslim.ctor.recursionpolicy` | `new System.Threading.ReaderWriterLockSlim(System.Threading.LockRecursionPolicy)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledReaderWriterLockSlim::Create(System.Threading.LockRecursionPolicy)` | Controlled |
+| `clockwork.readerwriterlockslim.get_recursionpolicy` | `System.Threading.ReaderWriterLockSlim::get_RecursionPolicy()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledReaderWriterLockSlim::RecursionPolicy(System.Threading.ReaderWriterLockSlim)` | Controlled |
+| `clockwork.readerwriterlockslim.get_currentreadcount` | `System.Threading.ReaderWriterLockSlim::get_CurrentReadCount()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledReaderWriterLockSlim::CurrentReadCount(System.Threading.ReaderWriterLockSlim)` | Controlled |
+| `clockwork.readerwriterlockslim.get_isreadlockheld` | `System.Threading.ReaderWriterLockSlim::get_IsReadLockHeld()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledReaderWriterLockSlim::IsReadLockHeld(System.Threading.ReaderWriterLockSlim)` | Controlled |
+| `clockwork.readerwriterlockslim.get_isupgradeablereadlockheld` | `System.Threading.ReaderWriterLockSlim::get_IsUpgradeableReadLockHeld()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledReaderWriterLockSlim::IsUpgradeableReadLockHeld(System.Threading.ReaderWriterLockSlim)` | Controlled |
+| `clockwork.readerwriterlockslim.get_iswritelockheld` | `System.Threading.ReaderWriterLockSlim::get_IsWriteLockHeld()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledReaderWriterLockSlim::IsWriteLockHeld(System.Threading.ReaderWriterLockSlim)` | Controlled |
+| `clockwork.readerwriterlockslim.get_recursivereadcount` | `System.Threading.ReaderWriterLockSlim::get_RecursiveReadCount()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledReaderWriterLockSlim::RecursiveReadCount(System.Threading.ReaderWriterLockSlim)` | Controlled |
+| `clockwork.readerwriterlockslim.get_recursiveupgradecount` | `System.Threading.ReaderWriterLockSlim::get_RecursiveUpgradeCount()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledReaderWriterLockSlim::RecursiveUpgradeCount(System.Threading.ReaderWriterLockSlim)` | Controlled |
+| `clockwork.readerwriterlockslim.get_recursivewritecount` | `System.Threading.ReaderWriterLockSlim::get_RecursiveWriteCount()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledReaderWriterLockSlim::RecursiveWriteCount(System.Threading.ReaderWriterLockSlim)` | Controlled |
+| `clockwork.readerwriterlockslim.get_waitingreadcount` | `System.Threading.ReaderWriterLockSlim::get_WaitingReadCount()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledReaderWriterLockSlim::WaitingReadCount(System.Threading.ReaderWriterLockSlim)` | Controlled |
+| `clockwork.readerwriterlockslim.get_waitingupgradecount` | `System.Threading.ReaderWriterLockSlim::get_WaitingUpgradeCount()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledReaderWriterLockSlim::WaitingUpgradeCount(System.Threading.ReaderWriterLockSlim)` | Controlled |
+| `clockwork.readerwriterlockslim.get_waitingwritecount` | `System.Threading.ReaderWriterLockSlim::get_WaitingWriteCount()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledReaderWriterLockSlim::WaitingWriteCount(System.Threading.ReaderWriterLockSlim)` | Controlled |
+| `clockwork.readerwriterlockslim.enterreadlock` | `System.Threading.ReaderWriterLockSlim::EnterReadLock()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledReaderWriterLockSlim::EnterReadLock(System.Threading.ReaderWriterLockSlim)` | Controlled |
+| `clockwork.readerwriterlockslim.tryenterreadlock.milliseconds` | `System.Threading.ReaderWriterLockSlim::TryEnterReadLock(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledReaderWriterLockSlim::TryEnterReadLock(System.Threading.ReaderWriterLockSlim,System.Int32)` | Controlled |
+| `clockwork.readerwriterlockslim.tryenterreadlock.timespan` | `System.Threading.ReaderWriterLockSlim::TryEnterReadLock(System.TimeSpan)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledReaderWriterLockSlim::TryEnterReadLock(System.Threading.ReaderWriterLockSlim,System.TimeSpan)` | Controlled |
+| `clockwork.readerwriterlockslim.exitreadlock` | `System.Threading.ReaderWriterLockSlim::ExitReadLock()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledReaderWriterLockSlim::ExitReadLock(System.Threading.ReaderWriterLockSlim)` | Controlled |
+| `clockwork.readerwriterlockslim.enterupgradeablereadlock` | `System.Threading.ReaderWriterLockSlim::EnterUpgradeableReadLock()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledReaderWriterLockSlim::EnterUpgradeableReadLock(System.Threading.ReaderWriterLockSlim)` | Controlled |
+| `clockwork.readerwriterlockslim.tryenterupgradeablereadlock.milliseconds` | `System.Threading.ReaderWriterLockSlim::TryEnterUpgradeableReadLock(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledReaderWriterLockSlim::TryEnterUpgradeableReadLock(System.Threading.ReaderWriterLockSlim,System.Int32)` | Controlled |
+| `clockwork.readerwriterlockslim.tryenterupgradeablereadlock.timespan` | `System.Threading.ReaderWriterLockSlim::TryEnterUpgradeableReadLock(System.TimeSpan)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledReaderWriterLockSlim::TryEnterUpgradeableReadLock(System.Threading.ReaderWriterLockSlim,System.TimeSpan)` | Controlled |
+| `clockwork.readerwriterlockslim.exitupgradeablereadlock` | `System.Threading.ReaderWriterLockSlim::ExitUpgradeableReadLock()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledReaderWriterLockSlim::ExitUpgradeableReadLock(System.Threading.ReaderWriterLockSlim)` | Controlled |
+| `clockwork.readerwriterlockslim.enterwritelock` | `System.Threading.ReaderWriterLockSlim::EnterWriteLock()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledReaderWriterLockSlim::EnterWriteLock(System.Threading.ReaderWriterLockSlim)` | Controlled |
+| `clockwork.readerwriterlockslim.tryenterwritelock.milliseconds` | `System.Threading.ReaderWriterLockSlim::TryEnterWriteLock(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledReaderWriterLockSlim::TryEnterWriteLock(System.Threading.ReaderWriterLockSlim,System.Int32)` | Controlled |
+| `clockwork.readerwriterlockslim.tryenterwritelock.timespan` | `System.Threading.ReaderWriterLockSlim::TryEnterWriteLock(System.TimeSpan)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledReaderWriterLockSlim::TryEnterWriteLock(System.Threading.ReaderWriterLockSlim,System.TimeSpan)` | Controlled |
+| `clockwork.readerwriterlockslim.exitwritelock` | `System.Threading.ReaderWriterLockSlim::ExitWriteLock()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledReaderWriterLockSlim::ExitWriteLock(System.Threading.ReaderWriterLockSlim)` | Controlled |
+| `clockwork.readerwriterlockslim.dispose` | `System.Threading.ReaderWriterLockSlim::Dispose()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledReaderWriterLockSlim::Dispose(System.Threading.ReaderWriterLockSlim)` | Controlled |
+
+## ManualResetEventSlim family
+
+Policy: **Controlled**. Every public .NET 10 `ManualResetEventSlim` constructor, property, set/reset/wait overload, and `Dispose` redirects to receiver-first controlled shims. Signal state, waiters, cancellation, deadlines, and the exposed wait-handle bridge are modelled in side state.
+
+| Rule id | BCL target | Shim | Policy |
+| --- | --- | --- | --- |
+| `clockwork.manualreseteventslim.ctor` | `new System.Threading.ManualResetEventSlim()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledManualResetEventSlim::Create()` | Controlled |
+| `clockwork.manualreseteventslim.ctor.initialstate` | `new System.Threading.ManualResetEventSlim(System.Boolean)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledManualResetEventSlim::Create(System.Boolean)` | Controlled |
+| `clockwork.manualreseteventslim.ctor.initialstate.spincount` | `new System.Threading.ManualResetEventSlim(System.Boolean,System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledManualResetEventSlim::Create(System.Boolean,System.Int32)` | Controlled |
+| `clockwork.manualreseteventslim.get_isset` | `System.Threading.ManualResetEventSlim::get_IsSet()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledManualResetEventSlim::IsSet(System.Threading.ManualResetEventSlim)` | Controlled |
+| `clockwork.manualreseteventslim.get_spincount` | `System.Threading.ManualResetEventSlim::get_SpinCount()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledManualResetEventSlim::SpinCount(System.Threading.ManualResetEventSlim)` | Controlled |
+| `clockwork.manualreseteventslim.get_waithandle` | `System.Threading.ManualResetEventSlim::get_WaitHandle()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledManualResetEventSlim::WaitHandle(System.Threading.ManualResetEventSlim)` | Controlled |
+| `clockwork.manualreseteventslim.set` | `System.Threading.ManualResetEventSlim::Set()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledManualResetEventSlim::Set(System.Threading.ManualResetEventSlim)` | Controlled |
+| `clockwork.manualreseteventslim.reset` | `System.Threading.ManualResetEventSlim::Reset()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledManualResetEventSlim::Reset(System.Threading.ManualResetEventSlim)` | Controlled |
+| `clockwork.manualreseteventslim.wait` | `System.Threading.ManualResetEventSlim::Wait()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledManualResetEventSlim::Wait(System.Threading.ManualResetEventSlim)` | Controlled |
+| `clockwork.manualreseteventslim.wait.cancellationtoken` | `System.Threading.ManualResetEventSlim::Wait(System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledManualResetEventSlim::Wait(System.Threading.ManualResetEventSlim,System.Threading.CancellationToken)` | Controlled |
+| `clockwork.manualreseteventslim.wait.milliseconds` | `System.Threading.ManualResetEventSlim::Wait(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledManualResetEventSlim::Wait(System.Threading.ManualResetEventSlim,System.Int32)` | Controlled |
+| `clockwork.manualreseteventslim.wait.milliseconds.cancellationtoken` | `System.Threading.ManualResetEventSlim::Wait(System.Int32,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledManualResetEventSlim::Wait(System.Threading.ManualResetEventSlim,System.Int32,System.Threading.CancellationToken)` | Controlled |
+| `clockwork.manualreseteventslim.wait.timespan` | `System.Threading.ManualResetEventSlim::Wait(System.TimeSpan)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledManualResetEventSlim::Wait(System.Threading.ManualResetEventSlim,System.TimeSpan)` | Controlled |
+| `clockwork.manualreseteventslim.wait.timespan.cancellationtoken` | `System.Threading.ManualResetEventSlim::Wait(System.TimeSpan,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledManualResetEventSlim::Wait(System.Threading.ManualResetEventSlim,System.TimeSpan,System.Threading.CancellationToken)` | Controlled |
+| `clockwork.manualreseteventslim.dispose` | `System.Threading.ManualResetEventSlim::Dispose()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledManualResetEventSlim::Dispose(System.Threading.ManualResetEventSlim)` | Controlled |
+
+## Mutex family
+
+Policy: **Controlled**. Unnamed `Mutex` construction and `ReleaseMutex` are controlled through the wait-handle kernel. Named constructors (including null-name forms that the shim conditionally treats as unnamed) and `OpenExisting`/`TryOpenExisting` are classified Rejected because a non-null name is cross-process kernel state. Ownership and recursion are logical-strand state; owner exit without `ReleaseMutex` leaves the mutex owned so a later indefinite wait reports the controlled deadlock diagnostic rather than simulating `AbandonedMutexException`.
+
+| Rule id | BCL target | Shim | Policy |
+| --- | --- | --- | --- |
+| `clockwork.mutex.ctor` | `new System.Threading.Mutex()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMutex::Create()` | Controlled |
+| `clockwork.mutex.ctor.initiallyowned` | `new System.Threading.Mutex(System.Boolean)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMutex::Create(System.Boolean)` | Controlled |
+| `clockwork.mutex.release` | `System.Threading.Mutex::ReleaseMutex()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMutex::ReleaseMutex(System.Threading.Mutex)` | Controlled |
+| `clockwork.mutex.ctor.named` | `new System.Threading.Mutex(System.Boolean,System.String)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMutex::CreateNamed(System.Boolean,System.String)` | Rejected |
+| `clockwork.mutex.ctor.named.creatednew` | `new System.Threading.Mutex(System.Boolean,System.String,System.Boolean&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMutex::CreateNamed(System.Boolean,System.String,System.Boolean&)` | Rejected |
+| `clockwork.mutex.ctor.named.options` | `new System.Threading.Mutex(System.Boolean,System.String,System.Threading.NamedWaitHandleOptions)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMutex::CreateNamed(System.Boolean,System.String,System.Threading.NamedWaitHandleOptions)` | Rejected |
+| `clockwork.mutex.ctor.named.options.creatednew` | `new System.Threading.Mutex(System.Boolean,System.String,System.Threading.NamedWaitHandleOptions,System.Boolean&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMutex::CreateNamed(System.Boolean,System.String,System.Threading.NamedWaitHandleOptions,System.Boolean&)` | Rejected |
+| `clockwork.mutex.ctor.name.options` | `new System.Threading.Mutex(System.String,System.Threading.NamedWaitHandleOptions)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMutex::CreateNamed(System.String,System.Threading.NamedWaitHandleOptions)` | Rejected |
+| `clockwork.mutex.openexisting` | `System.Threading.Mutex::OpenExisting(System.String)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMutex::OpenExisting(System.String)` | Rejected |
+| `clockwork.mutex.openexisting.options` | `System.Threading.Mutex::OpenExisting(System.String,System.Threading.NamedWaitHandleOptions)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMutex::OpenExisting(System.String,System.Threading.NamedWaitHandleOptions)` | Rejected |
+| `clockwork.mutex.tryopenexisting` | `System.Threading.Mutex::TryOpenExisting(System.String,System.Threading.Mutex&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMutex::TryOpenExisting(System.String,System.Threading.Mutex&)` | Rejected |
+| `clockwork.mutex.tryopenexisting.options` | `System.Threading.Mutex::TryOpenExisting(System.String,System.Threading.NamedWaitHandleOptions,System.Threading.Mutex&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMutex::TryOpenExisting(System.String,System.Threading.NamedWaitHandleOptions,System.Threading.Mutex&)` | Rejected |
+
+## KernelSemaphore family
+
+Policy: **Controlled**. The unnamed kernel `Semaphore` constructor and both `Release` overloads are controlled through the wait-handle kernel. Named constructors and `OpenExisting`/`TryOpenExisting` are Rejected because cross-process semaphore state cannot be represented by one simulation.
+
+| Rule id | BCL target | Shim | Policy |
+| --- | --- | --- | --- |
+| `clockwork.semaphore.ctor` | `new System.Threading.Semaphore(System.Int32,System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphore::Create(System.Int32,System.Int32)` | Controlled |
+| `clockwork.semaphore.release` | `System.Threading.Semaphore::Release()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphore::Release(System.Threading.Semaphore)` | Controlled |
+| `clockwork.semaphore.release.count` | `System.Threading.Semaphore::Release(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphore::Release(System.Threading.Semaphore,System.Int32)` | Controlled |
+| `clockwork.semaphore.ctor.named` | `new System.Threading.Semaphore(System.Int32,System.Int32,System.String)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphore::CreateNamed(System.Int32,System.Int32,System.String)` | Rejected |
+| `clockwork.semaphore.ctor.named.creatednew` | `new System.Threading.Semaphore(System.Int32,System.Int32,System.String,System.Boolean&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphore::CreateNamed(System.Int32,System.Int32,System.String,System.Boolean&)` | Rejected |
+| `clockwork.semaphore.ctor.named.options` | `new System.Threading.Semaphore(System.Int32,System.Int32,System.String,System.Threading.NamedWaitHandleOptions)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphore::CreateNamed(System.Int32,System.Int32,System.String,System.Threading.NamedWaitHandleOptions)` | Rejected |
+| `clockwork.semaphore.ctor.named.options.creatednew` | `new System.Threading.Semaphore(System.Int32,System.Int32,System.String,System.Threading.NamedWaitHandleOptions,System.Boolean&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphore::CreateNamed(System.Int32,System.Int32,System.String,System.Threading.NamedWaitHandleOptions,System.Boolean&)` | Rejected |
+| `clockwork.semaphore.openexisting` | `System.Threading.Semaphore::OpenExisting(System.String)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphore::OpenExisting(System.String)` | Rejected |
+| `clockwork.semaphore.openexisting.options` | `System.Threading.Semaphore::OpenExisting(System.String,System.Threading.NamedWaitHandleOptions)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphore::OpenExisting(System.String,System.Threading.NamedWaitHandleOptions)` | Rejected |
+| `clockwork.semaphore.tryopenexisting` | `System.Threading.Semaphore::TryOpenExisting(System.String,System.Threading.Semaphore&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphore::TryOpenExisting(System.String,System.Threading.Semaphore&)` | Rejected |
+| `clockwork.semaphore.tryopenexisting.options` | `System.Threading.Semaphore::TryOpenExisting(System.String,System.Threading.NamedWaitHandleOptions,System.Threading.Semaphore&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSemaphore::TryOpenExisting(System.String,System.Threading.NamedWaitHandleOptions,System.Threading.Semaphore&)` | Rejected |
+
+## SpinLock family
+
+Policy: **Controlled**. `SpinLock` is wholly substituted with `ControlledSpinLock`, preserving its value-type surface while replacing CPU spinning with deterministic scheduler pumping.
+
+| Rule id | BCL target | Shim | Policy |
+| --- | --- | --- | --- |
+| `clockwork.spinlock.type` | `System.Threading.SpinLock` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSpinLock` | Controlled |
+
+## ExecutionContext family
+
+Policy: **Controlled**. `ExecutionContext` capture, run, flow-control, copy, and disposal members redirect to controlled shims. The legacy `GetObjectData` serialization surface is Rejected before it can invoke BCL serialization behavior.
+
+| Rule id | BCL target | Shim | Policy |
+| --- | --- | --- | --- |
+| `clockwork.executioncontext.capture` | `System.Threading.ExecutionContext::Capture()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledExecutionContext::Capture()` | Controlled |
+| `clockwork.executioncontext.run` | `System.Threading.ExecutionContext::Run(System.Threading.ExecutionContext,System.Threading.ContextCallback,System.Object)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledExecutionContext::Run(System.Threading.ExecutionContext,System.Threading.ContextCallback,System.Object)` | Controlled |
+| `clockwork.executioncontext.suppressflow` | `System.Threading.ExecutionContext::SuppressFlow()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledExecutionContext::SuppressFlow()` | Controlled |
+| `clockwork.executioncontext.restoreflow` | `System.Threading.ExecutionContext::RestoreFlow()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledExecutionContext::RestoreFlow()` | Controlled |
+| `clockwork.executioncontext.isflowsuppressed` | `System.Threading.ExecutionContext::IsFlowSuppressed()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledExecutionContext::IsFlowSuppressed()` | Controlled |
+| `clockwork.executioncontext.restore` | `System.Threading.ExecutionContext::Restore(System.Threading.ExecutionContext)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledExecutionContext::Restore(System.Threading.ExecutionContext)` | Controlled |
+| `clockwork.executioncontext.createcopy` | `System.Threading.ExecutionContext::CreateCopy()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledExecutionContext::CreateCopy(System.Threading.ExecutionContext)` | Controlled |
+| `clockwork.executioncontext.dispose` | `System.Threading.ExecutionContext::Dispose()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledExecutionContext::Dispose(System.Threading.ExecutionContext)` | Controlled |
+| `clockwork.executioncontext.getobjectdata` | `System.Threading.ExecutionContext::GetObjectData(System.Runtime.Serialization.SerializationInfo,System.Runtime.Serialization.StreamingContext)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledExecutionContext::GetObjectData(System.Threading.ExecutionContext,System.Runtime.Serialization.SerializationInfo,System.Runtime.Serialization.StreamingContext)` | Rejected |
+
+## SynchronizationContext family
+
+Policy: **Controlled**. `SynchronizationContext` ambient-context and callback-dispatch members redirect to controlled shims. `Post` queues through the coordinator and `Send` runs on the current logical strand; custom context dispatch is not invoked. Its raw native-handle `Wait` member is Rejected before it can block a physical thread.
+
+| Rule id | BCL target | Shim | Policy |
+| --- | --- | --- | --- |
+| `clockwork.synchronizationcontext.get_current` | `System.Threading.SynchronizationContext::get_Current()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSynchronizationContext::Current()` | Controlled |
+| `clockwork.synchronizationcontext.set_current` | `System.Threading.SynchronizationContext::SetSynchronizationContext(System.Threading.SynchronizationContext)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSynchronizationContext::SetSynchronizationContext(System.Threading.SynchronizationContext)` | Controlled |
+| `clockwork.synchronizationcontext.createcopy` | `System.Threading.SynchronizationContext::CreateCopy()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSynchronizationContext::CreateCopy(System.Threading.SynchronizationContext)` | Controlled |
+| `clockwork.synchronizationcontext.iswaitnotificationrequired` | `System.Threading.SynchronizationContext::IsWaitNotificationRequired()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSynchronizationContext::IsWaitNotificationRequired(System.Threading.SynchronizationContext)` | Controlled |
+| `clockwork.synchronizationcontext.operationstarted` | `System.Threading.SynchronizationContext::OperationStarted()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSynchronizationContext::OperationStarted(System.Threading.SynchronizationContext)` | Controlled |
+| `clockwork.synchronizationcontext.operationcompleted` | `System.Threading.SynchronizationContext::OperationCompleted()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSynchronizationContext::OperationCompleted(System.Threading.SynchronizationContext)` | Controlled |
+| `clockwork.synchronizationcontext.post` | `System.Threading.SynchronizationContext::Post(System.Threading.SendOrPostCallback,System.Object)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSynchronizationContext::Post(System.Threading.SynchronizationContext,System.Threading.SendOrPostCallback,System.Object)` | Controlled |
+| `clockwork.synchronizationcontext.send` | `System.Threading.SynchronizationContext::Send(System.Threading.SendOrPostCallback,System.Object)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSynchronizationContext::Send(System.Threading.SynchronizationContext,System.Threading.SendOrPostCallback,System.Object)` | Controlled |
+| `clockwork.synchronizationcontext.wait` | `System.Threading.SynchronizationContext::Wait(System.IntPtr[],System.Boolean,System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSynchronizationContext::Wait(System.Threading.SynchronizationContext,System.IntPtr[],System.Boolean,System.Int32)` | Rejected |
+
+## Barrier family
+
+Policy: **Controlled**. `Barrier` is wholly substituted with `ControlledBarrier`, including generic occurrences such as `Action<Barrier>`, so participant state and post-phase callbacks remain under simulation.
+
+| Rule id | BCL target | Shim | Policy |
+| --- | --- | --- | --- |
+| `clockwork.barrier.type` | `System.Threading.Barrier` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledBarrier` | Controlled |
+
+## CountdownEvent family
+
+Policy: **Controlled**. `CountdownEvent` is wholly substituted with `ControlledCountdownEvent`, so all count updates, waits, bridge handles, and disposal run under the deterministic scheduler.
+
+| Rule id | BCL target | Shim | Policy |
+| --- | --- | --- | --- |
+| `clockwork.countdownevent.type` | `System.Threading.CountdownEvent` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledCountdownEvent` | Controlled |
+
 ## UncontrolledInvocation family
 
 Policy: **Rejected**. Process control and abrupt-termination APIs (`Process.Start`/`Start` instance/`Kill`/`WaitForExit`/`WaitForExitAsync`, `Environment.Exit`/`FailFast`) cannot be modelled inside a single simulated process at all. A throwing guard is injected before each call site so a rewritten assembly can never launch, kill, wait on, or terminate a real OS process; unlike the controlled shims the rejection is unconditional (it fires whether or not a simulation is active).
@@ -514,7 +662,6 @@ remain real BCL calls even under simulation:
 - `DateTime`/`DateTimeOffset` parsing/formatting and any culture-, timezone-, or kind-conversion helpers other than the `Now`/`UtcNow`/`Today` clocks above.
 - Synchronous blocking on `ValueTask`/`ValueTask<T>` (`.Result`/`.GetResult()` outside an awaiter): a value task may be consumed only once, so a blocking drain is unsafe. `await` is the supported controlled path.
 - Named/cross-process synchronization (named `EventWaitHandle`/`Mutex`/`Semaphore` and their `OpenExisting`/`TryOpenExisting` APIs): a single-process simulation cannot model kernel-object sharing, so these are rejected.
-- `ReaderWriterLockSlim`, `Mutex`, the kernel `Semaphore`, `SpinLock`, and `ManualResetEventSlim` remain unrewritten Phase 8 scope.
-- `Timer`, `PeriodicTimer`, and cancellation timers remain unrewritten Phase 8 scope.
+- **Phase 8B timer boundary:** `System.Threading.Timer`, `System.Timers.Timer`, `PeriodicTimer`, `CancellationTokenSource.CancelAfter`, and timer-driven cancellation remain unrewritten. The delay API listed above remains explicitly Rejected under simulation rather than allowed to use wall time. Phase 9 race instrumentation is outside these rule sets.
 
 Determinism is claimed **only** for the exact rules tabulated above.

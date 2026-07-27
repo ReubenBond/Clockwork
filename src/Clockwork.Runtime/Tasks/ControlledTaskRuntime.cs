@@ -37,7 +37,7 @@ public static class ControlledTaskRuntime
     /// <param name="antecedent">The task whose completion makes the continuation runnable.</param>
     /// <param name="continuation">The continuation to schedule.</param>
     /// <param name="apiName">The controlled API, for diagnostics.</param>
-    /// <param name="flowExecutionContext">Ignored because controlled continuations remain on the logical thread.</param>
+    /// <param name="flowExecutionContext">Whether to capture the caller's user execution context.</param>
     public static void ScheduleContinuation(
         System.Threading.Tasks.Task antecedent,
         Action continuation,
@@ -47,7 +47,12 @@ public static class ControlledTaskRuntime
         var (coordinator, node) = RequireCoordinator(apiName);
         ArgumentNullException.ThrowIfNull(antecedent);
         ArgumentNullException.ThrowIfNull(continuation);
-        coordinator.ScheduleWhenReady(node, () => antecedent.IsCompleted, continuation);
+        var snapshot = SimulationRuntimeDispatch.RequireActiveSimulation(apiName);
+        ExecutionContext? context = flowExecutionContext ? ExecutionContext.Capture() : null;
+        coordinator.ScheduleWhenReady(
+            node,
+            () => antecedent.IsCompleted,
+            () => RunScheduledWork(snapshot, context, continuation));
     }
 
     /// <summary>
@@ -62,16 +67,20 @@ public static class ControlledTaskRuntime
     /// </summary>
     /// <param name="work">The work item to enqueue. Runs exactly once.</param>
     /// <param name="apiName">The controlled API queuing the work, for the missing-service diagnostic.</param>
+    /// <param name="flowExecutionContext">Whether to capture the caller's user execution context.</param>
     /// <exception cref="ControlledTaskServiceMissingException">
     /// Thrown when a simulation is active but no coordinator is registered for its runtime.
     /// </exception>
-    public static void QueueWork(Action work, string apiName)
+    public static void QueueWork(Action work, string apiName, bool flowExecutionContext = true)
     {
         var (coordinator, node) = RequireCoordinator(apiName);
         ArgumentNullException.ThrowIfNull(work);
+        var snapshot = SimulationRuntimeDispatch.RequireActiveSimulation(apiName);
+        ExecutionContext? context = flowExecutionContext ? ExecutionContext.Capture() : null;
         coordinator.Schedule(
             node,
-            () => Clockwork.Runtime.Threading.ControlledSynchronizationFlow.RunAsNewStrand(work));
+            () => Clockwork.Runtime.Threading.ControlledSynchronizationFlow.RunAsNewStrand(
+                () => RunScheduledWork(snapshot, context, work)));
     }
 
     internal static void RunWithCapturedExecutionContext(ExecutionContext? context, Action work)
@@ -83,15 +92,17 @@ public static class ControlledTaskRuntime
             return;
         }
 
+        SimulationExecutionSnapshot snapshot = SimulationExecutionContext.Current
+            ?? throw new InvalidOperationException("A controlled execution context requires an active simulation.");
         long strandId = ControlledSynchronizationFlow.CurrentId;
         ExecutionContext.Run(
             context,
             static state =>
             {
-                var flowed = ((long StrandId, Action Work))state!;
-                ControlledSynchronizationFlow.RunAsStrand(flowed.StrandId, flowed.Work);
+                var flowed = ((SimulationExecutionSnapshot Snapshot, long StrandId, Action Work))state!;
+                RunInSimulationSnapshot(flowed.Snapshot, flowed.StrandId, flowed.Work);
             },
-            (strandId, work));
+            (snapshot, strandId, work));
     }
 
     internal static void RunWithCapturedExecutionContextAsNewStrand(ExecutionContext? context, Action work) =>
@@ -108,16 +119,7 @@ public static class ControlledTaskRuntime
             static state =>
             {
                 var invocation = ((SimulationExecutionSnapshot Snapshot, long StrandId, Action Work))state!;
-                using var runtimeScope = SimulationExecutionContext.EnterRuntime(
-                    SimulationRuntimeActivation.CreateToken(),
-                    invocation.Snapshot.Runtime);
-                using var nodeScope = invocation.Snapshot.Node is null
-                    ? null
-                    : SimulationExecutionContext.EnterNode(invocation.Snapshot.Node);
-                using var executionScope = invocation.Snapshot.LogicalExecutionId.IsNone
-                    ? null
-                    : SimulationExecutionContext.EnterLogicalExecution(invocation.Snapshot.LogicalExecutionId);
-                ControlledSynchronizationFlow.RunAsStrand(invocation.StrandId, invocation.Work);
+                RunInSimulationSnapshot(invocation.Snapshot, invocation.StrandId, invocation.Work);
             },
             (snapshot, strandId, work));
     }
@@ -128,12 +130,14 @@ public static class ControlledTaskRuntime
     /// </summary>
     /// <param name="continuation">The continuation to schedule.</param>
     /// <param name="apiName">The controlled API, for diagnostics.</param>
-    /// <param name="flowExecutionContext">Ignored because controlled continuations remain on the logical thread.</param>
+    /// <param name="flowExecutionContext">Whether to capture the caller's user execution context.</param>
     public static void ScheduleYield(Action continuation, string apiName, bool flowExecutionContext)
     {
         var (coordinator, node) = RequireCoordinator(apiName);
         ArgumentNullException.ThrowIfNull(continuation);
-        coordinator.Schedule(node, continuation);
+        var snapshot = SimulationRuntimeDispatch.RequireActiveSimulation(apiName);
+        ExecutionContext? context = flowExecutionContext ? ExecutionContext.Capture() : null;
+        coordinator.Schedule(node, () => RunScheduledWork(snapshot, context, continuation));
     }
 
     /// <summary>
@@ -187,5 +191,36 @@ public static class ControlledTaskRuntime
     {
         var (coordinator, node) = RequireCoordinator(apiName);
         return coordinator.RegisterTimeout(node, delay, onElapsed);
+    }
+
+    private static void RunScheduledWork(
+        SimulationExecutionSnapshot snapshot,
+        ExecutionContext? context,
+        Action work)
+    {
+        if (context is null)
+        {
+            RunWithoutUserExecutionContext(snapshot, work);
+            return;
+        }
+
+        RunWithCapturedExecutionContext(context, work);
+    }
+
+    private static void RunInSimulationSnapshot(
+        SimulationExecutionSnapshot snapshot,
+        long strandId,
+        Action work)
+    {
+        using var runtimeScope = SimulationExecutionContext.EnterRuntime(
+            SimulationRuntimeActivation.CreateToken(),
+            snapshot.Runtime);
+        using var nodeScope = snapshot.Node is null
+            ? null
+            : SimulationExecutionContext.EnterNode(snapshot.Node);
+        using var executionScope = snapshot.LogicalExecutionId.IsNone
+            ? null
+            : SimulationExecutionContext.EnterLogicalExecution(snapshot.LogicalExecutionId);
+        ControlledSynchronizationFlow.RunAsStrand(strandId, work);
     }
 }

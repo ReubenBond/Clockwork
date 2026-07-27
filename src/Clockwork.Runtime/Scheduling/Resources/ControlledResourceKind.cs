@@ -27,6 +27,12 @@ public enum ControlledResourceKind
     Monitor,
 
     /// <summary>
+    /// A kernel-style mutual exclusion mutex: one logical-strand owner at a time, reentrant for that owner.
+    /// Its ownership and abandoned-owner policy are modelled by the controlled mutex shim.
+    /// </summary>
+    Mutex,
+
+    /// <summary>
     /// A counting semaphore: <see cref="ControlledResource.CurrentCount"/> permits out of
     /// <see cref="ControlledResource.MaximumCount"/>; acquirers that find no permit wait, releasers
     /// return permits and wake waiters. No single owner concept.
@@ -64,6 +70,12 @@ public enum ControlledResourceKind
     /// time advancing (or cancellation). Such a wait is never part of a resource deadlock cycle.
     /// </summary>
     Timer,
+
+    /// <summary>
+    /// A reader-writer lock: concurrent readers, a single writer, and a single upgradeable reader. The
+    /// detailed ownership and upgrade rules are modelled by its shim; this label only improves diagnostics.
+    /// </summary>
+    ReaderWriterLock,
 
     /// <summary>Any resource whose primitive is not covered by the other kinds.</summary>
     Custom,

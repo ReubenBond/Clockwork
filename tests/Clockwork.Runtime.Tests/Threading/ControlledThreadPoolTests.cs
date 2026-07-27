@@ -206,6 +206,32 @@ public sealed class ControlledThreadPoolTests
     }
 
     [Fact]
+    public void RegisteredWaitUIntTimeoutUsesOnlyUIntMaxAsTheInfiniteSentinel()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            AutoResetEvent evt = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: false);
+            ControlledRegisteredWaitHandle infinite = ControlledThreadPool.RegisterWaitForSingleObject(
+                evt,
+                (_, _) => { },
+                state: null,
+                uint.MaxValue,
+                executeOnlyOnce: true);
+            Assert.True(infinite.Unregister(null));
+
+            ArgumentOutOfRangeException exception = Assert.Throws<ArgumentOutOfRangeException>(
+                () => ControlledThreadPool.RegisterWaitForSingleObject(
+                    evt,
+                    (_, _) => { },
+                    state: null,
+                    (uint)int.MaxValue + 1,
+                    executeOnlyOnce: true));
+            Assert.Equal("millisecondsTimeOutInterval", exception.ParamName);
+        });
+    }
+
+    [Fact]
     public void RepeatingRegisteredWaitFiresEachSignalUntilUnregister()
     {
         var coordinator = new ControlledTaskLoopCoordinator();
@@ -236,6 +262,82 @@ public sealed class ControlledThreadPoolTests
             coordinator.Loop.RunUntilIdle();
             Assert.Equal(2, count);
             Assert.True(coordinator.Loop.IsIdle);
+        });
+    }
+
+    [Fact]
+    public void RepeatingRegisteredWaitRearmsBeforeBlockingCallbackSoAutoResetSignalsAreNotLost()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            AutoResetEvent evt = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: false);
+            AutoResetEvent releaseFirstCallback = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: false);
+            var count = 0;
+
+            ControlledRegisteredWaitHandle registration = ControlledThreadPool.RegisterWaitForSingleObject(
+                evt,
+                (_, _) =>
+                {
+                    count++;
+                    if (count == 1)
+                    {
+                        ControlledTaskRuntime.QueueWork(
+                            () =>
+                            {
+                                ControlledEventWaitHandle.Set(evt);
+                                ControlledEventWaitHandle.Set(evt);
+                                ControlledEventWaitHandle.Set(releaseFirstCallback);
+                            },
+                            "test.registered-wait-signals",
+                            flowExecutionContext: false);
+                        Assert.True(ControlledWaitHandle.WaitOne(releaseFirstCallback));
+                    }
+                },
+                state: null,
+                Timeout.Infinite,
+                executeOnlyOnce: false);
+
+            ControlledEventWaitHandle.Set(evt);
+            coordinator.Loop.RunUntilIdle();
+
+            Assert.Equal(3, count);
+            Assert.True(registration.Unregister(null));
+            coordinator.Loop.RunUntilIdle();
+        });
+    }
+
+    [Fact]
+    public void RegisteredWaitCallbackRunsAsAFreshControlledStrand()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            AutoResetEvent evt = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: false);
+            var monitor = new object();
+            Exception? callbackException = null;
+
+            ControlledThreadPool.RegisterWaitForSingleObject(
+                evt,
+                (_, _) => callbackException = Record.Exception(() => ControlledMonitor.Exit(monitor)),
+                state: null,
+                Timeout.Infinite,
+                executeOnlyOnce: true);
+
+            ControlledMonitor.Enter(monitor);
+            try
+            {
+                ControlledEventWaitHandle.Set(evt);
+                coordinator.Loop.RunUntilIdle();
+            }
+            finally
+            {
+                ControlledMonitor.Exit(monitor);
+            }
+
+            Assert.IsType<SynchronizationLockException>(callbackException);
         });
     }
 
@@ -297,8 +399,9 @@ public sealed class ControlledThreadPoolTests
             var seen = -1;
             AutoResetEvent evt = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: false);
 
-            // Unsafe variant does not capture the caller's context; the callback observes the ambient value
-            // at run time, so the post-registration mutation is visible.
+            // Unsafe variant does not capture the caller's context; it runs under a clean user execution
+            // context rather than inheriting whichever AsyncLocal values happen to be ambient while the
+            // controlled loop dispatches the registration.
             ControlledThreadPool.UnsafeRegisterWaitForSingleObject(
                 evt, (_, _) => seen = ambient.Value, state: null, Timeout.Infinite, executeOnlyOnce: true);
 
@@ -306,7 +409,7 @@ public sealed class ControlledThreadPoolTests
             ControlledEventWaitHandle.Set(evt);
             coordinator.Loop.RunUntilIdle();
 
-            Assert.Equal(9, seen);
+            Assert.Equal(0, seen);
         });
     }
 

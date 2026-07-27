@@ -244,4 +244,75 @@ public enum BuiltInRuleFamily
     /// event APIs cannot be modelled in a single simulated process and are rejected precisely.
     /// </summary>
     WaitHandle,
+
+    /// <summary>
+    /// <see cref="System.Threading.ReaderWriterLockSlim"/> surface: construction, all state and
+    /// recursion properties, every read/upgradeable-read/write enter/try-enter/exit member, and disposal.
+    /// Classified <c>Controlled</c> (Phase 8A): real BCL instances remain identity objects while a
+    /// receiver-first shim models logical-strand ownership, recursion, queued waiters, and virtual-time
+    /// timeouts in side state.
+    /// </summary>
+    ReaderWriterLockSlim,
+
+    /// <summary>
+    /// <see cref="System.Threading.ManualResetEventSlim"/> surface: all constructors, properties,
+    /// signal/reset/wait overloads, bridge handle access, and disposal. Classified <c>Controlled</c>
+    /// (Phase 8A): the BCL object is an identity object and the receiver-first shim models signal state,
+    /// waiters, virtual-time deadlines, cancellation, and its controlled wait-handle bridge.
+    /// </summary>
+    ManualResetEventSlim,
+
+    /// <summary>
+    /// Kernel <see cref="System.Threading.Mutex"/> construction, release, and named-object APIs.
+    /// Unnamed construction and <c>ReleaseMutex</c> are <c>Controlled</c> (Phase 8A), using a real BCL
+    /// object only as an identity handle whose ownership is modelled by the controlled wait-handle kernel.
+    /// Named constructors (including null-name forms, which the shim permits as the unnamed case) and
+    /// open APIs are classified <c>Rejected</c> because a non-null name is cross-process state which a
+    /// single-process simulation cannot faithfully model.
+    /// </summary>
+    Mutex,
+
+    /// <summary>
+    /// Kernel <see cref="System.Threading.Semaphore"/> construction, release, and named-object APIs.
+    /// The unnamed constructor and both release overloads are <c>Controlled</c> (Phase 8A), retaining a
+    /// BCL instance only for identity while the controlled wait-handle kernel owns the permit state.
+    /// Named constructors (including conditionally-supported null-name forms) and open APIs are
+    /// <c>Rejected</c> because they address cross-process kernel state.
+    /// </summary>
+    KernelSemaphore,
+
+    /// <summary>
+    /// <see cref="System.Threading.SpinLock"/> is wholly substituted with
+    /// <c>ControlledSpinLock</c> (Phase 8A). Its value-type state, constructors, properties, and all
+    /// enter/try-enter/exit members therefore run on controlled logical strands instead of CPU spinning.
+    /// </summary>
+    SpinLock,
+
+    /// <summary>
+    /// <see cref="System.Threading.ExecutionContext"/> capture/run/flow-control and receiver members.
+    /// The supported logical-context members are <c>Controlled</c>; the legacy serialization member is
+    /// <c>Rejected</c> so a rewritten simulation cannot invoke legacy BCL serialization behavior.
+    /// </summary>
+    ExecutionContext,
+
+    /// <summary>
+    /// <see cref="System.Threading.SynchronizationContext"/> ambient-context and callback-dispatch
+    /// members. Ambient state and callback methods are <c>Controlled</c>; the raw OS handle
+    /// <c>Wait</c> member is <c>Rejected</c> before it can block a physical thread.
+    /// </summary>
+    SynchronizationContext,
+
+    /// <summary>
+    /// <see cref="System.Threading.Barrier"/> is wholly substituted with
+    /// <c>ControlledBarrier</c> (Phase 8A), including nested generic references such as
+    /// <c>Action&lt;Barrier&gt;</c>, so phase participation and callbacks execute in the simulation.
+    /// </summary>
+    Barrier,
+
+    /// <summary>
+    /// <see cref="System.Threading.CountdownEvent"/> is wholly substituted with
+    /// <c>ControlledCountdownEvent</c> (Phase 8A), so count updates, waits, bridge handles, and disposal
+    /// all remain on the controlled scheduler.
+    /// </summary>
+    CountdownEvent,
 }

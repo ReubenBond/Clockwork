@@ -405,6 +405,31 @@ public sealed class ControlledEventWaitHandleTests
     }
 
     [Fact]
+    public void WaitAnyCapturesAnAutoResetSignalThatIsResetBeforeTheSchedulerRepolls()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            AutoResetEvent a = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: false);
+            AutoResetEvent b = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: false);
+            var index = -1;
+
+            Thread waiter = ControlledThread.Create(() => index = ControlledWaitHandle.WaitAny([a, b], 100));
+            Thread signaler = ControlledThread.Create(() =>
+            {
+                ControlledEventWaitHandle.Set(b);
+                ControlledEventWaitHandle.Reset(b);
+            });
+            ControlledThread.Start(waiter);
+            ControlledThread.Start(signaler);
+            ControlledThread.Join(waiter);
+            ControlledThread.Join(signaler);
+
+            Assert.Equal(1, index);
+        });
+    }
+
+    [Fact]
     public void WaitAllSucceedsOnlyWhenAllSignalled()
     {
         var coordinator = new ControlledTaskLoopCoordinator();
@@ -447,6 +472,33 @@ public sealed class ControlledEventWaitHandleTests
 
             Assert.True(all);
             Assert.True(coordinator.Loop.IsIdle);
+        });
+    }
+
+    [Fact]
+    public void WaitAllCompletesWhenAllHandlesAreBrieflySignalledTogether()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            ManualResetEvent a = ControlledEventWaitHandle.CreateManualResetEvent(initialState: false);
+            ManualResetEvent b = ControlledEventWaitHandle.CreateManualResetEvent(initialState: false);
+            var completed = false;
+
+            Thread waiter = ControlledThread.Create(() => completed = ControlledWaitHandle.WaitAll([a, b], 100));
+            Thread signaler = ControlledThread.Create(() =>
+            {
+                ControlledEventWaitHandle.Set(a);
+                ControlledEventWaitHandle.Set(b);
+                ControlledEventWaitHandle.Reset(a);
+                ControlledEventWaitHandle.Reset(b);
+            });
+            ControlledThread.Start(waiter);
+            ControlledThread.Start(signaler);
+            ControlledThread.Join(waiter);
+            ControlledThread.Join(signaler);
+
+            Assert.True(completed);
         });
     }
 
@@ -533,6 +585,29 @@ public sealed class ControlledEventWaitHandleTests
             Assert.False(ControlledWaitHandle.SignalAndWait(gate, proceed, 100, exitContext: false));
             Assert.True(ControlledWaitHandle.WaitOne(gate, 0)); // The gate was still signalled.
             Assert.True(coordinator.Loop.IsIdle);
+        });
+    }
+
+    [Fact]
+    public void SignalAndWaitValidatesTheWaitTargetBeforeSignallingAndCanReleaseASemaphore()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            ManualResetEvent gate = ControlledEventWaitHandle.CreateManualResetEvent(initialState: false);
+            using var unknown = new AutoResetEvent(false);
+            Assert.Throws<ControlledWaitHandleUnsupportedException>(
+                () => ControlledWaitHandle.SignalAndWait(gate, unknown, 0, exitContext: false));
+            Assert.False(ControlledWaitHandle.WaitOne(gate, 0));
+
+            Semaphore semaphore = ControlledSemaphore.Create(initialCount: 0, maximumCount: 1);
+            ManualResetEvent proceed = ControlledEventWaitHandle.CreateManualResetEvent(initialState: true);
+            Assert.True(ControlledWaitHandle.SignalAndWait(semaphore, proceed, 0, exitContext: false));
+            Assert.True(ControlledWaitHandle.WaitOne(semaphore, 0));
+
+            Semaphore full = ControlledSemaphore.Create(initialCount: 1, maximumCount: 1);
+            Assert.Throws<SemaphoreFullException>(
+                () => ControlledWaitHandle.SignalAndWait(full, proceed, 0, exitContext: false));
         });
     }
 
