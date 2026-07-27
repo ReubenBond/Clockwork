@@ -115,7 +115,9 @@ public static class ControlledWaitHandle
     /// <returns>The identity handle registered with a manual-reset modelled state.</returns>
     internal static ManualResetEvent CreateBridge(bool signaled)
     {
-        var handle = new ManualResetEvent(signaled);
+        // The real event is only an identity object. Its kernel state is never observed or mutated by the
+        // controlled surface; EventState below is the sole source of truth for its signal.
+        var handle = new ManualResetEvent(false);
         Register(handle, new EventState(EventResetMode.ManualReset, signaled));
         return handle;
     }
@@ -148,6 +150,14 @@ public static class ControlledWaitHandle
         if (handle is not null && TryGetState(handle, out EventState state))
         {
             state.Disposed = true;
+            foreach (Waiter waiter in state.Waiters)
+            {
+                waiter.Deadline?.Cancel();
+                waiter.Completion.TrySetException(new ObjectDisposedException(nameof(WaitHandle)));
+            }
+
+            state.Waiters.Clear();
+            handle.Dispose();
         }
     }
 
