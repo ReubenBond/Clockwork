@@ -352,6 +352,49 @@ public sealed class ControlledOperationSchedulerTests
     }
 
     [Fact]
+    public void ListenerSerializesPausedBeforeExternalCancellationMakesOperationRunnable()
+    {
+        var listener = new BlockingPauseListener(TestContext.Current.CancellationToken);
+        using var scheduler = SchedulerTestHarness.NewScheduler(listener);
+        listener.Scheduler = scheduler;
+        using var cancellation = new CancellationTokenSource();
+        var resource = scheduler.CreateResource(
+            Clockwork.Runtime.Scheduling.Resources.ControlledResourceKind.Semaphore,
+            "listener-race");
+        scheduler.Schedule(
+            "waiter",
+            () => scheduler.WaitOnResource(
+                resource,
+                Timeout.InfiniteTimeSpan,
+                ControlledOperationPauseReason.ResourceWait("listener-race"),
+                cancellation.Token));
+
+        var driver = new Thread(() => scheduler.RunStep()) { IsBackground = true };
+        driver.Start();
+        Assert.True(listener.PausedEntered.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+
+        var canceler = new Thread(cancellation.Cancel) { IsBackground = true };
+        canceler.Start();
+        canceler.Join(TimeSpan.FromMilliseconds(200));
+
+        listener.ReleasePaused.Set();
+        Assert.True(canceler.Join(TimeSpan.FromSeconds(5)));
+        Assert.True(driver.Join(TimeSpan.FromSeconds(5)));
+        scheduler.Drain();
+
+        Assert.Equal(
+            [
+                ControlledOperationState.Created,
+                ControlledOperationState.Runnable,
+                ControlledOperationState.Running,
+                ControlledOperationState.Paused,
+                ControlledOperationState.Runnable,
+            ],
+            listener.Events.Take(5).Select(e => e.EventState));
+        Assert.All(listener.Events.Take(5), e => Assert.Equal(e.EventState, e.SnapshotState));
+    }
+
+    [Fact]
     public void CaptureStatusReturnsOperationsInStableIdOrder()
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();
@@ -369,4 +412,30 @@ public sealed class ControlledOperationSchedulerTests
     }
 
     private static bool SpinUntil(Func<bool> condition) => SpinWait.SpinUntil(condition, TimeSpan.FromSeconds(5));
+
+    private sealed class BlockingPauseListener(CancellationToken cancellationToken) : IControlledOperationListener
+    {
+        private readonly ConcurrentQueue<(ControlledOperationState EventState, ControlledOperationState SnapshotState)> _events = new();
+
+        public ManualResetEventSlim PausedEntered { get; } = new();
+
+        public ManualResetEventSlim ReleasePaused { get; } = new();
+
+        public ControlledOperationScheduler Scheduler { get; set; } = null!;
+
+        public IReadOnlyList<(ControlledOperationState EventState, ControlledOperationState SnapshotState)> Events =>
+            _events.ToArray();
+
+        public void OnStateChanged(ControlledOperation operation, ControlledOperationState newState)
+        {
+            if (newState == ControlledOperationState.Paused)
+            {
+                PausedEntered.Set();
+                ReleasePaused.Wait(cancellationToken);
+            }
+
+            var snapshot = Assert.Single(Scheduler.CaptureStatus(), status => status.Id == operation.Id);
+            _events.Enqueue((newState, snapshot.State));
+        }
+    }
 }

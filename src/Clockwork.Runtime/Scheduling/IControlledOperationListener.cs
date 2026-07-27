@@ -4,8 +4,9 @@ namespace Clockwork.Runtime.Scheduling;
 /// An optional observer of <see cref="ControlledOperation"/> lifecycle transitions within a
 /// <see cref="ControlledOperationScheduler"/>. The scheduler invokes the listener exactly once per
 /// applied state transition, in the deterministic order those transitions occur - transitions are
-/// serialized by the single permission baton, so a listener never observes two notifications
-/// concurrently, and the sequence it sees is a stable function of the scheduling decisions made.
+/// serialized with their publication, so external cancellation and signaling cannot publish a later
+/// state before an earlier transition. A listener never observes two notifications concurrently, and
+/// the sequence it sees is a stable function of the scheduling decisions made.
 /// </summary>
 /// <remarks>
 /// Notifications are delivered <em>after</em> the transition has been applied and <em>outside</em>
