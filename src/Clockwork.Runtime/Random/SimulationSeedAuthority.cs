@@ -56,7 +56,7 @@ public sealed class SimulationSeedAuthority
     /// <param name="domain">The domain to derive a seed for.</param>
     /// <returns>A deterministic seed, independent of every other domain's seed.</returns>
     public int GetDomainSeed(SimulationSeedDomain domain) =>
-        DeterministicHash.ToInt32(RootSeedComponent, domain.ToString());
+        SimulationStableHash.ToInt32(RootSeedComponent, domain.ToString());
 
     /// <summary>
     /// Derives a per-node/per-site child seed within a domain, keyed by a caller-supplied stable
@@ -75,7 +75,7 @@ public sealed class SimulationSeedAuthority
     public int GetSiteSeed(SimulationSeedDomain domain, string siteId)
     {
         ArgumentException.ThrowIfNullOrEmpty(siteId);
-        return DeterministicHash.ToInt32(RootSeedComponent, domain.ToString(), siteId);
+        return SimulationStableHash.ToInt32(RootSeedComponent, domain.ToString(), siteId);
     }
 
     /// <summary>
@@ -89,7 +89,7 @@ public sealed class SimulationSeedAuthority
     public SimulationSeedAuthority CreateChildAuthority(string stableId)
     {
         ArgumentException.ThrowIfNullOrEmpty(stableId);
-        return new SimulationSeedAuthority(DeterministicHash.ToInt32(RootSeedComponent, "Child", stableId));
+        return new SimulationSeedAuthority(SimulationStableHash.ToInt32(RootSeedComponent, "Child", stableId));
     }
 
     private string RootSeedComponent => RootSeed.ToString("x8", System.Globalization.CultureInfo.InvariantCulture);

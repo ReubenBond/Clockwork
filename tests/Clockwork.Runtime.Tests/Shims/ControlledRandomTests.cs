@@ -3,18 +3,18 @@ using Clockwork.Runtime.Shims;
 namespace Clockwork.Runtime.Tests.Shims;
 
 /// <summary>
-/// Semantic conformance tests for <see cref="DeterministicRandom"/>: shared-stream stability and
+/// Semantic conformance tests for <see cref="ControlledRandom"/>: shared-stream stability and
 /// isolation, unseeded independence, seeded-seed preservation, same-seed replay, per-node isolation,
 /// stream-domain independence, inherited/virtual API surface, active missing-context failure, and
-/// inactive pass-through.
+/// inactive-simulation rejection.
 /// </summary>
-public sealed class DeterministicRandomTests
+public sealed class ControlledRandomTests
 {
     [Fact]
     public void SharedRandomSupportsConcurrentEscapedDrawsWithoutCorruptingState()
     {
         var env = ShimTestHarness.CreateEnvironment(ShimTestHarness.CreateClock());
-        System.Random shared = ShimTestHarness.RunInSimulation(env, DeterministicRandom.GetShared);
+        System.Random shared = ShimTestHarness.RunInSimulation(env, ControlledRandom.GetShared);
         var values = new int[256];
 
         Parallel.For(0, values.Length, index => values[index] = shared.Next());
@@ -29,7 +29,7 @@ public sealed class DeterministicRandomTests
         var env = ShimTestHarness.CreateEnvironment(ShimTestHarness.CreateClock());
 
         var same = ShimTestHarness.RunInSimulation(env, () =>
-            ReferenceEquals(DeterministicRandom.GetShared(), DeterministicRandom.GetShared()));
+            ReferenceEquals(ControlledRandom.GetShared(), ControlledRandom.GetShared()));
 
         Assert.True(same);
     }
@@ -41,7 +41,7 @@ public sealed class DeterministicRandomTests
 
         var (first, second) = ShimTestHarness.RunInSimulation(env, () =>
         {
-            var shared = DeterministicRandom.GetShared();
+            var shared = ControlledRandom.GetShared();
             return (shared.Next(), shared.Next());
         });
 
@@ -55,7 +55,7 @@ public sealed class DeterministicRandomTests
         int Draw()
         {
             var env = ShimTestHarness.CreateEnvironment(ShimTestHarness.CreateClock());
-            return ShimTestHarness.RunInSimulation(env, () => DeterministicRandom.GetShared().Next());
+            return ShimTestHarness.RunInSimulation(env, () => ControlledRandom.GetShared().Next());
         }
 
         Assert.Equal(Draw(), Draw());
@@ -66,8 +66,8 @@ public sealed class DeterministicRandomTests
     {
         var env = ShimTestHarness.CreateEnvironment(ShimTestHarness.CreateClock());
 
-        var a = ShimTestHarness.RunInSimulation(env, () => DeterministicRandom.GetShared().Next(), nodeAddress: "10.0.0.1");
-        var b = ShimTestHarness.RunInSimulation(env, () => DeterministicRandom.GetShared().Next(), nodeAddress: "10.0.0.2");
+        var a = ShimTestHarness.RunInSimulation(env, () => ControlledRandom.GetShared().Next(), nodeAddress: "10.0.0.1");
+        var b = ShimTestHarness.RunInSimulation(env, () => ControlledRandom.GetShared().Next(), nodeAddress: "10.0.0.2");
 
         Assert.NotEqual(a, b);
     }
@@ -79,8 +79,8 @@ public sealed class DeterministicRandomTests
 
         var distinct = ShimTestHarness.RunInSimulation(env, () =>
         {
-            var r1 = DeterministicRandom.CreateUnseeded();
-            var r2 = DeterministicRandom.CreateUnseeded();
+            var r1 = ControlledRandom.CreateUnseeded();
+            var r2 = ControlledRandom.CreateUnseeded();
             return !ReferenceEquals(r1, r2);
         });
 
@@ -93,7 +93,7 @@ public sealed class DeterministicRandomTests
         var env = ShimTestHarness.CreateEnvironment(ShimTestHarness.CreateClock());
 
         var (a, b) = ShimTestHarness.RunInSimulation(env, () =>
-            (DeterministicRandom.CreateUnseeded().Next(), DeterministicRandom.CreateUnseeded().Next()));
+            (ControlledRandom.CreateUnseeded().Next(), ControlledRandom.CreateUnseeded().Next()));
 
         Assert.NotEqual(a, b);
     }
@@ -106,8 +106,8 @@ public sealed class DeterministicRandomTests
             var env = ShimTestHarness.CreateEnvironment(ShimTestHarness.CreateClock());
             return ShimTestHarness.RunInSimulation(env, () =>
             {
-                var first = DeterministicRandom.CreateUnseeded().Next();
-                var second = DeterministicRandom.CreateUnseeded().Next();
+                var first = ControlledRandom.CreateUnseeded().Next();
+                var second = ControlledRandom.CreateUnseeded().Next();
                 return new[] { first, second };
             });
         }
@@ -120,7 +120,7 @@ public sealed class DeterministicRandomTests
     {
         var env = ShimTestHarness.CreateEnvironment(ShimTestHarness.CreateClock());
 
-        var shimmed = ShimTestHarness.RunInSimulation(env, () => DeterministicRandom.CreateSeeded(4242).Next());
+        var shimmed = ShimTestHarness.RunInSimulation(env, () => ControlledRandom.CreateSeeded(4242).Next());
         var reference = new System.Random(4242).Next();
 
         Assert.Equal(reference, shimmed);
@@ -133,7 +133,7 @@ public sealed class DeterministicRandomTests
         // environment registered (nothing irreproducible to guard).
         ShimTestHarness.RunInSimulationWithoutEnvironment(() =>
         {
-            var value = DeterministicRandom.CreateSeeded(99).Next();
+            var value = ControlledRandom.CreateSeeded(99).Next();
             Assert.Equal(new System.Random(99).Next(), value);
         });
     }
@@ -148,7 +148,7 @@ public sealed class DeterministicRandomTests
             var env = ShimTestHarness.CreateEnvironment(ShimTestHarness.CreateClock());
             return ShimTestHarness.RunInSimulation(env, () =>
             {
-                var r = DeterministicRandom.GetShared();
+                var r = ControlledRandom.GetShared();
                 var buffer = new byte[8];
                 r.NextBytes(buffer);
                 return new object[]
@@ -176,7 +176,7 @@ public sealed class DeterministicRandomTests
         Guid WithoutDraw()
         {
             var env = ShimTestHarness.CreateEnvironment(ShimTestHarness.CreateClock());
-            return ShimTestHarness.RunInSimulation(env, DeterministicGuid.NewGuid);
+            return ShimTestHarness.RunInSimulation(env, ControlledGuid.NewGuid);
         }
 
         Guid WithDraw()
@@ -184,9 +184,9 @@ public sealed class DeterministicRandomTests
             var env = ShimTestHarness.CreateEnvironment(ShimTestHarness.CreateClock());
             return ShimTestHarness.RunInSimulation(env, () =>
             {
-                _ = DeterministicRandom.GetShared().Next();
-                _ = DeterministicRandom.CreateUnseeded().Next();
-                return DeterministicGuid.NewGuid();
+                _ = ControlledRandom.GetShared().Next();
+                _ = ControlledRandom.CreateUnseeded().Next();
+                return ControlledGuid.NewGuid();
             });
         }
 
@@ -198,18 +198,27 @@ public sealed class DeterministicRandomTests
     {
         ShimTestHarness.RunInSimulationWithoutEnvironment(() =>
         {
-            Assert.Throws<SimulationServiceMissingException>(() => DeterministicRandom.GetShared());
-            Assert.Throws<SimulationServiceMissingException>(() => DeterministicRandom.CreateUnseeded());
+            Assert.Throws<SimulationServiceMissingException>(() => ControlledRandom.GetShared());
+            Assert.Throws<SimulationServiceMissingException>(() => ControlledRandom.CreateUnseeded());
         });
     }
 
     [Fact]
-    public void OutsideSimulationRandomShimsPassThroughToTheRealBcl()
+    public void OutsideSimulationRandomShimsRequireActiveSimulation()
     {
         Assert.False(Clockwork.Runtime.Execution.SimulationExecutionContext.IsActive);
+        System.Random? random = null;
 
-        Assert.Same(System.Random.Shared, DeterministicRandom.GetShared());
-        Assert.NotNull(DeterministicRandom.CreateUnseeded());
-        Assert.Equal(new System.Random(7).Next(), DeterministicRandom.CreateSeeded(7).Next());
+        Exception? sharedException = Record.Exception(() => random = ControlledRandom.GetShared());
+        Assert.Null(random);
+        SimulationNotActiveExceptionAssert.Equal(sharedException, "System.Random.Shared");
+
+        Exception? unseededException = Record.Exception(() => random = ControlledRandom.CreateUnseeded());
+        Assert.Null(random);
+        SimulationNotActiveExceptionAssert.Equal(unseededException, "System.Random..ctor()");
+
+        Exception? seededException = Record.Exception(() => random = ControlledRandom.CreateSeeded(7));
+        Assert.Null(random);
+        SimulationNotActiveExceptionAssert.Equal(seededException, "System.Random..ctor(Int32)");
     }
 }

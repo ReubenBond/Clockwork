@@ -23,7 +23,7 @@ namespace Clockwork.Runtime.Random;
 /// machine, any .NET version, and any process.
 /// </para>
 /// </summary>
-public static class DeterministicHash
+internal static class SimulationStableHash
 {
     /// <summary>
     /// The separator inserted between components by the <c>*Combine</c>/<see cref="ToInt32(IEnumerable{string})"/>

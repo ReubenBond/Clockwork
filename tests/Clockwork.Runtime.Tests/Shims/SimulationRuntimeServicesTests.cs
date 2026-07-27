@@ -72,22 +72,25 @@ public sealed class SimulationRuntimeServicesTests
     }
 
     [Fact]
-    public void DispatchReturnsFalseOutsideSimulation()
+    public void RequireEnvironmentOutsideSimulationRequiresActiveSimulation()
     {
         Assert.False(SimulationExecutionContext.IsActive);
-        Assert.False(SimulationRuntimeDispatch.TryGetEnvironment("test.api", out _, out var node));
-        Assert.Null(node);
+
+        Exception? exception = Record.Exception(
+            () => SimulationRuntimeDispatch.RequireEnvironment("test.api"));
+
+        SimulationNotActiveExceptionAssert.Equal(exception, "test.api");
     }
 
     [Fact]
-    public void DispatchReturnsTrueWithEnvironmentAndNodeWhenActiveAndRegistered()
+    public void RequireEnvironmentReturnsEnvironmentAndNodeWhenActiveAndRegistered()
     {
         var clock = ShimTestHarness.CreateClock();
         var env = ShimTestHarness.CreateEnvironment(clock);
 
         ShimTestHarness.RunInSimulation(env, () =>
         {
-            Assert.True(SimulationRuntimeDispatch.TryGetEnvironment("test.api", out var resolved, out var node));
+            var (_, resolved, node) = SimulationRuntimeDispatch.RequireEnvironment("test.api");
             Assert.Same(env, resolved);
             Assert.NotNull(node);
             Assert.Equal(ShimTestHarness.DefaultNodeAddress, node!.Address);
@@ -95,12 +98,12 @@ public sealed class SimulationRuntimeServicesTests
     }
 
     [Fact]
-    public void DispatchThrowsWhenActiveButNoEnvironmentRegistered()
+    public void RequireEnvironmentThrowsWhenActiveButNoEnvironmentRegistered()
     {
         ShimTestHarness.RunInSimulationWithoutEnvironment(() =>
         {
             var ex = Assert.Throws<SimulationServiceMissingException>(
-                () => SimulationRuntimeDispatch.TryGetEnvironment("System.Example.Api", out _, out _));
+                () => SimulationRuntimeDispatch.RequireEnvironment("System.Example.Api"));
             Assert.Equal("System.Example.Api", ex.ApiName);
         });
     }
@@ -119,8 +122,8 @@ public sealed class SimulationRuntimeServicesTests
         clockA.Advance(TimeSpan.FromHours(1));
         clockB.Advance(TimeSpan.FromHours(2));
 
-        var utcA = ShimTestHarness.RunInSimulation(envA, DeterministicClock.GetUtcNow, runtime: runtimeA);
-        var utcB = ShimTestHarness.RunInSimulation(envB, DeterministicClock.GetUtcNow, runtime: runtimeB);
+        var utcA = ShimTestHarness.RunInSimulation(envA, ControlledDateTime.GetUtcNow, runtime: runtimeA);
+        var utcB = ShimTestHarness.RunInSimulation(envB, ControlledDateTime.GetUtcNow, runtime: runtimeB);
 
         Assert.Equal(new DateTime(2024, 1, 1, 1, 0, 0, DateTimeKind.Utc), utcA);
         Assert.Equal(new DateTime(2024, 1, 1, 2, 0, 0, DateTimeKind.Utc), utcB);

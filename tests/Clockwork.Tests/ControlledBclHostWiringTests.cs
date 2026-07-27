@@ -12,11 +12,11 @@ namespace Clockwork.Tests;
 /// </para>
 /// <para>
 /// These tests call the shims directly (as instrumented code would after rewriting) from work
-/// scheduled on a node's ambient-integrated queue. They also pin the production pass-through
-/// contract: outside any simulation the same shim entry points fall through to the real BCL API.
+/// scheduled on a node's ambient-integrated queue. Outside a simulation, controlled entry points fail
+/// before reaching the real BCL API.
 /// </para>
 /// </summary>
-public sealed class DeterministicBclHostWiringTests
+public sealed class ControlledBclHostWiringTests
 {
     private static readonly DateTimeOffset Start = DateTimeOffset.UnixEpoch.AddDays(10);
 
@@ -28,7 +28,7 @@ public sealed class DeterministicBclHostWiringTests
         await using var cluster = builder.Build();
 
         DateTime captured = default;
-        node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => captured = DeterministicClock.GetUtcNow()));
+        node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => captured = ControlledDateTime.GetUtcNow()));
         cluster.RunUntilIdle();
 
         Assert.Equal(Start.UtcDateTime, captured);
@@ -46,8 +46,8 @@ public sealed class DeterministicBclHostWiringTests
         long tickCount64 = -1;
         node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() =>
         {
-            timestamp = DeterministicClock.GetTimestamp();
-            tickCount64 = DeterministicClock.GetTickCount64();
+            timestamp = ControlledStopwatch.GetTimestamp();
+            tickCount64 = ControlledEnvironment.GetTickCount64();
         }));
         cluster.RunUntilIdle();
 
@@ -67,8 +67,8 @@ public sealed class DeterministicBclHostWiringTests
 
         int firstA = 0;
         int firstB = 0;
-        a.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => firstA = DeterministicRandom.GetShared().Next()));
-        b.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => firstB = DeterministicRandom.GetShared().Next()));
+        a.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => firstA = ControlledRandom.GetShared().Next()));
+        b.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => firstB = ControlledRandom.GetShared().Next()));
         cluster.RunUntilIdle();
 
         // Distinct nodes draw from independent application-domain streams, so a draw on one node does
@@ -89,8 +89,8 @@ public sealed class DeterministicBclHostWiringTests
             int random = 0;
             node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() =>
             {
-                guid = DeterministicGuid.NewGuid();
-                random = DeterministicRandom.GetShared().Next();
+                guid = ControlledGuid.NewGuid();
+                random = ControlledRandom.GetShared().Next();
             }));
             cluster.RunUntilIdle();
             return (guid, random);
@@ -114,7 +114,7 @@ public sealed class DeterministicBclHostWiringTests
             await using var cluster = builder.Build();
 
             Guid guid = default;
-            node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => guid = DeterministicGuid.NewGuid()));
+            node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => guid = ControlledGuid.NewGuid()));
             cluster.RunUntilIdle();
             return guid;
         }
@@ -138,15 +138,12 @@ public sealed class DeterministicBclHostWiringTests
     }
 
     [Fact]
-    public void ShimsFallThroughToRealBclOutsideSimulation()
+    public void ClockShimRequiresAnActiveSimulation()
     {
-        // No cluster/ambient runtime is active on this thread, so the shims must run the real BCL API.
-        DateTime before = DateTime.UtcNow;
-        DateTime shimmed = DeterministicClock.GetUtcNow();
-        DateTime after = DateTime.UtcNow;
+        var exception = Assert.Throws<SimulationNotActiveException>(() => _ = ControlledDateTime.GetUtcNow());
 
-        Assert.InRange(shimmed, before.AddSeconds(-1), after.AddSeconds(1));
-        Assert.NotEqual(Guid.Empty, DeterministicGuid.NewGuid());
-        Assert.NotSame(DeterministicRandom.CreateUnseeded(), DeterministicRandom.CreateUnseeded());
+        Assert.Equal(
+            "Controlled APIs may only be invoked while a Clockwork simulation is active.",
+            exception.Message);
     }
 }

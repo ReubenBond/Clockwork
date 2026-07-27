@@ -5,12 +5,11 @@ using Clockwork.Runtime.Shims;
 namespace Clockwork.Conformance.Tests;
 
 /// <summary>
-/// End-to-end semantic conformance for the Phase&#160;5 built-in deterministic BCL rule set: ordinary
-/// source is rewritten and then observed to be deterministic under a live simulation and to fall back
-/// to real BCL behaviour outside one. See <see cref="RewriteFixture"/> for the rewrite-and-load
-/// harness.
+/// End-to-end semantic conformance for the built-in controlled BCL rule set: ordinary source is
+/// rewritten, deterministic under a live simulation, and rejected before real BCL work outside one.
+/// See <see cref="RewriteFixture"/> for the rewrite-and-load harness.
 /// </summary>
-public sealed class DeterministicBclConformanceTests : IDisposable
+public sealed class ControlledBclConformanceTests : IDisposable
 {
     private static readonly DateTimeOffset Start =
         new(2024, 6, 15, 12, 30, 45, 123, TimeSpan.Zero);
@@ -156,15 +155,49 @@ public sealed class DeterministicBclConformanceTests : IDisposable
     }
 
     [Fact]
-    public void RewrittenCodeIsPassThroughOutsideSimulation()
+    public void OnlyRewrittenBclShimsRequireAnActiveSimulation()
     {
-        StagedProbe probe = _fixture.Stage("Conf.Passthrough", "Conf.ClockProbe", ClockSource, [BuiltInRuleFamily.Clock]);
+        StagedProbe clock = _fixture.Stage(
+            "Conf.RequiresClock",
+            "Conf.ClockProbe",
+            ClockSource,
+            [BuiltInRuleFamily.Clock]);
+        StagedProbe guid = _fixture.Stage(
+            "Conf.RequiresGuid",
+            "Conf.GuidProbe",
+            GuidSource,
+            [BuiltInRuleFamily.Identity]);
+        StagedProbe random = _fixture.Stage(
+            "Conf.RequiresRandom",
+            "Conf.RandomProbe",
+            RandomSource,
+            [BuiltInRuleFamily.Random]);
+        StagedProbe crypto = _fixture.Stage(
+            "Conf.RequiresCrypto",
+            "Conf.CryptoProbe",
+            CryptoSource,
+            [BuiltInRuleFamily.Crypto]);
+        UninstrumentedProbe uninstrumented = _fixture.CompileUninstrumented(
+            "Conf.UninstrumentedClock",
+            "Conf.ClockProbe",
+            ClockSource);
 
         long before = DateTime.UtcNow.Ticks;
-        long shimmed = (long)probe.Method("UtcNowTicks").Invoke(null, null)!;
+        long actual = (long)uninstrumented.Method("UtcNowTicks").Invoke(null, null)!;
         long after = DateTime.UtcNow.Ticks;
 
-        Assert.InRange(shimmed, before - TimeSpan.TicksPerSecond, after + TimeSpan.TicksPerSecond);
+        Assert.InRange(actual, before - TimeSpan.TicksPerSecond, after + TimeSpan.TicksPerSecond);
+        Assert.Equal(
+            "System.DateTime.UtcNow",
+            SimulationNotActiveExceptionAssert.Throws(clock.Method("UtcNowTicks")).ApiName);
+        SimulationNotActiveExceptionAssert.Throws(clock.Method("OffsetUtcNowTicks"));
+        SimulationNotActiveExceptionAssert.Throws(clock.Method("Timestamp"));
+        SimulationNotActiveExceptionAssert.Throws(clock.Method("TickCount64"));
+        SimulationNotActiveExceptionAssert.Throws(guid.Method("New"));
+        SimulationNotActiveExceptionAssert.Throws(random.Method("Shared"));
+        SimulationNotActiveExceptionAssert.Throws(random.Method("Unseeded"));
+        SimulationNotActiveExceptionAssert.Throws(random.Method("Seeded"), 4242);
+        SimulationNotActiveExceptionAssert.Throws(crypto.Method("Bytes"), 16);
     }
 
     [Fact]
@@ -304,13 +337,12 @@ public sealed class DeterministicBclConformanceTests : IDisposable
         (string TypeName, byte[] Bytes) first = DrawKnown();
         (string TypeName, byte[] Bytes) replay = DrawKnown();
 
-        Assert.Equal(typeof(InsecureDeterministicRandomNumberGenerator).FullName, first.TypeName);
+        Assert.Equal(typeof(ControlledInsecureRandomNumberGenerator).FullName, first.TypeName);
         Assert.Equal(24, first.Bytes.Length);
         Assert.Equal(first.TypeName, replay.TypeName);
         Assert.Equal(first.Bytes, replay.Bytes);
         Assert.Contains(first.Bytes, static value => value != 0);
 
-        Assert.Null(probe.Method("NamedType").Invoke(null, [UnknownName]));
         using var unknownHost = new SimulationHost(
             Start,
             cryptoPolicy: SimulationCryptoRandomnessPolicy.DeterministicInsecureForTesting);
