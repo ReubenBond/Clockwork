@@ -56,7 +56,7 @@ public static class RuleInventoryDocument
         Line("- `DateTime`/`DateTimeOffset` parsing/formatting and any culture-, timezone-, or kind-conversion helpers other than the `Now`/`UtcNow`/`Today` clocks above.");
         Line("- Synchronous blocking on `ValueTask`/`ValueTask<T>` (`.Result`/`.GetResult()` outside an awaiter): a value task may be consumed only once, so a blocking drain is unsafe. `await` is the supported controlled path.");
         Line("- Named/cross-process synchronization (named `EventWaitHandle`/`Mutex`/`Semaphore` and their `OpenExisting`/`TryOpenExisting` APIs): a single-process simulation cannot model kernel-object sharing, so these are rejected.");
-        Line("- `Timer`, `PeriodicTimer`, and cancellation timers remain unrewritten Phase 8 scope.");
+        Line("- **Phase 8B timer boundary:** `System.Threading.Timer`, `System.Timers.Timer`, `PeriodicTimer`, `CancellationTokenSource.CancelAfter`, and timer-driven cancellation remain unrewritten. The delay API listed above remains explicitly Rejected under simulation rather than allowed to use wall time. Phase 9 race instrumentation is outside these rule sets.");
         Line();
         Line("Determinism is claimed **only** for the exact rules tabulated above.");
 
@@ -143,7 +143,7 @@ public static class RuleInventoryDocument
             "`Task<T>.ContinueWith<TNewResult>(Func<Task<T>,TNewResult>)` redirect so the continuation is " +
             "scheduled on the controlled coordinator and runs on the logical thread after the antecedent completes.",
         BuiltInRuleFamily.TaskDeferred =>
-            "`Task.Delay` (virtual timers, Phase 8) is rejected under simulation with a precise diagnostic " +
+            "`Task.Delay` (virtual timers, Phase 8B) is rejected under simulation with a precise diagnostic " +
             "rather than silently using wall time. The instrumented entry point requires an active simulation.",
         BuiltInRuleFamily.TaskScheduling =>
             "`Task.Run` (all `Action`/`Func<TResult>`/`Func<Task>`/`Func<Task<TResult>>` overloads, with and " +
@@ -207,7 +207,8 @@ public static class RuleInventoryDocument
             "equivalents, covering the dedicated C# lock lowering in Debug and Release builds.",
         BuiltInRuleFamily.Semaphore =>
             "The .NET 10 `SemaphoreSlim` constructors, counts, waits, releases, and disposal are controlled; " +
-            "`AvailableWaitHandle` is explicitly rejected until general wait handles are modelled.",
+            "`AvailableWaitHandle` returns a controlled manual-reset bridge whose signal tracks whether the " +
+            "permit count is positive and which composes with the controlled wait-handle surface.",
         BuiltInRuleFamily.UncontrolledInvocation =>
             "Process control and abrupt-termination APIs (`Process.Start`/`Start` instance/`Kill`/`WaitForExit`/" +
             "`WaitForExitAsync`, `Environment.Exit`/`FailFast`) cannot be modelled inside a single simulated " +
@@ -274,7 +275,9 @@ public static class RuleInventoryDocument
             "Unnamed `Mutex` construction and `ReleaseMutex` are controlled through the wait-handle kernel. " +
             "Named constructors (including null-name forms that the shim conditionally treats as unnamed) and " +
             "`OpenExisting`/`TryOpenExisting` are classified Rejected because a non-null name is cross-process " +
-            "kernel state.",
+            "kernel state. Ownership and recursion are logical-strand state; owner exit without `ReleaseMutex` " +
+            "leaves the mutex owned so a later indefinite wait reports the controlled deadlock diagnostic " +
+            "rather than simulating `AbandonedMutexException`.",
         BuiltInRuleFamily.KernelSemaphore =>
             "The unnamed kernel `Semaphore` constructor and both `Release` overloads are controlled through " +
             "the wait-handle kernel. Named constructors and `OpenExisting`/`TryOpenExisting` are Rejected " +
@@ -288,7 +291,9 @@ public static class RuleInventoryDocument
             "serialization behavior.",
         BuiltInRuleFamily.SynchronizationContext =>
             "`SynchronizationContext` ambient-context and callback-dispatch members redirect to controlled " +
-            "shims; its raw native-handle `Wait` member is Rejected before it can block a physical thread.",
+            "shims. `Post` queues through the coordinator and `Send` runs on the current logical strand; custom " +
+            "context dispatch is not invoked. Its raw native-handle `Wait` member is Rejected before it can " +
+            "block a physical thread.",
         BuiltInRuleFamily.Barrier =>
             "`Barrier` is wholly substituted with `ControlledBarrier`, including generic occurrences such as " +
             "`Action<Barrier>`, so participant state and post-phase callbacks remain under simulation.",

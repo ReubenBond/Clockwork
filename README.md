@@ -43,13 +43,21 @@ are historical implementation notes.
   `WaitOne`/`WaitAny`/`WaitAll`/`SignalAndWait`), the `SemaphoreSlim.AvailableWaitHandle` bridge, and
   the `ThreadPool` registered-wait APIs
   (`RegisterWaitForSingleObject`/`UnsafeRegisterWaitForSingleObject`) are all controlled.
-- All six .NET 10 `Task.Delay` overloads are rejected during simulation until virtual delays are
-  implemented. Instrumented calls require an active Clockwork simulation. Custom `TaskScheduler` instances and
-  unsupported `TaskCreationOptions` are likewise rejected rather than ignored.
-- Exact limitations: `ReaderWriterLockSlim`, `Mutex`, kernel `Semaphore`, struct `SpinLock`,
-  `ManualResetEventSlim`, timers/cancellation timers, and synchronous `ValueTask` blocking are not
-  rewritten (Phase 8+). Named / cross-process event APIs, raw wait-handle accessors, and unmodellable
-  OS APIs are explicitly rejected. Execution is cooperative and non-preemptive between yield points.
+- **Phase 8A** adds `ReaderWriterLockSlim`, `ManualResetEventSlim`, unnamed kernel `Mutex` and
+  `Semaphore`, struct `SpinLock`, `ExecutionContext`, `SynchronizationContext`, `Barrier`, and
+  `CountdownEvent`. These are modelled on logical strands with virtual-time waits: no busy spin and no
+  OS blocking. The `ManualResetEventSlim` and `CountdownEvent` bridges compose with controlled
+  wait handles; registered waits remain passive, event-driven controlled waits.
+- Instrumented Controlled entry points are **simulation-only**: no active simulation and no active
+  simulation service both fail explicitly; there is no inactive pass-through to a real BCL primitive.
+  Uninstrumented production binaries retain ordinary BCL behavior. Named/cross-process event, mutex,
+  and semaphore forms, `OpenExisting`/`TryOpenExisting`, raw wait-handle accessors, raw
+  `SynchronizationContext.Wait`, and other unmodellable OS APIs are rejected rather than ignored.
+- **Phase 8B boundary:** `System.Threading.Timer`, `System.Timers.Timer`, `PeriodicTimer`,
+  `Task.Delay`, `CancellationTokenSource.CancelAfter`, and timer-driven cancellation are still
+  deferred; the six `Task.Delay` overloads are explicitly rejected during simulation. Synchronous
+  `ValueTask` blocking also remains unsupported. Phase 9 race instrumentation is not part of this
+  support claim. Custom `TaskScheduler` instances and unsupported `TaskCreationOptions` are rejected.
 
 ## Build and test
 
@@ -657,7 +665,7 @@ simulation. Separate uninstrumented binaries retain normal BCL behaviour. Determ
 
 ## Controlled task and async rule set (Phase 6A/6B)
 
-The second built-in simulation rule set, **`clockwork.tasks.controlled`** (version `1.0.0`),
+The second built-in simulation rule set, **`clockwork.tasks.controlled`** (version `2.0.0`),
 makes ordinary `async`/`await` code and the direct `Task` surface run on the simulation's single
 logical thread instead of the physical thread pool — again with no dependency injection or manual
 wiring. It is selected independently of the BCL rule set:
@@ -688,14 +696,31 @@ deadlock the scheduler, then delegate to the real API for its exact `AggregateEx
 **Simulation-only contract.** As with the BCL rule set, instrumented Controlled entry points require
 an active Clockwork simulation. Continuations and waits route through the coordinator; when an active
 simulation has no registered task coordinator, the shim throws
-`ControlledTaskServiceMissingException` rather than escaping to the thread pool. `Task.Run`, every
-.NET 10 `TaskFactory.StartNew` state/options/scheduler form, `Thread`, `ThreadPool`, and `Parallel`
-are controlled. Every .NET 10 `Task.Delay` overload is **rejected** under simulation until virtual
-delays are implemented. `Monitor`, `System.Threading.Lock`, and `SemaphoreSlim` are controlled;
-general wait handles and timers remain outside the inventory. Control parity is claimed **only** for
-the exact signatures in the [rule inventory](docs/rule-inventory.md). This work adapts
-the *design* of Microsoft Coyote's controlled-task model (MIT); see
-[THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES.md) for the attribution.
+`ControlledTaskServiceMissingException` rather than escaping to the thread pool. There is no
+inactive pass-through. `Task.Run`, every .NET 10 `TaskFactory.StartNew` state/options/scheduler form,
+`Thread`, `ThreadPool`, and `Parallel` are controlled.
+
+**Modern synchronization (Phase 8A).** The same opt-in rule set now controls
+`ReaderWriterLockSlim` (logical-strand read, upgradeable-read, and write ownership/recursion),
+`ManualResetEventSlim` (set/reset/waits and a controlled `WaitHandle` bridge), unnamed kernel
+`Mutex`/`Semaphore` (through the controlled wait-handle kernel), `SpinLock` (whole-type
+substitution), `ExecutionContext`, `SynchronizationContext`, `Barrier`, and `CountdownEvent`.
+Contended operations pump controlled work and finite waits use virtual deadlines: Clockwork neither
+busy-spins nor blocks an OS thread. `WaitHandle.WaitAll` is supported for controlled handles except
+when its array contains a `Mutex`, which is rejected because atomic multi-mutex acquisition is not
+modelled. Named/cross-process mutexes, semaphores, and events, their open-existing APIs, raw
+`Handle`/`SafeWaitHandle` accessors, and raw `SynchronizationContext.Wait` are rejected precisely.
+Activation is unchanged: enable the built-ins through the MSBuild package/property, the CLI
+`--builtin clockwork.tasks.controlled` (or `--builtin all`), or the corresponding instrumentation
+packages; the exact selected signatures and policies are generated in the
+[rule inventory](docs/rule-inventory.md).
+
+**Phase 8B remains deferred.** `System.Threading.Timer`, `System.Timers.Timer`, `PeriodicTimer`,
+`Task.Delay`, `CancellationTokenSource.CancelAfter`, and timer-driven cancellation are not
+implemented; `Task.Delay` is explicitly rejected under simulation rather than using wall time.
+Phase 9 race instrumentation is excluded. Control parity is claimed **only** for the exact signatures
+in the [rule inventory](docs/rule-inventory.md). This work adapts the *design* of Microsoft Coyote's
+controlled-task model (MIT); see [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES.md) for the attribution.
 
 
 ## License

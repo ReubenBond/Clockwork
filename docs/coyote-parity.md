@@ -1,6 +1,6 @@
-# Coyote parity matrix — threads, tasks, thread pool, Parallel, monitors & semaphores
+# Coyote parity matrix — controlled concurrency and Phase 8A synchronization
 
-This document is the explicit parity ledger for Clockwork's Phase 6A/6B/7A controlled-concurrency
+This document is the explicit parity ledger for Clockwork's Phase 6A/6B/7A/7B controlled-concurrency
 surface against **[Microsoft Coyote](https://github.com/microsoft/coyote)** (MIT-licensed prior
 art). Coyote's controlled rewriting types live under
 [`Source/Test/Rewriting/Types/Threading`](https://github.com/microsoft/coyote/tree/main/Source/Test/Rewriting/Types/Threading)
@@ -12,7 +12,7 @@ surface is classified here as one of:
 | ✅ **Controlled** | Clockwork rewrites the call site to a controlled shim. The exact rule id is cited; the full signature list is in [`rule-inventory.md`](rule-inventory.md). |
 | ⛔ **Rejected (tested)** | Clockwork deliberately rejects the call at the rewritten site with a precise diagnostic, because the semantics cannot be modelled faithfully by the cooperative scheduler yet. A test asserts the rejection. |
 | 🏛 **Controlled by architecture** | No dedicated rule is needed: Clockwork controls the *awaiter*, not the `Task` type, so the surface is already controlled whenever the produced task is awaited or waited on. |
-| 🕗 **Deferred (Phase 7/8)** | Out of Phase 6B scope by the phase plan; tracked to a named later phase. |
+| 🕗 **Deferred (Phase 8B)** | Outside the implemented inventory; tracked to the timer/cancellation phase. |
 | n/a | Not applicable on .NET 10 / not a concurrency-scheduling surface. |
 
 The single largest **architectural difference**: Coyote substitutes the `Task`/`Task<T>` *types*
@@ -82,7 +82,7 @@ continuations, async machinery, `Yield`) and Phase 6B (`Run`). All are controlle
 | `Task<T>.ContinueWith<TNewResult>(Func<Task<T>,TNewResult>)` | ✅ Controlled **(Phase 6B gap-closure)** | `clockwork.tasks.continuewith.generic.func` |
 | `Task.Yield()` | ✅ Controlled | `clockwork.tasks.yield.call` (AsyncMachinery) |
 | `async` builder + awaiter types (`AsyncTaskMethodBuilder`, `TaskAwaiter`, `ConfiguredTaskAwaitable`, `YieldAwaitable`, generic + non-generic) | ✅ Controlled | AsyncMachinery family (type substitution) |
-| `Task.Delay` (all 6 .NET 10 overloads: `int`/`TimeSpan`, cancellation, and `TimeProvider`) | ⛔ Rejected (tested) | `clockwork.tasks.delay.*` — every overload rejects until virtual timers land in Phase 8 |
+| `Task.Delay` (all 6 .NET 10 overloads: `int`/`TimeSpan`, cancellation, and `TimeProvider`) | ⛔ Rejected (tested) | `clockwork.tasks.delay.*` — every overload rejects until virtual timers land in Phase 8B |
 | `Task.FromResult` / `FromException` / `FromCanceled` / `CompletedTask` | 🏛 Controlled by architecture | already-completed tasks need no scheduling; awaiting one routes through the controlled awaiter |
 
 ---
@@ -454,19 +454,42 @@ kernel object outside the scheduler) and are likewise rejected.
 
 ---
 
-## Coyote surfaces intentionally deferred (Phase 7B / Phase 8)
+## Phase 8A modern synchronization — beyond this Coyote attribution ledger
 
-These Coyote controlled types are **out of Phase 7A/7B scope** by the phase plan. They are not
-rewritten and remain real BCL calls under simulation until the owning slice lands.
+Phase 8A is an addition to Clockwork's implemented inventory, not a claim that these exact
+implementations were adapted from Coyote. The runtime source comments retain explicit Coyote/MIT
+attribution where it applies: the Phase 7B controlled wait-handle model says it is adapted from
+Microsoft Coyote, and the earlier task/lock entries above retain their existing attribution. The new
+Phase 8A runtime type comments describe their own controlled models; they do not claim Coyote source
+adaptation. The overlap is deliberate: unnamed `Mutex` and `Semaphore`, plus
+`ManualResetEventSlim`/`CountdownEvent` bridges, use the existing controlled wait-handle kernel, so
+they compose with the Coyote-attributed Phase 7B event operations without exposing OS handles.
 
-| Coyote type(s) | Owning phase | Current posture |
+| Phase 8A .NET surface | Clockwork status | Exact posture |
 | --- | --- | --- |
-| `WaitHandle`, `EventWaitHandle`, `AutoResetEvent`, `ManualResetEvent` | ✅ **Controlled (Phase 7B)** — see the events section above | ctors → `Create` factories, `WaitOne`/`WaitAny`/`WaitAll`/`SignalAndWait`/`Dispose`/`Close` and `Set`/`Reset` controlled; named/cross-process + raw-handle APIs rejected |
-| `Interlocked` | ✅ **Controlled (Phase 7B)** — see the `Interlocked` section above | full .NET 10 surface redirected to `clockwork.interlocked.*` |
-| `Volatile` | ✅ **Controlled (Phase 7B)** — see the `Volatile` section above | full .NET 10 surface redirected to `clockwork.volatile.*` |
-| `SpinWait` (struct) | ✅ **Controlled (Phase 7B)** — see the `SpinWait` section above | value-type substitution `clockwork.spinwait.type` (the `Thread.SpinWait(int)` *static* is also controlled — `clockwork.thread.spinwait`) |
-| `ReaderWriterLockSlim`, `Mutex`, `Semaphore`, `SpinLock`, `ManualResetEventSlim` | Phase 8 | not rewritten (real BCL calls) |
-| `Timer` / `PeriodicTimer` / `Task.Delay` / cancellation timers | Phase 8 | `Task.Delay` rejected; `Thread.Sleep` **is** a controlled virtual wait |
+| `ReaderWriterLockSlim` | ✅ Controlled | All public constructors/properties/enter/try-enter/exit/`Dispose` members are receiver-first shims. Read, upgradeable-read, and write ownership/recursion are logical-strand state; contended entries pump the scheduler and finite timeouts use virtual time. |
+| `ManualResetEventSlim` | ✅ Controlled | Constructors, properties, `Set`/`Reset`, all waits, `WaitHandle`, and `Dispose` are receiver-first shims. `SpinCount` remains observable metadata, but the model never busy-spins; the bridge is a controlled manual-reset handle. |
+| Unnamed `Mutex` | ✅ Controlled | Constructors and `ReleaseMutex` use the controlled wait-handle kernel; `WaitOne`/`WaitAny` and `SignalAndWait` compose through it. Ownership/recursion are logical-strand state. Owner exit without release leaves it owned and leads to controlled deadlock detection rather than simulated abandonment. |
+| Unnamed `Semaphore` | ✅ Controlled | Constructor and both `Release` overloads use the controlled wait-handle kernel; permit count, maximum count, and waiters are modelled rather than using kernel waits. |
+| `SpinLock` | ✅ Controlled | Whole-type substitution to `ControlledSpinLock` preserves value-type copy and optional owner-tracking behavior while replacing CPU spinning with scheduler pumping and virtual deadlines. |
+| `ExecutionContext` | ✅ Controlled / ⛔ Rejected | Capture/run/flow control/copy/dispose preserve the logical strand; legacy `GetObjectData` serialization is rejected. |
+| `SynchronizationContext` | ✅ Controlled / ⛔ Rejected | Ambient state, `Post`, and `Send` stay in the simulation (`Post` queues, `Send` runs inline); raw native-handle `Wait` is rejected. |
+| `Barrier` / `CountdownEvent` | ✅ Controlled | Whole-type substitutions keep participant/count state, callbacks, waits, cancellation, virtual deadlines, disposal, and the `CountdownEvent.WaitHandle` bridge under simulation. |
+| Named mutex/semaphore forms and `OpenExisting`/`TryOpenExisting` | ⛔ Rejected | Non-null names are cross-process kernel state. Null-name constructor forms are the controlled unnamed case. |
+| `WaitHandle.WaitAll` containing a `Mutex` | ⛔ Rejected | The shared kernel does not claim atomic multi-mutex acquisition. Other controlled-handle `WaitAll` cases validate arrays and consume auto-reset handles atomically. |
+
+All Phase 8A controlled entry points are simulation-only: a missing simulation or runtime service fails
+before a BCL operation can run, so there is no inactive pass-through. Waits pump deterministic work;
+finite timeouts are virtual-time deadlines, not OS blocking or CPU spinning. Raw
+`Handle`/`SafeWaitHandle` accessors, unmanaged/unregistered wait handles, and named/cross-process
+event forms remain rejected as documented above.
+
+## Phase 8B boundary
+
+`System.Threading.Timer`, `System.Timers.Timer`, `PeriodicTimer`, `Task.Delay`,
+`CancellationTokenSource.CancelAfter`, and timer-driven cancellation are not Phase 8A support.
+`Task.Delay` remains explicitly rejected by the shipped rules; the other timer surfaces are deferred
+and unrewritten. Phase 9 race instrumentation is also excluded.
 
 ---
 
@@ -475,7 +498,7 @@ rewritten and remain real BCL calls under simulation until the owning slice land
 - **Coyote `Thread`:** 13/13 controlled surfaces mirrored; Clockwork additionally **rejects** 4
   OS-specific members Coyote leaves uncontrolled.
 - **Coyote `Task` static / async machinery:** fully controlled except all six `Task.Delay` overloads,
-  which are explicitly rejected until Phase 8.
+  which are explicitly rejected until Phase 8B.
 - **Coyote `TaskFactory`:** all 24 .NET 10 `StartNew` signatures classified and rewritten; default
   scheduler forms controlled, unsupported scheduler/option combinations rejected.
 - **Coyote `TaskCompletionSource` / `TaskExtensions` / `ValueTask`:** controlled by architecture
@@ -517,8 +540,14 @@ rewritten and remain real BCL calls under simulation until the owning slice land
   one) or `timedOut:true` on the virtual-time deadline, honours `executeOnlyOnce`/re-arm, flows
   `ExecutionContext` for the safe family only, and substitutes the returned `RegisteredWaitHandle` so
   `Unregister` stops the wait and signals its completion event.
-- **Deferred by phase plan:** `ReaderWriterLockSlim`/`Mutex`/`Semaphore`/`SpinLock`/`ManualResetEventSlim`
-  and timers/`Task.Delay`/cancellation timers (Phase 8).
+- **Phase 8A additions beyond this Coyote attribution ledger:** `ReaderWriterLockSlim`,
+  `ManualResetEventSlim`, unnamed `Mutex`/`Semaphore`, `SpinLock`, `ExecutionContext`,
+  `SynchronizationContext`, `Barrier`, and `CountdownEvent` are controlled with logical-strand
+  ownership, virtual time, and no OS blocking; named/cross-process forms and raw context waits are
+  rejected. `WaitAll` containing a `Mutex` is rejected.
+- **Deferred Phase 8B boundary:** `System.Threading.Timer`, `System.Timers.Timer`, `PeriodicTimer`,
+  `Task.Delay`, `CancellationTokenSource.CancelAfter`, and timer-driven cancellation; `Task.Delay`
+  is rejected and the rest are unrewritten. Phase 9 race instrumentation is excluded.
 
 Every Coyote entry above is therefore **controlled** (with a cited rule id or by architecture),
 **deliberately rejected with a tested reason**, or **explicitly deferred to a named later phase** —
