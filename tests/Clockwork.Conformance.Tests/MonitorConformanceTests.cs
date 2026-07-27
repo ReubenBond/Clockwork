@@ -128,6 +128,58 @@ public sealed class MonitorConformanceTests : IDisposable
                 return Task.FromResult(woken);
             }
 
+            // A finite TryEnter on a monitor another strand owns waits until the simulated deadline and
+            // then reports failure - driven end-to-end by the cluster clock, not wall time. The finite
+            // wait is PausedUntilTime, so it is NOT reported as a deadlock cycle.
+            public static Task<bool> TryEnterFiniteTimesOut()
+            {
+                object gate = new object();
+                bool timedOut = false;
+                Monitor.Enter(gate); // root strand owns the monitor for the whole test
+                var contender = new Thread(() => { timedOut = !Monitor.TryEnter(gate, 50); });
+                contender.Start();
+                contender.Join(); // contender cannot acquire; its deadline fires at virtual t=50
+                Monitor.Exit(gate);
+                return Task.FromResult(timedOut);
+            }
+
+            // A finite Monitor.Wait that is never pulsed reacquires the monitor and returns false once the
+            // simulated deadline elapses (advancing modelled time through the cluster clock).
+            public static Task<bool> WaitFiniteTimesOut()
+            {
+                object gate = new object();
+                bool signalled = true; bool reentered = false;
+                var waiter = new Thread(() =>
+                {
+                    lock (gate)
+                    {
+                        signalled = Monitor.Wait(gate, 50);      // never pulsed -> false at t=50
+                        reentered = Monitor.IsEntered(gate);     // monitor reacquired before return
+                    }
+                });
+                waiter.Start();
+                waiter.Join();
+                return Task.FromResult(!signalled && reentered);
+            }
+
+            // A finite Monitor.Wait signalled before its deadline returns true (the pulse beats the timeout,
+            // because modelled time only advances when nothing else can run).
+            public static Task<bool> WaitFiniteCompletesOnPulse()
+            {
+                object gate = new object();
+                bool signalled = false; bool ready = false;
+                var waiter = new Thread(() =>
+                {
+                    lock (gate) { while (!ready) signalled = Monitor.Wait(gate, 10_000); }
+                });
+                waiter.Start();
+                var pulser = new Thread(() => { lock (gate) { ready = true; Monitor.Pulse(gate); } });
+                pulser.Start();
+                waiter.Join();
+                pulser.Join();
+                return Task.FromResult(signalled);
+            }
+
             // A never-satisfiable wait on the root strand surfaces as the loop-model deadlock diagnostic.
             // Explicit Enter (rather than a C# lock) is used so no compiler-generated finally runs Exit on
             // the strand that already released the monitor to wait.
@@ -239,6 +291,33 @@ public sealed class MonitorConformanceTests : IDisposable
     {
         using var host = new SimulationHost(Start);
         var task = (Task<bool>)host.Invoke(Method("UnsatisfiableWaitDeadlocks", optimize: true))!;
+        Assert.True(Result<bool>(task));
+    }
+
+    [Theory]
+    [MemberData(nameof(Optimize))]
+    public void TryEnterFiniteTimesOut(bool optimize)
+    {
+        using var host = new SimulationHost(Start);
+        var task = (Task<bool>)host.Invoke(Method("TryEnterFiniteTimesOut", optimize))!;
+        Assert.True(Result<bool>(task));
+    }
+
+    [Theory]
+    [MemberData(nameof(Optimize))]
+    public void WaitFiniteTimesOut(bool optimize)
+    {
+        using var host = new SimulationHost(Start);
+        var task = (Task<bool>)host.Invoke(Method("WaitFiniteTimesOut", optimize))!;
+        Assert.True(Result<bool>(task));
+    }
+
+    [Theory]
+    [MemberData(nameof(Optimize))]
+    public void WaitFiniteCompletesOnPulse(bool optimize)
+    {
+        using var host = new SimulationHost(Start);
+        var task = (Task<bool>)host.Invoke(Method("WaitFiniteCompletesOnPulse", optimize))!;
         Assert.True(Result<bool>(task));
     }
 

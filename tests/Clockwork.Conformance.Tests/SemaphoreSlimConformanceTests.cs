@@ -83,6 +83,54 @@ public sealed class SemaphoreSlimConformanceTests : IDisposable
                     return Task.FromResult(true);
                 }
             }
+
+            // A finite synchronous Wait with no permit returns false once the simulated deadline elapses,
+            // advancing modelled time through the cluster clock (no wall-clock wait).
+            public static Task<bool> WaitFiniteTimesOut()
+            {
+                var s = new SemaphoreSlim(0, 1);
+                bool got = s.Wait(50);
+                return Task.FromResult(!got);
+            }
+
+            // The asynchronous WaitAsync finite overload likewise completes with false on the deadline.
+            public static async Task<bool> WaitAsyncFiniteTimesOut()
+            {
+                var s = new SemaphoreSlim(0, 1);
+                bool got = await s.WaitAsync(50);
+                return !got;
+            }
+
+            // A release before the deadline completes the finite WaitAsync with true (the release beats the
+            // timeout because modelled time only advances when nothing else can run).
+            public static async Task<bool> WaitAsyncFiniteCompletesOnRelease()
+            {
+                var s = new SemaphoreSlim(0, 1);
+                var releaser = new Thread(() => s.Release());
+                releaser.Start();
+                bool got = await s.WaitAsync(10_000);
+                releaser.Join();
+                return got;
+            }
+
+            // Cancellation before the deadline throws OperationCanceledException rather than timing out.
+            public static async Task<bool> WaitAsyncFiniteCancelThrows()
+            {
+                var s = new SemaphoreSlim(0, 1);
+                var cts = new CancellationTokenSource();
+                var canceller = new Thread(() => cts.Cancel());
+                canceller.Start();
+                try
+                {
+                    await s.WaitAsync(10_000, cts.Token);
+                    return false;
+                }
+                catch (OperationCanceledException)
+                {
+                    canceller.Join();
+                    return true;
+                }
+            }
         } }
         """;
 
@@ -138,6 +186,38 @@ public sealed class SemaphoreSlimConformanceTests : IDisposable
     {
         using var host = new SimulationHost(Start);
         var task = (Task<bool>)host.Invoke(Method("AvailableWaitHandleRejected"))!;
+        Assert.True(Result<bool>(task));
+    }
+
+    [Fact]
+    public void WaitFiniteTimesOut()
+    {
+        using var host = new SimulationHost(Start);
+        var task = (Task<bool>)host.Invoke(Method("WaitFiniteTimesOut"))!;
+        Assert.True(Result<bool>(task));
+    }
+
+    [Fact]
+    public void WaitAsyncFiniteTimesOut()
+    {
+        using var host = new SimulationHost(Start);
+        var task = (Task<bool>)host.Invoke(Method("WaitAsyncFiniteTimesOut"))!;
+        Assert.True(Result<bool>(task));
+    }
+
+    [Fact]
+    public void WaitAsyncFiniteCompletesOnRelease()
+    {
+        using var host = new SimulationHost(Start);
+        var task = (Task<bool>)host.Invoke(Method("WaitAsyncFiniteCompletesOnRelease"))!;
+        Assert.True(Result<bool>(task));
+    }
+
+    [Fact]
+    public void WaitAsyncFiniteCancelThrows()
+    {
+        using var host = new SimulationHost(Start);
+        var task = (Task<bool>)host.Invoke(Method("WaitAsyncFiniteCancelThrows"))!;
         Assert.True(Result<bool>(task));
     }
 
