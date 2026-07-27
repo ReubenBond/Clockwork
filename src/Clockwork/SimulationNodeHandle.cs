@@ -12,6 +12,11 @@ internal interface ISimulationNodeStateHolder
     /// the handle has not been attached to a built simulation yet.
     /// </summary>
     object? StateObject { get; }
+
+    /// <summary>
+    /// Releases the context and state held by this node after failed materialization or disposal.
+    /// </summary>
+    void Detach();
 }
 
 /// <summary>
@@ -57,6 +62,12 @@ public sealed class SimulationNodeHandle<TState> : SimulationNode, ISimulationNo
 
     /// <inheritdoc />
     object? ISimulationNodeStateHolder.StateObject => _context is not null ? _state : null;
+
+    void ISimulationNodeStateHolder.Detach()
+    {
+        _context = null;
+        _state = default!;
+    }
 
     /// <summary>
     /// Attaches this handle to a real node context and state payload. Called exactly once, by

@@ -50,6 +50,7 @@ public sealed class SimulationBuilder
     private DateTimeOffset? _startDateTime;
     private CancellationToken _cancellationToken;
     private TimeZoneInfo? _simulationTimeZone;
+    private int _buildStarted;
     private Clockwork.Runtime.Shims.SimulationCryptoRandomnessPolicy _cryptoRandomnessPolicy =
         Clockwork.Runtime.Shims.SimulationCryptoRandomnessPolicy.Reject;
 
@@ -193,16 +194,25 @@ public sealed class SimulationBuilder
     /// <summary>
     /// Constructs the <see cref="BuiltSimulation"/>: creates the shared clock, guard, and random
     /// generator, then materializes every node queued up via <c>AddNode</c> (in registration order)
-    /// and attaches each returned handle to its real context and state.
+    /// and attaches each returned handle to its real context and state. A builder is single-use once
+    /// materialization starts, including when materialization fails.
     /// </summary>
     /// <returns>The constructed simulation cluster.</returns>
-    /// <exception cref="InvalidOperationException">Thrown if <see cref="WithSeed"/> was never called.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown if <see cref="WithSeed"/> was never called or this builder has already started a build.
+    /// </exception>
     public BuiltSimulation Build()
     {
         if (_seed is not { } seed)
         {
             throw new InvalidOperationException(
                 "A seed must be specified via WithSeed(...) before calling Build(), so the resulting simulation is deterministic.");
+        }
+
+        if (Interlocked.Exchange(ref _buildStarted, 1) != 0)
+        {
+            throw new InvalidOperationException(
+                "This SimulationBuilder has already started building a simulation and cannot be reused.");
         }
 
         return new BuiltSimulation(
