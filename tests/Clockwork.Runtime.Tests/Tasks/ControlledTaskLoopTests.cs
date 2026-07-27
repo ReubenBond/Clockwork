@@ -176,4 +176,103 @@ public sealed class ControlledTaskLoopTests
         Assert.Throws<ArgumentNullException>(() => loop.ScheduleWhenReady(null!, () => { }));
         Assert.Throws<ArgumentNullException>(() => loop.ScheduleWhenReady(() => true, null!));
     }
+
+    // ---- Virtual-time deadline registry ----
+
+    [Fact]
+    public void RegisterDeadlineRejectsNonPositiveDelay()
+    {
+        var loop = new ControlledTaskLoop();
+        Assert.Throws<ArgumentOutOfRangeException>(() => loop.RegisterDeadline(TimeSpan.Zero));
+        Assert.Throws<ArgumentOutOfRangeException>(() => loop.RegisterDeadline(TimeSpan.FromMilliseconds(-1)));
+    }
+
+    [Fact]
+    public void NextDeadlineDueReturnsEarliestPending()
+    {
+        var loop = new ControlledTaskLoop();
+        Assert.Null(loop.NextDeadlineDue());
+
+        loop.RegisterDeadline(TimeSpan.FromMilliseconds(300));
+        loop.RegisterDeadline(TimeSpan.FromMilliseconds(100));
+        loop.RegisterDeadline(TimeSpan.FromMilliseconds(200));
+
+        Assert.Equal(TimeSpan.FromMilliseconds(100), loop.NextDeadlineDue());
+    }
+
+    [Fact]
+    public void AdvanceTimeToFiresDueDeadlinesInOrderAndMovesVirtualNow()
+    {
+        var loop = new ControlledTaskLoop();
+        var fired = new List<int>();
+
+        loop.RegisterDeadline(TimeSpan.FromMilliseconds(200), () => fired.Add(200));
+        loop.RegisterDeadline(TimeSpan.FromMilliseconds(100), () => fired.Add(100));
+        loop.RegisterDeadline(TimeSpan.FromMilliseconds(300), () => fired.Add(300));
+
+        loop.AdvanceTimeTo(TimeSpan.FromMilliseconds(200));
+
+        // Only the deadlines due at or before 200 fired, earliest first; the 300 one is still pending.
+        Assert.Equal([100, 200], fired);
+        Assert.Equal(TimeSpan.FromMilliseconds(200), loop.VirtualNow);
+        Assert.Equal(TimeSpan.FromMilliseconds(300), loop.NextDeadlineDue());
+    }
+
+    [Fact]
+    public void AdvanceTimeToBreaksTiesByRegistrationOrder()
+    {
+        var loop = new ControlledTaskLoop();
+        var fired = new List<int>();
+
+        // Two deadlines due at the same instant fire in registration order - a deterministic, replayable
+        // tie-break rather than an arbitrary one.
+        loop.RegisterDeadline(TimeSpan.FromMilliseconds(100), () => fired.Add(1));
+        loop.RegisterDeadline(TimeSpan.FromMilliseconds(100), () => fired.Add(2));
+
+        loop.AdvanceTimeTo(TimeSpan.FromMilliseconds(100));
+
+        Assert.Equal([1, 2], fired);
+    }
+
+    [Fact]
+    public void CancelledDeadlineDoesNotFireOrLinger()
+    {
+        var loop = new ControlledTaskLoop();
+        var fired = false;
+
+        var deadline = loop.RegisterDeadline(TimeSpan.FromMilliseconds(100), () => fired = true);
+        Assert.False(deadline.IsElapsed);
+
+        deadline.Cancel();
+        Assert.Null(loop.NextDeadlineDue()); // Removed from the registry.
+
+        loop.AdvanceTimeTo(TimeSpan.FromMilliseconds(500));
+        Assert.False(fired);
+        Assert.False(deadline.IsElapsed);
+    }
+
+    [Fact]
+    public void RunUntilAdvancesTimeToDeadlineInsteadOfDeadlocking()
+    {
+        var loop = new ControlledTaskLoop();
+        var elapsed = false;
+        loop.RegisterDeadline(TimeSpan.FromMilliseconds(100), () => elapsed = true);
+
+        // With no ready work but a pending deadline, the pump advances modelled time to it (firing the
+        // callback) rather than reporting a deadlock, and the predicate then holds.
+        loop.RunUntil(() => elapsed, "test.timeout");
+
+        Assert.True(elapsed);
+        Assert.Equal(TimeSpan.FromMilliseconds(100), loop.VirtualNow);
+    }
+
+    [Fact]
+    public void RunUntilStillDeadlocksWithNoReadyWorkAndNoDeadline()
+    {
+        var loop = new ControlledTaskLoop();
+
+        // An infinite wait (no deadline, no runnable work) is still the deadlock signature.
+        Assert.Throws<ControlledSynchronousWaitDeadlockException>(
+            () => loop.RunUntil(() => false, "test.wait"));
+    }
 }

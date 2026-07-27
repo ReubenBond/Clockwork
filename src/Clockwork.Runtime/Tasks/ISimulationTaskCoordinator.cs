@@ -64,4 +64,19 @@ public interface ISimulationTaskCoordinator
     /// wait that can never be satisfied (a deadlock).
     /// </exception>
     void DrainUntil(SimulationNodeIdentity? node, Func<bool> completed);
+
+    /// <summary>
+    /// Registers a deterministic virtual-time deadline that elapses after <paramref name="delay"/> of
+    /// modelled time. This backs the finite-timeout controlled synchronization waits
+    /// (<c>Monitor.TryEnter</c>/<c>Monitor.Wait</c>/<c>SemaphoreSlim.Wait</c>/<c>WaitAsync</c> with a finite
+    /// timeout). The deadline consumes no real time and no physical timer: it fires only when the loop has
+    /// no other runnable work and advances modelled time to it, which is precisely what makes the
+    /// release-vs-timeout-vs-cancellation outcome a replayable first-winner decision rather than a
+    /// real-time race.
+    /// </summary>
+    /// <param name="node">The node the wait is scoped to, or <see langword="null"/> for cluster-level work.</param>
+    /// <param name="delay">The strictly positive modelled delay before the deadline elapses.</param>
+    /// <param name="onElapsed">An optional callback invoked once, on the logical thread, when the deadline elapses.</param>
+    /// <returns>A handle used to observe elapse or cancel the deadline once the wait completes for another reason.</returns>
+    IControlledTimeout RegisterTimeout(SimulationNodeIdentity? node, TimeSpan delay, Action? onElapsed);
 }

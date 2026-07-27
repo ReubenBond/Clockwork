@@ -51,4 +51,8 @@ public sealed class ControlledTaskLoopCoordinator : ISimulationTaskCoordinator
     /// <inheritdoc />
     public void DrainUntil(SimulationNodeIdentity? node, Func<bool> completed) =>
         _loop.RunUntil(completed, "Clockwork.Runtime.Tasks synchronous wait");
+
+    /// <inheritdoc />
+    public IControlledTimeout RegisterTimeout(SimulationNodeIdentity? node, TimeSpan delay, Action? onElapsed) =>
+        _loop.RegisterDeadline(delay, onElapsed);
 }

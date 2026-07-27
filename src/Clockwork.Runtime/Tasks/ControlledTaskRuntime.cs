@@ -207,4 +207,36 @@ public static class ControlledTaskRuntime
             coordinator.DrainUntil(node, completed);
         }
     }
+
+    /// <summary>
+    /// Registers a deterministic virtual-time deadline on the ambient coordinator, backing the finite
+    /// timeout of a controlled synchronization wait. Assumes a simulation is active (callers gate on
+    /// <see cref="IsSimulationActive"/> first); if none is, a never-elapsing handle is returned so a
+    /// mis-routed caller degrades to an infinite wait rather than faulting.
+    /// </summary>
+    /// <param name="delay">The strictly positive modelled delay before the deadline elapses.</param>
+    /// <param name="onElapsed">An optional callback invoked once, on the logical thread, when the deadline elapses.</param>
+    /// <param name="apiName">The controlled API registering the timeout, for the missing-service diagnostic.</param>
+    /// <returns>A handle used to observe elapse or cancel the deadline.</returns>
+    public static IControlledTimeout RegisterTimeout(TimeSpan delay, Action? onElapsed, string apiName)
+    {
+        if (TryGetCoordinator(apiName, out var coordinator, out var node))
+        {
+            return coordinator.RegisterTimeout(node, delay, onElapsed);
+        }
+
+        return InertTimeout.Instance;
+    }
+
+    /// <summary>A timeout handle that never elapses, used only when no coordinator is resolved (out of simulation).</summary>
+    private sealed class InertTimeout : IControlledTimeout
+    {
+        public static readonly InertTimeout Instance = new();
+
+        public bool IsElapsed => false;
+
+        public void Cancel()
+        {
+        }
+    }
 }
