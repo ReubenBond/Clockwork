@@ -112,6 +112,36 @@ public static class ControlledTaskRuntime
     }
 
     /// <summary>
+    /// Schedules <paramref name="work"/> as a new, immediately-runnable unit of controlled work on the
+    /// ambient coordinator's ready queue. This is the shared primitive behind every Phase 6B surface that
+    /// spawns a fresh logical operation - <c>Task.Run</c>, <c>TaskFactory.StartNew</c>,
+    /// <c>ThreadPool.QueueUserWorkItem</c>, <c>Thread.Start</c>, and the branches of <c>Parallel</c> - so
+    /// the body runs on the simulation's single logical thread interleaved with all other controlled work
+    /// instead of on an uncontrolled physical thread-pool thread. The body runs to its next explicit yield
+    /// point (an <c>await</c>, <c>Task.Yield</c>, <c>Thread.Yield</c>/<c>Sleep</c>, or completion) as one
+    /// cooperative scheduling unit.
+    /// </summary>
+    /// <param name="work">The work item to enqueue. Runs exactly once.</param>
+    /// <param name="apiName">The controlled API queuing the work, for the missing-service diagnostic.</param>
+    /// <exception cref="ControlledTaskServiceMissingException">
+    /// Thrown when a simulation is active but no coordinator is registered for its runtime.
+    /// </exception>
+    public static void QueueWork(Action work, string apiName)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        if (TryGetCoordinator(apiName, out var coordinator, out var node))
+        {
+            coordinator.Schedule(node, work);
+        }
+        else
+        {
+            // Callers gate on IsSimulationActive before queuing controlled work; reaching here means the
+            // shim mis-routed, so run inline rather than silently dropping the work.
+            work();
+        }
+    }
+
+    /// <summary>
     /// Schedules <paramref name="continuation"/> to run as immediately-runnable controlled work (the
     /// backing for <c>Task.Yield</c>). Outside a simulation it falls back to a real
     /// <see cref="System.Runtime.CompilerServices.YieldAwaitable"/>, preserving the normal "resume

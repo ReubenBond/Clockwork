@@ -106,13 +106,26 @@ public sealed class ControlledTaskRuleGoldenTests
         Assert.True(CecilInspect.CallsAnyContaining(delayed, "ControlledTask::Delay"));
         Assert.False(CecilInspect.CallsAnyContaining(delayed, "Threading.Tasks.Task::Delay"));
 
-        MethodDefinition offloaded = CecilInspect.GetMethod(module, "Fx.TaskUser", "Offloaded");
-        Assert.True(CecilInspect.CallsAnyContaining(offloaded, "ControlledTask::Run"));
-
         ImmutableArray<ManifestTransformation> transformations = result.Manifest.Transformations;
         Assert.Contains(transformations, t =>
             t.RuleId == "clockwork.tasks.delay.milliseconds" && t.Policy == SimulationApiPolicy.Rejected);
+    }
+
+    [Fact]
+    public void TaskRunIsRedirectedToControlledShim()
+    {
+        using var context = RewriteTestContext.Create();
+        var result = RewriteFixture(context, "Fx.TaskRun");
+
+        using ModuleDefinition module = context.LoadModule(
+            Path.Combine(context.Directory, "Fx.TaskRun.rewritten.dll"));
+
+        MethodDefinition offloaded = CecilInspect.GetMethod(module, "Fx.TaskUser", "Offloaded");
+        Assert.True(CecilInspect.CallsAnyContaining(offloaded, "ControlledTask::Run"));
+        Assert.False(CecilInspect.CallsAnyContaining(offloaded, "Threading.Tasks.Task::Run"));
+
+        ImmutableArray<ManifestTransformation> transformations = result.Manifest.Transformations;
         Assert.Contains(transformations, t =>
-            t.RuleId == "clockwork.tasks.run.action" && t.Policy == SimulationApiPolicy.Rejected);
+            t.RuleId == "clockwork.tasks.run.action" && t.Policy == SimulationApiPolicy.Controlled);
     }
 }

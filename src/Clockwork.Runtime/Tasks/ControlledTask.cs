@@ -1,3 +1,4 @@
+using System.Threading;
 using System.Threading.Tasks;
 using Clockwork.Runtime.Tasks.CompilerServices;
 
@@ -17,9 +18,11 @@ namespace Clockwork.Runtime.Tasks;
 /// logical thread, so awaiting the result through a controlled awaiter is already deterministic.
 /// Synchronous waits (<see cref="Wait"/>, <see cref="Result{TResult}"/>, <see cref="WaitAll"/>,
 /// <see cref="WaitAny"/>) pump the coordinator instead of blocking a physical thread, then delegate to
-/// the real API to reproduce its exact completion/exception semantics. Timer- and thread-pool-based
-/// APIs (<see cref="Delay"/>, <see cref="Run"/>) are explicitly rejected: they belong to later phases
-/// and must never silently fall back to wall-clock time or an uncontrolled thread.
+/// the real API to reproduce its exact completion/exception semantics. <see cref="Run(Action)"/> and
+/// its overloads queue their body as a fresh controlled operation on the coordinator (Phase 6B), so
+/// the work runs on the single logical thread interleaved with everything else instead of on an
+/// uncontrolled physical thread-pool thread. <see cref="Delay(int)"/> stays rejected: virtual timers
+/// belong to a later phase and must never silently fall back to wall-clock time.
 /// </para>
 /// </summary>
 public static class ControlledTask
@@ -272,23 +275,226 @@ public static class ControlledTask
     }
 
     /// <summary>
-    /// Rejects <c>Task.Run</c>: thread-pool scheduling is owned by the threading phase. Rejecting here
-    /// prevents a rewritten assembly from silently offloading work to an uncontrolled physical thread.
+    /// Controlled <c>Task.Run(Action)</c>. Under simulation the work is queued as a fresh controlled
+    /// operation on the coordinator - it runs on the single logical thread interleaved with all other
+    /// controlled work, never on an uncontrolled physical thread-pool thread - and the returned task
+    /// completes (or faults/cancels) exactly as the real <c>Task.Run</c> would. Outside a simulation it
+    /// delegates to the real <see cref="Task.Run(Action)"/>.
     /// </summary>
-    /// <param name="action">Ignored.</param>
-    /// <returns>Never returns.</returns>
-    /// <exception cref="ControlledTaskUnsupportedException">Always thrown inside a simulation.</exception>
-    public static Task Run(Action action)
+    /// <param name="action">The work to run.</param>
+    /// <returns>A task that completes when the work does.</returns>
+    public static Task Run(Action action) => Run(action, CancellationToken.None);
+
+    /// <summary>Controlled <c>Task.Run(Action, CancellationToken)</c>.</summary>
+    /// <param name="action">The work to run.</param>
+    /// <param name="cancellationToken">A token that cancels the work before it starts.</param>
+    /// <returns>A task that completes when the work does.</returns>
+    public static Task Run(Action action, CancellationToken cancellationToken)
     {
-        if (ControlledTaskRuntime.IsSimulationActive)
+        ArgumentNullException.ThrowIfNull(action);
+        if (!ControlledTaskRuntime.IsSimulationActive)
         {
-            throw new ControlledTaskUnsupportedException(
-                "System.Threading.Tasks.Task.Run",
-                "thread-pool scheduling is owned by the threading phase; Phase 6A refuses to offload work to " +
-                "an uncontrolled physical thread. Await the work directly, or use a controlled task instead.");
+            return Task.Run(action, cancellationToken);
         }
 
-        return Task.Run(action);
+        var tcs = new TaskCompletionSource();
+        ControlledTaskRuntime.QueueWork(
+            () =>
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    tcs.TrySetCanceled(cancellationToken);
+                    return;
+                }
+
+                try
+                {
+                    action();
+                    tcs.TrySetResult();
+                }
+                catch (OperationCanceledException oce)
+                {
+                    tcs.TrySetCanceled(oce.CancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    tcs.TrySetException(ex);
+                }
+            },
+            "System.Threading.Tasks.Task.Run");
+        return tcs.Task;
+    }
+
+    /// <summary>Controlled <c>Task.Run&lt;TResult&gt;(Func&lt;TResult&gt;)</c>.</summary>
+    /// <typeparam name="TResult">The result type.</typeparam>
+    /// <param name="function">The work to run.</param>
+    /// <returns>A task with the function's result.</returns>
+    public static Task<TResult> Run<TResult>(Func<TResult> function) => Run(function, CancellationToken.None);
+
+    /// <summary>Controlled <c>Task.Run&lt;TResult&gt;(Func&lt;TResult&gt;, CancellationToken)</c>.</summary>
+    /// <typeparam name="TResult">The result type.</typeparam>
+    /// <param name="function">The work to run.</param>
+    /// <param name="cancellationToken">A token that cancels the work before it starts.</param>
+    /// <returns>A task with the function's result.</returns>
+    public static Task<TResult> Run<TResult>(Func<TResult> function, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(function);
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return Task.Run(function, cancellationToken);
+        }
+
+        var tcs = new TaskCompletionSource<TResult>();
+        ControlledTaskRuntime.QueueWork(
+            () =>
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    tcs.TrySetCanceled(cancellationToken);
+                    return;
+                }
+
+                try
+                {
+                    tcs.TrySetResult(function());
+                }
+                catch (OperationCanceledException oce)
+                {
+                    tcs.TrySetCanceled(oce.CancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    tcs.TrySetException(ex);
+                }
+            },
+            "System.Threading.Tasks.Task.Run");
+        return tcs.Task;
+    }
+
+    /// <summary>
+    /// Controlled <c>Task.Run(Func&lt;Task&gt;)</c>: the returned task completes only when the inner task
+    /// the delegate produces completes (the same "unwrap" semantics as the real overload), with the inner
+    /// task's own completion driven deterministically through the coordinator.
+    /// </summary>
+    /// <param name="function">The asynchronous work to run.</param>
+    /// <returns>A task representing the unwrapped inner task.</returns>
+    public static Task Run(Func<Task> function) => Run(function, CancellationToken.None);
+
+    /// <summary>Controlled <c>Task.Run(Func&lt;Task&gt;, CancellationToken)</c> with unwrap semantics.</summary>
+    /// <param name="function">The asynchronous work to run.</param>
+    /// <param name="cancellationToken">A token that cancels the work before it starts.</param>
+    /// <returns>A task representing the unwrapped inner task.</returns>
+    public static Task Run(Func<Task> function, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(function);
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return Task.Run(function, cancellationToken);
+        }
+
+        var tcs = new TaskCompletionSource();
+        ControlledTaskRuntime.QueueWork(
+            () =>
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    tcs.TrySetCanceled(cancellationToken);
+                    return;
+                }
+
+                Task inner;
+                try
+                {
+                    inner = function();
+                }
+                catch (OperationCanceledException oce)
+                {
+                    tcs.TrySetCanceled(oce.CancellationToken);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    tcs.TrySetException(ex);
+                    return;
+                }
+
+                if (inner is null)
+                {
+                    tcs.TrySetException(new InvalidOperationException(
+                        "Task.Run(Func<Task>) delegate returned a null task."));
+                    return;
+                }
+
+                ControlledTaskRuntime.ScheduleContinuation(
+                    inner,
+                    () => PropagateTo(inner, tcs),
+                    "System.Threading.Tasks.Task.Run",
+                    flowExecutionContext: false);
+            },
+            "System.Threading.Tasks.Task.Run");
+        return tcs.Task;
+    }
+
+    /// <summary>Controlled <c>Task.Run&lt;TResult&gt;(Func&lt;Task&lt;TResult&gt;&gt;)</c> with unwrap semantics.</summary>
+    /// <typeparam name="TResult">The result type.</typeparam>
+    /// <param name="function">The asynchronous work to run.</param>
+    /// <returns>A task representing the unwrapped inner task's result.</returns>
+    public static Task<TResult> Run<TResult>(Func<Task<TResult>> function) => Run(function, CancellationToken.None);
+
+    /// <summary>Controlled <c>Task.Run&lt;TResult&gt;(Func&lt;Task&lt;TResult&gt;&gt;, CancellationToken)</c> with unwrap semantics.</summary>
+    /// <typeparam name="TResult">The result type.</typeparam>
+    /// <param name="function">The asynchronous work to run.</param>
+    /// <param name="cancellationToken">A token that cancels the work before it starts.</param>
+    /// <returns>A task representing the unwrapped inner task's result.</returns>
+    public static Task<TResult> Run<TResult>(Func<Task<TResult>> function, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(function);
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return Task.Run(function, cancellationToken);
+        }
+
+        var tcs = new TaskCompletionSource<TResult>();
+        ControlledTaskRuntime.QueueWork(
+            () =>
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    tcs.TrySetCanceled(cancellationToken);
+                    return;
+                }
+
+                Task<TResult> inner;
+                try
+                {
+                    inner = function();
+                }
+                catch (OperationCanceledException oce)
+                {
+                    tcs.TrySetCanceled(oce.CancellationToken);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    tcs.TrySetException(ex);
+                    return;
+                }
+
+                if (inner is null)
+                {
+                    tcs.TrySetException(new InvalidOperationException(
+                        "Task.Run(Func<Task<TResult>>) delegate returned a null task."));
+                    return;
+                }
+
+                ControlledTaskRuntime.ScheduleContinuation(
+                    inner,
+                    () => PropagateTo(inner, tcs),
+                    "System.Threading.Tasks.Task.Run",
+                    flowExecutionContext: false);
+            },
+            "System.Threading.Tasks.Task.Run");
+        return tcs.Task;
     }
 
     private static bool AllCompleted(Task[] tasks)
@@ -347,6 +553,40 @@ public static class ControlledTask
         catch (Exception ex)
         {
             tcs.SetException(ex);
+        }
+    }
+
+    /// <summary>Copies a completed antecedent's terminal status (success/fault/cancel) onto a non-generic source.</summary>
+    private static void PropagateTo(Task inner, TaskCompletionSource tcs)
+    {
+        if (inner.IsCanceled)
+        {
+            tcs.TrySetCanceled();
+        }
+        else if (inner.IsFaulted)
+        {
+            tcs.TrySetException(inner.Exception!.InnerExceptions);
+        }
+        else
+        {
+            tcs.TrySetResult();
+        }
+    }
+
+    /// <summary>Copies a completed antecedent's terminal status (success/fault/cancel) onto a generic source.</summary>
+    private static void PropagateTo<TResult>(Task<TResult> inner, TaskCompletionSource<TResult> tcs)
+    {
+        if (inner.IsCanceled)
+        {
+            tcs.TrySetCanceled();
+        }
+        else if (inner.IsFaulted)
+        {
+            tcs.TrySetException(inner.Exception!.InnerExceptions);
+        }
+        else
+        {
+            tcs.TrySetResult(inner.Result);
         }
     }
 }

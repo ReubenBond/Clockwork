@@ -94,6 +94,14 @@ public static class BuiltInRuleSets
     private const string FuncOfTypeResult = "System.Func`1<!0>";
     private const string FuncOfResultDecl = "System.Func`1<TResult>";
 
+    // Cecil full names for the Task.Run scheduling surface (Phase 6B controlled). The generic overloads are
+    // GenericInstanceMethods at the call site (`!!0` target) resolved against their definitions (`TResult`
+    // replacement); Func<Task>/Func<Task<TResult>> carry the unwrap overloads.
+    private const string CancellationToken = "System.Threading.CancellationToken";
+    private const string FuncOfTask = "System.Func`1<System.Threading.Tasks.Task>";
+    private const string FuncOfTaskResult = "System.Func`1<System.Threading.Tasks.Task`1<!!0>>";
+    private const string FuncOfTaskResultDecl = "System.Func`1<System.Threading.Tasks.Task`1<TResult>>";
+
     // Cecil full names for the compiler-generated async machinery (BCL) and their controlled substitutes.
     // Nested awaiter types use Cecil's '/' separator; generic arities carry the backtick.
     private const string CompilerNs = "System.Runtime.CompilerServices.";
@@ -152,6 +160,7 @@ public static class BuiltInRuleSets
         BuiltInRuleFamily.TaskSynchronization,
         BuiltInRuleFamily.TaskContinuations,
         BuiltInRuleFamily.TaskDeferred,
+        BuiltInRuleFamily.TaskScheduling,
         BuiltInRuleFamily.AsyncMachinery,
         BuiltInRuleFamily.ValueTaskMachinery,
         BuiltInRuleFamily.TaskFactory,
@@ -265,18 +274,34 @@ public static class BuiltInRuleSets
         TaskRule(builder, BuiltInRuleFamily.TaskContinuations, "clockwork.tasks.continuewith.action",
             MemberSignature.Method(Task, "ContinueWith", ActionOfTask), Shim(TaskShim, "ContinueWith", Task, ActionOfTask));
 
-        // ---- Deferred: Task.Delay (Phase 8 timers) and Task.Run (Phase 6B thread-pool) rejected ----
-        // The shim rejects under simulation with a precise diagnostic and runs the real BCL API outside.
+        // ---- Deferred: Task.Delay (Phase 8 timers) rejected. The shim rejects under simulation with a
+        // precise diagnostic and runs the real BCL API outside. ----
         builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.TaskDeferred, RewriteRule.RedirectCall(
             "clockwork.tasks.delay.milliseconds",
             MemberSignature.Method(Task, "Delay", Int32),
             Shim(TaskShim, "Delay", Int32),
             SimulationApiPolicy.Rejected)));
-        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.TaskDeferred, RewriteRule.RedirectCall(
-            "clockwork.tasks.run.action",
-            MemberSignature.Method(Task, "Run", Action),
-            Shim(TaskShim, "Run", Action),
-            SimulationApiPolicy.Rejected)));
+
+        // ---- Scheduling: Task.Run (Phase 6B) controlled. The body is queued as a fresh controlled
+        // operation on the coordinator instead of a physical thread-pool thread. The generic overloads are
+        // GenericInstanceMethods (`!!0` target, `TResult` replacement); Func<Task>/Func<Task<TResult>>
+        // carry the unwrap overloads. Each has a with- and without-CancellationToken form. ----
+        TaskRule(builder, BuiltInRuleFamily.TaskScheduling, "clockwork.tasks.run.action",
+            MemberSignature.Method(Task, "Run", Action), Shim(TaskShim, "Run", Action));
+        TaskRule(builder, BuiltInRuleFamily.TaskScheduling, "clockwork.tasks.run.action.cancellationtoken",
+            MemberSignature.Method(Task, "Run", Action, CancellationToken), Shim(TaskShim, "Run", Action, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.TaskScheduling, "clockwork.tasks.run.func",
+            MemberSignature.Method(Task, "Run", FuncOfMethodResult), Shim(TaskShim, "Run", FuncOfResultDecl));
+        TaskRule(builder, BuiltInRuleFamily.TaskScheduling, "clockwork.tasks.run.func.cancellationtoken",
+            MemberSignature.Method(Task, "Run", FuncOfMethodResult, CancellationToken), Shim(TaskShim, "Run", FuncOfResultDecl, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.TaskScheduling, "clockwork.tasks.run.func.task",
+            MemberSignature.Method(Task, "Run", FuncOfTask), Shim(TaskShim, "Run", FuncOfTask));
+        TaskRule(builder, BuiltInRuleFamily.TaskScheduling, "clockwork.tasks.run.func.task.cancellationtoken",
+            MemberSignature.Method(Task, "Run", FuncOfTask, CancellationToken), Shim(TaskShim, "Run", FuncOfTask, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.TaskScheduling, "clockwork.tasks.run.func.task.generic",
+            MemberSignature.Method(Task, "Run", FuncOfTaskResult), Shim(TaskShim, "Run", FuncOfTaskResultDecl));
+        TaskRule(builder, BuiltInRuleFamily.TaskScheduling, "clockwork.tasks.run.func.task.generic.cancellationtoken",
+            MemberSignature.Method(Task, "Run", FuncOfTaskResult, CancellationToken), Shim(TaskShim, "Run", FuncOfTaskResultDecl, CancellationToken));
 
         // ---- Async machinery: retarget the compiler-generated builder/awaiter types of an async state
         // machine onto controlled equivalents (member-aware SubstituteType), plus the Task.Yield redirect.

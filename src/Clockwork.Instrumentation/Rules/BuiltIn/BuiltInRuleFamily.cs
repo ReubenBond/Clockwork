@@ -48,12 +48,21 @@ public enum BuiltInRuleFamily
     TaskContinuations,
 
     /// <summary>
-    /// Task surfaces deferred to later phases: <c>Task.Delay</c> (virtual timers, Phase 8) and
-    /// <c>Task.Run</c> (thread-pool offload, Phase 6B). Classified <c>Rejected</c>:
-    /// the shim fails the call with a precise diagnostic under simulation rather than silently using wall
-    /// time or a real thread-pool thread, and runs the real BCL API unchanged outside simulation.
+    /// Task surfaces deferred to later phases: <c>Task.Delay</c> (virtual timers, Phase 8). Classified
+    /// <c>Rejected</c>: the shim fails the call with a precise diagnostic under simulation rather than
+    /// silently using wall time, and runs the real BCL API unchanged outside simulation.
     /// </summary>
     TaskDeferred,
+
+    /// <summary>
+    /// Task thread-pool scheduling: the <c>Task.Run</c> family (every <c>Action</c>/<c>Func&lt;TResult&gt;</c>/
+    /// <c>Func&lt;Task&gt;</c>/<c>Func&lt;Task&lt;TResult&gt;&gt;</c> overload, with and without a
+    /// <see cref="System.Threading.CancellationToken"/>). Redirected to controlled equivalents (Phase 6B)
+    /// that queue the body as a fresh controlled operation on the simulation coordinator - it runs on the
+    /// single logical thread interleaved with all other controlled work instead of on an uncontrolled
+    /// physical thread-pool thread - preserving unwrap, cancellation, and fault semantics.
+    /// </summary>
+    TaskScheduling,
 
     /// <summary>
     /// Compiler-generated async machinery: the <c>SubstituteType</c> rules that retarget an
