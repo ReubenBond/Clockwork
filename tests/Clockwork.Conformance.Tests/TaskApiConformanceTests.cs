@@ -12,11 +12,10 @@ namespace Clockwork.Conformance.Tests;
 /// rewritten assembly runs outside any simulation.
 /// </summary>
 /// <remarks>
-/// The shipped controlled-task rule set redirects only the non-generic <c>WhenAll</c>/<c>WhenAny</c>,
-/// <c>Task.Wait()</c>, and <c>ContinueWith(Action&lt;Task&gt;)</c> overloads; the generic
-/// <c>Task&lt;T&gt;</c> combinators and the <c>Result</c> accessor are deferred to Phase&#160;6B. These
-/// tests therefore drive the combinators through non-generic <see cref="Task"/> antecedents and read
-/// per-task results only after the combinator has completed (a non-blocking property read).
+/// These tests drive the non-generic <c>WhenAll</c>/<c>WhenAny</c>, <c>Task.Wait()</c>, and
+/// <c>ContinueWith(Action&lt;Task&gt;)</c> overloads through non-generic <see cref="Task"/> antecedents;
+/// the generic <c>Task&lt;T&gt;</c> combinators and the blocking <c>Result</c> accessor have their own
+/// coverage in <see cref="GenericTaskConformanceTests"/>.
 /// </remarks>
 public sealed class TaskApiConformanceTests : IDisposable
 {
