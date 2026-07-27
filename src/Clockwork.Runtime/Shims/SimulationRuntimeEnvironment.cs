@@ -1,0 +1,184 @@
+using System.Collections.Concurrent;
+using Clockwork.Runtime.Execution;
+using Clockwork.Runtime.Random;
+
+namespace Clockwork.Runtime.Shims;
+
+/// <summary>
+/// <para>
+/// The default <see cref="ISimulationRuntimeEnvironment"/> a simulation host registers. It turns the
+/// host's virtual clock and <see cref="SimulationSeedAuthority"/> into the deterministic services the
+/// BCL shims consume, keeping per-node mutable state isolated and drawing randomness only from the
+/// <see cref="SimulationSeedDomain.Application"/> and <see cref="SimulationSeedDomain.Identity"/>
+/// domains so it never perturbs the scheduler, network, or fault-injection streams.
+/// </para>
+/// <para>
+/// <b>Time.</b> Virtual UTC comes from the host-supplied provider. High-resolution timestamps
+/// (<see cref="GetTimestamp"/>) and tick counts (<see cref="GetTickCount64"/>) are derived from that
+/// same virtual instant relative to a fixed origin, so both are fully deterministic and
+/// machine-independent - the companion clock shims measure elapsed time against the same virtual
+/// timeline rather than the machine's real <see cref="System.Diagnostics.Stopwatch"/> frequency.
+/// </para>
+/// <para>
+/// <b>Randomness streams (per node).</b>
+/// </para>
+/// <list type="bullet">
+/// <item><description>
+/// <see cref="GetSharedRandom"/> returns one stable instance per node, seeded from the application
+/// domain - the simulation analogue of <see cref="System.Random.Shared"/>.
+/// </description></item>
+/// <item><description>
+/// <see cref="CreateUnseededRandom"/> returns a fresh instance per construction, seeded from a
+/// per-node monotonic construction counter - reproducible under a fixed schedule, never shared.
+/// </description></item>
+/// <item><description>
+/// <see cref="FillIdentityBytes"/> advances a separate per-node identity stream (identity domain), so
+/// GUID generation never perturbs application randomness.
+/// </description></item>
+/// </list>
+/// </summary>
+public sealed class SimulationRuntimeEnvironment : ISimulationRuntimeEnvironment
+{
+    /// <summary>The stable site-id prefix for the per-node shared random stream.</summary>
+    private const string SharedRandomSite = "clockwork.random.shared/";
+
+    /// <summary>The stable site-id prefix for per-node unseeded <c>new Random()</c> constructions.</summary>
+    private const string UnseededRandomSite = "clockwork.random.unseeded/";
+
+    /// <summary>The stable site-id prefix for the per-node identity byte stream.</summary>
+    private const string IdentitySite = "clockwork.identity/";
+
+    /// <summary>The stable site-id prefix for the per-node explicitly-insecure crypto stream.</summary>
+    private const string InsecureCryptoSite = "clockwork.crypto.insecure/";
+
+    /// <summary>The key used for cluster-level execution not scoped to a node.</summary>
+    private const string ClusterNodeKey = "<cluster>";
+
+    private readonly SimulationSeedAuthority _seedAuthority;
+    private readonly Func<DateTimeOffset> _utcNowProvider;
+    private readonly TimeZoneInfo _localTimeZone;
+    private readonly DateTimeOffset _origin;
+    private readonly ConcurrentDictionary<string, NodeStreams> _nodeStreams = new(StringComparer.Ordinal);
+
+    /// <summary>Initializes a new instance of the <see cref="SimulationRuntimeEnvironment"/> class.</summary>
+    /// <param name="seedAuthority">The seed authority deriving per-node deterministic seeds.</param>
+    /// <param name="utcNowProvider">A provider for the current virtual UTC instant.</param>
+    /// <param name="localTimeZone">The local time zone simulated nodes observe.</param>
+    /// <param name="origin">
+    /// The fixed virtual origin that <see cref="GetTickCount64"/> and <see cref="GetTimestamp"/> are
+    /// measured from. Must be less than or equal to every instant the clock will return.
+    /// </param>
+    /// <param name="cryptoPolicy">The cryptographic-randomness policy for this simulation.</param>
+    public SimulationRuntimeEnvironment(
+        SimulationSeedAuthority seedAuthority,
+        Func<DateTimeOffset> utcNowProvider,
+        TimeZoneInfo localTimeZone,
+        DateTimeOffset origin,
+        SimulationCryptoRandomnessPolicy cryptoPolicy = SimulationCryptoRandomnessPolicy.Reject)
+    {
+        ArgumentNullException.ThrowIfNull(seedAuthority);
+        ArgumentNullException.ThrowIfNull(utcNowProvider);
+        ArgumentNullException.ThrowIfNull(localTimeZone);
+
+        _seedAuthority = seedAuthority;
+        _utcNowProvider = utcNowProvider;
+        _localTimeZone = localTimeZone;
+        _origin = origin;
+        CryptoPolicy = cryptoPolicy;
+    }
+
+    /// <inheritdoc/>
+    public SimulationCryptoRandomnessPolicy CryptoPolicy { get; }
+
+    /// <inheritdoc/>
+    public DateTimeOffset GetUtcNow(SimulationNodeIdentity? node) => _utcNowProvider();
+
+    /// <inheritdoc/>
+    public TimeZoneInfo GetLocalTimeZone(SimulationNodeIdentity? node) => _localTimeZone;
+
+    /// <inheritdoc/>
+    public long GetTimestamp(SimulationNodeIdentity? node)
+    {
+        // Virtual high-resolution timestamp measured in 100 ns ticks since the fixed origin. The
+        // companion Stopwatch.GetElapsedTime shim measures against this same timeline, so elapsed
+        // durations are exact and machine-independent regardless of the host Stopwatch frequency.
+        var elapsed = _utcNowProvider() - _origin;
+        return elapsed.Ticks;
+    }
+
+    /// <inheritdoc/>
+    public long GetTickCount64(SimulationNodeIdentity? node)
+    {
+        var elapsedMs = (_utcNowProvider() - _origin).Ticks / TimeSpan.TicksPerMillisecond;
+        return elapsedMs;
+    }
+
+    /// <inheritdoc/>
+    public System.Random GetSharedRandom(SimulationNodeIdentity? node) => GetStreams(node).Shared;
+
+    /// <inheritdoc/>
+    public System.Random CreateUnseededRandom(SimulationNodeIdentity? node)
+    {
+        var streams = GetStreams(node);
+        var ordinal = Interlocked.Increment(ref streams.UnseededCount);
+        var seed = _seedAuthority.GetSiteSeed(
+            SimulationSeedDomain.Application,
+            $"{UnseededRandomSite}{streams.Key}/{ordinal}");
+        return new System.Random(seed);
+    }
+
+    /// <inheritdoc/>
+    public void FillIdentityBytes(SimulationNodeIdentity? node, Span<byte> destination)
+    {
+        var streams = GetStreams(node);
+        lock (streams.IdentityGate)
+        {
+            streams.Identity.NextBytes(destination);
+        }
+    }
+
+    /// <inheritdoc/>
+    public void FillInsecureCryptoBytes(SimulationNodeIdentity? node, Span<byte> destination)
+    {
+        var streams = GetStreams(node);
+        lock (streams.InsecureCryptoGate)
+        {
+            streams.InsecureCrypto.NextBytes(destination);
+        }
+    }
+
+    private NodeStreams GetStreams(SimulationNodeIdentity? node)
+    {
+        var key = node?.Address ?? ClusterNodeKey;
+        return _nodeStreams.GetOrAdd(key, static (k, self) => self.CreateStreams(k), this);
+    }
+
+    private NodeStreams CreateStreams(string key)
+    {
+        var sharedSeed = _seedAuthority.GetSiteSeed(SimulationSeedDomain.Application, SharedRandomSite + key);
+        var identitySeed = _seedAuthority.GetSiteSeed(SimulationSeedDomain.Identity, IdentitySite + key);
+        var insecureSeed = _seedAuthority.GetSiteSeed(SimulationSeedDomain.Identity, InsecureCryptoSite + key);
+        return new NodeStreams(
+            key,
+            shared: new System.Random(sharedSeed),
+            identity: new System.Random(identitySeed),
+            insecureCrypto: new System.Random(insecureSeed));
+    }
+
+    private sealed class NodeStreams(string key, System.Random shared, System.Random identity, System.Random insecureCrypto)
+    {
+        public string Key { get; } = key;
+
+        public System.Random Shared { get; } = shared;
+
+        public System.Random Identity { get; } = identity;
+
+        public object IdentityGate { get; } = new();
+
+        public System.Random InsecureCrypto { get; } = insecureCrypto;
+
+        public object InsecureCryptoGate { get; } = new();
+
+        public int UnseededCount;
+    }
+}
