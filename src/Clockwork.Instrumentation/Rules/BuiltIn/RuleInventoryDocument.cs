@@ -227,6 +227,22 @@ public static class RuleInventoryDocument
             "predicate holds (a never-satisfiable predicate surfaces as the loop-model deadlock diagnostic). " +
             "The finite `SpinUntil` overloads use a first-winner virtual-time deadline. Outside a simulation " +
             "every member delegates to a real wrapped `SpinWait`.",
+        BuiltInRuleFamily.WaitHandle =>
+            "The controlled event / wait-handle surface - `AutoResetEvent`, `ManualResetEvent`, " +
+            "`EventWaitHandle`, and the shared `WaitHandle` operations. Each concrete event is a sealed BCL " +
+            "class, so the real object is retained as an identity handle while its signaled state and " +
+            "deterministic FIFO waiter set live in a side table; every `new` redirects to a `Create` factory " +
+            "and each instance member is a receiver-first shim. `WaitOne` (all five overloads) pumps the " +
+            "deterministic loop until the event is signaled - a never-satisfiable wait surfaces as the " +
+            "loop-model deadlock diagnostic rather than hanging - and `Set`/`Reset` model exact reset-mode " +
+            "semantics: an auto-reset `Set` wakes and consumes exactly one eligible waiter (or leaves the " +
+            "event signaled until the next `WaitOne` consumes it), while a manual-reset `Set` releases every " +
+            "waiter and stays signaled until `Reset`. Finite timeouts use a first-winner virtual-time " +
+            "deadline (zero polls, infinite never times out); `Dispose`/`Close` mark the modelled state " +
+            "disposed. Named / cross-process APIs (named constructors, `OpenExisting`, `TryOpenExisting`) and " +
+            "the raw native-handle accessors (`Handle`, `SafeWaitHandle`) cannot be modelled in a single " +
+            "simulated process and are rejected with a precise diagnostic. Outside a simulation every shim " +
+            "delegates to the real BCL primitive unchanged.",
         _ => string.Empty,
     };
 

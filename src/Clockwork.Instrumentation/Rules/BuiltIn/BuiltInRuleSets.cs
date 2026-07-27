@@ -251,6 +251,25 @@ public static class BuiltInRuleSets
     private const string SpinWaitType = "System.Threading.SpinWait";
     private const string ControlledSpinWaitType = "Clockwork.Runtime.Threading.ControlledSpinWait";
 
+    // Cecil full names for the controlled Phase 7B event / wait-handle surface. AutoResetEvent,
+    // ManualResetEvent and EventWaitHandle are concrete sealed classes: the real objects are retained as
+    // identity handles and side state is held in a ConditionalWeakTable, so each `new` is redirected to a
+    // Create factory and every instance member is a receiver-first static shim declared on WaitHandle
+    // (WaitOne/Dispose/Close/Handle/SafeWaitHandle) or EventWaitHandle (Set/Reset). Named / cross-process
+    // event APIs (named ctors, OpenExisting, TryOpenExisting) are rejected: a single simulation process
+    // cannot faithfully model a system-wide kernel object. EventResetMode/NamedWaitHandleOptions select the
+    // reset mode / named options; SafeWaitHandle is the raw-handle type surfaced by the rejected accessors.
+    private const string WaitHandleType = "System.Threading.WaitHandle";
+    private const string EventWaitHandleType = "System.Threading.EventWaitHandle";
+    private const string AutoResetEventType = "System.Threading.AutoResetEvent";
+    private const string ManualResetEventType = "System.Threading.ManualResetEvent";
+    private const string EventResetModeType = "System.Threading.EventResetMode";
+    private const string NamedWaitHandleOptionsType = "System.Threading.NamedWaitHandleOptions";
+    private const string SafeWaitHandleType = "Microsoft.Win32.SafeHandles.SafeWaitHandle";
+    private const string EventWaitHandleRef = "System.Threading.EventWaitHandle&";
+    private const string WaitHandleShim = "Clockwork.Runtime.Threading.ControlledWaitHandle";
+    private const string EventWaitHandleShim = "Clockwork.Runtime.Threading.ControlledEventWaitHandle";
+
 
     // Cecil full names for the compiler-generated async machinery (BCL) and their controlled substitutes.
     // Nested awaiter types use Cecil's '/' separator; generic arities carry the backtick.
@@ -788,6 +807,8 @@ public static class BuiltInRuleSets
         // call rules are required. A controlled spin never busy-waits: it yields to the deterministic loop. ----
         Sub(builder, BuiltInRuleFamily.SpinWait, "clockwork.spinwait.type", SpinWaitType, ControlledSpinWaitType);
 
+        BuildWaitHandleEntries(builder);
+
         return builder.ToImmutable();
     }
 
@@ -913,6 +934,92 @@ public static class BuiltInRuleSets
         // Acquire / release fences.
         Rule("clockwork.volatile.readbarrier", "ReadBarrier", [], []);
         Rule("clockwork.volatile.writebarrier", "WriteBarrier", [], []);
+    }
+
+    // Phase 7B: the controlled event / wait-handle surface. AutoResetEvent, ManualResetEvent and
+    // EventWaitHandle are concrete sealed classes, so the real objects are retained as identity handles and
+    // side state lives in a ConditionalWeakTable keyed by that object. Each `new` is redirected to a Create
+    // factory; every instance member is a receiver-first static shim (the WaitHandle receiver is prepended).
+    // WaitOne / Dispose / Close / Handle / SafeWaitHandle are declared on the WaitHandle base and shimmed on
+    // ControlledWaitHandle; Set / Reset are declared on EventWaitHandle and shimmed on
+    // ControlledEventWaitHandle. Named / cross-process APIs (named constructors, OpenExisting,
+    // TryOpenExisting) and the raw-handle accessors are rejected: a single simulation process cannot model a
+    // system-wide kernel object, and a controlled event exposes no native handle.
+    private static void BuildWaitHandleEntries(ImmutableArray<BuiltInRuleEntry>.Builder builder)
+    {
+        // ---- constructors -> Create factories (RedirectNewObj) ----
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.WaitHandle, RewriteRule.RedirectNewObj(
+            "clockwork.autoresetevent.ctor",
+            MemberSignature.Constructor(AutoResetEventType, Boolean),
+            Shim(EventWaitHandleShim, "CreateAutoResetEvent", Boolean))));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.WaitHandle, RewriteRule.RedirectNewObj(
+            "clockwork.manualresetevent.ctor",
+            MemberSignature.Constructor(ManualResetEventType, Boolean),
+            Shim(EventWaitHandleShim, "CreateManualResetEvent", Boolean))));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.WaitHandle, RewriteRule.RedirectNewObj(
+            "clockwork.eventwaithandle.ctor.mode",
+            MemberSignature.Constructor(EventWaitHandleType, Boolean, EventResetModeType),
+            Shim(EventWaitHandleShim, "CreateEvent", Boolean, EventResetModeType))));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.WaitHandle, RewriteRule.RedirectNewObj(
+            "clockwork.eventwaithandle.ctor.named",
+            MemberSignature.Constructor(EventWaitHandleType, Boolean, EventResetModeType, String),
+            Shim(EventWaitHandleShim, "CreateNamedEvent", Boolean, EventResetModeType, String))));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.WaitHandle, RewriteRule.RedirectNewObj(
+            "clockwork.eventwaithandle.ctor.named.creatednew",
+            MemberSignature.Constructor(EventWaitHandleType, Boolean, EventResetModeType, String, BooleanRef),
+            Shim(EventWaitHandleShim, "CreateNamedEvent", Boolean, EventResetModeType, String, BooleanRef))));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.WaitHandle, RewriteRule.RedirectNewObj(
+            "clockwork.eventwaithandle.ctor.named.options",
+            MemberSignature.Constructor(EventWaitHandleType, Boolean, EventResetModeType, String, NamedWaitHandleOptionsType),
+            Shim(EventWaitHandleShim, "CreateNamedEvent", Boolean, EventResetModeType, String, NamedWaitHandleOptionsType))));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.WaitHandle, RewriteRule.RedirectNewObj(
+            "clockwork.eventwaithandle.ctor.named.options.creatednew",
+            MemberSignature.Constructor(EventWaitHandleType, Boolean, EventResetModeType, String, NamedWaitHandleOptionsType, BooleanRef),
+            Shim(EventWaitHandleShim, "CreateNamedEvent", Boolean, EventResetModeType, String, NamedWaitHandleOptionsType, BooleanRef))));
+
+        // ---- WaitHandle.WaitOne overloads -> receiver-first controlled kernel ----
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitone",
+            MemberSignature.Method(WaitHandleType, "WaitOne"), Shim(WaitHandleShim, "WaitOne", WaitHandleType));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitone.milliseconds",
+            MemberSignature.Method(WaitHandleType, "WaitOne", Int32), Shim(WaitHandleShim, "WaitOne", WaitHandleType, Int32));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitone.timespan",
+            MemberSignature.Method(WaitHandleType, "WaitOne", TimeSpan), Shim(WaitHandleShim, "WaitOne", WaitHandleType, TimeSpan));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitone.milliseconds.exitcontext",
+            MemberSignature.Method(WaitHandleType, "WaitOne", Int32, Boolean), Shim(WaitHandleShim, "WaitOne", WaitHandleType, Int32, Boolean));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitone.timespan.exitcontext",
+            MemberSignature.Method(WaitHandleType, "WaitOne", TimeSpan, Boolean), Shim(WaitHandleShim, "WaitOne", WaitHandleType, TimeSpan, Boolean));
+
+        // ---- WaitHandle disposal ----
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.dispose",
+            MemberSignature.Method(WaitHandleType, "Dispose"), Shim(WaitHandleShim, "Dispose", WaitHandleType));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.close",
+            MemberSignature.Method(WaitHandleType, "Close"), Shim(WaitHandleShim, "Close", WaitHandleType));
+
+        // ---- raw-handle accessors: rejected (a controlled event has no native handle) ----
+        RejectedRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.get_handle",
+            MemberSignature.Method(WaitHandleType, "get_Handle"), Shim(WaitHandleShim, "GetHandle", WaitHandleType));
+        RejectedRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.set_handle",
+            MemberSignature.Method(WaitHandleType, "set_Handle", IntPtrType), Shim(WaitHandleShim, "SetHandle", WaitHandleType, IntPtrType));
+        RejectedRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.get_safewaithandle",
+            MemberSignature.Method(WaitHandleType, "get_SafeWaitHandle"), Shim(WaitHandleShim, "GetSafeWaitHandle", WaitHandleType));
+        RejectedRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.set_safewaithandle",
+            MemberSignature.Method(WaitHandleType, "set_SafeWaitHandle", SafeWaitHandleType), Shim(WaitHandleShim, "SetSafeWaitHandle", WaitHandleType, SafeWaitHandleType));
+
+        // ---- EventWaitHandle.Set / Reset -> receiver-first controlled signalling ----
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.eventwaithandle.set",
+            MemberSignature.Method(EventWaitHandleType, "Set"), Shim(EventWaitHandleShim, "Set", EventWaitHandleType));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.eventwaithandle.reset",
+            MemberSignature.Method(EventWaitHandleType, "Reset"), Shim(EventWaitHandleShim, "Reset", EventWaitHandleType));
+
+        // ---- named / cross-process open APIs: rejected ----
+        RejectedRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.eventwaithandle.openexisting",
+            MemberSignature.Method(EventWaitHandleType, "OpenExisting", String), Shim(EventWaitHandleShim, "OpenExisting", String));
+        RejectedRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.eventwaithandle.openexisting.options",
+            MemberSignature.Method(EventWaitHandleType, "OpenExisting", String, NamedWaitHandleOptionsType), Shim(EventWaitHandleShim, "OpenExisting", String, NamedWaitHandleOptionsType));
+        RejectedRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.eventwaithandle.tryopenexisting",
+            MemberSignature.Method(EventWaitHandleType, "TryOpenExisting", String, EventWaitHandleRef), Shim(EventWaitHandleShim, "TryOpenExisting", String, EventWaitHandleRef));
+        RejectedRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.eventwaithandle.tryopenexisting.options",
+            MemberSignature.Method(EventWaitHandleType, "TryOpenExisting", String, NamedWaitHandleOptionsType, EventWaitHandleRef), Shim(EventWaitHandleShim, "TryOpenExisting", String, NamedWaitHandleOptionsType, EventWaitHandleRef));
     }
 
     // Rejects a Parallel overload at the call site. The BCL methods return ParallelLoopResult, so
