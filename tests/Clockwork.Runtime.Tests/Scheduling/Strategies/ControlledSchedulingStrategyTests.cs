@@ -186,6 +186,55 @@ public sealed class ControlledSchedulingStrategyTests
     }
 
     [Fact]
+    public void SuccessfulDrainRejectsUnconsumedSchedulingRecords()
+    {
+        var records = new[]
+        {
+            SchedulingRecord(0, "1"),
+            SchedulingRecord(1, "2"),
+        };
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        scheduler.SchedulingStrategy = new ReplaySchedulingStrategy(records);
+        scheduler.Schedule("first", () => { });
+        scheduler.Schedule("second", () => { });
+
+        var exception = Assert.Throws<SimulationDecisionReplayMismatchException>(() => scheduler.Drain());
+
+        Assert.Contains("unconsumed", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("1", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SuccessfulDrainRejectsUnconsumedDecisionValidationRecords()
+    {
+        var extra = SchedulingRecord(0, "1");
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        scheduler.ReplayValidator = new SimulationDecisionReplayValidator(
+            new SimulationInMemoryDecisionReplayReader([extra]));
+        scheduler.Schedule("only", () => { });
+
+        var exception = Assert.Throws<SimulationDecisionReplayMismatchException>(() => scheduler.Drain());
+
+        Assert.Equal(extra, exception.Expected);
+        Assert.Null(exception.Actual);
+    }
+
+    [Fact]
+    public void PartialRunDoesNotRequireReplayCompletion()
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        scheduler.SchedulingStrategy = new ReplaySchedulingStrategy(
+            [
+                SchedulingRecord(0, "1"),
+                SchedulingRecord(1, "2"),
+            ]);
+        scheduler.Schedule("first", () => { });
+        scheduler.Schedule("second", () => { });
+
+        Assert.True(scheduler.RunStep());
+    }
+
+    [Fact]
     public void ParallelSimulationsWithTheSameSeedAreIsolatedAndReproducible()
     {
         // Two independent schedulers sharing a root seed must produce identical schedules and keep
@@ -249,4 +298,16 @@ public sealed class ControlledSchedulingStrategyTests
             node: null,
             priority: priority);
     }
+
+    private static SimulationDecisionRecord SchedulingRecord(long sequence, string selectedResult) =>
+        new(
+            new SimulationDecisionId(sequence),
+            SimulationSeedDomain.Scheduler,
+            SimulationDecisionKind.SchedulingOrder,
+            "seeded-random",
+            "1,2",
+            selectedResult,
+            Guid.NewGuid(),
+            NodeId: null,
+            Clockwork.Runtime.Execution.SimulationLogicalExecutionId.None);
 }

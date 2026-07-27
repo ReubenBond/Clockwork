@@ -473,7 +473,28 @@ public sealed class ControlledOperationScheduler : IDisposable
             }
         }
 
+        ValidateReplayCompleteIfQuiescent();
         return steps;
+    }
+
+    private void ValidateReplayCompleteIfQuiescent()
+    {
+        lock (_gate)
+        {
+            foreach (var operation in _operations.Values)
+            {
+                if (!operation.IsTerminal)
+                {
+                    return;
+                }
+            }
+        }
+
+        _replayValidator?.ValidateComplete();
+        if (_strategy is ReplaySchedulingStrategy replay)
+        {
+            replay.ValidateComplete();
+        }
     }
 
     /// <summary>

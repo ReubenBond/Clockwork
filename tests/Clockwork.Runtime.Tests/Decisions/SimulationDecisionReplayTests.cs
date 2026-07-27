@@ -142,6 +142,30 @@ public sealed class SimulationDecisionReplayTests
     }
 
     [Fact]
+    public void ValidateCompleteRejectsAnUnconsumedRecordedSuffix()
+    {
+        var recorded = new[] { MakeRecord(0), MakeRecord(1, sourceId: "extra") };
+        var validator = new SimulationDecisionReplayValidator(new SimulationInMemoryDecisionReplayReader(recorded));
+        validator.Validate(MakeRecord(100));
+
+        var exception = Assert.Throws<SimulationDecisionReplayMismatchException>(validator.ValidateComplete);
+
+        Assert.Equal(recorded[1], exception.Expected);
+        Assert.Null(exception.Actual);
+        Assert.Contains("unconsumed", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ValidateCompleteSucceedsAfterExactConsumption()
+    {
+        var validator = new SimulationDecisionReplayValidator(
+            new SimulationInMemoryDecisionReplayReader([MakeRecord(0)]));
+        validator.Validate(MakeRecord(100));
+
+        validator.ValidateComplete();
+    }
+
+    [Fact]
     public void ValidateThrowsForNullActual()
     {
         var validator = new SimulationDecisionReplayValidator(new SimulationInMemoryDecisionReplayReader([]));
