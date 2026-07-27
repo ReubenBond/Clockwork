@@ -6,18 +6,33 @@ against. It is a durable product document, not a task plan: it should stay accur
 as the corresponding capabilities are implemented, and it should be updated (not
 duplicated) as scope firms up in later phases.
 
-> **Status:** Phase 1A. The deterministic simulation kernel described in the root
+> **Status:** Phase 1B. The deterministic simulation kernel described in the root
 > [README](../README.md) exists today (clock, task scheduler, synchronization
-> context, seeded random, simulated network, chaos injection), and its
-> `RunUntil`/`RunUntilIdle`/`RunForDuration` drive loops now share one internal
+> context, seeded random, simulated network, chaos injection), its
+> `RunUntil`/`RunUntilIdle`/`RunForDuration` drive loops share one internal
 > execution engine with a structured, diagnosable outcome type
-> (`SimulationExecutionResult` and the `*Detailed` methods - see the README's
-> "Detailed execution results and diagnostics" section). This is purely an
-> in-process observability improvement to the existing cooperative-mode kernel; it
-> does not implement any new execution mode. None of the modes or instrumentation
-> capabilities below (controlled, race exploration, deep instrumentation) are
-> implemented yet; this document exists to pin down the contract they will be
-> designed against, so the package scaffolding under `src/` (see
+> (`SimulationExecutionResult` and the `*Detailed` methods), and adaptive
+> `RunUntilConverged`/`RunUntilIdleConverged` entry points escalate the iteration
+> budget automatically instead of requiring a hand-picked `maxIterations` (see the
+> README's "Adaptive execution budgets" section). Phase 1B additionally adds
+> pre-instrumentation ergonomics that sit entirely inside cooperative mode: a
+> `SimulationBuilder` fluent composition API (`BuiltSimulation`) so common
+> simulations don't need a hand-written `SimulationCluster<TNode>`/`SimulationNode`
+> subclass, a foundation for heterogeneous node registration (`AddCustomNode`,
+> deliberately without startup ordering or DI-style construction - see the
+> README), stable cross-process-safe seed derivation from strings
+> (`SimulationSeed`), reusable named rendezvous primitives (`SimulationGate`,
+> `SimulationLatch`, `SimulationBarrier`), and a reworked
+> `SimulationSynchronizationContext.Send` that supports inline-reentrant and
+> schedule-and-pump cases without a real-time wait, and rejects genuine
+> cross-thread contention with a precise diagnostic instead of deadlocking. None
+> of this changes any existing public API's signature or behavior - it is purely
+> additive. None of the modes or instrumentation capabilities below (controlled,
+> race exploration, deep instrumentation) are implemented yet; nor is ambient
+> runtime context, controlled-operation physical-thread gating, IL rewriting
+> (Cecil), fault injection ("Buggify"), API compatibility shims, Generic Host
+> integration, or HTTP support - this document exists to pin down the contract
+> those will be designed against, so the package scaffolding under `src/` (see
 > [Project layout](#project-layout)) has a stable target.
 
 ## Intended execution modes
