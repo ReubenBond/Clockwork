@@ -29,7 +29,7 @@ namespace Clockwork.Runtime.Random;
 /// </para>
 /// <para>
 /// This service deals only in <see cref="int"/> seeds, not <see cref="System.Random"/> instances:
-/// callers (e.g. the root Clockwork.Simulation package) wrap a returned seed in whatever random
+/// callers (e.g. the Clockwork.Simulation package) wrap a returned seed in whatever random
 /// type is appropriate for their layer (<c>SimulationRandom</c> today).
 /// </para>
 /// </summary>
