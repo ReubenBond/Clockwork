@@ -463,6 +463,86 @@ The engine performs the IL mechanics only and is wired to no build or deployment
 Cecil-based passes adapt parts of Microsoft Coyote's rewriting engine under the MIT license - see
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
+### Build and tool integration (Phase 4B)
+
+Phase 4B makes the Phase 4A engine usable from an ordinary build and from the command line. It adds
+no BCL shim rules - it is generic, opt-in plumbing that fails explicitly rather than silently
+degrading. Two packages ship:
+
+- **`Clockwork.Instrumentation.Build`** - an MSBuild task plus `build/` props and targets. It is a
+  development dependency and is **strictly opt-in**: an ordinary build does nothing.
+- **`Clockwork.Tool`** - a .NET global/local tool exposing the `clockwork` command.
+
+**Opt-in build usage.** Reference the build package and switch instrumentation on explicitly, then
+supply one or more rule-set documents:
+
+```xml
+<ItemGroup>
+  <PackageReference Include="Clockwork.Instrumentation.Build" Version="..." PrivateAssets="all" />
+</ItemGroup>
+<PropertyGroup>
+  <ClockworkInstrumentationEnabled>true</ClockworkInstrumentationEnabled>
+</PropertyGroup>
+<ItemGroup>
+  <ClockworkRuleSet Include="clockwork.rules.json" />
+  <!-- Optional include/exclude globs over the discovered closure. -->
+  <ClockworkInclude Include="MyApp.*" />
+  <ClockworkExclude Include="ThirdParty.Untouched" />
+</ItemGroup>
+```
+
+With `ClockworkInstrumentationEnabled=true`, an `AfterTargets="Build"` step discovers the resolved
+output closure (respecting `.deps.json`, runtimeconfig, satellite/native assets and framework/
+reference-assembly exclusion), rewrites **only managed IL** out-of-place under
+`obj/<Config>/<Tfm>/clockwork/instrumented/`, copies the assets needed to run the staged app, and
+writes a manifest to `obj/<Config>/<Tfm>/clockwork/clockwork.manifest.json`. Source and `bin`
+outputs are never mutated. The step is incremental, keyed by input assembly/symbol hashes, the
+rule-set signature, engine version, configuration and reference set. Optional overridable
+properties include `ClockworkConfigurationPath` (a JSON [configuration](#instrumentation-configuration)),
+`ClockworkStagingDirectory`, `ClockworkManifestPath`, `ClockworkReadyToRunPolicy`,
+`ClockworkStrongNamePolicy`, and `ClockworkStrongNameKeyPath`. A project-adjacent
+`clockwork.config.json` is auto-discovered.
+
+The task package targets `net10.0` and requires the .NET 10 SDK: use `dotnet build` / `dotnet
+msbuild`. It cannot be loaded by .NET Framework MSBuild (classic `msbuild.exe` in Visual Studio).
+
+**CLI usage.** Install the tool and rewrite or inspect assemblies:
+
+```
+dotnet tool install --global Clockwork.Tool
+clockwork rewrite --input <dir-or-assembly> --output <dir> --rules clockwork.rules.json [--config clockwork.config.json] [--dry-run]
+clockwork inspect <assembly> [--json]
+```
+
+`rewrite` stages a rewritten closure; `--dry-run` reports the planned transformations without
+writing. `inspect` reports managed/ReadyToRun status, strong-name state, symbol form, and prior
+Clockwork instrumentation (idempotence) markers, as deterministic text or JSON. Exit codes are
+nonzero and classified by failure kind. The `run`/`replay`/`minimize` commands are intentionally
+deferred to later replay work.
+
+**Instrumentation configuration.** Configuration and rule sets are plain JSON documents with strict
+schema, type, and signature validation - **no arbitrary code is executed from configuration**.
+Multiple rule sets merge deterministically with a defined precedence, which is the mechanism future
+built-in Clockwork rules, application rules, and third-party rules will share.
+
+**Strong naming.** Signed, public-signed, and delay-signed inputs are detected. Re-signing is
+performed only when a key is supplied via `ClockworkStrongNamePolicy=Resign` +
+`ClockworkStrongNameKeyPath`; when re-signing is required but no key is available the build fails
+clearly. Public-key-token consistency across a rewritten dependency closure is verified. Authenticode
+signatures are detected and reported as unsupported - they are never re-applied and a rewritten
+assembly's Authenticode signature does not survive; re-sign such outputs with your own toolchain
+after instrumentation.
+
+**ReadyToRun.** R2R/native code sections are detected. The default `Reject` policy fails rather than
+emit stale native code; the opt-in `StripToIL` policy round-trips through Cecil to produce IL-only
+staged output. Because instrumentation rewrites managed IL, it must run **before** crossgen/R2R
+publish, single-file bundling, and Native AOT - instrument first, then publish.
+
+Verified end-to-end by process-execution tests (an enabled staged executable dispatches to a test
+shim while a normal one does not, across Debug/Release, symbols present/absent, config-loaded rules,
+rejected calls, incremental rebuilds, exclusions, a signed closure, and the R2R policy) and by
+package smoke tests that pack, install, and run the real targets and tool.
+
 
 ## License
 

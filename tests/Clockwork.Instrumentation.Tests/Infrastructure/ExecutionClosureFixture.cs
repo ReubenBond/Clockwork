@@ -109,7 +109,7 @@ internal sealed class ExecutionClosureFixture : IDisposable
         bool strongName = false,
         string appSource = DefaultAppSource)
     {
-        string root = Path.Combine(Path.GetTempPath(), "cwr-exec-tests", Guid.NewGuid().ToString("n"));
+        string root = TestArtifacts.CreateUnique("cwr-exec-tests");
         string source = Path.Combine(root, "app");
         string staging = Path.Combine(root, "staged");
         Directory.CreateDirectory(source);
