@@ -55,6 +55,11 @@ internal static class FixtureSources
             {
                 public int Measure() => 5;
             }
+
+            public sealed class LegacyMarker
+            {
+                public override string ToString() => "legacy";
+            }
         }
         """;
 
@@ -107,6 +112,11 @@ internal static class FixtureSources
                     Recorder.Events.Add("Reject:" + api);
                     throw new System.InvalidOperationException("Rejected: " + api);
                 }
+            }
+
+            public sealed class ModernMarker
+            {
+                public override string ToString() => "modern";
             }
         }
         """;

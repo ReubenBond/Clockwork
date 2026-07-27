@@ -76,6 +76,26 @@ internal static class CecilInspect
         return literals;
     }
 
+    /// <summary>Returns the full names of every type-reference operand in a method body.</summary>
+    public static List<string> TypeOperands(MethodDefinition method)
+    {
+        var operands = new List<string>();
+        if (!method.HasBody)
+        {
+            return operands;
+        }
+
+        foreach (Instruction instruction in method.Body.Instructions)
+        {
+            if (instruction.Operand is TypeReference reference)
+            {
+                operands.Add(reference.FullName);
+            }
+        }
+
+        return operands;
+    }
+
     /// <summary>Returns <see langword="true"/> if the assembly carries the idempotence signature marker.</summary>
     public static bool HasRewriteSignature(ModuleDefinition module) =>
         module.Assembly.CustomAttributes.Any(a => a.AttributeType.Name == "ClockworkRewriteSignatureAttribute");
