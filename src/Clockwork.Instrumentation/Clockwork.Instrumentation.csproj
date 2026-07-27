@@ -1,13 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>Future home of deterministic instrumentation: IL rewriting contracts and runtime hooks used to observe or influence scheduling decisions (e.g., for race exploration). Placeholder for now - no Mono.Cecil or rewriting logic yet.</Description>
+    <Description>Deterministic instrumentation engine (Phase 4A, internal/experimental): a generic Mono.Cecil-based IL rewrite engine - a versioned rewrite rule model, a deterministic pass pipeline, portable-PDB/sequence-point preservation, assembly-level idempotence markers, and a deterministic instrumentation manifest. This phase builds only the transformation core and its golden tests; MSBuild/CLI activation, strong-name re-signing, package workflow, and concrete BCL shims are deferred to Phase 4B. See docs/compatibility.md.</Description>
     <RootNamespace>Clockwork.Instrumentation</RootNamespace>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Clockwork.Runtime\Clockwork.Runtime.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Mono.Cecil" />
   </ItemGroup>
 
 </Project>

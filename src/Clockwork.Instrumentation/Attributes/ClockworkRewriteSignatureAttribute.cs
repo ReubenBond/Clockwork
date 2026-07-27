@@ -1,0 +1,48 @@
+namespace Clockwork.Instrumentation.Attributes;
+
+/// <summary>
+/// <para>
+/// Assembly-level marker applied by <see cref="Rewriting.RewriteEngine"/> to an assembly it has
+/// rewritten. Its presence records the engine version, the identity and version of the rule set
+/// that was applied, and a stable signature hash of that rule set (see
+/// <see cref="Rules.RewriteRuleSet.ComputeSignature"/>).
+/// </para>
+/// <para>
+/// This marker is the basis of the engine's idempotence contract (Phase 4A requirement 6): running
+/// the engine again over an already-rewritten assembly with the <em>same</em> rule-set signature is
+/// a verified no-op, while a <em>different, incompatible</em> signature fails clearly instead of
+/// double-rewriting. The engine never inspects the CLR type at runtime - it reads the attribute's
+/// stored arguments directly from assembly metadata via Mono.Cecil, so the attribute only needs to
+/// exist as metadata, not to be loaded.
+/// </para>
+/// </summary>
+[AttributeUsage(AttributeTargets.Assembly, AllowMultiple = false)]
+public sealed class ClockworkRewriteSignatureAttribute : Attribute
+{
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ClockworkRewriteSignatureAttribute"/> class.
+    /// </summary>
+    /// <param name="engineVersion">The <see cref="Rewriting.RewriteEngine"/> version that performed the rewrite.</param>
+    /// <param name="ruleSetId">The stable identity of the applied <see cref="Rules.RewriteRuleSet"/>.</param>
+    /// <param name="ruleSetVersion">The version of the applied rule set.</param>
+    /// <param name="signature">A stable content hash of the applied rule set and engine version.</param>
+    public ClockworkRewriteSignatureAttribute(string engineVersion, string ruleSetId, string ruleSetVersion, string signature)
+    {
+        EngineVersion = engineVersion;
+        RuleSetId = ruleSetId;
+        RuleSetVersion = ruleSetVersion;
+        Signature = signature;
+    }
+
+    /// <summary>Gets the engine version that performed the rewrite.</summary>
+    public string EngineVersion { get; }
+
+    /// <summary>Gets the identity of the applied rule set.</summary>
+    public string RuleSetId { get; }
+
+    /// <summary>Gets the version of the applied rule set.</summary>
+    public string RuleSetVersion { get; }
+
+    /// <summary>Gets the stable content hash of the applied rule set and engine version.</summary>
+    public string Signature { get; }
+}
