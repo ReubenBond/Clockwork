@@ -615,6 +615,47 @@ rules tabulated in the [rule inventory](docs/rule-inventory.md); see
 [compatibility](docs/compatibility.md) for the documented holes.
 
 
+## Controlled task and async rule set (Phase 6A)
+
+The second production built-in rule set, **`clockwork.tasks.controlled`** (version `1.0.0`),
+makes ordinary `async`/`await` code and the direct `Task` surface run on the simulation's single
+logical thread instead of the physical thread pool — again with no dependency injection or manual
+wiring. It is selected independently of the BCL rule set:
+
+```
+clockwork rewrite --input <dir-or-assembly> --output <dir> --builtin clockwork.tasks.controlled
+#   --builtin all   enable every shipped rule set (BCL + controlled tasks)
+```
+
+**How it works.** A member-aware substitution pass retargets the compiler-generated builder and
+awaiter types of an `async` state machine onto controlled value-type equivalents
+(`AsyncTaskMethodBuilder`(`<T>`), `TaskAwaiter`(`<T>`), `ConfiguredTaskAwaitable`(`<T>`)`/…Awaiter`,
+`YieldAwaitable`/`YieldAwaiter` → their `Controlled…` counterparts), rewriting every field, local,
+member reference, and closed-generic type operand so both Debug and Release state machines are
+controlled. The controlled awaiter hands each continuation to the simulation coordinator, so
+**`ConfigureAwait(false)` stays controlled** inside a simulation while still delegating to normal
+BCL semantics outside one. Alongside it, call-site redirects route the non-generic `Task.WhenAll`/
+`Task.WhenAny` combinators, the synchronous `Task.Wait()`/`WaitAll`/`WaitAny(Task[])` waits, and
+`Task.ContinueWith(Action<Task>)` to `Clockwork.Runtime.Tasks.ControlledTask`. Synchronous waits
+**pump the coordinator loop until completion instead of blocking a physical thread**, so they never
+deadlock the scheduler, then delegate to the real API for its exact `AggregateException` semantics.
+
+**Three-state contract.** As with the BCL rule set: outside a simulation everything is a
+transparent pass-through to the real BCL; inside a simulation continuations and waits route through
+the coordinator; inside a simulation with no registered task coordinator the shim throws
+`ControlledTaskServiceMissingException` rather than escaping to the thread pool. `Task.Delay` and
+`Task.Run` are **rejected** under simulation with a precise diagnostic rather than modelled with
+wall-clock time or an uncontrolled thread.
+
+**Deferred to Phase 6B:** `Thread`/`ThreadPool`/`Parallel`, `Monitor`/semaphore/wait-handle shims,
+timers and the `Task.Delay` implementation, cancellation timers, the generic `Task<T>` combinator
+overloads and `Task<T>.Result` redirect, `ValueTask`/`TaskCompletionSource`/`TaskFactory` rule
+coverage, cross-assembly enforcement, and exception-filter hardening. Control parity is claimed
+**only** for the exact signatures in the [rule inventory](docs/rule-inventory.md). This work adapts
+the *design* of Microsoft Coyote's controlled-task model (MIT); see
+[THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES.md) for the attribution.
+
+
 ## License
 
 Clockwork is licensed under the [MIT License](LICENSE). See
