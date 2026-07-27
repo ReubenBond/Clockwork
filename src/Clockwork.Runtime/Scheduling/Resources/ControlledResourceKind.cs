@@ -27,6 +27,12 @@ public enum ControlledResourceKind
     Monitor,
 
     /// <summary>
+    /// A kernel-style mutual exclusion mutex: one logical-strand owner at a time, reentrant for that owner.
+    /// Its ownership and abandoned-owner policy are modelled by the controlled mutex shim.
+    /// </summary>
+    Mutex,
+
+    /// <summary>
     /// A counting semaphore: <see cref="ControlledResource.CurrentCount"/> permits out of
     /// <see cref="ControlledResource.MaximumCount"/>; acquirers that find no permit wait, releasers
     /// return permits and wake waiters. No single owner concept.
