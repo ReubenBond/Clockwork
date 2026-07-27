@@ -50,9 +50,12 @@ internal static class ReplacementContractValidator
         }
 
         int replacementIndex = 0;
+        TypeReference receiverType = original.DeclaringType.IsValueType
+            ? new ByReferenceType(original.DeclaringType)
+            : original.DeclaringType;
         if (receiverCount == 1
             && !SameType(
-                original.DeclaringType,
+                receiverType,
                 original,
                 replacement.Parameters[replacementIndex++].ParameterType,
                 replacement,
@@ -161,14 +164,20 @@ internal static class ReplacementContractValidator
                 && owner is GenericInstanceMethod genericMethod
                 && parameter.Position < genericMethod.GenericArguments.Count)
             {
-                return Shape(genericMethod.GenericArguments[parameter.Position], owner);
+                TypeReference argument = genericMethod.GenericArguments[parameter.Position];
+                return IsSameGenericParameter(parameter, argument)
+                    ? "!!" + parameter.Position
+                    : Shape(argument, owner);
             }
 
             if (parameter.Type == GenericParameterType.Type
                 && owner.DeclaringType is GenericInstanceType genericType
                 && parameter.Position < genericType.GenericArguments.Count)
             {
-                return Shape(genericType.GenericArguments[parameter.Position], owner);
+                TypeReference argument = genericType.GenericArguments[parameter.Position];
+                return IsSameGenericParameter(parameter, argument)
+                    ? "!" + parameter.Position
+                    : Shape(argument, owner);
             }
 
             return (parameter.Type == GenericParameterType.Method ? "!!" : "!") + parameter.Position;
@@ -189,6 +198,48 @@ internal static class ReplacementContractValidator
             _ => type.FullName,
         };
     }
+
+    public static TypeReference InflateType(TypeReference type, MethodReference owner)
+    {
+        if (type is GenericParameter parameter)
+        {
+            if (parameter.Type == GenericParameterType.Method
+                && owner is GenericInstanceMethod genericMethod
+                && parameter.Position < genericMethod.GenericArguments.Count)
+            {
+                TypeReference argument = genericMethod.GenericArguments[parameter.Position];
+                return IsSameGenericParameter(parameter, argument) ? type : InflateType(argument, owner);
+            }
+
+            if (parameter.Type == GenericParameterType.Type
+                && owner.DeclaringType is GenericInstanceType genericType
+                && parameter.Position < genericType.GenericArguments.Count)
+            {
+                TypeReference argument = genericType.GenericArguments[parameter.Position];
+                return IsSameGenericParameter(parameter, argument) ? type : InflateType(argument, owner);
+            }
+
+            return type;
+        }
+
+        if (type is GenericInstanceType generic)
+        {
+            var inflated = new GenericInstanceType(generic.ElementType);
+            foreach (TypeReference argument in generic.GenericArguments)
+            {
+                inflated.GenericArguments.Add(InflateType(argument, owner));
+            }
+
+            return inflated;
+        }
+
+        return type;
+    }
+
+    private static bool IsSameGenericParameter(GenericParameter parameter, TypeReference argument) =>
+        argument is GenericParameter other
+        && other.Type == parameter.Type
+        && other.Position == parameter.Position;
 
     private static bool Success(out string? error)
     {

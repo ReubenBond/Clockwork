@@ -78,7 +78,10 @@ public sealed class NondeterministicApiAnalyzer : DiagnosticAnalyzer
             ReportControlled(context, operation.Syntax.GetLocation(), type.Name + "." + property.Name, ruleId);
         }
         else if (known.TryGetMetadataName(type, out string typeName)
-            && InstrumentedApiInventory.Contains(typeName, property.Name))
+            && InstrumentedApiInventory.Contains(typeName, property.Name)
+            && (typeName != "System.Threading.Thread"
+                || property.Name != "Priority"
+                || IsPropertyWrite(operation)))
         {
             ReportControlled(
                 context,
@@ -86,7 +89,17 @@ public sealed class NondeterministicApiAnalyzer : DiagnosticAnalyzer
                 type.Name + "." + property.Name,
                 "clockwork.tasks.controlled");
         }
+
     }
+
+    private static bool IsPropertyWrite(IPropertyReferenceOperation operation) =>
+        operation.Parent switch
+        {
+            ISimpleAssignmentOperation assignment => ReferenceEquals(assignment.Target, operation),
+            ICompoundAssignmentOperation assignment => ReferenceEquals(assignment.Target, operation),
+            IIncrementOrDecrementOperation increment => ReferenceEquals(increment.Target, operation),
+            _ => false,
+        };
 
     private static void AnalyzeInvocation(OperationAnalysisContext context, KnownTypes known)
     {

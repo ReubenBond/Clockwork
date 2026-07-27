@@ -1,5 +1,6 @@
 using Clockwork.Instrumentation.Diagnostics;
 using Clockwork.Instrumentation.Rewriting;
+using Clockwork.Instrumentation.Rules;
 using Clockwork.Instrumentation.Tests.Infrastructure;
 using Mono.Cecil;
 
@@ -123,5 +124,16 @@ public sealed class IdempotenceGoldenTests
         var second = new RewriteOptions { ExcludedTypeFullNames = ["Fx.A", "Fx.B"] };
 
         Assert.Equal(first.ComputeSemanticFingerprint(), second.ComputeSemanticFingerprint());
+    }
+
+    [Fact]
+    public void PassThroughReasonChangesRuleSetSignature()
+    {
+        RewriteRule firstRule = RewriteTestContext.StandardRuleSet().Rules[0] with { Description = "first reason" };
+        RewriteRule secondRule = firstRule with { Description = "second reason" };
+
+        Assert.NotEqual(
+            new RewriteRuleSet("r", "1", [firstRule]).ComputeSignature(),
+            new RewriteRuleSet("r", "1", [secondRule]).ComputeSignature());
     }
 }

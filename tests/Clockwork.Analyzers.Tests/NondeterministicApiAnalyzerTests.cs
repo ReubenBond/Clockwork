@@ -62,6 +62,7 @@ public sealed class NondeterministicApiAnalyzerTests
     [InlineData("_ = new System.DateTime(2024, 1, 1);")]
     [InlineData("_ = System.Guid.Empty;")]
     [InlineData("var r = new System.Random(1); _ = r.Next();")]
+    [InlineData("_ = System.Threading.Thread.CurrentThread.Priority;")]
     public async Task DoesNotOverReportSafeUsage(string statement)
     {
         ImmutableArray<Diagnostic> diagnostics = await AnalyzeAsync(Wrap(statement));
@@ -69,6 +70,18 @@ public sealed class NondeterministicApiAnalyzerTests
         // At most a single controlled diagnostic (e.g. DateTime.Now / new Random(int)); never a crypto report.
         Assert.DoesNotContain(diagnostics, d => d.Id == "CW1002");
         Assert.True(diagnostics.Length <= 1);
+    }
+
+    [Fact]
+    public async Task ThreadPrioritySetterRequiresInstrumentationButGetterDoesNot()
+    {
+        ImmutableArray<Diagnostic> diagnostics = await AnalyzeAsync(Wrap(
+            "var thread = System.Threading.Thread.CurrentThread; " +
+            "_ = thread.Priority; " +
+            "thread.Priority = System.Threading.ThreadPriority.AboveNormal;"));
+
+        Diagnostic diagnostic = Assert.Single(diagnostics);
+        Assert.Equal("CW1001", diagnostic.Id);
     }
 
     [Fact]

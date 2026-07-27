@@ -118,6 +118,10 @@ internal static class FixtureSources
                     return value;
                 }
 
+                public static T WrapGeneric<T>(T value) => value;
+
+                public static int GetProbe(ref StructProbe probe) => probe.Probe();
+
                 public static int WrapMeasure(int value)
                 {
                     Recorder.Events.Add("WrapMeasure");

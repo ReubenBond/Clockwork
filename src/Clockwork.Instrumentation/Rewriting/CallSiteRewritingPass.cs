@@ -91,7 +91,8 @@ internal sealed class CallSiteRewritingPass : RewritePass
         if (definition.HasGenericParameters && definition.GenericParameters.Count == 1)
         {
             var generic = new GenericInstanceMethod(open);
-            generic.GenericArguments.Add(Session.TargetModule.ImportReference(method.ReturnType));
+            TypeReference returnType = ReplacementContractValidator.InflateType(method.ReturnType, method);
+            generic.GenericArguments.Add(Session.TargetModule.ImportReference(returnType));
             wrapper = generic;
         }
         else if (definition.GenericParameters.Count > 1)

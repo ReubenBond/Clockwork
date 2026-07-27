@@ -100,6 +100,34 @@ public sealed class CallSiteRewriteGoldenTests
     }
 
     [Fact]
+    public void GenericPostCallWrapperInflatesTheConcreteReturnType()
+    {
+        using var context = RewriteTestContext.Create();
+        string fixturePath = context.CompileFixture("Fx.GenericWrap", BasicFixture);
+        var ruleSet = new RewriteRuleSet(
+            "clockwork.generic-wrapper",
+            "1.0",
+            [
+                RewriteRule.WrapAfterCall(
+                    "wrap-generic",
+                    new MemberSignature("ClockworkFixtures.Api.GenericOps", "Echo"),
+                    RewriteReplacement.Method(
+                        FixtureSources.ShimAssemblyName,
+                        "ClockworkFixtures.Shims.ClockShim",
+                        "WrapGeneric")),
+            ]);
+
+        context.Rewrite(fixturePath, ruleSet).EnsureSuccess();
+
+        using ModuleDefinition module = context.LoadModule(
+            Path.Combine(context.Directory, "Fx.GenericWrap.rewritten.dll"));
+        MethodDefinition generic = CecilInspect.GetMethod(module, "Fx.Basic", "Gen");
+        Assert.Contains(
+            CecilInspect.CallTargets(generic),
+            target => target.Contains("WrapGeneric<System.Int32>", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void PostCallWrapperIsInsertedAfterOriginalCall()
     {
         using var context = RewriteTestContext.Create();

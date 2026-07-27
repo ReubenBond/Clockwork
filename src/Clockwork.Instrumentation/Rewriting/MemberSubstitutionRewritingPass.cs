@@ -85,6 +85,11 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
     /// <inheritdoc/>
     protected override Instruction VisitInstruction(Instruction instruction)
     {
+        if (TryRecordPassThrough(instruction))
+        {
+            return instruction;
+        }
+
         if (!IsActive)
         {
             return instruction;
@@ -111,6 +116,37 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
             default:
                 return instruction;
         }
+    }
+
+    private bool TryRecordPassThrough(Instruction instruction)
+    {
+        TypeReference? targetType = instruction.Operand switch
+        {
+            MethodReference method => method.DeclaringType,
+            FieldReference field => field.DeclaringType,
+            _ => null,
+        };
+        if (targetType is null
+            || !Session.Matcher.TryMatchType(targetType, out RewriteRule rule)
+            || rule.Policy != SimulationApiPolicy.PassThrough)
+        {
+            return false;
+        }
+
+        RewriteSession.TryGetSequencePoint(Method!, instruction, out string? file, out int line);
+        Session.AddTransformation(new ManifestTransformation(
+            rule.Id,
+            rule.Operation,
+            TransformationOutcome.PassedThrough,
+            rule.Policy,
+            rule.Target.ToCanonicalString(),
+            null,
+            CecilNames.FullyQualifiedMethodName(Method!),
+            instruction.Offset,
+            file,
+            line,
+            rule.Description ?? "Explicit PassThrough policy."));
+        return true;
     }
 
     private Instruction VisitMethodOperand(Instruction instruction, MethodReference method)

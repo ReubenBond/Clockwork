@@ -129,4 +129,47 @@ public sealed class ReplacementContractGoldenTests
         Assert.False(File.Exists(outputPath));
         Assert.Contains(result.Errors, diagnostic => diagnostic.Id == expectedDiagnostic);
     }
+
+    [Fact]
+    public void ValueTypeInstanceReceiverRequiresManagedPointerReplacement()
+    {
+        const string source = """
+            using ClockworkFixtures.Api;
+            namespace Fx
+            {
+                public static class ValueReceiver
+                {
+                    public static int Run()
+                    {
+                        var value = new StructProbe { N = 3 };
+                        return value.Probe();
+                    }
+                }
+            }
+            """;
+        using var context = RewriteTestContext.Create();
+        string fixturePath = context.CompileFixture("Fx.ValueReceiver", source);
+        var ruleSet = new RewriteRuleSet(
+            "clockwork.value-receiver",
+            "1.0",
+            [
+                RewriteRule.RedirectCall(
+                    "value-receiver",
+                    MemberSignature.Method("ClockworkFixtures.Api.StructProbe", "Probe"),
+                    RewriteReplacement.Method(
+                        FixtureSources.ShimAssemblyName,
+                        "ClockworkFixtures.Shims.ClockShim",
+                        "GetProbe",
+                        "ClockworkFixtures.Api.StructProbe&")),
+            ]);
+
+        RewriteResult result = context.Rewrite(fixturePath, ruleSet);
+
+        result.EnsureSuccess();
+        using Mono.Cecil.ModuleDefinition module = context.LoadModule(
+            Path.Combine(context.Directory, "Fx.ValueReceiver.rewritten.dll"));
+        Assert.True(CecilInspect.CallsAnyContaining(
+            CecilInspect.GetMethod(module, "Fx.ValueReceiver", "Run"),
+            "ClockShim::GetProbe"));
+    }
 }
