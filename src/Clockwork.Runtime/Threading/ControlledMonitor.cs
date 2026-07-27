@@ -34,8 +34,9 @@ namespace Clockwork.Runtime.Threading;
 /// This mirrors Microsoft Coyote's controlled <c>Monitor</c>
 /// (<c>Microsoft.Coyote.Rewriting.Types.Threading.Monitor</c>, MIT-licensed); Coyote schedules real
 /// threads against a synchronized resource, whereas Clockwork tracks ownership against the cooperative
-/// logical strand. The observable mutual-exclusion and signalling semantics are the same. The finite
-/// positive timeout deviation is documented in <c>docs/compatibility.md</c>.
+/// logical strand. The observable mutual-exclusion and signalling semantics are the same. Finite
+/// timeouts use the deterministic virtual-time deadline engine (a timed wait is paused until a modelled
+/// instant, never real time), so <c>TryEnter</c>/<c>Wait</c> return on the simulated deadline.
 /// </para>
 /// </summary>
 public static class ControlledMonitor
@@ -64,6 +65,11 @@ public static class ControlledMonitor
     private sealed class Waiter
     {
         public bool Pulsed;
+
+        // Set when a finite Monitor.Wait's virtual-time deadline elapses before a pulse selected it. A
+        // timed-out waiter is no longer eligible for Pulse/PulseAll (the pulse must not be consumed by a
+        // waiter that has already given up), yet it still reacquires the monitor before Wait returns false.
+        public bool TimedOut;
 
         public int SavedRecursion;
     }
@@ -182,7 +188,7 @@ public static class ControlledMonitor
 
     /// <summary>Controlled <see cref="Monitor.TryEnter(object, int)"/>.</summary>
     /// <param name="obj">The lock object.</param>
-    /// <param name="millisecondsTimeout">Zero for a non-blocking try; -1 (infinite) or a finite positive value to block. Finite positive timeouts are modelled as infinite inside a simulation (virtual-time timeouts are Phase 8).</param>
+    /// <param name="millisecondsTimeout">Zero for a non-blocking try; -1 (infinite) blocks indefinitely; a finite positive value blocks until acquisition or the simulated deadline.</param>
     /// <returns><see langword="true"/> if the lock was acquired.</returns>
     public static bool TryEnter(object obj, int millisecondsTimeout)
     {
@@ -198,8 +204,13 @@ public static class ControlledMonitor
             return TryAcquireControlled(obj);
         }
 
-        AcquireControlled(obj);
-        return true;
+        if (millisecondsTimeout == Timeout.Infinite)
+        {
+            AcquireControlled(obj);
+            return true;
+        }
+
+        return AcquireControlledWithTimeout(obj, millisecondsTimeout);
     }
 
     /// <summary>Controlled <see cref="Monitor.TryEnter(object, int, ref bool)"/>.</summary>
@@ -227,8 +238,14 @@ public static class ControlledMonitor
             return;
         }
 
-        AcquireControlled(obj);
-        lockTaken = true;
+        if (millisecondsTimeout == Timeout.Infinite)
+        {
+            AcquireControlled(obj);
+            lockTaken = true;
+            return;
+        }
+
+        lockTaken = AcquireControlledWithTimeout(obj, millisecondsTimeout);
     }
 
     /// <summary>Controlled <see cref="Monitor.TryEnter(object, TimeSpan)"/>.</summary>
@@ -261,7 +278,7 @@ public static class ControlledMonitor
 
     /// <summary>Controlled <see cref="Monitor.Wait(object, int)"/>.</summary>
     /// <param name="obj">The lock object; the current strand must own it.</param>
-    /// <param name="millisecondsTimeout">Zero returns immediately without parking; -1 or a finite positive value parks until pulsed (finite positive is modelled as infinite; virtual-time timeouts are Phase 8).</param>
+    /// <param name="millisecondsTimeout">Zero returns immediately without parking; -1 parks until pulsed; a finite positive value parks until pulsed or the simulated deadline elapses.</param>
     /// <returns><see langword="true"/> when the monitor was reacquired after a pulse; <see langword="false"/> for a zero timeout with no pending pulse.</returns>
     public static bool Wait(object obj, int millisecondsTimeout)
     {
@@ -323,11 +340,11 @@ public static class ControlledMonitor
         for (var i = 0; i < state.WaitSet.Count; i++)
         {
             var waiter = state.WaitSet[i];
-            if (!waiter.Pulsed)
+            if (!waiter.Pulsed && !waiter.TimedOut)
             {
-                // Move the front un-pulsed waiter to the ready set. It reacquires (restoring its full
-                // recursion) once this owner releases the lock; a pulse with no waiter is a no-op, so no
-                // signal is ever lost or stored.
+                // Move the front un-pulsed, not-yet-timed-out waiter to the ready set. It reacquires
+                // (restoring its full recursion) once this owner releases the lock; a pulse with no eligible
+                // waiter is a no-op, so no signal is ever lost or stored.
                 waiter.Pulsed = true;
                 break;
             }
@@ -349,7 +366,10 @@ public static class ControlledMonitor
         RequireOwnership(state, "Monitor.PulseAll");
         foreach (var waiter in state.WaitSet)
         {
-            waiter.Pulsed = true;
+            if (!waiter.TimedOut)
+            {
+                waiter.Pulsed = true;
+            }
         }
     }
 
@@ -384,6 +404,27 @@ public static class ControlledMonitor
             state.Owner = me;
             state.Recursion = savedRecursion;
             return false;
+        }
+
+        if (millisecondsTimeout != Timeout.Infinite)
+        {
+            // Finite wait: park until pulsed or the deterministic virtual-time deadline elapses, then
+            // reacquire the monitor before returning either way (Wait must always re-own on return). The
+            // deadline fires only when no other work can run at the current modelled instant, so a pulse
+            // that is possible now always wins over the timeout - the first-winner policy. A timed-out
+            // waiter is no longer pulse-eligible, so a late pulse is not consumed by a waiter that gave up.
+            var deadline = ControlledTaskRuntime.RegisterTimeout(
+                TimeSpan.FromMilliseconds(millisecondsTimeout),
+                onElapsed: () => waiter.TimedOut = true,
+                WaitApi);
+            ControlledTaskRuntime.DrainUntil(
+                () => (waiter.Pulsed || waiter.TimedOut) && state.Owner == Unowned,
+                WaitApi);
+            deadline.Cancel();
+            state.WaitSet.Remove(waiter);
+            state.Owner = me;
+            state.Recursion = savedRecursion;
+            return waiter.Pulsed;
         }
 
         // Park until pulsed and the lock is free. Reacquisition sets ownership synchronously, so at most
@@ -422,6 +463,49 @@ public static class ControlledMonitor
         ControlledTaskRuntime.DrainUntil(() => state.Owner == Unowned, EnterApi);
         state.Owner = me;
         state.Recursion = 1;
+    }
+
+    /// <summary>
+    /// Acquires the monitor for the current strand, blocking cooperatively until it is free or a
+    /// deterministic virtual-time deadline elapses. A reentrant acquire by the owner succeeds immediately.
+    /// The deadline only elapses when no other work can run at the current modelled instant, so a release
+    /// that is possible now always wins over the timeout - the deterministic first-winner policy.
+    /// </summary>
+    /// <returns><see langword="true"/> if the lock was acquired before the deadline; otherwise <see langword="false"/>.</returns>
+    private static bool AcquireControlledWithTimeout(object obj, int millisecondsTimeout)
+    {
+        var state = StateOf(obj);
+        var me = ControlledSynchronizationFlow.CurrentId;
+        if (state.Owner == me)
+        {
+            state.Recursion++;
+            return true;
+        }
+
+        if (state.Owner == Unowned)
+        {
+            state.Owner = me;
+            state.Recursion = 1;
+            return true;
+        }
+
+        var deadline = ControlledTaskRuntime.RegisterTimeout(
+            TimeSpan.FromMilliseconds(millisecondsTimeout),
+            onElapsed: null,
+            TryEnterApi);
+        ControlledTaskRuntime.DrainUntil(() => state.Owner == Unowned || deadline.IsElapsed, TryEnterApi);
+
+        // Acquisition wins over the timeout whenever the lock is free: the loop only fires the deadline when
+        // nothing else could run, so a release at the current instant is observed first.
+        if (state.Owner == Unowned)
+        {
+            deadline.Cancel();
+            state.Owner = me;
+            state.Recursion = 1;
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>
