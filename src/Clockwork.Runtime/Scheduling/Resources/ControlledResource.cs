@@ -39,12 +39,16 @@ public sealed class ControlledResource
     // by reference, so iteration order is always deterministic enqueue order.
     private readonly List<ControlledResourceWaiter> _waiters = [];
 
-    internal ControlledResource(ControlledResourceId id, ControlledResourceKind kind, string name)
+    internal ControlledResource(ControlledOperationScheduler scheduler, ControlledResourceId id, ControlledResourceKind kind, string name)
     {
+        Scheduler = scheduler;
         Id = id;
         Kind = kind;
         Name = name;
     }
+
+    /// <summary>Gets the scheduler that owns this resource.</summary>
+    internal ControlledOperationScheduler Scheduler { get; }
 
     /// <summary>Gets this resource's stable, scheduler-assigned identity.</summary>
     public ControlledResourceId Id { get; }

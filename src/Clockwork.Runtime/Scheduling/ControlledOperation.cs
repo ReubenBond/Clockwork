@@ -127,6 +127,14 @@ public sealed class ControlledOperation
     /// <summary>The physical thread carrying this operation, created lazily when first granted the baton.</summary>
     internal Thread? Thread { get; set; }
 
+    /// <summary>
+    /// The resource waiter this operation is currently parked on, or <see langword="null"/> when the
+    /// operation is not waiting on a resource. Set by the scheduler when the operation pauses onto a
+    /// resource and cleared when the wait resolves; it is how the scheduler resolves a wakeup back to
+    /// the right waiter and how the wait-for graph discovers what an operation is blocked on.
+    /// </summary>
+    internal Scheduling.Resources.ControlledResourceWaiter? Waiter { get; set; }
+
     /// <summary>The caller's captured execution context, restored on the operation thread so ambient flows in.</summary>
     internal ExecutionContext? CapturedContext { get; }
 

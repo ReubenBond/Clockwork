@@ -57,6 +57,7 @@ public sealed class ControlledOperationScheduler : IDisposable
 
     private long _nextOperationId;
     private long _nextResourceId;
+    private long _nextWaiterSequence;
     private ControlledOperationId _lastSelected = ControlledOperationId.None;
     private ControlledOperation? _current;
     private int _controlThreadId;
@@ -205,7 +206,7 @@ public sealed class ControlledOperationScheduler : IDisposable
         {
             ThrowIfDisposed();
             var id = new ControlledResourceId(++_nextResourceId);
-            var resource = new ControlledResource(id, kind, name);
+            var resource = new ControlledResource(this, id, kind, name);
             _resources.Add(id, resource);
             return resource;
         }
@@ -372,6 +373,7 @@ public sealed class ControlledOperationScheduler : IDisposable
             }
 
             operation.RequestTermination();
+            DetachWaiterUnderLock(operation);
             operation.ApplyTransition(ControlledOperationState.Canceled);
             needsUnwind = operation.Thread is not null;
         }
@@ -419,6 +421,191 @@ public sealed class ControlledOperationScheduler : IDisposable
 
         Notify(operation, ControlledOperationState.Runnable);
         HandBackAndPark(operation);
+    }
+
+    /// <summary>
+    /// <para>
+    /// Blocks the calling operation on <paramref name="resource"/> until another operation signals it
+    /// (see <see cref="SignalOne"/>/<see cref="SignalAll"/>). This is the reusable wait primitive the
+    /// later <c>Monitor</c>/<c>SemaphoreSlim</c>/wait-handle/synchronous-<c>Task</c>-wait shims are
+    /// built on; this overload waits indefinitely (an infinite timeout, no cancellation).
+    /// </para>
+    /// <para>
+    /// The transition is atomic under the scheduler lock: the operation is enqueued onto the
+    /// resource's deterministic FIFO wait queue and moved <c>Running -&gt; Paused</c> in one critical
+    /// section before the baton is yielded, so a signal delivered by the very next operation cannot be
+    /// lost. An operation can be parked on at most one resource at a time (it is paused), which is why
+    /// duplicate queue entries are impossible; a resolved waiter is skipped by every subsequent signal,
+    /// which is why stale wakeups cannot occur.
+    /// </para>
+    /// </summary>
+    /// <param name="resource">The resource to wait on. Must belong to this scheduler.</param>
+    /// <param name="reason">The stable pause reason recorded for diagnostics and the wait-for graph.</param>
+    /// <returns>
+    /// The outcome of the wait. For this overload that is always <see cref="ControlledWaitOutcome.Signaled"/>
+    /// - the wait only ends when the operation is signaled.
+    /// </returns>
+    public ControlledWaitOutcome WaitOnResource(ControlledResource resource, ControlledOperationPauseReason reason)
+    {
+        ArgumentNullException.ThrowIfNull(resource);
+        ArgumentNullException.ThrowIfNull(reason);
+        ValidateResourceOwnership(resource);
+        var operation = RequireCurrentOperation();
+
+        ControlledResourceWaiter waiter;
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            waiter = new ControlledResourceWaiter(operation, resource, ++_nextWaiterSequence, reason);
+            resource.EnqueueWaiter(waiter);
+            operation.Waiter = waiter;
+            operation.ApplyTransition(ControlledOperationState.Paused, pauseReason: reason);
+        }
+
+        Notify(operation, ControlledOperationState.Paused);
+        HandBackAndPark(operation);
+
+        return FinishWait(operation, waiter);
+    }
+
+    /// <summary>
+    /// Wakes the earliest-enqueued unresolved waiter on <paramref name="resource"/> (deterministic
+    /// FIFO order), resolving it as <see cref="ControlledWaitOutcome.Signaled"/> and transitioning its
+    /// operation back to <see cref="ControlledOperationState.Runnable"/>. This is the building block a
+    /// monitor pulse / semaphore release / auto-reset-event set is composed from. Safe to call from a
+    /// running operation body or the controlling thread.
+    /// </summary>
+    /// <param name="resource">The resource to signal. Must belong to this scheduler.</param>
+    /// <returns>The operation that was woken, or <see langword="null"/> if no waiter was pending.</returns>
+    public ControlledOperation? SignalOne(ControlledResource resource)
+    {
+        ArgumentNullException.ThrowIfNull(resource);
+        ValidateResourceOwnership(resource);
+
+        ControlledOperation? woken = null;
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            var next = resource.PeekNextPending();
+            if (next is not null && next.TryResolve(ControlledWaitOutcome.Signaled))
+            {
+                DisposeWaiterRegistrations(next);
+                resource.RemoveWaiter(next);
+                next.Operation.ApplyTransition(ControlledOperationState.Runnable);
+                woken = next.Operation;
+            }
+        }
+
+        if (woken is not null)
+        {
+            Notify(woken, ControlledOperationState.Runnable);
+        }
+
+        return woken;
+    }
+
+    /// <summary>
+    /// Wakes every unresolved waiter on <paramref name="resource"/>, in deterministic FIFO order,
+    /// resolving each as <see cref="ControlledWaitOutcome.Signaled"/> and making its operation
+    /// runnable. This is the building block a monitor <c>PulseAll</c> / manual-reset-event set is
+    /// composed from.
+    /// </summary>
+    /// <param name="resource">The resource to signal. Must belong to this scheduler.</param>
+    /// <returns>The woken operations, in the deterministic order they were signaled.</returns>
+    public IReadOnlyList<ControlledOperation> SignalAll(ControlledResource resource)
+    {
+        ArgumentNullException.ThrowIfNull(resource);
+        ValidateResourceOwnership(resource);
+
+        List<ControlledOperation> woken = [];
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            foreach (var waiter in resource.SnapshotPendingWaiters())
+            {
+                if (waiter.TryResolve(ControlledWaitOutcome.Signaled))
+                {
+                    DisposeWaiterRegistrations(waiter);
+                    resource.RemoveWaiter(waiter);
+                    waiter.Operation.ApplyTransition(ControlledOperationState.Runnable);
+                    woken.Add(waiter.Operation);
+                }
+            }
+        }
+
+        foreach (var operation in woken)
+        {
+            Notify(operation, ControlledOperationState.Runnable);
+        }
+
+        return woken;
+    }
+
+    /// <summary>
+    /// Completes a wait once the operation has been granted the baton again: reads the deterministic
+    /// resolution assigned while it was parked, detaches the waiter from the resource and the
+    /// operation, and returns the outcome. The resolution is always present here because an operation
+    /// is only ever made runnable again after its waiter has been resolved.
+    /// </summary>
+    private ControlledWaitOutcome FinishWait(ControlledOperation operation, ControlledResourceWaiter waiter)
+    {
+        lock (_gate)
+        {
+            var resolution = waiter.Resolution ?? throw new ControlledOperationException(
+                string.Create(CultureInfo.InvariantCulture, $"Controlled operation {operation.Id} resumed from a resource wait with no resolution recorded."));
+            waiter.Resource.RemoveWaiter(waiter);
+            if (ReferenceEquals(operation.Waiter, waiter))
+            {
+                operation.Waiter = null;
+            }
+
+            return resolution;
+        }
+    }
+
+    /// <summary>
+    /// Detaches a paused operation's waiter (if any) during cancellation/teardown: resolves it as
+    /// <see cref="ControlledWaitOutcome.Canceled"/> so a later signal never tries to wake a terminal
+    /// operation, disposes its timeout/cancellation registrations, removes it from the resource queue,
+    /// and clears the operation's waiter slot. Caller must hold the lock.
+    /// </summary>
+    private static void DetachWaiterUnderLock(ControlledOperation operation)
+    {
+        var waiter = operation.Waiter;
+        if (waiter is null)
+        {
+            return;
+        }
+
+        waiter.TryResolve(ControlledWaitOutcome.Canceled);
+        DisposeWaiterRegistrations(waiter);
+        waiter.Resource.RemoveWaiter(waiter);
+        operation.Waiter = null;
+    }
+
+    /// <summary>
+    /// Releases the timeout and cancellation registrations attached to a waiter so no virtual-time
+    /// item or cancellation callback outlives the wait. A no-op for waits that had neither. Timeout
+    /// and cancellation wiring are added in later Phase 3B increments; this is the single release point
+    /// they hook into.
+    /// </summary>
+    private static void DisposeWaiterRegistrations(ControlledResourceWaiter waiter)
+    {
+        if (waiter.Timeout is { } timeout)
+        {
+            timeout.IsCanceled = true;
+        }
+
+        waiter.CancellationRegistration.Dispose();
+        waiter.CancellationRegistration = default;
+    }
+
+    private void ValidateResourceOwnership(ControlledResource resource)
+    {
+        if (!ReferenceEquals(resource.Scheduler, this))
+        {
+            throw new ControlledOperationException("The resource belongs to a different scheduler.");
+        }
     }
 
     /// <summary>
@@ -496,6 +683,10 @@ public sealed class ControlledOperationScheduler : IDisposable
                 }
 
                 operation.RequestTermination();
+
+                // Detach any resource wait first so a resolved-Canceled waiter is removed from its
+                // resource queue and never wakes a terminal operation.
+                DetachWaiterUnderLock(operation);
 
                 // Force every non-terminal operation to Canceled. Running is not expected here
                 // because Dispose must not race an in-flight step; the Created/Runnable/Paused ->
