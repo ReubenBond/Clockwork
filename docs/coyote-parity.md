@@ -218,9 +218,11 @@ releases); `Wait` atomically releases the **full** recursion count, parks in the
 re-acquires the same count after being pulsed; `Pulse` moves one waiter (and `PulseAll` all waiters) to
 the ready set with arrival-ordered, replayable scheduling (no lost pulses). Ownership/argument/timeout
 errors throw exactly as the BCL (`SynchronizationLockException`, `ArgumentNullException`,
-`ArgumentOutOfRangeException`). **Deviations:** zero timeouts are faithful non-blocking tries; a finite
-positive timeout is modelled as an infinite wait (virtual-time timeouts are Phase 8); a never-satisfiable
-acquire or wait surfaces as the loop-model `ControlledSynchronousWaitDeadlockException`. Monitor
+`ArgumentOutOfRangeException`). **Timeouts:** zero timeouts are faithful non-blocking tries; a finite
+positive timeout waits until acquisition/signal or a **simulated** deadline (driven by the cluster clock)
+and then returns/sets `false` — a same-instant pulse or release beats the timeout, and the finite wait is
+`PausedUntilTime`, never a deadlock edge; an infinite / never-satisfiable acquire or wait surfaces as the
+loop-model `ControlledSynchronousWaitDeadlockException`. Monitor
 associations are held in a `ConditionalWeakTable` (weak keys) so lock objects are never kept alive.
 
 ---
@@ -241,7 +243,7 @@ onto the controlled monitor kernel (verified for both Debug and Release lowering
 | `new Lock()`, `Enter()`, `Exit()`, `EnterScope()`, `TryEnter()`, `TryEnter(int)`, `TryEnter(TimeSpan)`, `IsHeldByCurrentThread`, `Scope.Dispose()` | ✅ Controlled | reached through the two type substitutions above |
 
 **Semantics:** identical to the controlled `Monitor` (ownership, reentrancy, contended-acquire pumping,
-finite-timeout-as-infinite deviation). No member of `System.Threading.Lock` needs a rejection — the whole
+finite virtual-time timeouts). No member of `System.Threading.Lock` needs a rejection — the whole
 surface is safely representable by type substitution.
 
 ---
@@ -279,9 +281,11 @@ constructors redirect to `Create` factories and every instance member is a recei
 returns a task completed when a permit is released (driven by the controlled awaiter when awaited);
 `Release` enforces the maximum count (`SemaphoreFullException`) and serves waiters in a deterministic,
 replayable FIFO order (matching arrival, not promising BCL fairness); cancellation is honoured
-synchronously on the logical thread (`OperationCanceledException`). **Deviations:** zero timeouts are
-faithful non-blocking tries; a finite positive timeout is modelled as infinite (virtual-time timeouts are
-Phase 8); a never-satisfiable `Wait` surfaces as the loop-model deadlock diagnostic.
+synchronously on the logical thread (`OperationCanceledException`). **Timeouts:** zero timeouts are
+faithful non-blocking tries; a finite positive timeout (sync `Wait` or async `WaitAsync`) completes with
+`false` on a **simulated** deadline driven by the cluster clock — a same-instant release or cancellation
+wins over the timeout (Phase 3B first-winner), no wall-clock time is used; a never-satisfiable *infinite*
+`Wait` surfaces as the loop-model deadlock diagnostic.
 
 ---
 

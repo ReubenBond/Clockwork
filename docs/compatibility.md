@@ -484,15 +484,22 @@ scope lowering (`EnterScope`/`Scope.Dispose`) as well as the explicit
 constructors, `CurrentCount`, the synchronous `Wait` overloads, the asynchronous `WaitAsync` overloads,
 `Release`, and `Dispose`, enforcing the maximum count and serving waiters in deterministic FIFO order.
 
-**Deliberate deviations from real BCL semantics** (documented here, tested, and revisited when the
-virtual-timer and physical-gate backends land):
+**Finite positive timeouts are honoured exactly in virtual time.** `Monitor.TryEnter(obj, 250)`,
+`Monitor.Wait(obj, 250)`, `Lock.TryEnter(250)`, `SemaphoreSlim.Wait(250)`, and `SemaphoreSlim.WaitAsync(250)`
+wait until acquisition/signal or a **simulated** deadline, then return/set `false` on timeout — never
+consuming wall-clock time. Zero timeouts stay faithful non-blocking tries and infinite timeouts stay
+indefinite. The deadline is a `PausedUntilTime` state driven by the cluster clock, so it is *not* a
+deadlock cycle edge; advancing the cluster clock fires it. Because modelled time only advances when
+nothing else is runnable, any release, pulse, or cancellation possible at the current instant beats a
+same-instant timeout (Phase 3B's deterministic first-winner policy), and ties between two deadlines at
+the same instant resolve by registration order. Cancellation is honoured faithfully — a
+`CancellationToken` fires synchronously on the logical thread and throws `OperationCanceledException`.
 
-- **Finite positive timeouts are modelled as infinite under simulation.** `Monitor.TryEnter(obj, 250)`,
-  `Monitor.Wait(obj, 250)`, `Lock.TryEnter(250)`, and `SemaphoreSlim.Wait(250)` block as though the
-  timeout were `Timeout.Infinite`. Only **zero** timeouts (a faithful non-blocking try) and **infinite**
-  timeouts are honoured exactly; a real finite virtual-time timeout is owned by **Phase 8**. Cancellation
-  is honoured faithfully — a `CancellationToken` fires synchronously on the logical thread.
-- **A never-satisfiable acquire or wait surfaces as a deadlock diagnostic, not a hang.** Instead of
+**Deliberate deviations from real BCL semantics** (documented here, tested, and revisited when the
+physical-gate backend lands):
+
+- **A never-satisfiable acquire or *indefinite* wait surfaces as a deadlock diagnostic, not a hang.**
+  A finite wait times out (above); an infinite one with no possible progress is reported. Instead of
   blocking a physical thread forever, an unsatisfiable contended `Enter`, `Monitor.Wait`, or
   `SemaphoreSlim.Wait` throws the loop-model `ControlledSynchronousWaitDeadlockException`. One
   consequence: a `Monitor.Wait` that deadlocks has already released the monitor to wait, so a
