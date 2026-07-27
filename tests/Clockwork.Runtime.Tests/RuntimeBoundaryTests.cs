@@ -1,9 +1,9 @@
 namespace Clockwork.Runtime.Tests;
 
-public sealed class RuntimeScaffoldTests
+public sealed class RuntimeBoundaryTests
 {
     [Fact]
-    public void RuntimeAssemblyIsNamedForItsFuturePackage()
+    public void RuntimeAssemblyHasExpectedName()
     {
         var assembly = System.Reflection.Assembly.Load("Clockwork.Runtime");
 
@@ -11,17 +11,13 @@ public sealed class RuntimeScaffoldTests
     }
 
     [Fact]
-    public void RuntimeDoesNotDependOnAnyDownstreamScaffoldProject()
+    public void RuntimeDoesNotDependOnAnyDownstreamProject()
     {
-        // Clockwork.Runtime is the foundation project; nothing built on top of it should ever
-        // appear as one of its references, or the dependency graph has been inverted.
         var assembly = System.Reflection.Assembly.Load("Clockwork.Runtime");
         var referencedNames = assembly.GetReferencedAssemblies().Select(a => a.Name).ToArray();
 
         Assert.DoesNotContain("Clockwork.Instrumentation", referencedNames);
         Assert.DoesNotContain("Clockwork.Instrumentation.Build", referencedNames);
-        Assert.DoesNotContain("Clockwork.Hosting", referencedNames);
-        Assert.DoesNotContain("Clockwork.Http", referencedNames);
         Assert.DoesNotContain("Clockwork.Testing", referencedNames);
         Assert.DoesNotContain("Clockwork.Tool", referencedNames);
     }

@@ -6,8 +6,6 @@
     <Project Path="src/Clockwork.Instrumentation.Build/Clockwork.Instrumentation.Build.csproj" />
     <Project Path="src/Clockwork.Tool/Clockwork.Tool.csproj" />
     <Project Path="src/Clockwork.Analyzers/Clockwork.Analyzers.csproj" />
-    <Project Path="src/Clockwork.Hosting/Clockwork.Hosting.csproj" />
-    <Project Path="src/Clockwork.Http/Clockwork.Http.csproj" />
     <Project Path="src/Clockwork.Testing/Clockwork.Testing.csproj" />
   </Folder>
   <Folder Name="/tests/">

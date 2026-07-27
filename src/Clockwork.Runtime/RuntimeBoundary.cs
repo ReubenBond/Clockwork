@@ -14,9 +14,9 @@ namespace Clockwork.Runtime;
 /// <para>
 /// This project deliberately has no dependencies, so the deterministic simulation kernel
 /// (currently in <c>src/Clockwork/Clockwork.csproj</c>, packaged as Clockwork.Simulation) can depend on it
-/// without any circularity - and so that <c>Clockwork.Instrumentation</c>, <c>Clockwork.Hosting</c>,
-/// <c>Clockwork.Http</c>, and <c>Clockwork.Testing</c> can eventually depend on it without
-/// depending on each other. The kernel itself (clock, task queue, scheduler, network, node
+/// without any circularity - and so that <c>Clockwork.Instrumentation</c> and
+/// <c>Clockwork.Testing</c> can depend on it without depending on each other. The kernel itself
+/// (clock, task queue, scheduler, network, node
 /// lifecycle) has not migrated here yet - that remains a later phase. See
 /// docs/compatibility.md for the overall roadmap and exactly what Phase 2 does and does not
 /// implement (in particular: no Cecil/IL rewriting, and no controlled-operation scheduler yet).

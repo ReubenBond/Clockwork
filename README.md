@@ -25,6 +25,9 @@ are historical implementation notes.
 
 - The cooperative simulation kernel, builder, virtual clock, seeded randomness, network, diagnostics,
   rendezvous primitives, and controlled scheduling runtime are implemented.
+- Application hosting and transport models are consumer-owned and remain outside the Clockwork core.
+  Consumers compose them over `SimulationNetwork` and the generic application-composition APIs; no
+  dedicated hosting or HTTP packages ship.
 - `Clockwork.Instrumentation.Build` and `Clockwork.Tool` perform opt-in, out-of-place Cecil rewriting of
   application/dependency closures. The shipped Roslyn analyzer reports controlled and rejected direct
   BCL usage; all of these components are implemented and exercised in CI.
