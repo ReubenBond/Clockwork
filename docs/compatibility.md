@@ -147,7 +147,7 @@ with **no public `Monitor`/`Semaphore`/`WaitHandle`/`Task` shims** (those remain
   entries, or stale wakeups (a waiter resolves exactly once).
 - **Virtual-time timeouts** (`ControlledVirtualClock`): zero, finite, and infinite
   timeouts modeled entirely in virtual time. Because `Clockwork.Runtime` does not depend
-  on the root `Clockwork` package, the clock mirrors `SimulationClock` semantics
+  on the `Clockwork` package, the clock mirrors `SimulationClock` semantics
   internally instead of referencing it. Timeouts fire only during an explicit virtual-time
   advance that happens *only when nothing is runnable*, so a pending signal deterministically
   precedes a same-instant timeout. **No real-time delays are ever used as modeled
@@ -538,7 +538,7 @@ The package boundaries scaffolded under `src/` map to the modes above:
 
 | Project | Depends on | Future purpose |
 |---|---|---|
-| `Clockwork.Runtime` | *(none)* | **Phase 2 (current):** ambient `SimulationExecutionContext`, secure activation, named seed domains, the decision-log/replay contract, and the API policy classification model - see the README's "Deterministic instrumentation runtime plumbing" section. Eventual home of the deterministic kernel itself (currently the root `Clockwork.csproj` / `Clockwork.Simulation` package), which the root package now references. |
+| `Clockwork.Runtime` | *(none)* | **Phase 2 (current):** ambient `SimulationExecutionContext`, secure activation, named seed domains, the decision-log/replay contract, and the API policy classification model - see the README's "Deterministic instrumentation runtime plumbing" section. Eventual home of the deterministic kernel itself (currently `src/Clockwork/Clockwork.csproj`, packaged as `Clockwork.Simulation`), which references this package. |
 | `Clockwork.Instrumentation` | `Clockwork.Runtime` | Contracts and hooks shared by controlled, race exploration, and deep instrumentation modes. |
 | `Clockwork.Instrumentation.Build` | `Clockwork.Instrumentation` | **Phase 4B (current):** opt-in MSBuild task + `build/` targets that instrument the resolved output closure out-of-place during `dotnet build`. |
 | `Clockwork.Tool` | `Clockwork.Instrumentation` | **Phase 4B (current):** the `clockwork` CLI (`rewrite`, `inspect`) over the shared orchestrator. |
@@ -548,10 +548,10 @@ The package boundaries scaffolded under `src/` map to the modes above:
 | `Clockwork.Testing` | `Clockwork.Runtime` | Reusable test helpers and scenario builders for consumers. |
 
 As of Phase 2, `Clockwork.Runtime` hosts the runtime plumbing described above (and is
-referenced by the root `Clockwork.csproj`). As of Phase 4A/4B, `Clockwork.Instrumentation`
+referenced by `src/Clockwork/Clockwork.csproj`). As of Phase 4A/4B, `Clockwork.Instrumentation`
 carries the generic IL rewrite engine and `Clockwork.Instrumentation.Build` /
 `Clockwork.Tool` expose it through an opt-in build task and the `clockwork` CLI;
 `Clockwork.Analyzers`, `Clockwork.Hosting`, `Clockwork.Http`, and `Clockwork.Testing`
-remain empty, minimal placeholder projects with no behavior. See the root
-`Clockwork.csproj` for the deterministic kernel's current, real implementation. No public
+remain empty, minimal placeholder projects with no behavior. See
+`src/Clockwork/Clockwork.csproj` for the deterministic kernel's current, real implementation. No public
 behavior of the existing kernel changed as a result of this or prior scaffolding phases.

@@ -54,7 +54,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
       - name: Pack
-        run: dotnet pack Clockwork.csproj --configuration Release --no-build --output artifacts/packages
+        run: dotnet pack src/Clockwork/Clockwork.csproj --configuration Release --no-build --output artifacts/packages
 
   cross-platform:
     # Validates the Windows/Linux/macOS platform claim in docs/compatibility.md by
