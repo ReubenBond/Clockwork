@@ -440,6 +440,19 @@ public sealed class ControlledOperationSchedulerTests
     }
 
     [Fact]
+    public void ListenerReentrantDrivingIsRejectedInsteadOfDeadlocking()
+    {
+        var listener = new ReentrantDriveListener();
+        using var scheduler = SchedulerTestHarness.NewScheduler(listener);
+        listener.Scheduler = scheduler;
+        scheduler.Schedule("work", () => { });
+
+        var exception = Assert.IsType<ControlledOperationException>(listener.Exception);
+        Assert.Contains("reentrantly", exception.Message, StringComparison.Ordinal);
+        scheduler.Drain();
+    }
+
+    [Fact]
     public void CaptureStatusReturnsOperationsInStableIdOrder()
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();
@@ -525,6 +538,30 @@ public sealed class ControlledOperationSchedulerTests
             Assert.True(CancellationStarted.Wait(TimeSpan.FromSeconds(5), testCancellation));
             Thread.SpinWait(100_000);
             Scheduler.Dispose();
+        }
+    }
+
+    private sealed class ReentrantDriveListener : IControlledOperationListener
+    {
+        public ControlledOperationScheduler Scheduler { get; set; } = null!;
+
+        public Exception? Exception { get; private set; }
+
+        public void OnStateChanged(ControlledOperation operation, ControlledOperationState newState)
+        {
+            if (newState != ControlledOperationState.Runnable)
+            {
+                return;
+            }
+
+            try
+            {
+                Scheduler.RunStep();
+            }
+            catch (Exception exception)
+            {
+                Exception = exception;
+            }
         }
     }
 }

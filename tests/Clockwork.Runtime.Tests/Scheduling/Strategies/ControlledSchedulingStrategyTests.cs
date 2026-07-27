@@ -134,6 +134,7 @@ public sealed class ControlledSchedulingStrategyTests
         using var replay = SchedulerTestHarness.NewScheduler(seed: 999);
         replay.SchedulingStrategy = new ReplaySchedulingStrategy(log.Records);
         var replayedOrder = DriveThreeYieldingOperations(replay);
+        replay.ValidateReplayComplete();
 
         Assert.Equal(recordedOrder, replayedOrder);
     }
@@ -186,7 +187,7 @@ public sealed class ControlledSchedulingStrategyTests
     }
 
     [Fact]
-    public void SuccessfulDrainRejectsUnconsumedSchedulingRecords()
+    public void ExplicitReplayCompletionRejectsUnconsumedSchedulingRecords()
     {
         var records = new[]
         {
@@ -198,14 +199,15 @@ public sealed class ControlledSchedulingStrategyTests
         scheduler.Schedule("first", () => { });
         scheduler.Schedule("second", () => { });
 
-        var exception = Assert.Throws<SimulationDecisionReplayMismatchException>(() => scheduler.Drain());
+        scheduler.Drain();
+        var exception = Assert.Throws<SimulationDecisionReplayMismatchException>(scheduler.ValidateReplayComplete);
 
         Assert.Contains("unconsumed", exception.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("1", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void SuccessfulDrainRejectsUnconsumedDecisionValidationRecords()
+    public void ExplicitReplayCompletionRejectsUnconsumedDecisionValidationRecords()
     {
         var extra = SchedulingRecord(0, "1");
         using var scheduler = SchedulerTestHarness.NewScheduler();
@@ -213,7 +215,8 @@ public sealed class ControlledSchedulingStrategyTests
             new SimulationInMemoryDecisionReplayReader([extra]));
         scheduler.Schedule("only", () => { });
 
-        var exception = Assert.Throws<SimulationDecisionReplayMismatchException>(() => scheduler.Drain());
+        scheduler.Drain();
+        var exception = Assert.Throws<SimulationDecisionReplayMismatchException>(scheduler.ValidateReplayComplete);
 
         Assert.Equal(extra, exception.Expected);
         Assert.Null(exception.Actual);
@@ -232,6 +235,27 @@ public sealed class ControlledSchedulingStrategyTests
         scheduler.Schedule("second", () => { });
 
         Assert.True(scheduler.RunStep());
+        Assert.Throws<ControlledOperationException>(scheduler.ValidateReplayComplete);
+    }
+
+    [Fact]
+    public void ReusableDrainDoesNotPrematurelyValidateLaterReplayBatches()
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        scheduler.SchedulingStrategy = new ReplaySchedulingStrategy(
+            [
+                SchedulingRecord(0, "1"),
+                SchedulingRecord(1, "3"),
+            ]);
+
+        scheduler.Schedule("phase-one-a", () => { });
+        scheduler.Schedule("phase-one-b", () => { });
+        scheduler.Drain();
+
+        scheduler.Schedule("phase-two-a", () => { });
+        scheduler.Schedule("phase-two-b", () => { });
+        scheduler.Drain();
+        scheduler.ValidateReplayComplete();
     }
 
     [Fact]

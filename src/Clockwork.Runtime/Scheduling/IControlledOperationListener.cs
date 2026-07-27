@@ -11,8 +11,11 @@ namespace Clockwork.Runtime.Scheduling;
 /// <remarks>
 /// Notifications are delivered <em>after</em> the transition has been applied and <em>outside</em>
 /// the scheduler's internal lock, so a listener may safely read the operation's public state and
-/// even call back into the scheduler (e.g. to resume another operation). A listener must not throw:
-/// an exception from a listener is a diagnostics bug and would corrupt the scheduling sequence.
+/// call back into the scheduler for non-driving operations (for example, to resume another operation).
+/// Reentrant <see cref="ControlledOperationScheduler.RunStep"/>/<see cref="ControlledOperationScheduler.Drain"/>
+/// is rejected because worker handoff cannot occur until the current transition publication completes.
+/// A listener must not throw: an exception from a listener is a diagnostics bug and would corrupt the
+/// scheduling sequence.
 /// </remarks>
 public interface IControlledOperationListener
 {

@@ -168,6 +168,7 @@ public sealed class ControlledOperationDecisionWiringTests
         }
 
         replay.Drain();
+        replay.ValidateReplayComplete();
         Assert.Equal(recordedOutcome, replayedOutcome);
     }
 }

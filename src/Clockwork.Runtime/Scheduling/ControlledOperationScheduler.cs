@@ -401,6 +401,13 @@ public sealed class ControlledOperationScheduler : IDisposable
     /// <returns><see langword="true"/> if an operation ran; <see langword="false"/> if none was runnable.</returns>
     public bool RunStep()
     {
+        if (Monitor.IsEntered(_transitionPublicationGate))
+        {
+            throw new ControlledOperationException(
+                "RunStep/Drain cannot be driven reentrantly from an operation listener callback. " +
+                "Listeners may inspect state or request non-driving transitions, but the controlling thread must resume scheduler driving after the callback returns.");
+        }
+
         ControlledOperation operation;
         using (EnterTransitionPublicationScope())
         {
@@ -476,11 +483,19 @@ public sealed class ControlledOperationScheduler : IDisposable
             }
         }
 
-        ValidateReplayCompleteIfQuiescent();
         return steps;
     }
 
-    private void ValidateReplayCompleteIfQuiescent()
+    /// <summary>
+    /// Validates that decision and scheduling replay streams were consumed completely at an explicit
+    /// successful end-of-run boundary.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Drain"/> does not call this automatically because a scheduler is reusable: a quiescent
+    /// batch can be followed by more scheduled work whose replay records remain unread. Call this once
+    /// the overall run is known to be complete. Partial or aborted runs must omit this call.
+    /// </remarks>
+    public void ValidateReplayComplete()
     {
         lock (_gate)
         {
@@ -488,7 +503,9 @@ public sealed class ControlledOperationScheduler : IDisposable
             {
                 if (!operation.IsTerminal)
                 {
-                    return;
+                    throw new ControlledOperationException(
+                        "Replay completion cannot be validated while non-terminal operations remain. " +
+                        "Finish the run first, or omit completion validation for a partial or aborted run.");
                 }
             }
         }
