@@ -138,4 +138,18 @@ public enum BuiltInRuleFamily
     /// the real BCL API unchanged.
     /// </summary>
     Parallel,
+
+    /// <summary>
+    /// Process control and abrupt-termination surfaces that cannot be modelled by the deterministic
+    /// scheduler: the static <see cref="System.Diagnostics.Process"/> <c>Start</c> family (spawning an
+    /// uncontrolled OS process), the <see cref="System.Diagnostics.Process"/> instance <c>Kill</c> /
+    /// <c>WaitForExit</c> / <c>WaitForExitAsync</c> members (killing or blocking on an uncontrolled
+    /// process), and <see cref="System.Environment"/> <c>Exit</c> / <c>FailFast</c> (tearing the host
+    /// process down out from under the simulation). Classified <c>Rejected</c>: the rewritten call site
+    /// throws a precise uncontrolled-invocation diagnostic that names the exact API and IL offset, so a
+    /// rewritten assembly can never escape the deterministic model by launching, killing, waiting on, or
+    /// terminating a real process. This mirrors Coyote's uncontrolled-invocation pass, which rewrites
+    /// such call sites to throw rather than run.
+    /// </summary>
+    UncontrolledInvocation,
 }

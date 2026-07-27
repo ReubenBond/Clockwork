@@ -166,6 +166,22 @@ public static class BuiltInRuleSets
     private const string ActionOfTSourceLoopStateVar = "System.Action`2<!!0,System.Threading.Tasks.ParallelLoopState>";
     private const string ActionOfTSourceLoopStateInt64Var = "System.Action`3<!!0,System.Threading.Tasks.ParallelLoopState,System.Int64>";
 
+    // Cecil full names for the uncontrolled-invocation surface (Phase 6B slice 7): process control and
+    // abrupt host termination. These cannot be modelled by the deterministic scheduler, so every rewritten
+    // call site is rejected (throws a diagnostic naming the exact API). Process.Start is static and returns
+    // Process/Boolean; the instance Kill/WaitForExit members and Environment.Exit/FailFast are void or
+    // value-returning - InjectRejection handles every shape uniformly by prepending a throwing call.
+    private const string ProcessType = "System.Diagnostics.Process";
+    private const string EnvironmentType = "System.Environment";
+    private const string ProcessStartInfoType = "System.Diagnostics.ProcessStartInfo";
+    private const string SecureStringType = "System.Security.SecureString";
+    private const string IEnumerableOfStringType = "System.Collections.Generic.IEnumerable`1<System.String>";
+    private const string TimeSpanType = "System.TimeSpan";
+    private const string CancellationTokenType = "System.Threading.CancellationToken";
+    private const string ExceptionType = "System.Exception";
+    private const string UncontrolledInvocationShim = "Clockwork.Runtime.UncontrolledInvocationGuard";
+
+
     // Cecil full names for the compiler-generated async machinery (BCL) and their controlled substitutes.
     // Nested awaiter types use Cecil's '/' separator; generic arities carry the backtick.
     private const string CompilerNs = "System.Runtime.CompilerServices.";
@@ -231,6 +247,7 @@ public static class BuiltInRuleSets
         BuiltInRuleFamily.Thread,
         BuiltInRuleFamily.ThreadPool,
         BuiltInRuleFamily.Parallel,
+        BuiltInRuleFamily.UncontrolledInvocation,
     ];
 
     /// <summary>Gets the (family, rule) entries of the deterministic BCL rule set, for documentation and inventory generation.</summary>
@@ -560,6 +577,27 @@ public static class BuiltInRuleSets
         ParallelRejection(builder, "clockwork.parallel.foreach.loopstate", "ForEach", IEnumerableOfTSourceVar, ActionOfTSourceLoopStateVar);
         ParallelRejection(builder, "clockwork.parallel.foreach.loopstate.index", "ForEach", IEnumerableOfTSourceVar, ActionOfTSourceLoopStateInt64Var);
 
+        // ---- Uncontrolled invocation (Phase 6B slice 7): process control and abrupt host termination. A
+        // rewritten assembly must never launch, kill, block on, or terminate a real OS process out from
+        // under the simulation, so each of these call sites is rejected with a precise diagnostic naming
+        // the exact API and IL offset (recorded in the manifest as a Rejected transformation). ----
+        UncontrolledRejection(builder, "clockwork.process.start.filename", ProcessType, "Start", String);
+        UncontrolledRejection(builder, "clockwork.process.start.startinfo", ProcessType, "Start", ProcessStartInfoType);
+        UncontrolledRejection(builder, "clockwork.process.start.filename.arguments", ProcessType, "Start", String, String);
+        UncontrolledRejection(builder, "clockwork.process.start.filename.argumentlist", ProcessType, "Start", String, IEnumerableOfStringType);
+        UncontrolledRejection(builder, "clockwork.process.start.filename.credentials", ProcessType, "Start", String, String, SecureStringType, String);
+        UncontrolledRejection(builder, "clockwork.process.start.filename.arguments.credentials", ProcessType, "Start", String, String, String, SecureStringType, String);
+        UncontrolledRejection(builder, "clockwork.process.start.instance", ProcessType, "Start");
+        UncontrolledRejection(builder, "clockwork.process.kill", ProcessType, "Kill");
+        UncontrolledRejection(builder, "clockwork.process.kill.tree", ProcessType, "Kill", Boolean);
+        UncontrolledRejection(builder, "clockwork.process.waitforexit", ProcessType, "WaitForExit");
+        UncontrolledRejection(builder, "clockwork.process.waitforexit.milliseconds", ProcessType, "WaitForExit", Int32);
+        UncontrolledRejection(builder, "clockwork.process.waitforexit.timespan", ProcessType, "WaitForExit", TimeSpanType);
+        UncontrolledRejection(builder, "clockwork.process.waitforexitasync", ProcessType, "WaitForExitAsync", CancellationTokenType);
+        UncontrolledRejection(builder, "clockwork.environment.exit", EnvironmentType, "Exit", Int32);
+        UncontrolledRejection(builder, "clockwork.environment.failfast.message", EnvironmentType, "FailFast", String);
+        UncontrolledRejection(builder, "clockwork.environment.failfast.exception", EnvironmentType, "FailFast", String, ExceptionType);
+
         return builder.ToImmutable();
     }
 
@@ -576,6 +614,24 @@ public static class BuiltInRuleSets
             id,
             MemberSignature.Method(ParallelType, method, parameterTypes),
             Shim(ParallelShim, "RejectUnsupported", String))));
+    }
+
+    // Rejects an uncontrolled process/termination call at the call site. The targets have varied return
+    // types (Process, Boolean, Task, void), so InjectRejection is used uniformly: it prepends a throwing
+    // Reject(string) before the original invocation, which therefore never executes at runtime while the
+    // IL stack stays balanced. The injected diagnostic names the exact API and the pass records the site
+    // as a Rejected transformation in the manifest.
+    private static void UncontrolledRejection(
+        ImmutableArray<BuiltInRuleEntry>.Builder builder,
+        string id,
+        string declaringType,
+        string method,
+        params string[] parameterTypes)
+    {
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.UncontrolledInvocation, RewriteRule.InjectRejection(
+            id,
+            MemberSignature.Method(declaringType, method, parameterTypes),
+            Shim(UncontrolledInvocationShim, "Reject", String))));
     }
 
     private static void RejectedRule(
