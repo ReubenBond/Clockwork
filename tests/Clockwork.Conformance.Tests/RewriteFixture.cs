@@ -78,6 +78,7 @@ internal sealed class RewriteFixture : IDisposable
         var options = new RewriteOptions
         {
             HardenExceptionHandlers = true,
+            DetectUncontrolledTasks = true,
             ReplacementAssemblyPaths = [runtimeDll],
             ReferenceSearchDirectories = [AppContext.BaseDirectory],
             TargetRuntime = new Version(10, 0),

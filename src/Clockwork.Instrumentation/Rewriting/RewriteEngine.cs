@@ -110,6 +110,9 @@ public static class RewriteEngine
             .. options.HardenExceptionHandlers
                 ? new RewritePass[] { new ExceptionHardeningRewritingPass(session, ExceptionGuardShimAssembly) }
                 : [],
+            .. options.DetectUncontrolledTasks
+                ? new RewritePass[] { new CrossAssemblyTaskDetectionPass(session) }
+                : [],
         ];
 
         foreach (RewritePass pass in passes)
