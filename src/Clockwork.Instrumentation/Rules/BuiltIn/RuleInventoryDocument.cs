@@ -26,9 +26,10 @@ public static class RuleInventoryDocument
         Line();
         Line(
             "This is the exact, exhaustive surface the built-in rule sets redirect. Every other API is " +
-            "**not** rewritten. Outside an active simulation each shim runs the real BCL API unchanged; " +
-            "under an active simulation with no registered runtime environment the shim fails explicitly " +
-            "rather than fall back to real time, randomness, or an uncontrolled task.");
+            "**not** rewritten. Instrumented closure binaries are simulation/test artifacts: every Controlled " +
+            "entry point requires an active Clockwork simulation, and an active simulation with no registered " +
+            "runtime service fails explicitly rather than use real time, randomness, or an uncontrolled task. " +
+            "Uninstrumented production binaries retain ordinary BCL behavior.");
         Line();
 
         RenderSet(
@@ -122,11 +123,12 @@ public static class RuleInventoryDocument
         BuiltInRuleFamily.Random =>
             "`Random.Shared` and unseeded `new Random()` become per-node deterministic streams isolated from " +
             "the scheduler/network/Buggify seed domains; explicitly seeded `new Random(int)` preserves the " +
-            "caller's seed exactly, matching normal BCL behaviour.",
+            "caller's seed exactly. Stable seed derivation uses `SimulationStableHash`.",
         BuiltInRuleFamily.Crypto =>
-            "Static entropy APIs are redirected to a policy shim. The default under simulation is a precise " +
-            "rejected-call diagnostic; a test-only opt-in can substitute deterministic-insecure bytes. " +
-            "Production security semantics are never changed.",
+            "Static entropy APIs are redirected to `ControlledRandomNumberGenerator`. The default under " +
+            "simulation is a precise rejected-call diagnostic; a test-only opt-in can serve bytes from " +
+            "`ControlledInsecureRandomNumberGenerator`. Uninstrumented production binaries retain ordinary " +
+            "cryptographic BCL behavior.",
         BuiltInRuleFamily.TaskCombinators =>
             "`Task.WhenAll`/`WhenAny` (the non-generic `Task[]`, `IEnumerable<Task>`, .NET 9+ params " +
             "`ReadOnlySpan<Task>`, and two-argument overloads, plus their generic `Task<TResult>` " +
@@ -143,43 +145,40 @@ public static class RuleInventoryDocument
             "scheduled on the controlled coordinator and runs on the logical thread after the antecedent completes.",
         BuiltInRuleFamily.TaskDeferred =>
             "`Task.Delay` (virtual timers, Phase 8) is rejected under simulation with a precise diagnostic " +
-            "rather than silently using wall time. Outside simulation it runs the real BCL API unchanged.",
+            "rather than silently using wall time. The instrumented entry point requires an active simulation.",
         BuiltInRuleFamily.TaskScheduling =>
             "`Task.Run` (all `Action`/`Func<TResult>`/`Func<Task>`/`Func<Task<TResult>>` overloads, with and " +
             "without a `CancellationToken`) offloads work that Phase 6A left uncontrolled onto the thread pool. " +
             "Each overload redirects to a controlled equivalent that schedules the delegate as a controlled " +
-            "operation on the simulation coordinator, preserving cancellation and unwrap semantics; outside " +
-            "simulation it runs the real BCL API unchanged.",
+            "operation on the simulation coordinator, preserving cancellation and unwrap semantics.",
         BuiltInRuleFamily.AsyncMachinery =>
             "The compiler-generated builder and awaiter types of an `async` state machine " +
             "(`AsyncTaskMethodBuilder`, `TaskAwaiter`, `ConfiguredTaskAwaitable`/`YieldAwaitable` and their " +
             "awaiters, generic and non-generic) are substituted onto Clockwork's controlled equivalents by " +
             "the member-aware pass, and `Task.Yield()` redirects to the controlled yield. Every awaited " +
             "continuation is scheduled through the simulation coordinator instead of the thread pool, and " +
-            "`ConfigureAwait(false)` stays controlled while preserving normal semantics outside simulation.",
+            "`ConfigureAwait(false)` stays controlled.",
         BuiltInRuleFamily.ValueTaskMachinery =>
             "The compiler-generated builder and awaiter types of an `async ValueTask`/`async ValueTask<T>` " +
             "state machine (`AsyncValueTaskMethodBuilder`, `ValueTaskAwaiter`, `ConfiguredValueTaskAwaitable` " +
             "and their awaiters, generic and non-generic) are substituted onto Clockwork's controlled " +
             "equivalents by the member-aware pass, so every awaited value-task continuation is scheduled " +
-            "through the simulation coordinator. `ConfigureAwait(false)` stays controlled in simulation while " +
-            "preserving normal semantics outside. Synchronous blocking on a value task is not rewritten " +
+            "through the simulation coordinator. `ConfigureAwait(false)` stays controlled. Synchronous " +
+            "blocking on a value task is not rewritten " +
             "(a value task may be consumed only once); `await` is the supported controlled path.",
         BuiltInRuleFamily.TaskFactory =>
             "All 24 .NET 10 `TaskFactory.StartNew` and `TaskFactory<T>.StartNew` overloads are classified, " +
             "including state-carrying delegates and the full cancellation/options/scheduler forms. Each " +
             "redirects to a controlled equivalent that schedules the delegate as a fresh logical strand while " +
             "preserving state, cancellation, and results. Non-default schedulers and creation options whose " +
-            "semantics cannot be preserved are rejected precisely; outside simulation every overload runs the " +
-            "real BCL API unchanged.",
+            "semantics cannot be preserved are rejected precisely.",
         BuiltInRuleFamily.Thread =>
             "`Thread` construction (`ThreadStart`/`ParameterizedThreadStart`, with and without a stack size), " +
             "`Start`, `Join` (all overloads), `Sleep`, `Yield`, and `SpinWait` redirect to a controlled thread " +
             "that maps each thread to a controlled operation on the simulation coordinator; `Join`/`Sleep` " +
             "yield the logical thread via the deterministic loop rather than blocking a physical thread or " +
             "consuming real time. OS-specific priority, apartment-state, and `Interrupt` operations cannot be " +
-            "modelled faithfully and are rejected with a precise diagnostic. Outside simulation the shims run " +
-            "the real BCL `Thread` unchanged.",
+            "modelled faithfully and are rejected with a precise diagnostic.",
         BuiltInRuleFamily.ThreadPool =>
             "`ThreadPool.QueueUserWorkItem` (the `WaitCallback`, `WaitCallback`+state, and generic " +
             "`Action<TState>`+state+preferLocal forms) and `UnsafeQueueUserWorkItem` (the `WaitCallback`+state, " +
@@ -223,7 +222,7 @@ public static class RuleInventoryDocument
             "redirects each call site to a shim with the identical `ref`-first signature. Clockwork's " +
             "cooperative single-logical-thread scheduler makes every read-modify-write an indivisible step " +
             "(never split, never interleaved mid-operation), so the shim delegates to the real primitive and " +
-            "preserves exact atomic return, overflow, and reference-write semantics inside and outside " +
+            "preserves exact atomic return, overflow, and reference-write semantics under the active " +
             "simulation. The exploration policy injects no mid-operation scheduling point; the single " +
             "delegation site is the future Phase 9 race-hook attachment point.",
         BuiltInRuleFamily.Volatile =>
@@ -242,8 +241,7 @@ public static class RuleInventoryDocument
             "simulation a spin never burns CPU or consumes real time: `SpinOnce` is a cooperative no-op that " +
             "only advances the observable spin count, and `SpinUntil` pumps the deterministic loop until its " +
             "predicate holds (a never-satisfiable predicate surfaces as the loop-model deadlock diagnostic). " +
-            "The finite `SpinUntil` overloads use a first-winner virtual-time deadline. Outside a simulation " +
-            "every member delegates to a real wrapped `SpinWait`.",
+            "The finite `SpinUntil` overloads use a first-winner virtual-time deadline.",
         BuiltInRuleFamily.WaitHandle =>
             "The controlled event / wait-handle surface - `AutoResetEvent`, `ManualResetEvent`, " +
             "`EventWaitHandle`, and the shared `WaitHandle` operations. Each concrete event is a sealed BCL " +
@@ -263,8 +261,7 @@ public static class RuleInventoryDocument
             "infinite never times out); `Dispose`/`Close` mark the modelled state disposed. Named / " +
             "cross-process APIs (named constructors, `OpenExisting`, `TryOpenExisting`) and the raw " +
             "native-handle accessors (`Handle`, `SafeWaitHandle`) cannot be modelled in a single simulated " +
-            "process and are rejected with a precise diagnostic. Outside a simulation every shim delegates " +
-            "to the real BCL primitive unchanged.",
+            "process and are rejected with a precise diagnostic.",
         _ => string.Empty,
     };
 

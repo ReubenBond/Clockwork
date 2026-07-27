@@ -3,12 +3,12 @@
 <!-- Generated from Clockwork.Instrumentation.Rules.BuiltIn.RuleInventoryDocument.Render().
      Do not edit by hand; a test verifies this file matches the shipped rule set. -->
 
-This is the exact, exhaustive surface the built-in rule sets redirect. Every other API is **not** rewritten. Outside an active simulation each shim runs the real BCL API unchanged; under an active simulation with no registered runtime environment the shim fails explicitly rather than fall back to real time, randomness, or an uncontrolled task.
+This is the exact, exhaustive surface the built-in rule sets redirect. Every other API is **not** rewritten. Instrumented closure binaries are simulation/test artifacts: every Controlled entry point requires an active Clockwork simulation, and an active simulation with no registered runtime service fails explicitly rather than use real time, randomness, or an uncontrolled task. Uninstrumented production binaries retain ordinary BCL behavior.
 
 # Deterministic BCL rule set
 
 Rule set id: `clockwork.bcl.deterministic`  
-Version: `1.0.0`  
+Version: `2.0.0`  
 Shim assembly: `Clockwork.Runtime`
 
 ## Clock family
@@ -17,15 +17,15 @@ Policy: **Controlled**. Wall-clock, offset-clock, monotonic timestamp, and tick-
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
-| `clockwork.bcl.datetime.now` | `System.DateTime::get_Now()` | `Clockwork.Runtime!Clockwork.Runtime.Shims.DeterministicClock::GetNow()` | Controlled |
-| `clockwork.bcl.datetime.utcnow` | `System.DateTime::get_UtcNow()` | `Clockwork.Runtime!Clockwork.Runtime.Shims.DeterministicClock::GetUtcNow()` | Controlled |
-| `clockwork.bcl.datetime.today` | `System.DateTime::get_Today()` | `Clockwork.Runtime!Clockwork.Runtime.Shims.DeterministicClock::GetToday()` | Controlled |
-| `clockwork.bcl.datetimeoffset.now` | `System.DateTimeOffset::get_Now()` | `Clockwork.Runtime!Clockwork.Runtime.Shims.DeterministicClock::GetOffsetNow()` | Controlled |
-| `clockwork.bcl.datetimeoffset.utcnow` | `System.DateTimeOffset::get_UtcNow()` | `Clockwork.Runtime!Clockwork.Runtime.Shims.DeterministicClock::GetOffsetUtcNow()` | Controlled |
-| `clockwork.bcl.stopwatch.gettimestamp` | `System.Diagnostics.Stopwatch::GetTimestamp()` | `Clockwork.Runtime!Clockwork.Runtime.Shims.DeterministicClock::GetTimestamp()` | Controlled |
-| `clockwork.bcl.stopwatch.getelapsedtime` | `System.Diagnostics.Stopwatch::GetElapsedTime(System.Int64)` | `Clockwork.Runtime!Clockwork.Runtime.Shims.DeterministicClock::GetElapsedTime(System.Int64)` | Controlled |
-| `clockwork.bcl.environment.tickcount` | `System.Environment::get_TickCount()` | `Clockwork.Runtime!Clockwork.Runtime.Shims.DeterministicClock::GetTickCount()` | Controlled |
-| `clockwork.bcl.environment.tickcount64` | `System.Environment::get_TickCount64()` | `Clockwork.Runtime!Clockwork.Runtime.Shims.DeterministicClock::GetTickCount64()` | Controlled |
+| `clockwork.bcl.datetime.now` | `System.DateTime::get_Now()` | `Clockwork.Runtime!Clockwork.Runtime.Shims.ControlledDateTime::GetNow()` | Controlled |
+| `clockwork.bcl.datetime.utcnow` | `System.DateTime::get_UtcNow()` | `Clockwork.Runtime!Clockwork.Runtime.Shims.ControlledDateTime::GetUtcNow()` | Controlled |
+| `clockwork.bcl.datetime.today` | `System.DateTime::get_Today()` | `Clockwork.Runtime!Clockwork.Runtime.Shims.ControlledDateTime::GetToday()` | Controlled |
+| `clockwork.bcl.datetimeoffset.now` | `System.DateTimeOffset::get_Now()` | `Clockwork.Runtime!Clockwork.Runtime.Shims.ControlledDateTimeOffset::GetNow()` | Controlled |
+| `clockwork.bcl.datetimeoffset.utcnow` | `System.DateTimeOffset::get_UtcNow()` | `Clockwork.Runtime!Clockwork.Runtime.Shims.ControlledDateTimeOffset::GetUtcNow()` | Controlled |
+| `clockwork.bcl.stopwatch.gettimestamp` | `System.Diagnostics.Stopwatch::GetTimestamp()` | `Clockwork.Runtime!Clockwork.Runtime.Shims.ControlledStopwatch::GetTimestamp()` | Controlled |
+| `clockwork.bcl.stopwatch.getelapsedtime` | `System.Diagnostics.Stopwatch::GetElapsedTime(System.Int64)` | `Clockwork.Runtime!Clockwork.Runtime.Shims.ControlledStopwatch::GetElapsedTime(System.Int64)` | Controlled |
+| `clockwork.bcl.environment.tickcount` | `System.Environment::get_TickCount()` | `Clockwork.Runtime!Clockwork.Runtime.Shims.ControlledEnvironment::GetTickCount()` | Controlled |
+| `clockwork.bcl.environment.tickcount64` | `System.Environment::get_TickCount64()` | `Clockwork.Runtime!Clockwork.Runtime.Shims.ControlledEnvironment::GetTickCount64()` | Controlled |
 
 ## Identity family
 
@@ -33,35 +33,35 @@ Policy: **Controlled**. GUIDs draw deterministic bytes while preserving RFC 4122
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
-| `clockwork.bcl.guid.newguid` | `System.Guid::NewGuid()` | `Clockwork.Runtime!Clockwork.Runtime.Shims.DeterministicGuid::NewGuid()` | Controlled |
-| `clockwork.bcl.guid.createversion7` | `System.Guid::CreateVersion7()` | `Clockwork.Runtime!Clockwork.Runtime.Shims.DeterministicGuid::CreateVersion7()` | Controlled |
-| `clockwork.bcl.guid.createversion7.timestamp` | `System.Guid::CreateVersion7(System.DateTimeOffset)` | `Clockwork.Runtime!Clockwork.Runtime.Shims.DeterministicGuid::CreateVersion7(System.DateTimeOffset)` | Controlled |
+| `clockwork.bcl.guid.newguid` | `System.Guid::NewGuid()` | `Clockwork.Runtime!Clockwork.Runtime.Shims.ControlledGuid::NewGuid()` | Controlled |
+| `clockwork.bcl.guid.createversion7` | `System.Guid::CreateVersion7()` | `Clockwork.Runtime!Clockwork.Runtime.Shims.ControlledGuid::CreateVersion7()` | Controlled |
+| `clockwork.bcl.guid.createversion7.timestamp` | `System.Guid::CreateVersion7(System.DateTimeOffset)` | `Clockwork.Runtime!Clockwork.Runtime.Shims.ControlledGuid::CreateVersion7(System.DateTimeOffset)` | Controlled |
 
 ## Random family
 
-Policy: **Controlled**. `Random.Shared` and unseeded `new Random()` become per-node deterministic streams isolated from the scheduler/network/Buggify seed domains; explicitly seeded `new Random(int)` preserves the caller's seed exactly, matching normal BCL behaviour.
+Policy: **Controlled**. `Random.Shared` and unseeded `new Random()` become per-node deterministic streams isolated from the scheduler/network/Buggify seed domains; explicitly seeded `new Random(int)` preserves the caller's seed exactly. Stable seed derivation uses `SimulationStableHash`.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
-| `clockwork.bcl.random.shared` | `System.Random::get_Shared()` | `Clockwork.Runtime!Clockwork.Runtime.Shims.DeterministicRandom::GetShared()` | Controlled |
-| `clockwork.bcl.random.ctor.unseeded` | `new System.Random()` | `Clockwork.Runtime!Clockwork.Runtime.Shims.DeterministicRandom::CreateUnseeded()` | Controlled |
-| `clockwork.bcl.random.ctor.seeded` | `new System.Random(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Shims.DeterministicRandom::CreateSeeded(System.Int32)` | Controlled |
+| `clockwork.bcl.random.shared` | `System.Random::get_Shared()` | `Clockwork.Runtime!Clockwork.Runtime.Shims.ControlledRandom::GetShared()` | Controlled |
+| `clockwork.bcl.random.ctor.unseeded` | `new System.Random()` | `Clockwork.Runtime!Clockwork.Runtime.Shims.ControlledRandom::CreateUnseeded()` | Controlled |
+| `clockwork.bcl.random.ctor.seeded` | `new System.Random(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Shims.ControlledRandom::CreateSeeded(System.Int32)` | Controlled |
 
 ## Crypto family
 
-Policy: **Rejected**. Static entropy APIs are redirected to a policy shim. The default under simulation is a precise rejected-call diagnostic; a test-only opt-in can substitute deterministic-insecure bytes. Production security semantics are never changed.
+Policy: **Rejected**. Static entropy APIs are redirected to `ControlledRandomNumberGenerator`. The default under simulation is a precise rejected-call diagnostic; a test-only opt-in can serve bytes from `ControlledInsecureRandomNumberGenerator`. Uninstrumented production binaries retain ordinary cryptographic BCL behavior.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
-| `clockwork.bcl.rng.create` | `System.Security.Cryptography.RandomNumberGenerator::Create()` | `Clockwork.Runtime!Clockwork.Runtime.Shims.DeterministicCryptoRandom::Create()` | Rejected |
-| `clockwork.bcl.rng.create.named` | `System.Security.Cryptography.RandomNumberGenerator::Create(System.String)` | `Clockwork.Runtime!Clockwork.Runtime.Shims.DeterministicCryptoRandom::Create(System.String)` | Rejected |
-| `clockwork.bcl.rng.fill` | `System.Security.Cryptography.RandomNumberGenerator::Fill(System.Span`1<System.Byte>)` | `Clockwork.Runtime!Clockwork.Runtime.Shims.DeterministicCryptoRandom::Fill(System.Span`1<System.Byte>)` | Rejected |
-| `clockwork.bcl.rng.getbytes.count` | `System.Security.Cryptography.RandomNumberGenerator::GetBytes(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Shims.DeterministicCryptoRandom::GetBytes(System.Int32)` | Rejected |
-| `clockwork.bcl.rng.getint32.exclusive` | `System.Security.Cryptography.RandomNumberGenerator::GetInt32(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Shims.DeterministicCryptoRandom::GetInt32(System.Int32)` | Rejected |
-| `clockwork.bcl.rng.getint32.range` | `System.Security.Cryptography.RandomNumberGenerator::GetInt32(System.Int32,System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Shims.DeterministicCryptoRandom::GetInt32(System.Int32,System.Int32)` | Rejected |
-| `clockwork.bcl.rng.gethexstring.span` | `System.Security.Cryptography.RandomNumberGenerator::GetHexString(System.Span`1<System.Char>,System.Boolean)` | `Clockwork.Runtime!Clockwork.Runtime.Shims.DeterministicCryptoRandom::GetHexString(System.Span`1<System.Char>,System.Boolean)` | Rejected |
-| `clockwork.bcl.rng.gethexstring.length` | `System.Security.Cryptography.RandomNumberGenerator::GetHexString(System.Int32,System.Boolean)` | `Clockwork.Runtime!Clockwork.Runtime.Shims.DeterministicCryptoRandom::GetHexString(System.Int32,System.Boolean)` | Rejected |
-| `clockwork.bcl.rng.getstring` | `System.Security.Cryptography.RandomNumberGenerator::GetString(System.ReadOnlySpan`1<System.Char>,System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Shims.DeterministicCryptoRandom::GetString(System.ReadOnlySpan`1<System.Char>,System.Int32)` | Rejected |
+| `clockwork.bcl.rng.create` | `System.Security.Cryptography.RandomNumberGenerator::Create()` | `Clockwork.Runtime!Clockwork.Runtime.Shims.ControlledRandomNumberGenerator::Create()` | Rejected |
+| `clockwork.bcl.rng.create.named` | `System.Security.Cryptography.RandomNumberGenerator::Create(System.String)` | `Clockwork.Runtime!Clockwork.Runtime.Shims.ControlledRandomNumberGenerator::Create(System.String)` | Rejected |
+| `clockwork.bcl.rng.fill` | `System.Security.Cryptography.RandomNumberGenerator::Fill(System.Span`1<System.Byte>)` | `Clockwork.Runtime!Clockwork.Runtime.Shims.ControlledRandomNumberGenerator::Fill(System.Span`1<System.Byte>)` | Rejected |
+| `clockwork.bcl.rng.getbytes.count` | `System.Security.Cryptography.RandomNumberGenerator::GetBytes(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Shims.ControlledRandomNumberGenerator::GetBytes(System.Int32)` | Rejected |
+| `clockwork.bcl.rng.getint32.exclusive` | `System.Security.Cryptography.RandomNumberGenerator::GetInt32(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Shims.ControlledRandomNumberGenerator::GetInt32(System.Int32)` | Rejected |
+| `clockwork.bcl.rng.getint32.range` | `System.Security.Cryptography.RandomNumberGenerator::GetInt32(System.Int32,System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Shims.ControlledRandomNumberGenerator::GetInt32(System.Int32,System.Int32)` | Rejected |
+| `clockwork.bcl.rng.gethexstring.span` | `System.Security.Cryptography.RandomNumberGenerator::GetHexString(System.Span`1<System.Char>,System.Boolean)` | `Clockwork.Runtime!Clockwork.Runtime.Shims.ControlledRandomNumberGenerator::GetHexString(System.Span`1<System.Char>,System.Boolean)` | Rejected |
+| `clockwork.bcl.rng.gethexstring.length` | `System.Security.Cryptography.RandomNumberGenerator::GetHexString(System.Int32,System.Boolean)` | `Clockwork.Runtime!Clockwork.Runtime.Shims.ControlledRandomNumberGenerator::GetHexString(System.Int32,System.Boolean)` | Rejected |
+| `clockwork.bcl.rng.getstring` | `System.Security.Cryptography.RandomNumberGenerator::GetString(System.ReadOnlySpan`1<System.Char>,System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Shims.ControlledRandomNumberGenerator::GetString(System.ReadOnlySpan`1<System.Char>,System.Int32)` | Rejected |
 
 # Controlled task rule set
 
@@ -115,7 +115,7 @@ Policy: **Controlled**. `Task.ContinueWith(Action<Task>)`, `Task<T>.ContinueWith
 
 ## TaskDeferred family
 
-Policy: **Rejected**. `Task.Delay` (virtual timers, Phase 8) is rejected under simulation with a precise diagnostic rather than silently using wall time. Outside simulation it runs the real BCL API unchanged.
+Policy: **Rejected**. `Task.Delay` (virtual timers, Phase 8) is rejected under simulation with a precise diagnostic rather than silently using wall time. The instrumented entry point requires an active simulation.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -128,7 +128,7 @@ Policy: **Rejected**. `Task.Delay` (virtual timers, Phase 8) is rejected under s
 
 ## TaskScheduling family
 
-Policy: **Controlled**. `Task.Run` (all `Action`/`Func<TResult>`/`Func<Task>`/`Func<Task<TResult>>` overloads, with and without a `CancellationToken`) offloads work that Phase 6A left uncontrolled onto the thread pool. Each overload redirects to a controlled equivalent that schedules the delegate as a controlled operation on the simulation coordinator, preserving cancellation and unwrap semantics; outside simulation it runs the real BCL API unchanged.
+Policy: **Controlled**. `Task.Run` (all `Action`/`Func<TResult>`/`Func<Task>`/`Func<Task<TResult>>` overloads, with and without a `CancellationToken`) offloads work that Phase 6A left uncontrolled onto the thread pool. Each overload redirects to a controlled equivalent that schedules the delegate as a controlled operation on the simulation coordinator, preserving cancellation and unwrap semantics.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -143,7 +143,7 @@ Policy: **Controlled**. `Task.Run` (all `Action`/`Func<TResult>`/`Func<Task>`/`F
 
 ## AsyncMachinery family
 
-Policy: **Controlled**. The compiler-generated builder and awaiter types of an `async` state machine (`AsyncTaskMethodBuilder`, `TaskAwaiter`, `ConfiguredTaskAwaitable`/`YieldAwaitable` and their awaiters, generic and non-generic) are substituted onto Clockwork's controlled equivalents by the member-aware pass, and `Task.Yield()` redirects to the controlled yield. Every awaited continuation is scheduled through the simulation coordinator instead of the thread pool, and `ConfigureAwait(false)` stays controlled while preserving normal semantics outside simulation.
+Policy: **Controlled**. The compiler-generated builder and awaiter types of an `async` state machine (`AsyncTaskMethodBuilder`, `TaskAwaiter`, `ConfiguredTaskAwaitable`/`YieldAwaitable` and their awaiters, generic and non-generic) are substituted onto Clockwork's controlled equivalents by the member-aware pass, and `Task.Yield()` redirects to the controlled yield. Every awaited continuation is scheduled through the simulation coordinator instead of the thread pool, and `ConfigureAwait(false)` stays controlled.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -161,7 +161,7 @@ Policy: **Controlled**. The compiler-generated builder and awaiter types of an `
 
 ## ValueTaskMachinery family
 
-Policy: **Controlled**. The compiler-generated builder and awaiter types of an `async ValueTask`/`async ValueTask<T>` state machine (`AsyncValueTaskMethodBuilder`, `ValueTaskAwaiter`, `ConfiguredValueTaskAwaitable` and their awaiters, generic and non-generic) are substituted onto Clockwork's controlled equivalents by the member-aware pass, so every awaited value-task continuation is scheduled through the simulation coordinator. `ConfigureAwait(false)` stays controlled in simulation while preserving normal semantics outside. Synchronous blocking on a value task is not rewritten (a value task may be consumed only once); `await` is the supported controlled path.
+Policy: **Controlled**. The compiler-generated builder and awaiter types of an `async ValueTask`/`async ValueTask<T>` state machine (`AsyncValueTaskMethodBuilder`, `ValueTaskAwaiter`, `ConfiguredValueTaskAwaitable` and their awaiters, generic and non-generic) are substituted onto Clockwork's controlled equivalents by the member-aware pass, so every awaited value-task continuation is scheduled through the simulation coordinator. `ConfigureAwait(false)` stays controlled. Synchronous blocking on a value task is not rewritten (a value task may be consumed only once); `await` is the supported controlled path.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -176,7 +176,7 @@ Policy: **Controlled**. The compiler-generated builder and awaiter types of an `
 
 ## TaskFactory family
 
-Policy: **Controlled**. All 24 .NET 10 `TaskFactory.StartNew` and `TaskFactory<T>.StartNew` overloads are classified, including state-carrying delegates and the full cancellation/options/scheduler forms. Each redirects to a controlled equivalent that schedules the delegate as a fresh logical strand while preserving state, cancellation, and results. Non-default schedulers and creation options whose semantics cannot be preserved are rejected precisely; outside simulation every overload runs the real BCL API unchanged.
+Policy: **Controlled**. All 24 .NET 10 `TaskFactory.StartNew` and `TaskFactory<T>.StartNew` overloads are classified, including state-carrying delegates and the full cancellation/options/scheduler forms. Each redirects to a controlled equivalent that schedules the delegate as a fresh logical strand while preserving state, cancellation, and results. Non-default schedulers and creation options whose semantics cannot be preserved are rejected precisely.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -207,7 +207,7 @@ Policy: **Controlled**. All 24 .NET 10 `TaskFactory.StartNew` and `TaskFactory<T
 
 ## Thread family
 
-Policy: **Controlled**. `Thread` construction (`ThreadStart`/`ParameterizedThreadStart`, with and without a stack size), `Start`, `Join` (all overloads), `Sleep`, `Yield`, and `SpinWait` redirect to a controlled thread that maps each thread to a controlled operation on the simulation coordinator; `Join`/`Sleep` yield the logical thread via the deterministic loop rather than blocking a physical thread or consuming real time. OS-specific priority, apartment-state, and `Interrupt` operations cannot be modelled faithfully and are rejected with a precise diagnostic. Outside simulation the shims run the real BCL `Thread` unchanged.
+Policy: **Controlled**. `Thread` construction (`ThreadStart`/`ParameterizedThreadStart`, with and without a stack size), `Start`, `Join` (all overloads), `Sleep`, `Yield`, and `SpinWait` redirect to a controlled thread that maps each thread to a controlled operation on the simulation coordinator; `Join`/`Sleep` yield the logical thread via the deterministic loop rather than blocking a physical thread or consuming real time. OS-specific priority, apartment-state, and `Interrupt` operations cannot be modelled faithfully and are rejected with a precise diagnostic.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -335,7 +335,7 @@ Policy: **Controlled**. The .NET 10 `SemaphoreSlim` constructors, counts, waits,
 
 ## Interlocked family
 
-Policy: **Controlled**. The full .NET 10 `Interlocked` surface - `Increment`/`Decrement`/`Add`/`And`/`Or` (`int`/`long`/`uint`/`ulong`), `Exchange`/`CompareExchange` (every primitive, native-int, floating-point, reference, and generic reference overload), `Read` (`long`/`ulong`), and the memory barriers - redirects each call site to a shim with the identical `ref`-first signature. Clockwork's cooperative single-logical-thread scheduler makes every read-modify-write an indivisible step (never split, never interleaved mid-operation), so the shim delegates to the real primitive and preserves exact atomic return, overflow, and reference-write semantics inside and outside simulation. The exploration policy injects no mid-operation scheduling point; the single delegation site is the future Phase 9 race-hook attachment point.
+Policy: **Controlled**. The full .NET 10 `Interlocked` surface - `Increment`/`Decrement`/`Add`/`And`/`Or` (`int`/`long`/`uint`/`ulong`), `Exchange`/`CompareExchange` (every primitive, native-int, floating-point, reference, and generic reference overload), `Read` (`long`/`ulong`), and the memory barriers - redirects each call site to a shim with the identical `ref`-first signature. Clockwork's cooperative single-logical-thread scheduler makes every read-modify-write an indivisible step (never split, never interleaved mid-operation), so the shim delegates to the real primitive and preserves exact atomic return, overflow, and reference-write semantics under the active simulation. The exploration policy injects no mid-operation scheduling point; the single delegation site is the future Phase 9 race-hook attachment point.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -431,7 +431,7 @@ Policy: **Controlled**. The full .NET 10 `Volatile` surface - `Read`/`Write` (ev
 
 ## SpinWait family
 
-Policy: **Controlled**. `System.Threading.SpinWait` is a value type retargeted by whole-type substitution (like `System.Threading.Lock`): every local/field/parameter typed `SpinWait`, each `new SpinWait()`/`default`, the instance members (`Count`, `NextSpinWillYield`, `Reset`, both `SpinOnce` overloads) and the static `SpinUntil` overloads remap onto the controlled struct. Inside a simulation a spin never burns CPU or consumes real time: `SpinOnce` is a cooperative no-op that only advances the observable spin count, and `SpinUntil` pumps the deterministic loop until its predicate holds (a never-satisfiable predicate surfaces as the loop-model deadlock diagnostic). The finite `SpinUntil` overloads use a first-winner virtual-time deadline. Outside a simulation every member delegates to a real wrapped `SpinWait`.
+Policy: **Controlled**. `System.Threading.SpinWait` is a value type retargeted by whole-type substitution (like `System.Threading.Lock`): every local/field/parameter typed `SpinWait`, each `new SpinWait()`/`default`, the instance members (`Count`, `NextSpinWillYield`, `Reset`, both `SpinOnce` overloads) and the static `SpinUntil` overloads remap onto the controlled struct. Inside a simulation a spin never burns CPU or consumes real time: `SpinOnce` is a cooperative no-op that only advances the observable spin count, and `SpinUntil` pumps the deterministic loop until its predicate holds (a never-satisfiable predicate surfaces as the loop-model deadlock diagnostic). The finite `SpinUntil` overloads use a first-winner virtual-time deadline.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -439,7 +439,7 @@ Policy: **Controlled**. `System.Threading.SpinWait` is a value type retargeted b
 
 ## WaitHandle family
 
-Policy: **Controlled**. The controlled event / wait-handle surface - `AutoResetEvent`, `ManualResetEvent`, `EventWaitHandle`, and the shared `WaitHandle` operations. Each concrete event is a sealed BCL class, so the real object is retained as an identity handle while its signaled state and a deterministic FIFO waiter set live in a side table; every `new` redirects to a `Create` factory and each instance member is a receiver-first shim. `WaitOne` (all five overloads) pumps the deterministic loop until the event is signaled - a never-satisfiable wait surfaces as the loop-model deadlock diagnostic rather than hanging - and `Set`/`Reset` model exact reset-mode semantics: an auto-reset `Set` wakes and consumes exactly one eligible waiter (or leaves the event signaled until the next `WaitOne` consumes it), while a manual-reset `Set` releases every waiter and stays signaled until `Reset`. The static multi-handle operations `WaitAny` (returns the lowest-index signaled handle) and `WaitAll` (waits until every handle is simultaneously signaled, then consumes them atomically so an auto-reset handle is never partially consumed) register across all handles with no lost signals, validating null/empty/over-64 arrays and - for `WaitAll` - duplicate handles; `SignalAndWait` atomically signals the first handle then waits on the second. Finite timeouts use a first-winner virtual-time deadline (zero polls, infinite never times out); `Dispose`/`Close` mark the modelled state disposed. Named / cross-process APIs (named constructors, `OpenExisting`, `TryOpenExisting`) and the raw native-handle accessors (`Handle`, `SafeWaitHandle`) cannot be modelled in a single simulated process and are rejected with a precise diagnostic. Outside a simulation every shim delegates to the real BCL primitive unchanged.
+Policy: **Controlled**. The controlled event / wait-handle surface - `AutoResetEvent`, `ManualResetEvent`, `EventWaitHandle`, and the shared `WaitHandle` operations. Each concrete event is a sealed BCL class, so the real object is retained as an identity handle while its signaled state and a deterministic FIFO waiter set live in a side table; every `new` redirects to a `Create` factory and each instance member is a receiver-first shim. `WaitOne` (all five overloads) pumps the deterministic loop until the event is signaled - a never-satisfiable wait surfaces as the loop-model deadlock diagnostic rather than hanging - and `Set`/`Reset` model exact reset-mode semantics: an auto-reset `Set` wakes and consumes exactly one eligible waiter (or leaves the event signaled until the next `WaitOne` consumes it), while a manual-reset `Set` releases every waiter and stays signaled until `Reset`. The static multi-handle operations `WaitAny` (returns the lowest-index signaled handle) and `WaitAll` (waits until every handle is simultaneously signaled, then consumes them atomically so an auto-reset handle is never partially consumed) register across all handles with no lost signals, validating null/empty/over-64 arrays and - for `WaitAll` - duplicate handles; `SignalAndWait` atomically signals the first handle then waits on the second. Finite timeouts use a first-winner virtual-time deadline (zero polls, infinite never times out); `Dispose`/`Close` mark the modelled state disposed. Named / cross-process APIs (named constructors, `OpenExisting`, `TryOpenExisting`) and the raw native-handle accessors (`Handle`, `SafeWaitHandle`) cannot be modelled in a single simulated process and are rejected with a precise diagnostic.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |

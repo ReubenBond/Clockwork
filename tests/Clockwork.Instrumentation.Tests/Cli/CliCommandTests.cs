@@ -1,5 +1,6 @@
 using Clockwork.Instrumentation.Inspection;
 using Clockwork.Instrumentation.Tests.Infrastructure;
+using Clockwork.Runtime.Shims;
 using Clockwork.Tool;
 
 namespace Clockwork.Instrumentation.Tests.Cli;
@@ -143,6 +144,38 @@ public sealed class CliCommandTests : IDisposable
     }
 
     [Fact]
+    public void RewriteBuiltInStagesSimulationOnlyExecutable()
+    {
+        BuildSimulationOnlyClosure();
+
+        AppRunResult source = ProcessAppRunner.Run(Path.Combine(_source, "app.dll"));
+        Assert.True(
+            source.ExitCode == 0,
+            $"Source process failed ({source.ExitCode}):\n{source.StandardOutput}\n{source.StandardError}");
+        Assert.Contains("reached-end", source.Output);
+        string sourceSideEffect = Path.Combine(_source, "side-effect.txt");
+        Assert.True(File.Exists(sourceSideEffect));
+        File.Delete(sourceSideEffect);
+
+        (ExitCode code, _, string errors) = Invoke(
+            "rewrite",
+            "--source",
+            _source,
+            "--output",
+            _staging,
+            "--builtin",
+            "clockwork.bcl.deterministic");
+
+        Assert.Equal(ExitCode.Success, code);
+        AppRunResult staged = ProcessAppRunner.Run(Path.Combine(_staging, "app.dll"));
+        Assert.NotEqual(0, staged.ExitCode);
+        Assert.Empty(staged.Output);
+        Assert.Contains(typeof(SimulationNotActiveException).FullName!, staged.StandardError, StringComparison.Ordinal);
+        Assert.Contains(SimulationNotActiveException.DiagnosticMessage, staged.StandardError, StringComparison.Ordinal);
+        Assert.False(File.Exists(Path.Combine(_staging, "side-effect.txt")), errors);
+    }
+
+    [Fact]
     public void RewriteDryRunFlagsStrongNamedInputAsBlocking()
     {
         string keyPath = Path.Combine(_root, "test.snk");
@@ -228,6 +261,35 @@ public sealed class CliCommandTests : IDisposable
     {
         Compile("app", "namespace App { public static class A { public static int Go() => 1; } }");
         File.WriteAllText(Path.Combine(_source, "app.runtimeconfig.json"), "{}");
+    }
+
+    private void BuildSimulationOnlyClosure()
+    {
+        FixtureCompiler.Compile(
+            "app",
+            """
+            using System;
+            using System.IO;
+
+            public static class Program
+            {
+                public static void Main()
+                {
+                    _ = DateTime.UtcNow;
+                    File.WriteAllText("side-effect.txt", "unexpected");
+                    Console.WriteLine("reached-end");
+                }
+            }
+            """,
+            _source,
+            FixtureSymbols.PortableFile,
+            optimize: false,
+            outputKind: Microsoft.CodeAnalysis.OutputKind.ConsoleApplication);
+        File.Copy(
+            typeof(SimulationNotActiveException).Assembly.Location,
+            Path.Combine(_source, "Clockwork.Runtime.dll"),
+            overwrite: true);
+        ProcessAppRunner.WriteRuntimeConfig(Path.Combine(_source, "app.dll"));
     }
 
     private string Compile(string name, string source) =>
