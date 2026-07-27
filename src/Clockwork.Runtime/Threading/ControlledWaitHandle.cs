@@ -53,6 +53,21 @@ public static class ControlledWaitHandle
         public IControlledTimeout? Deadline;
     }
 
+    internal sealed class MultiWaiter
+    {
+        public required HandleState[] States { get; init; }
+
+        public required bool WaitAll { get; init; }
+
+        public TaskCompletionSource<bool> Completion { get; } = new();
+
+        public IControlledTimeout? Deadline { get; set; }
+
+        public int WinnerIndex { get; set; } = -1;
+
+        public bool Pending { get; set; } = true;
+    }
+
     /// <summary>Base state for a controlled wait handle.</summary>
     internal abstract class HandleState
     {
@@ -60,6 +75,9 @@ public static class ControlledWaitHandle
 
         // Callers blocked in WaitOne, in arrival order.
         public List<Waiter> Waiters { get; } = new();
+
+        // Coordinated WaitAny/WaitAll callers registered across this and their other target handles.
+        internal List<MultiWaiter> MultiWaiters { get; } = new();
 
         /// <summary>Returns whether this handle can be acquired by <paramref name="strandId"/>.</summary>
         internal abstract bool IsAvailable(long strandId);
@@ -302,6 +320,10 @@ public static class ControlledWaitHandle
             }
 
             state.Waiters.Clear();
+            foreach (MultiWaiter waiter in state.MultiWaiters.ToArray())
+            {
+                FaultMultiWaiter(waiter, new ObjectDisposedException(nameof(WaitHandle)));
+            }
             handle.Dispose();
         }
     }
@@ -334,6 +356,8 @@ public static class ControlledWaitHandle
     /// </summary>
     internal static void ReleaseWaiters(EventState state)
     {
+        NotifyMultiWaiters(state);
+
         if (state.Mode == EventResetMode.ManualReset)
         {
             if (!state.Signaled)
@@ -368,6 +392,12 @@ public static class ControlledWaitHandle
 
     private static void ReleaseNextWaiter(MutexState state)
     {
+        NotifyMultiWaiters(state);
+        if (state.OwnerId is not null)
+        {
+            return;
+        }
+
         while (state.Waiters.Count > 0)
         {
             Waiter waiter = state.Waiters[0];
@@ -384,6 +414,8 @@ public static class ControlledWaitHandle
 
     private static void ReleaseWaiters(SemaphoreState state)
     {
+        NotifyMultiWaiters(state);
+
         while (state.Count > 0 && state.Waiters.Count > 0)
         {
             Waiter waiter = state.Waiters[0];
@@ -399,6 +431,12 @@ public static class ControlledWaitHandle
     {
         ValidateTimeout(millisecondsTimeout);
         HandleState state = StateForWaitOperation(handle, api);
+        return WaitControlled(state, millisecondsTimeout, api);
+    }
+
+    private static bool WaitControlled(HandleState state, int millisecondsTimeout, string api)
+    {
+        ValidateTimeout(millisecondsTimeout);
 
         if (state.TryAcquire(ControlledSynchronizationFlow.CurrentId))
         {
@@ -656,23 +694,18 @@ public static class ControlledWaitHandle
             return WaitTimeout;
         }
 
-        bool timedOut = false;
-        IControlledTimeout? deadline = millisecondsTimeout == Timeout.Infinite
-            ? null
-            : ControlledTaskRuntime.RegisterTimeout(
-                TimeSpan.FromMilliseconds(millisecondsTimeout), onElapsed: () => timedOut = true, WaitAnyApi);
-
-        ControlledTaskRuntime.DrainUntil(() => timedOut || FirstAvailable(states) >= 0, WaitAnyApi);
-
-        index = FirstAvailable(states);
-        if (index >= 0)
+        var waiter = new MultiWaiter { States = states, WaitAll = false };
+        RegisterMultiWaiter(waiter);
+        if (TryResolveMultiWaiter(waiter))
         {
-            deadline?.Cancel();
-            _ = states[index].TryAcquire(ControlledSynchronizationFlow.CurrentId);
-            return index;
+            return waiter.WinnerIndex;
         }
 
-        return WaitTimeout;
+        ArmMultiWaiterTimeout(waiter, millisecondsTimeout, WaitAnyApi);
+        ControlledTaskRuntime.DrainUntil(() => !waiter.Pending, WaitAnyApi);
+        return waiter.Completion.Task.GetAwaiter().GetResult()
+            ? waiter.WinnerIndex
+            : WaitTimeout;
     }
 
     private static bool WaitAllControlled(WaitHandle[] waitHandles, int millisecondsTimeout)
@@ -694,22 +727,16 @@ public static class ControlledWaitHandle
             return false;
         }
 
-        bool timedOut = false;
-        IControlledTimeout? deadline = millisecondsTimeout == Timeout.Infinite
-            ? null
-            : ControlledTaskRuntime.RegisterTimeout(
-                TimeSpan.FromMilliseconds(millisecondsTimeout), onElapsed: () => timedOut = true, WaitAllApi);
-
-        ControlledTaskRuntime.DrainUntil(() => timedOut || AllSignaled(states), WaitAllApi);
-
-        if (AllSignaled(states))
+        var waiter = new MultiWaiter { States = states, WaitAll = true };
+        RegisterMultiWaiter(waiter);
+        if (TryResolveMultiWaiter(waiter))
         {
-            deadline?.Cancel();
-            ConsumeAll(states);
             return true;
         }
 
-        return false;
+        ArmMultiWaiterTimeout(waiter, millisecondsTimeout, WaitAllApi);
+        ControlledTaskRuntime.DrainUntil(() => !waiter.Pending, WaitAllApi);
+        return waiter.Completion.Task.GetAwaiter().GetResult();
     }
 
     private static bool SignalAndWaitControlled(WaitHandle toSignal, WaitHandle toWaitOn, int millisecondsTimeout)
@@ -718,14 +745,15 @@ public static class ControlledWaitHandle
         ArgumentNullException.ThrowIfNull(toWaitOn);
         ValidateTimeout(millisecondsTimeout);
 
-        // Signalling dispatches through the shared model: events are set and mutexes are released by their
-        // current logical owner.
+        // Validate both handles before mutating either. This matches the BCL contract that an invalid wait
+        // target cannot leave the signal target changed.
         HandleState signalState = StateOrThrow(toSignal, SignalAndWaitApi);
         ThrowIfDisposed(signalState);
+        HandleState waitState = StateForWaitOperation(toWaitOn, SignalAndWaitApi);
         Signal(signalState);
 
         // Then block on the second handle, exactly as a controlled WaitOne would.
-        return WaitControlled(toWaitOn, millisecondsTimeout, SignalAndWaitApi);
+        return WaitControlled(waitState, millisecondsTimeout, SignalAndWaitApi);
     }
 
     private static HandleState[] ResolveStates(WaitHandle[] waitHandles, string api, bool requireUnique)
@@ -803,6 +831,122 @@ public static class ControlledWaitHandle
         }
     }
 
+    private static void RegisterMultiWaiter(MultiWaiter waiter)
+    {
+        foreach (HandleState state in UniqueStates(waiter.States))
+        {
+            state.MultiWaiters.Add(waiter);
+        }
+    }
+
+    private static void ArmMultiWaiterTimeout(MultiWaiter waiter, int millisecondsTimeout, string api)
+    {
+        if (millisecondsTimeout == Timeout.Infinite || !waiter.Pending)
+        {
+            return;
+        }
+
+        waiter.Deadline = ControlledTaskRuntime.RegisterTimeout(
+            TimeSpan.FromMilliseconds(millisecondsTimeout),
+            () => CompleteMultiWaiter(waiter, succeeded: false),
+            api);
+    }
+
+    private static void NotifyMultiWaiters(HandleState state)
+    {
+        foreach (MultiWaiter waiter in state.MultiWaiters.ToArray())
+        {
+            _ = TryResolveMultiWaiter(waiter);
+        }
+    }
+
+    private static bool TryResolveMultiWaiter(MultiWaiter waiter)
+    {
+        if (!waiter.Pending)
+        {
+            return false;
+        }
+
+        if (waiter.WaitAll)
+        {
+            if (!AllSignaled(waiter.States))
+            {
+                return false;
+            }
+
+            ConsumeAll(waiter.States);
+            CompleteMultiWaiter(waiter, succeeded: true);
+            return true;
+        }
+
+        int index = FirstAvailable(waiter.States);
+        if (index < 0 || !waiter.States[index].TryAcquire(ControlledSynchronizationFlow.CurrentId))
+        {
+            return false;
+        }
+
+        waiter.WinnerIndex = index;
+        CompleteMultiWaiter(waiter, succeeded: true);
+        return true;
+    }
+
+    private static void CompleteMultiWaiter(MultiWaiter waiter, bool succeeded)
+    {
+        if (!waiter.Pending)
+        {
+            return;
+        }
+
+        waiter.Pending = false;
+        foreach (HandleState state in UniqueStates(waiter.States))
+        {
+            state.MultiWaiters.Remove(waiter);
+        }
+
+        waiter.Deadline?.Cancel();
+        waiter.Deadline = null;
+        waiter.Completion.TrySetResult(succeeded);
+    }
+
+    private static void FaultMultiWaiter(MultiWaiter waiter, Exception exception)
+    {
+        if (!waiter.Pending)
+        {
+            return;
+        }
+
+        waiter.Pending = false;
+        foreach (HandleState state in UniqueStates(waiter.States))
+        {
+            state.MultiWaiters.Remove(waiter);
+        }
+
+        waiter.Deadline?.Cancel();
+        waiter.Deadline = null;
+        waiter.Completion.TrySetException(exception);
+    }
+
+    private static IEnumerable<HandleState> UniqueStates(HandleState[] states)
+    {
+        for (int i = 0; i < states.Length; i++)
+        {
+            bool seen = false;
+            for (int j = 0; j < i; j++)
+            {
+                if (ReferenceEquals(states[j], states[i]))
+                {
+                    seen = true;
+                    break;
+                }
+            }
+
+            if (!seen)
+            {
+                yield return states[i];
+            }
+        }
+    }
+
     private static void RejectWaitAllWithMutex(HandleState[] states)
     {
         foreach (HandleState state in states)
@@ -826,6 +970,9 @@ public static class ControlledWaitHandle
                 return;
             case MutexState mutexState:
                 mutexState.Release(ControlledSynchronizationFlow.CurrentId);
+                return;
+            case SemaphoreState semaphoreState:
+                _ = semaphoreState.Release(1);
                 return;
             default:
                 throw new ControlledWaitHandleUnsupportedException(
@@ -918,6 +1065,10 @@ public static class ControlledWaitHandle
             }
 
             state.Waiters.Clear();
+            foreach (MultiWaiter waiter in state.MultiWaiters.ToArray())
+            {
+                FaultMultiWaiter(waiter, new ObjectDisposedException(nameof(WaitHandle)));
+            }
         }
 
         // Always release the real identity object's OS handle; the modelled state above is what a

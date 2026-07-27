@@ -61,6 +61,28 @@ public sealed class ControlledBarrierTests
     }
 
     [Fact]
+    public void RemoveParticipantsDoesNotMutateCountsWhenArrivedParticipantsWouldBeRemoved()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var barrier = new ControlledBarrier(2);
+            Thread arrived = ControlledThread.Create(() => barrier.SignalAndWait());
+            ControlledThread.Start(arrived);
+            Pump();
+
+            Assert.Equal(2, barrier.ParticipantCount);
+            Assert.Equal(1, barrier.ParticipantsRemaining);
+            Assert.Throws<InvalidOperationException>(() => barrier.RemoveParticipants(2));
+            Assert.Equal(2, barrier.ParticipantCount);
+            Assert.Equal(1, barrier.ParticipantsRemaining);
+
+            barrier.SignalAndWait();
+            ControlledThread.Join(arrived);
+        });
+    }
+
+    [Fact]
     public void WaitersObservePhaseCompletionTimeoutCancellationAndPostPhaseFailure()
     {
         var coordinator = new ControlledTaskLoopCoordinator();
@@ -153,5 +175,11 @@ public sealed class ControlledBarrierTests
         Exception? exception = Record.Exception(() => created = new ControlledBarrier(1));
         Assert.Null(created);
         SimulationNotActiveExceptionAssert.Equal(exception, "System.Threading.Barrier..ctor");
+    }
+
+    private static void Pump()
+    {
+        var timer = ControlledSemaphoreSlim.Create(0);
+        Assert.False(ControlledSemaphoreSlim.Wait(timer, 1));
     }
 }

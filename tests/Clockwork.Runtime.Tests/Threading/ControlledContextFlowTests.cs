@@ -1,3 +1,4 @@
+using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Tasks;
 using Clockwork.Runtime.Tests.Tasks;
 using Clockwork.Runtime.Threading;
@@ -78,6 +79,45 @@ public sealed class ControlledContextFlowTests
             Assert.True(ControlledTaskRuntime.IsSimulationActive);
             Assert.Equal(5, ambient.Value);
             Assert.Equal(expectedStrand, ControlledSynchronizationFlow.CurrentId);
+        });
+    }
+
+    [Fact]
+    public void ExecutionContextsCapturedOutsideSimulationReestablishSimulationIdentityForRunAndRestore()
+    {
+        var outsideAmbient = new AsyncLocal<int> { Value = 5 };
+        ExecutionContext outside = Assert.IsType<ExecutionContext>(ExecutionContext.Capture());
+        ExecutionContext outsideCopy = outside.CreateCopy();
+        outsideAmbient.Value = 0;
+
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            outsideAmbient.Value = 9;
+            SimulationExecutionSnapshot expected = Assert.IsType<SimulationExecutionSnapshot>(SimulationExecutionContext.Current);
+            long strand = ControlledSynchronizationFlow.CurrentId;
+
+            ControlledExecutionContext.Run(
+                outside,
+                _ =>
+                {
+                    Assert.Equal(5, outsideAmbient.Value);
+                    Assert.True(ControlledTaskRuntime.IsSimulationActive);
+                    Assert.Equal(expected, SimulationExecutionContext.Current);
+                    Assert.Equal(strand, ControlledSynchronizationFlow.CurrentId);
+                    AutoResetEvent handle = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: true);
+                    Assert.True(ControlledWaitHandle.WaitOne(handle, 0));
+                },
+                state: null);
+
+            Assert.Equal(9, outsideAmbient.Value);
+            ControlledExecutionContext.Restore(outsideCopy);
+            Assert.Equal(5, outsideAmbient.Value);
+            Assert.True(ControlledTaskRuntime.IsSimulationActive);
+            Assert.Equal(expected, SimulationExecutionContext.Current);
+            Assert.Equal(strand, ControlledSynchronizationFlow.CurrentId);
+            ManualResetEvent restoredHandle = ControlledEventWaitHandle.CreateManualResetEvent(initialState: true);
+            Assert.True(ControlledWaitHandle.WaitOne(restoredHandle, 0));
         });
     }
 
@@ -176,7 +216,7 @@ public sealed class ControlledContextFlowTests
 
                 coordinator.Loop.RunUntilIdle();
                 Assert.True(postRan);
-                Assert.Same(context, context.ObservedPostContext);
+                Assert.Null(context.ObservedPostContext);
             }
             finally
             {
@@ -195,6 +235,35 @@ public sealed class ControlledContextFlowTests
             var ex = Assert.Throws<ControlledSynchronizationContextUnsupportedException>(
                 () => ControlledSynchronizationContext.Wait(new SynchronizationContext(), [IntPtr.Zero], waitAll: false, millisecondsTimeout: 0));
             Assert.Equal("System.Threading.SynchronizationContext.Wait", ex.ApiName);
+        });
+    }
+
+    [Fact]
+    public void SynchronizationContextIsStrandScopedAndDoesNotFlowWithExecutionContext()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var first = new SynchronizationContext();
+            var second = new SynchronizationContext();
+            ControlledSynchronizationContext.SetSynchronizationContext(first);
+            ExecutionContext captured = Assert.IsType<ExecutionContext>(ExecutionContext.Capture());
+
+            ControlledSynchronizationContext.SetSynchronizationContext(second);
+            ExecutionContext.Run(
+                captured,
+                _ => Assert.Same(second, ControlledSynchronizationContext.Current()),
+                state: null);
+
+            SynchronizationContext? childContext = first;
+            ControlledThreadPool.QueueUserWorkItem(_ => childContext = ControlledSynchronizationContext.Current());
+            coordinator.Loop.RunUntilIdle();
+
+            Assert.Null(childContext);
+            ControlledSynchronizationContext.SetSynchronizationContext(first);
+            Assert.Same(first, ControlledSynchronizationContext.Current());
+            ControlledSynchronizationContext.SetSynchronizationContext(null);
+            Assert.Null(ControlledSynchronizationContext.Current());
         });
     }
 

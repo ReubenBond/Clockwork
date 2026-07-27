@@ -233,10 +233,25 @@ public static class ControlledThreadPool
         return new ControlledRegisteredWaitHandle(waitObject, callBack, state, timeoutMs, executeOnlyOnce, context);
     }
 
-    // A uint timeout of 0xFFFFFFFF is the BCL's "infinite" sentinel; other values are virtual-time
-    // milliseconds (clamped to Int32.MaxValue for the controlled timer, an unobservably long deadline).
-    private static int NormalizeTimeout(uint millisecondsTimeOutInterval) =>
-        millisecondsTimeOutInterval == uint.MaxValue ? Timeout.Infinite : (int)Math.Min(millisecondsTimeOutInterval, int.MaxValue);
+    // A uint timeout of 0xFFFFFFFF is the BCL's "infinite" sentinel. Every other accepted value must fit
+    // the controlled timer's Int32 millisecond range.
+    private static int NormalizeTimeout(uint millisecondsTimeOutInterval)
+    {
+        if (millisecondsTimeOutInterval == uint.MaxValue)
+        {
+            return Timeout.Infinite;
+        }
+
+        if (millisecondsTimeOutInterval > int.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(millisecondsTimeOutInterval),
+                millisecondsTimeOutInterval,
+                "The timeout must be UInt32.MaxValue (infinite) or fit in Int32 milliseconds.");
+        }
+
+        return (int)millisecondsTimeOutInterval;
+    }
 
     private static int NormalizeTimeout(int millisecondsTimeOutInterval)
     {

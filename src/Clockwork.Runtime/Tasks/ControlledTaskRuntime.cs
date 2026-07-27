@@ -92,15 +92,17 @@ public static class ControlledTaskRuntime
             return;
         }
 
+        SimulationExecutionSnapshot snapshot = SimulationExecutionContext.Current
+            ?? throw new InvalidOperationException("A controlled execution context requires an active simulation.");
         long strandId = ControlledSynchronizationFlow.CurrentId;
         ExecutionContext.Run(
             context,
             static state =>
             {
-                var flowed = ((long StrandId, Action Work))state!;
-                ControlledSynchronizationFlow.RunAsStrand(flowed.StrandId, flowed.Work);
+                var flowed = ((SimulationExecutionSnapshot Snapshot, long StrandId, Action Work))state!;
+                RunInSimulationSnapshot(flowed.Snapshot, flowed.StrandId, flowed.Work);
             },
-            (strandId, work));
+            (snapshot, strandId, work));
     }
 
     internal static void RunWithCapturedExecutionContextAsNewStrand(ExecutionContext? context, Action work) =>
@@ -117,16 +119,7 @@ public static class ControlledTaskRuntime
             static state =>
             {
                 var invocation = ((SimulationExecutionSnapshot Snapshot, long StrandId, Action Work))state!;
-                using var runtimeScope = SimulationExecutionContext.EnterRuntime(
-                    SimulationRuntimeActivation.CreateToken(),
-                    invocation.Snapshot.Runtime);
-                using var nodeScope = invocation.Snapshot.Node is null
-                    ? null
-                    : SimulationExecutionContext.EnterNode(invocation.Snapshot.Node);
-                using var executionScope = invocation.Snapshot.LogicalExecutionId.IsNone
-                    ? null
-                    : SimulationExecutionContext.EnterLogicalExecution(invocation.Snapshot.LogicalExecutionId);
-                ControlledSynchronizationFlow.RunAsStrand(invocation.StrandId, invocation.Work);
+                RunInSimulationSnapshot(invocation.Snapshot, invocation.StrandId, invocation.Work);
             },
             (snapshot, strandId, work));
     }
@@ -212,5 +205,22 @@ public static class ControlledTaskRuntime
         }
 
         RunWithCapturedExecutionContext(context, work);
+    }
+
+    private static void RunInSimulationSnapshot(
+        SimulationExecutionSnapshot snapshot,
+        long strandId,
+        Action work)
+    {
+        using var runtimeScope = SimulationExecutionContext.EnterRuntime(
+            SimulationRuntimeActivation.CreateToken(),
+            snapshot.Runtime);
+        using var nodeScope = snapshot.Node is null
+            ? null
+            : SimulationExecutionContext.EnterNode(snapshot.Node);
+        using var executionScope = snapshot.LogicalExecutionId.IsNone
+            ? null
+            : SimulationExecutionContext.EnterLogicalExecution(snapshot.LogicalExecutionId);
+        ControlledSynchronizationFlow.RunAsStrand(strandId, work);
     }
 }

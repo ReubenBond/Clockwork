@@ -201,13 +201,13 @@ public sealed class ControlledBarrier : IDisposable
                     "The participant count to remove exceeds the number of registered participants.");
             }
 
-            _participantCount -= participantCount;
-            _participantsRemaining -= participantCount;
-            if (_participantsRemaining < 0)
+            if (participantCount > _participantsRemaining)
             {
                 throw new InvalidOperationException("Participants which have already arrived cannot be removed from the current phase.");
             }
 
+            _participantCount -= participantCount;
+            _participantsRemaining -= participantCount;
             if (_participantCount > 0 && _participantsRemaining == 0)
             {
                 completed = [.. _waiters];

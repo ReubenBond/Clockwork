@@ -94,19 +94,19 @@ public static class ControlledReaderWriterLockSlim
         return GetState(instance, TypeName + ".get_RecursionPolicy").RecursionPolicy;
     }
 
-    /// <summary>Gets the number of normal read locks held by all logical strands.</summary>
+    /// <summary>Gets the number of logical strands holding a normal read lock.</summary>
     public static int CurrentReadCount(ReaderWriterLockSlim instance)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(TypeName + ".get_CurrentReadCount");
-        var state = GetUsableState(instance, TypeName + ".get_CurrentReadCount");
-        return state.Readers.Values.Sum();
+        var state = GetState(instance, TypeName + ".get_CurrentReadCount");
+        return state.Readers.Count;
     }
 
     /// <summary>Gets whether the current logical strand holds a normal read lock.</summary>
     public static bool IsReadLockHeld(ReaderWriterLockSlim instance)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(TypeName + ".get_IsReadLockHeld");
-        var state = GetUsableState(instance, TypeName + ".get_IsReadLockHeld");
+        var state = GetState(instance, TypeName + ".get_IsReadLockHeld");
         return ReadCount(state, ControlledSynchronizationFlow.CurrentId) != 0;
     }
 
@@ -114,7 +114,7 @@ public static class ControlledReaderWriterLockSlim
     public static bool IsUpgradeableReadLockHeld(ReaderWriterLockSlim instance)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(TypeName + ".get_IsUpgradeableReadLockHeld");
-        var state = GetUsableState(instance, TypeName + ".get_IsUpgradeableReadLockHeld");
+        var state = GetState(instance, TypeName + ".get_IsUpgradeableReadLockHeld");
         return state.UpgradeableOwner == ControlledSynchronizationFlow.CurrentId;
     }
 
@@ -122,7 +122,7 @@ public static class ControlledReaderWriterLockSlim
     public static bool IsWriteLockHeld(ReaderWriterLockSlim instance)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(TypeName + ".get_IsWriteLockHeld");
-        var state = GetUsableState(instance, TypeName + ".get_IsWriteLockHeld");
+        var state = GetState(instance, TypeName + ".get_IsWriteLockHeld");
         return state.WriterOwner == ControlledSynchronizationFlow.CurrentId;
     }
 
@@ -130,7 +130,7 @@ public static class ControlledReaderWriterLockSlim
     public static int RecursiveReadCount(ReaderWriterLockSlim instance)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(TypeName + ".get_RecursiveReadCount");
-        var state = GetUsableState(instance, TypeName + ".get_RecursiveReadCount");
+        var state = GetState(instance, TypeName + ".get_RecursiveReadCount");
         return ReadCount(state, ControlledSynchronizationFlow.CurrentId);
     }
 
@@ -138,7 +138,7 @@ public static class ControlledReaderWriterLockSlim
     public static int RecursiveUpgradeCount(ReaderWriterLockSlim instance)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(TypeName + ".get_RecursiveUpgradeCount");
-        var state = GetUsableState(instance, TypeName + ".get_RecursiveUpgradeCount");
+        var state = GetState(instance, TypeName + ".get_RecursiveUpgradeCount");
         return state.UpgradeableOwner == ControlledSynchronizationFlow.CurrentId ? state.UpgradeableRecursion : 0;
     }
 
@@ -146,7 +146,7 @@ public static class ControlledReaderWriterLockSlim
     public static int RecursiveWriteCount(ReaderWriterLockSlim instance)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(TypeName + ".get_RecursiveWriteCount");
-        var state = GetUsableState(instance, TypeName + ".get_RecursiveWriteCount");
+        var state = GetState(instance, TypeName + ".get_RecursiveWriteCount");
         return state.WriterOwner == ControlledSynchronizationFlow.CurrentId ? state.WriterRecursion : 0;
     }
 
@@ -289,12 +289,15 @@ public static class ControlledReaderWriterLockSlim
             return;
         }
 
-        state.Disposed = true;
-        foreach (var waiter in state.Waiters)
+        if (state.Readers.Count != 0 ||
+            state.UpgradeableOwner is not null ||
+            state.WriterOwner is not null ||
+            state.Waiters.Any(waiter => waiter.Outcome == WaitOutcome.Pending))
         {
-            waiter.Outcome = WaitOutcome.Disposed;
-            waiter.Deadline?.Cancel();
+            throw new SynchronizationLockException();
         }
+
+        state.Disposed = true;
     }
 
     private static ReaderWriterLockSlim CreateCore(LockRecursionPolicy recursionPolicy)
@@ -307,7 +310,7 @@ public static class ControlledReaderWriterLockSlim
     private static int WaitingCount(ReaderWriterLockSlim instance, WaitKind kind, string api)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(api);
-        var state = GetUsableState(instance, api);
+        var state = GetState(instance, api);
         return state.Waiters.Count(waiter => waiter.Kind == kind && waiter.Outcome == WaitOutcome.Pending);
     }
 
@@ -373,7 +376,7 @@ public static class ControlledReaderWriterLockSlim
 
     private static bool CanAcquire(State state, WaitKind kind, long owner, Waiter? waiter)
     {
-        if (state.Disposed || state.WriterOwner is not null)
+        if (state.Disposed || (state.WriterOwner is not null && state.WriterOwner != owner))
         {
             return false;
         }
@@ -420,14 +423,24 @@ public static class ControlledReaderWriterLockSlim
 
     private static void ValidateCrossModeEntry(State state, WaitKind kind, long owner)
     {
-        if (state.RecursionPolicy == LockRecursionPolicy.SupportsRecursion)
-        {
-            return;
-        }
-
         var holdsRead = ReadCount(state, owner) != 0;
         var holdsUpgradeable = state.UpgradeableOwner == owner;
         var holdsWrite = state.WriterOwner == owner;
+        if (state.RecursionPolicy == LockRecursionPolicy.SupportsRecursion)
+        {
+            if (holdsWrite)
+            {
+                return;
+            }
+
+            if (holdsRead && kind is WaitKind.Write or WaitKind.UpgradeableRead)
+            {
+                throw new LockRecursionException();
+            }
+
+            return;
+        }
+
         var allowedUpgrade = kind == WaitKind.Write && holdsUpgradeable && !holdsRead && !holdsWrite;
         if ((holdsRead || holdsUpgradeable || holdsWrite) && !allowedUpgrade)
         {

@@ -145,6 +145,34 @@ public sealed class ControlledReaderWriterLockSlimTests
     }
 
     [Fact]
+    public void SupportsRecursionUsesTheBclCrossModeMatrixAndCountsReaderOwners()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var rw = ControlledReaderWriterLockSlim.Create(LockRecursionPolicy.SupportsRecursion);
+
+            ControlledReaderWriterLockSlim.EnterWriteLock(rw);
+            ControlledReaderWriterLockSlim.EnterReadLock(rw);
+            ControlledReaderWriterLockSlim.EnterUpgradeableReadLock(rw);
+            Assert.True(ControlledReaderWriterLockSlim.IsWriteLockHeld(rw));
+            Assert.True(ControlledReaderWriterLockSlim.IsReadLockHeld(rw));
+            Assert.True(ControlledReaderWriterLockSlim.IsUpgradeableReadLockHeld(rw));
+            ControlledReaderWriterLockSlim.ExitUpgradeableReadLock(rw);
+            ControlledReaderWriterLockSlim.ExitReadLock(rw);
+            ControlledReaderWriterLockSlim.ExitWriteLock(rw);
+
+            ControlledReaderWriterLockSlim.EnterReadLock(rw);
+            ControlledReaderWriterLockSlim.EnterReadLock(rw);
+            Assert.Equal(1, ControlledReaderWriterLockSlim.CurrentReadCount(rw));
+            Assert.Throws<LockRecursionException>(() => ControlledReaderWriterLockSlim.EnterWriteLock(rw));
+            Assert.Throws<LockRecursionException>(() => ControlledReaderWriterLockSlim.EnterUpgradeableReadLock(rw));
+            ControlledReaderWriterLockSlim.ExitReadLock(rw);
+            ControlledReaderWriterLockSlim.ExitReadLock(rw);
+        });
+    }
+
+    [Fact]
     public void WaitingCountsIncludeReadAndUpgradeableWaiters()
     {
         var coordinator = new ControlledTaskLoopCoordinator();
@@ -254,6 +282,54 @@ public sealed class ControlledReaderWriterLockSlimTests
             ControlledReaderWriterLockSlim.Dispose(rw);
             Assert.Throws<ObjectDisposedException>(() => ControlledReaderWriterLockSlim.EnterReadLock(rw));
             ControlledReaderWriterLockSlim.Dispose(rw);
+        });
+    }
+
+    [Fact]
+    public void DisposeWhileHeldDoesNotDisposeAndObservationalPropertiesRemainAvailableAfterDispose()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var rw = ControlledReaderWriterLockSlim.Create(LockRecursionPolicy.SupportsRecursion);
+            ControlledReaderWriterLockSlim.EnterReadLock(rw);
+
+            Assert.Throws<SynchronizationLockException>(() => ControlledReaderWriterLockSlim.Dispose(rw));
+            Assert.True(ControlledReaderWriterLockSlim.IsReadLockHeld(rw));
+            ControlledReaderWriterLockSlim.ExitReadLock(rw);
+
+            ControlledReaderWriterLockSlim.Dispose(rw);
+            Assert.Equal(LockRecursionPolicy.SupportsRecursion, ControlledReaderWriterLockSlim.RecursionPolicy(rw));
+            Assert.Equal(0, ControlledReaderWriterLockSlim.CurrentReadCount(rw));
+            Assert.False(ControlledReaderWriterLockSlim.IsReadLockHeld(rw));
+            Assert.False(ControlledReaderWriterLockSlim.IsUpgradeableReadLockHeld(rw));
+            Assert.False(ControlledReaderWriterLockSlim.IsWriteLockHeld(rw));
+            Assert.Equal(0, ControlledReaderWriterLockSlim.RecursiveReadCount(rw));
+            Assert.Equal(0, ControlledReaderWriterLockSlim.RecursiveUpgradeCount(rw));
+            Assert.Equal(0, ControlledReaderWriterLockSlim.RecursiveWriteCount(rw));
+            Assert.Equal(0, ControlledReaderWriterLockSlim.WaitingReadCount(rw));
+            Assert.Equal(0, ControlledReaderWriterLockSlim.WaitingUpgradeCount(rw));
+            Assert.Equal(0, ControlledReaderWriterLockSlim.WaitingWriteCount(rw));
+        });
+    }
+
+    [Fact]
+    public void DisposeWithPendingWaitersDoesNotInvalidateTheLockOrItsWaiters()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var rw = ControlledReaderWriterLockSlim.Create();
+            ControlledReaderWriterLockSlim.EnterWriteLock(rw);
+            Thread reader = ControlledThread.Create(() => ControlledReaderWriterLockSlim.EnterReadLock(rw));
+            ControlledThread.Start(reader);
+            Pump();
+
+            Assert.Equal(1, ControlledReaderWriterLockSlim.WaitingReadCount(rw));
+            Assert.Throws<SynchronizationLockException>(() => ControlledReaderWriterLockSlim.Dispose(rw));
+            Assert.Equal(1, ControlledReaderWriterLockSlim.WaitingReadCount(rw));
+            ControlledReaderWriterLockSlim.ExitWriteLock(rw);
+            Assert.False(ControlledReaderWriterLockSlim.IsWriteLockHeld(rw));
         });
     }
 

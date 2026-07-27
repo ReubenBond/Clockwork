@@ -206,6 +206,32 @@ public sealed class ControlledThreadPoolTests
     }
 
     [Fact]
+    public void RegisteredWaitUIntTimeoutUsesOnlyUIntMaxAsTheInfiniteSentinel()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            AutoResetEvent evt = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: false);
+            ControlledRegisteredWaitHandle infinite = ControlledThreadPool.RegisterWaitForSingleObject(
+                evt,
+                (_, _) => { },
+                state: null,
+                uint.MaxValue,
+                executeOnlyOnce: true);
+            Assert.True(infinite.Unregister(null));
+
+            ArgumentOutOfRangeException exception = Assert.Throws<ArgumentOutOfRangeException>(
+                () => ControlledThreadPool.RegisterWaitForSingleObject(
+                    evt,
+                    (_, _) => { },
+                    state: null,
+                    (uint)int.MaxValue + 1,
+                    executeOnlyOnce: true));
+            Assert.Equal("millisecondsTimeOutInterval", exception.ParamName);
+        });
+    }
+
+    [Fact]
     public void RepeatingRegisteredWaitFiresEachSignalUntilUnregister()
     {
         var coordinator = new ControlledTaskLoopCoordinator();

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks;
 
@@ -23,20 +24,30 @@ public static class ControlledSynchronizationContext
     private const string SendApi = "System.Threading.SynchronizationContext.Send";
     private const string WaitApi = "System.Threading.SynchronizationContext.Wait";
 
-    private static readonly AsyncLocal<SynchronizationContext?> Ambient = new();
+    private static readonly Dictionary<(Guid RuntimeId, long StrandId), SynchronizationContext?> Contexts = [];
 
     /// <summary>Gets the synchronization context installed for the current logical execution.</summary>
     public static SynchronizationContext? Current()
     {
-        SimulationRuntimeDispatch.RequireActiveSimulation(CurrentApi);
-        return Ambient.Value;
+        var snapshot = SimulationRuntimeDispatch.RequireActiveSimulation(CurrentApi);
+        return Contexts.TryGetValue((snapshot.Runtime.Id, ControlledSynchronizationFlow.CurrentId), out var context)
+            ? context
+            : null;
     }
 
     /// <summary>Installs a synchronization context for the current logical execution.</summary>
     public static void SetSynchronizationContext(SynchronizationContext? syncContext)
     {
-        SimulationRuntimeDispatch.RequireActiveSimulation(SetApi);
-        Ambient.Value = syncContext;
+        var snapshot = SimulationRuntimeDispatch.RequireActiveSimulation(SetApi);
+        var key = (snapshot.Runtime.Id, ControlledSynchronizationFlow.CurrentId);
+        if (syncContext is null)
+        {
+            Contexts.Remove(key);
+        }
+        else
+        {
+            Contexts[key] = syncContext;
+        }
     }
 
     /// <summary>Calls <see cref="SynchronizationContext.CreateCopy"/> on the supplied context.</summary>

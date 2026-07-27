@@ -144,6 +144,20 @@ public static class SimulationExecutionContext
     }
 
     /// <summary>
+    /// Re-establishes an ambient simulation snapshot after a BCL execution-context operation replaced the
+    /// AsyncLocal-backed ambient frame.
+    /// </summary>
+    internal static void RestoreSnapshot(SimulationExecutionSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        AmbientFrame.Value = new Frame(
+            parent: null,
+            snapshot.Runtime,
+            snapshot.Node,
+            snapshot.LogicalExecutionId);
+    }
+
+    /// <summary>
     /// <para>
     /// Deliberately suppresses <see cref="ExecutionContext"/> flow (via
     /// <see cref="System.Threading.ExecutionContext.SuppressFlow"/>) for the calling thread until

@@ -1,4 +1,5 @@
 using System.Runtime.Serialization;
+using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks;
 
@@ -64,8 +65,11 @@ public static class ControlledExecutionContext
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(RestoreApi);
         ArgumentNullException.ThrowIfNull(executionContext);
+        SimulationExecutionSnapshot snapshot = SimulationExecutionContext.Current
+            ?? throw new InvalidOperationException("A controlled execution context requires an active simulation.");
         long strandId = ControlledSynchronizationFlow.CurrentId;
         ExecutionContext.Restore(executionContext);
+        SimulationExecutionContext.RestoreSnapshot(snapshot);
         ControlledSynchronizationFlow.RestoreCurrentId(strandId);
     }
 
