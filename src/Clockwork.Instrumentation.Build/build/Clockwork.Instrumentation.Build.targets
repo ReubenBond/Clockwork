@@ -28,20 +28,23 @@
     <!-- Manifest lives outside the staged closure so it never ships with the app. -->
     <ClockworkManifestPath Condition="'$(ClockworkManifestPath)' == ''">$(IntermediateOutputPath)clockwork\clockwork.manifest.json</ClockworkManifestPath>
 
+    <!-- Written atomically only after the entire closure has been instrumented successfully. -->
+    <ClockworkSuccessPath Condition="'$(ClockworkSuccessPath)' == ''">$(IntermediateOutputPath)clockwork\clockwork.success</ClockworkSuccessPath>
+
     <!-- Auto-discover a project-adjacent config file when the consumer has not set one. -->
     <ClockworkConfigurationPath Condition="'$(ClockworkConfigurationPath)' == '' and Exists('$(MSBuildProjectDirectory)\clockwork.config.json')">$(MSBuildProjectDirectory)\clockwork.config.json</ClockworkConfigurationPath>
   </PropertyGroup>
 
   <!--
-    Incremental gate. Inputs are the produced output assembly, symbols, config and rule-set
-    documents; Output is the manifest. The task additionally keeps a content-hash cache, so this
-    coarse MSBuild gate and the fine-grained task cache both protect against needless work.
+    Incremental gate. Inputs are the produced output assembly, copy-local dependency closure,
+    config and rule-set documents; Output is an atomic success marker. A failed task never leaves
+    that marker behind, so unchanged failed builds retry instead of appearing up to date.
   -->
   <Target Name="ClockworkInstrument"
           AfterTargets="Build"
           Condition="'$(ClockworkInstrumentationEnabled)' == 'true'"
-          Inputs="$(TargetPath);@(ClockworkRuleSet);@(ClockworkBuiltInRuleSet);$(ClockworkConfigurationPath);$(MSBuildAllProjects)"
-          Outputs="$(ClockworkManifestPath)">
+          Inputs="$(TargetPath);@(ReferenceCopyLocalPaths);@(ClockworkRuleSet);@(ClockworkBuiltInRuleSet);$(ClockworkConfigurationPath);$(MSBuildAllProjects)"
+          Outputs="$(ClockworkSuccessPath)">
 
     <Message Importance="high" Text="Clockwork: instrumenting '$(ClockworkSourceDirectory)' -> '$(ClockworkStagingDirectory)'" />
 
@@ -63,7 +66,8 @@
         StrongNameKeyPath="$(ClockworkStrongNameKeyPath)"
         TargetRuntime="$(ClockworkTargetRuntime)"
         EntryAssemblyName="$(ClockworkEntryAssemblyName)"
-        ManifestPath="$(ClockworkManifestPath)">
+        ManifestPath="$(ClockworkManifestPath)"
+        CachePath="$(ClockworkSuccessPath)">
       <Output TaskParameter="ResolvedManifestPath" PropertyName="ClockworkResolvedManifestPath" />
       <Output TaskParameter="WasIncremental" PropertyName="ClockworkWasIncremental" />
     </ClockworkInstrumentTask>
