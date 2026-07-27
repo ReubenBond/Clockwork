@@ -290,18 +290,62 @@ internal sealed class CallSiteRewritingPass : RewritePass
 
     private bool IsSubstitutedTypePair(TypeReference original, TypeReference replacement)
     {
+        if (original is ByReferenceType originalByReference
+            || replacement is ByReferenceType)
+        {
+            return original is ByReferenceType left
+                && replacement is ByReferenceType right
+                && IsSubstitutedTypePair(left.ElementType, right.ElementType);
+        }
+
+        if (original is ArrayType originalArray
+            || replacement is ArrayType)
+        {
+            return original is ArrayType left
+                && replacement is ArrayType right
+                && left.Rank == right.Rank
+                && left.IsVector == right.IsVector
+                && IsEquivalentTypeArgument(left.ElementType, right.ElementType);
+        }
+
+        GenericInstanceType? originalGeneric = original as GenericInstanceType;
+        GenericInstanceType? replacementGeneric = replacement as GenericInstanceType;
+        if ((originalGeneric is null) != (replacementGeneric is null))
+        {
+            return false;
+        }
+
         string originalName = CecilNames.NormalizedTypeFullName(original);
         string replacementName = CecilNames.NormalizedTypeFullName(replacement);
         RewriteRule? substitution = Session.Matcher.TypeSubstitutionRules
             .Where(entry => string.Equals(entry.Key, originalName, StringComparison.Ordinal))
             .Select(entry => entry.Value)
             .FirstOrDefault();
-        return substitution is not null
-            && string.Equals(
+        if (substitution is null
+            || !string.Equals(
                 substitution.Replacement.DeclaringTypeFullName,
                 replacementName,
-                StringComparison.Ordinal);
+                StringComparison.Ordinal)
+            || original.IsValueType != replacement.IsValueType)
+        {
+            return false;
+        }
+
+        if (originalGeneric is null || replacementGeneric is null)
+        {
+            return original.HasGenericParameters == replacement.HasGenericParameters
+                && original.GenericParameters.Count == replacement.GenericParameters.Count;
+        }
+
+        return originalGeneric.GenericArguments.Count == replacementGeneric.GenericArguments.Count
+            && originalGeneric.GenericArguments
+                .Zip(replacementGeneric.GenericArguments, IsEquivalentTypeArgument)
+                .All(static equivalent => equivalent);
     }
+
+    private bool IsEquivalentTypeArgument(TypeReference original, TypeReference replacement) =>
+        string.Equals(original.FullName, replacement.FullName, StringComparison.Ordinal)
+        || IsSubstitutedTypePair(original, replacement);
 
     private void ReportContractMismatch(RewriteRule rule, int offset, string message)
     {

@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System;
 using System.Linq;
+using Microsoft.CodeAnalysis;
 
 namespace Clockwork.Analyzers;
 
@@ -76,6 +77,41 @@ public static class InstrumentedApiInventory
     public static bool Contains(string typeMetadataName, string memberName) =>
         Members.Contains(Api(typeMetadataName, memberName))
         || Members.Contains(Api(typeMetadataName, Wildcard));
+
+    /// <summary>Returns whether the exact invocation shape is covered by shipped instrumentation.</summary>
+    public static bool ContainsInvocation(string typeMetadataName, IMethodSymbol method)
+    {
+        if (!Contains(typeMetadataName, method.Name))
+        {
+            return false;
+        }
+
+        if (typeMetadataName == "System.Threading.Tasks.Task")
+        {
+            return method.Name switch
+            {
+                "Wait" => method.Parameters.Length == 0,
+                "WaitAll" or "WaitAny" =>
+                    method.Parameters.Length == 1
+                    && method.Parameters[0].Type is IArrayTypeSymbol array
+                    && array.ElementType.ToDisplayString() == "System.Threading.Tasks.Task",
+                "Delay" =>
+                    method.Parameters.Length == 1
+                    && method.Parameters[0].Type.SpecialType == SpecialType.System_Int32,
+                _ => true,
+            };
+        }
+
+        if (typeMetadataName is "System.Threading.Tasks.TaskFactory" or "System.Threading.Tasks.TaskFactory`1")
+        {
+            return method.Name != "StartNew"
+                || (method.Parameters.Length <= 3
+                    && !method.Parameters.Any(parameter =>
+                        parameter.Type.ToDisplayString() == "System.Threading.Tasks.TaskScheduler"));
+        }
+
+        return true;
+    }
 
     /// <summary>Returns whether all operations over the named framework type are instrumented.</summary>
     public static bool ContainsType(string typeMetadataName) =>

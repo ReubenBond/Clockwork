@@ -163,6 +163,12 @@ internal sealed class CrossAssemblyTaskDetectionPass : RewritePass
             return AwaitableProbe.ResolutionFailed;
         }
 
+        if (definition is null)
+        {
+            resolutionError = $"Type '{returnType.FullName}' could not be resolved.";
+            return AwaitableProbe.ResolutionFailed;
+        }
+
         while (definition is not null)
         {
             foreach (MethodDefinition candidate in definition.Methods)
@@ -175,7 +181,13 @@ internal sealed class CrossAssemblyTaskDetectionPass : RewritePass
 
             try
             {
-                definition = definition.BaseType?.Resolve();
+                TypeReference? baseType = definition.BaseType;
+                definition = baseType?.Resolve();
+                if (baseType is not null && definition is null)
+                {
+                    resolutionError = $"Base type '{baseType.FullName}' could not be resolved.";
+                    return AwaitableProbe.ResolutionFailed;
+                }
             }
             catch (AssemblyResolutionException ex)
             {

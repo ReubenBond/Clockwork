@@ -106,6 +106,21 @@ public sealed class PackageSmokeTests
     }
 
     [Fact]
+    public void BuildPackageRegeneratesDeletedManifest()
+    {
+        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        ConsumerProject consumer = Artifacts.Value.ScaffoldConsumer("DeletedManifestApp", instrumentationEnabled: true);
+        Assert.Equal(0, consumer.Build().ExitCode);
+        File.Delete(consumer.ManifestPath);
+
+        AppRunResult second = consumer.Build();
+
+        Assert.Equal(0, second.ExitCode);
+        Assert.Contains("Clockwork: instrumenting", second.StandardOutput);
+        Assert.True(File.Exists(consumer.ManifestPath));
+    }
+
+    [Fact]
     public void InstalledToolReportsVersion()
     {
         Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");

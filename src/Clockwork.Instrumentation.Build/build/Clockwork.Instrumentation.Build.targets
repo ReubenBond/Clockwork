@@ -44,7 +44,7 @@
           AfterTargets="Build"
           Condition="'$(ClockworkInstrumentationEnabled)' == 'true'"
           Inputs="$(TargetPath);@(ReferenceCopyLocalPaths);@(ClockworkRuleSet);@(ClockworkBuiltInRuleSet);$(ClockworkConfigurationPath);$(MSBuildAllProjects)"
-          Outputs="$(ClockworkSuccessPath)">
+          Outputs="$(ClockworkSuccessPath);$(ClockworkManifestPath)">
 
     <Message Importance="high" Text="Clockwork: instrumenting '$(ClockworkSourceDirectory)' -> '$(ClockworkStagingDirectory)'" />
 
