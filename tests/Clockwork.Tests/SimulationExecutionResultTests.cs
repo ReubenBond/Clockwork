@@ -381,7 +381,7 @@ public sealed class SimulationExecutionResultTests
     private sealed class RecordingCluster : SimulationCluster<TestNode>
     {
         public RecordingCluster(int seed, DateTimeOffset? startDateTime = null, CancellationToken cancellationToken = default)
-            : base(seed, startDateTime ?? DateTimeOffset.UnixEpoch, cancellationToken)
+            : base(seed, startDateTime ?? DateTimeOffset.UnixEpoch, cancellationToken: cancellationToken)
         {
         }
 

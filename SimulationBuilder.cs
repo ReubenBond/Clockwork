@@ -49,6 +49,9 @@ public sealed class SimulationBuilder
     private int? _seed;
     private DateTimeOffset? _startDateTime;
     private CancellationToken _cancellationToken;
+    private TimeZoneInfo? _simulationTimeZone;
+    private Clockwork.Runtime.Shims.SimulationCryptoRandomnessPolicy _cryptoRandomnessPolicy =
+        Clockwork.Runtime.Shims.SimulationCryptoRandomnessPolicy.Reject;
 
     /// <summary>
     /// Sets the seed used for the built simulation's deterministic random number generation. This
@@ -84,6 +87,34 @@ public sealed class SimulationBuilder
     public SimulationBuilder WithCancellationToken(CancellationToken cancellationToken)
     {
         _cancellationToken = cancellationToken;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets the local time zone the deterministic <c>DateTime.Now</c>/<c>DateTime.Today</c> shims
+    /// observe. Defaults to <see cref="TimeZoneInfo.Utc"/>.
+    /// </summary>
+    /// <param name="timeZone">The local time zone simulated nodes observe.</param>
+    /// <returns>This builder, for chaining.</returns>
+    public SimulationBuilder WithSimulationTimeZone(TimeZoneInfo timeZone)
+    {
+        ArgumentNullException.ThrowIfNull(timeZone);
+        _simulationTimeZone = timeZone;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets the cryptographic-randomness policy the deterministic crypto shims enforce. Defaults to
+    /// <see cref="Clockwork.Runtime.Shims.SimulationCryptoRandomnessPolicy.Reject"/>. Choosing
+    /// <see cref="Clockwork.Runtime.Shims.SimulationCryptoRandomnessPolicy.DeterministicInsecureForTesting"/>
+    /// substitutes deterministic <b>non-cryptographic</b> bytes and must only ever be used in tests -
+    /// never a production security decision.
+    /// </summary>
+    /// <param name="policy">The cryptographic-randomness policy for the built simulation.</param>
+    /// <returns>This builder, for chaining.</returns>
+    public SimulationBuilder WithCryptoRandomnessPolicy(Clockwork.Runtime.Shims.SimulationCryptoRandomnessPolicy policy)
+    {
+        _cryptoRandomnessPolicy = policy;
         return this;
     }
 
@@ -174,7 +205,13 @@ public sealed class SimulationBuilder
                 "A seed must be specified via WithSeed(...) before calling Build(), so the resulting simulation is deterministic.");
         }
 
-        return new BuiltSimulation(seed, _startDateTime, _pendingNodes, _cancellationToken);
+        return new BuiltSimulation(
+            seed,
+            _startDateTime,
+            _pendingNodes,
+            _cancellationToken,
+            _simulationTimeZone,
+            _cryptoRandomnessPolicy);
     }
 
     private void EnsureAddressIsUnique(string address)
