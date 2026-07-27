@@ -104,7 +104,7 @@ public static class DeterministicClock
             return Stopwatch.GetTimestamp();
         }
 
-        return env.GetTimestamp(node);
+        return checked((long)((decimal)env.GetTimestamp(node) * Stopwatch.Frequency / TimeSpan.TicksPerSecond));
     }
 
     /// <summary>Deterministic replacement for <see cref="Stopwatch.GetElapsedTime(long)"/>.</summary>
@@ -118,8 +118,9 @@ public static class DeterministicClock
             return Stopwatch.GetElapsedTime(startingTimestamp);
         }
 
-        // The virtual timestamp is measured in 100 ns ticks, so the delta maps directly to a TimeSpan.
-        return TimeSpan.FromTicks(env.GetTimestamp(node) - startingTimestamp);
+        long endingTimestamp = checked(
+            (long)((decimal)env.GetTimestamp(node) * Stopwatch.Frequency / TimeSpan.TicksPerSecond));
+        return Stopwatch.GetElapsedTime(startingTimestamp, endingTimestamp);
     }
 
     /// <summary>Deterministic replacement for <see cref="Environment.TickCount"/>.</summary>

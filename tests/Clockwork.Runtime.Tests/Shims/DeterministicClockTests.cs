@@ -194,4 +194,43 @@ public sealed class DeterministicClockTests
 
         Assert.Equal(First(), First());
     }
+
+    [Fact]
+    public void TimestampAdvancesInStopwatchFrequencyUnits()
+    {
+        var clock = ShimTestHarness.CreateClock();
+        var env = ShimTestHarness.CreateEnvironment(clock);
+
+        var (atOrigin, afterOneSecond) = ShimTestHarness.RunInSimulation(env, () =>
+        {
+            long origin = DeterministicClock.GetTimestamp();
+            clock.Advance(TimeSpan.FromSeconds(1));
+            return (origin, DeterministicClock.GetTimestamp());
+        });
+
+        Assert.Equal(0L, atOrigin);
+        Assert.Equal(Stopwatch.Frequency, afterOneSecond);
+        Assert.Equal(Stopwatch.Frequency, afterOneSecond - atOrigin);
+    }
+
+    [Fact]
+    public void ElapsedTimeConvertsStopwatchFrequencyDelta()
+    {
+        var clock = ShimTestHarness.CreateClock();
+        var env = ShimTestHarness.CreateEnvironment(clock);
+        var duration = TimeSpan.FromSeconds(3);
+
+        var (start, end, elapsed) = ShimTestHarness.RunInSimulation(env, () =>
+        {
+            clock.Advance(TimeSpan.FromSeconds(2));
+            long startingTimestamp = DeterministicClock.GetTimestamp();
+            clock.Advance(duration);
+            long endingTimestamp = DeterministicClock.GetTimestamp();
+            return (startingTimestamp, endingTimestamp, DeterministicClock.GetElapsedTime(startingTimestamp));
+        });
+
+        Assert.Equal(checked(2L * Stopwatch.Frequency), start);
+        Assert.Equal(checked(3L * Stopwatch.Frequency), end - start);
+        Assert.Equal(duration, elapsed);
+    }
 }
