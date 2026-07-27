@@ -40,7 +40,24 @@ internal sealed class CrossAssemblyTaskDetectionPass : RewritePass
             return instruction;
         }
 
-        if (!IsUncontrolledExternalCallee(method) || !ReturnsAwaitable(method, out string awaitableKind))
+        if (!IsUncontrolledExternalCallee(method))
+        {
+            return instruction;
+        }
+
+        AwaitableProbe probe = ProbeAwaitable(method, out string awaitableKind, out string? resolutionError);
+        if (probe == AwaitableProbe.ResolutionFailed)
+        {
+            Session.AddDiagnostic(RewriteDiagnostic.Warning(
+                RewriteDiagnosticIds.AwaitableResolutionFailed,
+                $"Could not determine whether return type '{method.ReturnType.FullName}' from '{method.FullName}' is a custom awaitable: {resolutionError}",
+                CecilNames.FullyQualifiedMethodName(Method!),
+                instruction.Offset));
+            Session.AddUnresolvedReference(method.ReturnType.Scope?.ToString() ?? method.ReturnType.FullName);
+            return instruction;
+        }
+
+        if (probe != AwaitableProbe.Awaitable)
         {
             return instruction;
         }
@@ -91,9 +108,13 @@ internal sealed class CrossAssemblyTaskDetectionPass : RewritePass
         string.Equals(assembly, "System", StringComparison.Ordinal) ||
         assembly.StartsWith("System.", StringComparison.Ordinal);
 
-    private static bool ReturnsAwaitable(MethodReference method, out string kind)
+    private static AwaitableProbe ProbeAwaitable(
+        MethodReference method,
+        out string kind,
+        out string? resolutionError)
     {
         TypeReference returnType = method.ReturnType;
+        resolutionError = null;
 
         if (returnType.Namespace == TaskNamespace)
         {
@@ -102,29 +123,33 @@ internal sealed class CrossAssemblyTaskDetectionPass : RewritePass
                 case "Task":
                 case "Task`1":
                     kind = "Task";
-                    return true;
+                    return AwaitableProbe.Awaitable;
                 case "ValueTask":
                 case "ValueTask`1":
                     kind = "ValueTask";
-                    return true;
+                    return AwaitableProbe.Awaitable;
             }
         }
 
-        if (HasParameterlessGetAwaiter(returnType))
+        AwaitableProbe customProbe = ProbeParameterlessGetAwaiter(returnType, out resolutionError);
+        if (customProbe == AwaitableProbe.Awaitable)
         {
             kind = "custom awaitable";
-            return true;
+            return AwaitableProbe.Awaitable;
         }
 
         kind = string.Empty;
-        return false;
+        return customProbe;
     }
 
-    private static bool HasParameterlessGetAwaiter(TypeReference returnType)
+    private static AwaitableProbe ProbeParameterlessGetAwaiter(
+        TypeReference returnType,
+        out string? resolutionError)
     {
+        resolutionError = null;
         if (returnType.IsGenericParameter || returnType.IsByReference || returnType.IsPointer)
         {
-            return false;
+            return AwaitableProbe.NotAwaitable;
         }
 
         TypeDefinition? definition;
@@ -132,9 +157,16 @@ internal sealed class CrossAssemblyTaskDetectionPass : RewritePass
         {
             definition = returnType.Resolve();
         }
-        catch (AssemblyResolutionException)
+        catch (AssemblyResolutionException ex)
         {
-            return false;
+            resolutionError = ex.Message;
+            return AwaitableProbe.ResolutionFailed;
+        }
+
+        if (definition is null)
+        {
+            resolutionError = $"Type '{returnType.FullName}' could not be resolved.";
+            return AwaitableProbe.ResolutionFailed;
         }
 
         while (definition is not null)
@@ -143,21 +175,28 @@ internal sealed class CrossAssemblyTaskDetectionPass : RewritePass
             {
                 if (candidate.Name == "GetAwaiter" && candidate.Parameters.Count == 0 && !candidate.IsStatic)
                 {
-                    return true;
+                    return AwaitableProbe.Awaitable;
                 }
             }
 
             try
             {
-                definition = definition.BaseType?.Resolve();
+                TypeReference? baseType = definition.BaseType;
+                definition = baseType?.Resolve();
+                if (baseType is not null && definition is null)
+                {
+                    resolutionError = $"Base type '{baseType.FullName}' could not be resolved.";
+                    return AwaitableProbe.ResolutionFailed;
+                }
             }
-            catch (AssemblyResolutionException)
+            catch (AssemblyResolutionException ex)
             {
-                return false;
+                resolutionError = ex.Message;
+                return AwaitableProbe.ResolutionFailed;
             }
         }
 
-        return false;
+        return AwaitableProbe.NotAwaitable;
     }
 
     private static string AssemblyNameOf(TypeReference type) =>
@@ -167,4 +206,11 @@ internal sealed class CrossAssemblyTaskDetectionPass : RewritePass
             ModuleDefinition module => module.Assembly?.Name?.Name ?? string.Empty,
             _ => type.Module?.Assembly?.Name?.Name ?? string.Empty,
         };
+
+    private enum AwaitableProbe
+    {
+        NotAwaitable,
+        Awaitable,
+        ResolutionFailed,
+    }
 }

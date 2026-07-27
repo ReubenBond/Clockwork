@@ -83,5 +83,6 @@ public sealed record RewriteRule
 
     /// <summary>Returns a stable canonical string for signature hashing and diagnostics.</summary>
     public string ToCanonicalString() =>
-        $"{Id}|{Operation}|{Target.ToCanonicalString()}|{Replacement.ToCanonicalString()}|{Policy}|{Fallback}|{SupportedRuntimes.ToCanonicalString()}";
+        $"{Id}|{Operation}|{Target.ToCanonicalString()}|{Replacement.ToCanonicalString()}|{Policy}|{Fallback}|" +
+        $"{SupportedRuntimes.ToCanonicalString()}|description:{Description?.Length ?? -1}:{Description}";
 }

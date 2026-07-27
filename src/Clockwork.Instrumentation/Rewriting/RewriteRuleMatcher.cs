@@ -54,7 +54,8 @@ internal sealed class RewriteRuleMatcher
         {
             foreach (KeyValuePair<string, RewriteRule> entry in _typeSubstitutions)
             {
-                if (entry.Value.SupportedRuntimes.Includes(_targetRuntime))
+                if (entry.Value.Policy != Clockwork.Runtime.Policy.SimulationApiPolicy.PassThrough
+                    && entry.Value.SupportedRuntimes.Includes(_targetRuntime))
                 {
                     yield return entry;
                 }

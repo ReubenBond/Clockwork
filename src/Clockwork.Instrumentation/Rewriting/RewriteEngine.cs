@@ -50,6 +50,7 @@ public static class RewriteEngine
         RewriteOptions options = request.EffectiveOptions;
 
         string signature = request.RuleSet.ComputeSignature();
+        string optionsFingerprint = options.ComputeSemanticFingerprint();
         string engineVersion = EngineVersion;
         string inputHash = ComputeFileHash(request.InputPath);
 
@@ -93,7 +94,7 @@ public static class RewriteEngine
         if (context.TryGetRewriteSignature(out ClockworkRewriteSignatureValues existing))
         {
             return HandleAlreadyRewritten(
-                request, options, engineVersion, signature, existing, inputIdentity, diagnostics, exclusions);
+                request, options, engineVersion, signature, optionsFingerprint, existing, inputIdentity, diagnostics, exclusions);
         }
 
         CollectExclusions(context, options, exclusions, diagnostics, out HashSet<string> skip);
@@ -142,7 +143,7 @@ public static class RewriteEngine
         }
 
         context.ApplyRewriteSignature(new ClockworkRewriteSignatureValues(
-            engineVersion, request.RuleSet.Id, request.RuleSet.Version, signature));
+            engineVersion, request.RuleSet.Id, request.RuleSet.Version, signature, optionsFingerprint));
 
         EnsureOutputDirectory(request.OutputPath);
         context.Write(request.OutputPath);
@@ -176,6 +177,7 @@ public static class RewriteEngine
         RewriteOptions options,
         string engineVersion,
         string signature,
+        string optionsFingerprint,
         ClockworkRewriteSignatureValues existing,
         ManifestAssemblyIdentity inputIdentity,
         List<RewriteDiagnostic> diagnostics,
@@ -184,7 +186,8 @@ public static class RewriteEngine
         bool compatible = existing.Signature == signature
             && existing.EngineVersion == engineVersion
             && existing.RuleSetId == request.RuleSet.Id
-            && existing.RuleSetVersion == request.RuleSet.Version;
+            && existing.RuleSetVersion == request.RuleSet.Version
+            && existing.OptionsFingerprint == optionsFingerprint;
 
         if (!compatible)
         {
@@ -192,7 +195,9 @@ public static class RewriteEngine
                 RewriteDiagnosticIds.IncompatibleRewriteVersion,
                 $"Assembly '{inputIdentity.Name}' was already rewritten by engine {existing.EngineVersion} with rule set " +
                 $"'{existing.RuleSetId}' v{existing.RuleSetVersion} (signature {existing.Signature}). Re-run against the " +
-                "original, un-rewritten assembly to apply a different rule set; double-rewriting is refused."));
+                $"original, un-rewritten assembly to apply a different rule set or rewrite options " +
+                $"(existing options fingerprint '{DisplayFingerprint(existing.OptionsFingerprint)}', requested '{optionsFingerprint}'); " +
+                "double-rewriting is refused."));
             return Failed(request, engineVersion, signature, inputIdentity, diagnostics, exclusions, [], []);
         }
 
@@ -225,6 +230,9 @@ public static class RewriteEngine
             Manifest = manifest,
         };
     }
+
+    private static string DisplayFingerprint(string fingerprint) =>
+        string.IsNullOrEmpty(fingerprint) ? "legacy-unfingerprinted" : fingerprint;
 
     private static void RunPass(RewritePass pass, AssemblyRewriteContext context, HashSet<string> skip)
     {

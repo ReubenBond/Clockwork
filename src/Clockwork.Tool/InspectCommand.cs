@@ -37,7 +37,7 @@ internal static class InspectCommand
 
         string? expectedSignature = null;
         RewriteRuleSet? ruleSet = null;
-        if (reader.GetString("config") is not null || reader.GetMany("rule-set").Count > 0)
+        if (ConfigurationFactory.ValueOptions.Any(reader.IsSupplied))
         {
             InstrumentationConfiguration configuration = ConfigurationFactory.Build(reader);
             ruleSet = RuleSetMerge.LoadAndMerge(configuration).RuleSet;
@@ -179,6 +179,7 @@ internal static class InspectCommand
                     ["ruleSetId"] = marker.RuleSetId,
                     ["ruleSetVersion"] = marker.RuleSetVersion,
                     ["signature"] = marker.Signature,
+                    ["optionsFingerprint"] = marker.OptionsFingerprint,
                     ["matchesRuleSet"] = expectedSignature is null ? null : marker.Signature == expectedSignature,
                 };
             }

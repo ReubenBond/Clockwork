@@ -71,6 +71,56 @@ public sealed class PackageSmokeTests
     }
 
     [Fact]
+    public void BuildPackageRetriesUnchangedFailedInstrumentation()
+    {
+        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        ConsumerProject consumer = Artifacts.Value.ScaffoldConsumer(
+            "FailedApp", instrumentationEnabled: true, signEntryAssembly: true);
+
+        AppRunResult first = consumer.Build();
+        AppRunResult second = consumer.Build();
+
+        Assert.NotEqual(0, first.ExitCode);
+        Assert.NotEqual(0, second.ExitCode);
+        Assert.Contains("Clockwork: instrumenting", first.StandardOutput);
+        Assert.Contains("Clockwork: instrumenting", second.StandardOutput);
+        Assert.False(File.Exists(consumer.SuccessPath));
+    }
+
+    [Fact]
+    public void BuildPackageReinstrumentsWhenOnlyDependencyChanges()
+    {
+        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        ConsumerProject consumer = Artifacts.Value.ScaffoldConsumer("DependencyChangeApp", instrumentationEnabled: true);
+
+        AppRunResult first = consumer.Build();
+        Assert.Equal(0, first.ExitCode);
+        Assert.Contains("ticks=999", ProcessAppRunner.Run(consumer.StagedAppPath).Output);
+
+        consumer.ReplaceShimTicks(777);
+        AppRunResult second = consumer.Build();
+
+        Assert.Equal(0, second.ExitCode);
+        Assert.Contains("Clockwork: instrumenting", second.StandardOutput);
+        Assert.Contains("ticks=777", ProcessAppRunner.Run(consumer.StagedAppPath).Output);
+    }
+
+    [Fact]
+    public void BuildPackageRegeneratesDeletedManifest()
+    {
+        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        ConsumerProject consumer = Artifacts.Value.ScaffoldConsumer("DeletedManifestApp", instrumentationEnabled: true);
+        Assert.Equal(0, consumer.Build().ExitCode);
+        File.Delete(consumer.ManifestPath);
+
+        AppRunResult second = consumer.Build();
+
+        Assert.Equal(0, second.ExitCode);
+        Assert.Contains("Clockwork: instrumenting", second.StandardOutput);
+        Assert.True(File.Exists(consumer.ManifestPath));
+    }
+
+    [Fact]
     public void InstalledToolReportsVersion()
     {
         Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
@@ -199,7 +249,7 @@ public sealed class PackageSmokeTests
                     packageId + "." + _version,
                     StringComparison.OrdinalIgnoreCase));
 
-        public ConsumerProject ScaffoldConsumer(string name, bool instrumentationEnabled)
+        public ConsumerProject ScaffoldConsumer(string name, bool instrumentationEnabled, bool signEntryAssembly = false)
         {
             string rootDir = Path.Combine(Root, name);
             string appDir = Path.Combine(rootDir, "app");
@@ -256,6 +306,16 @@ public sealed class PackageSmokeTests
                 """);
 
             string enabled = instrumentationEnabled ? "true" : "false";
+            string signingProperties = string.Empty;
+            if (signEntryAssembly)
+            {
+                File.WriteAllBytes(Path.Combine(appDir, "test.snk"), StrongNameKeys.CreatePrivateKeyBlob());
+                signingProperties = """
+                    <SignAssembly>true</SignAssembly>
+                    <AssemblyOriginatorKeyFile>test.snk</AssemblyOriginatorKeyFile>
+                """;
+            }
+
             File.WriteAllText(Path.Combine(appDir, "SmokeApp.csproj"), $"""
                 <Project Sdk="Microsoft.NET.Sdk">
                   <PropertyGroup>
@@ -265,6 +325,7 @@ public sealed class PackageSmokeTests
                     <ImplicitUsings>enable</ImplicitUsings>
                     <AssemblyName>SmokeApp</AssemblyName>
                     <ClockworkInstrumentationEnabled>{enabled}</ClockworkInstrumentationEnabled>
+                {signingProperties}
                   </PropertyGroup>
                   <ItemGroup>
                     <PackageReference Include="Clockwork.Instrumentation.Build" Version="{_version}" />
@@ -355,6 +416,7 @@ public sealed class PackageSmokeTests
         private const string OutputRelative = "bin/Release/net10.0";
         private const string StagingRelative = "obj/Release/net10.0/clockwork/instrumented";
         private const string ManifestRelative = "obj/Release/net10.0/clockwork/clockwork.manifest.json";
+        private const string SuccessRelative = "obj/Release/net10.0/clockwork/clockwork.success";
 
         private readonly string _packagesDirectory;
 
@@ -373,6 +435,15 @@ public sealed class PackageSmokeTests
         public string StagedAppPath => Path.Combine(StagingDirectory, "SmokeApp.dll");
 
         public string ManifestPath => Path.Combine(ProjectDirectory, ManifestRelative);
+
+        public string SuccessPath => Path.Combine(ProjectDirectory, SuccessRelative);
+
+        public void ReplaceShimTicks(long ticks)
+        {
+            string sourcePath = Path.Combine(ProjectDirectory, "..", "lib", "SmokeApi.cs");
+            string source = File.ReadAllText(sourcePath);
+            File.WriteAllText(sourcePath, source.Replace("999L", ticks + "L", StringComparison.Ordinal));
+        }
 
         public AppRunResult Build() => ProcessAppRunner.Execute(
             "dotnet",

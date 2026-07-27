@@ -187,13 +187,16 @@ internal sealed class AssemblyRewriteContext : IDisposable
     public bool TryGetRewriteSignature(out ClockworkRewriteSignatureValues values)
     {
         CustomAttribute? attribute = FindSignatureAttribute();
-        if (attribute is not null && attribute.ConstructorArguments.Count == 4)
+        if (attribute is not null && attribute.ConstructorArguments.Count >= 4)
         {
             values = new ClockworkRewriteSignatureValues(
                 attribute.ConstructorArguments[0].Value as string ?? string.Empty,
                 attribute.ConstructorArguments[1].Value as string ?? string.Empty,
                 attribute.ConstructorArguments[2].Value as string ?? string.Empty,
-                attribute.ConstructorArguments[3].Value as string ?? string.Empty);
+                attribute.ConstructorArguments[3].Value as string ?? string.Empty,
+                attribute.ConstructorArguments.Count >= 5
+                    ? attribute.ConstructorArguments[4].Value as string ?? string.Empty
+                    : string.Empty);
             return true;
         }
 
@@ -215,6 +218,7 @@ internal sealed class AssemblyRewriteContext : IDisposable
             new(stringType, values.RuleSetId),
             new(stringType, values.RuleSetVersion),
             new(stringType, values.Signature),
+            new(stringType, values.OptionsFingerprint),
         ];
 
         CustomAttribute? existing = FindSignatureAttribute();
@@ -230,7 +234,7 @@ internal sealed class AssemblyRewriteContext : IDisposable
 
         MethodReference ctor = module.ImportReference(
             typeof(ClockworkRewriteSignatureAttribute).GetConstructor(
-                [typeof(string), typeof(string), typeof(string), typeof(string)])!);
+                [typeof(string), typeof(string), typeof(string), typeof(string), typeof(string)])!);
         var attribute = new CustomAttribute(ctor);
         foreach (CustomAttributeArgument arg in args)
         {
@@ -324,14 +328,16 @@ internal sealed class AssemblyRewriteContext : IDisposable
 }
 
 /// <summary>
-/// The four string values stored in a <see cref="ClockworkRewriteSignatureAttribute"/>.
+/// The five string values stored in a <see cref="ClockworkRewriteSignatureAttribute"/>.
 /// </summary>
 /// <param name="EngineVersion">The engine version that performed the rewrite.</param>
 /// <param name="RuleSetId">The identity of the applied rule set.</param>
 /// <param name="RuleSetVersion">The version of the applied rule set.</param>
 /// <param name="Signature">The stable content hash of the applied rule set and engine version.</param>
+/// <param name="OptionsFingerprint">The stable fingerprint of the rewrite options.</param>
 internal readonly record struct ClockworkRewriteSignatureValues(
     string EngineVersion,
     string RuleSetId,
     string RuleSetVersion,
-    string Signature);
+    string Signature,
+    string OptionsFingerprint);

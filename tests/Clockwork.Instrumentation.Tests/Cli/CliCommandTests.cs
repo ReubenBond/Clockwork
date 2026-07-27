@@ -51,6 +51,41 @@ public sealed class CliCommandTests : IDisposable
     }
 
     [Fact]
+    public void InspectAcceptsDocumentedBuiltInOptions()
+    {
+        string app = Compile("app", "namespace App { public static class A { public static int Go() => 1; } }");
+
+        (ExitCode code, string output, string errors) = Invoke(
+            "inspect",
+            app,
+            "--builtin",
+            "clockwork.bcl.deterministic",
+            "--builtin-include",
+            "Clock");
+
+        Assert.Equal(ExitCode.Success, code);
+        Assert.Contains("clockwork.bcl.deterministic", output);
+        Assert.DoesNotContain("Unknown option", errors);
+    }
+
+    [Fact]
+    public void HelpListsAcceptedInspectConfigurationOptions()
+    {
+        (ExitCode code, string output, _) = Invoke("--help");
+
+        Assert.Equal(ExitCode.Success, code);
+        foreach (string option in new[]
+        {
+            "--config", "--rule-set", "--builtin", "--builtin-include", "--builtin-exclude",
+            "--builtin-strict", "--include", "--exclude", "--r2r", "--strong-name", "--key",
+            "--exclude-framework", "--rewrite-dependencies", "--target-runtime", "--json",
+        })
+        {
+            Assert.Contains(option, output);
+        }
+    }
+
+    [Fact]
     public void RewriteStagesInstrumentedClosure()
     {
         BuildMinimalClosure();

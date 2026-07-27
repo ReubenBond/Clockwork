@@ -1,4 +1,5 @@
 using Clockwork.Instrumentation.Configuration;
+using Clockwork.Instrumentation.Closure;
 using Clockwork.Instrumentation.Diagnostics;
 using Clockwork.Instrumentation.Imaging;
 using Clockwork.Instrumentation.Orchestration;
@@ -95,6 +96,39 @@ public sealed class InstrumentationRunnerTests : IDisposable
         Assert.True(second.Succeeded);
         Assert.False(second.WasIncrementalHit);
     }
+
+    [Theory]
+    [MemberData(nameof(UnsafeStagingDirectories))]
+    public void RejectsStagingDirectoryWhichOverlapsSource(string stagingSelector)
+    {
+        BuildMinimalApp();
+        string staging = stagingSelector switch
+        {
+            "same" => Path.Combine(_source, "..", "source"),
+            "parent" => _root,
+            "child" => Path.Combine(_source, "instrumented"),
+            _ => throw new InvalidOperationException($"Unknown staging selector '{stagingSelector}'."),
+        };
+
+        ClosureException exception = Assert.Throws<ClosureException>(() =>
+            InstrumentationRunner.Run(new InstrumentationRequest
+            {
+                SourceDirectory = _source,
+                StagingDirectory = staging,
+                Configuration = new InstrumentationConfiguration(),
+                RuleSet = EmptyRuleSet(),
+            }));
+
+        Assert.Contains("dedicated directory", exception.Message);
+        Assert.True(File.Exists(Path.Combine(_source, "app.dll")));
+    }
+
+    public static TheoryData<string> UnsafeStagingDirectories => new()
+    {
+        "same",
+        "parent",
+        "child",
+    };
 
     [Fact]
     public void ManifestIsDeterministic()

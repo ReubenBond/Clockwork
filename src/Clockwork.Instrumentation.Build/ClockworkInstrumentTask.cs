@@ -76,6 +76,9 @@ public sealed class ClockworkInstrumentTask : MSBuildTask
     /// <summary>Gets or sets the path the closure manifest is written to, or empty for the default sibling path.</summary>
     public string? ManifestPath { get; set; }
 
+    /// <summary>Gets or sets the path to the atomic success marker used for incremental builds.</summary>
+    public string? CachePath { get; set; }
+
     /// <summary>Gets the path the closure manifest was written to.</summary>
     [Output]
     public string ResolvedManifestPath { get; private set; } = string.Empty;
@@ -115,6 +118,11 @@ public sealed class ClockworkInstrumentTask : MSBuildTask
             if (NullIfEmpty(ManifestPath) is { } manifestOverride)
             {
                 request = request with { ManifestPath = manifestOverride };
+            }
+
+            if (NullIfEmpty(CachePath) is { } cacheOverride)
+            {
+                request = request with { CachePath = cacheOverride };
             }
 
             result = InstrumentationRunner.Run(request);

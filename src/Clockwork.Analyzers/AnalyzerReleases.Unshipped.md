@@ -5,5 +5,5 @@
 
 Rule ID | Category | Severity | Notes
 --------|----------|----------|------------------------------------------------------
-CW1001  | Clockwork.Determinism | Info | NondeterministicApiAnalyzer, controlled time/identity/random surface
-CW1002  | Clockwork.Determinism | Warning | NondeterministicApiAnalyzer, rejected cryptographic randomness surface
+CW1001  | Clockwork.Determinism | Info | NondeterministicApiAnalyzer, controlled/rejected BCL, task, thread, thread-pool, Parallel, Monitor, Lock, and SemaphoreSlim surface
+CW1002  | Clockwork.Determinism | Warning | NondeterministicApiAnalyzer, complete public static RandomNumberGenerator entropy surface

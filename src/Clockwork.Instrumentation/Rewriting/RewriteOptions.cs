@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace Clockwork.Instrumentation.Rewriting;
 
@@ -69,4 +71,40 @@ public sealed record RewriteOptions
     /// are intentionally not flagged here.
     /// </summary>
     public bool DetectUncontrolledTasks { get; init; }
+
+    /// <summary>
+    /// Computes a canonical fingerprint of every option which can affect rewritten output,
+    /// diagnostics, or manifest content. Set-like exclusions are sorted so equivalent orderings
+    /// produce the same fingerprint; resolver path order is preserved because it controls precedence.
+    /// </summary>
+    public string ComputeSemanticFingerprint()
+    {
+        var canonical = new StringBuilder();
+        AppendPaths(canonical, "replacement", ReplacementAssemblyPaths, sort: false);
+        AppendPaths(canonical, "references", ReferenceSearchDirectories, sort: false);
+        canonical.Append("runtime=").Append(TargetRuntime?.ToString() ?? "*").Append('\n');
+        AppendPaths(canonical, "excluded", ExcludedTypeFullNames, sort: true);
+        canonical.Append("warnUnresolved=").Append(WarnOnUnresolvedReferences).Append('\n');
+        canonical.Append("outputHash=").Append(ComputeOutputHash).Append('\n');
+        canonical.Append("hardenExceptions=").Append(HardenExceptionHandlers).Append('\n');
+        canonical.Append("detectTasks=").Append(DetectUncontrolledTasks).Append('\n');
+        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString())));
+    }
+
+    private static void AppendPaths(
+        StringBuilder canonical,
+        string name,
+        ImmutableArray<string> values,
+        bool sort)
+    {
+        IEnumerable<string> normalized = values
+            .Select(static value => value.Replace('\\', '/'))
+            .Where(static value => value.Length > 0);
+        if (sort)
+        {
+            normalized = normalized.Distinct(StringComparer.Ordinal).OrderBy(static value => value, StringComparer.Ordinal);
+        }
+
+        canonical.Append(name).Append('=').AppendJoin(',', normalized).Append('\n');
+    }
 }

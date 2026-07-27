@@ -175,11 +175,14 @@ referencing any concrete shim by identity.
   generic/delegate/async-state-machine/iterator/nested-type shapes and inside
   `try`/`catch`/filter/`finally` regions, with exception-handler and branch
   boundaries repaired when instructions are inserted or replaced;
-- portable and embedded PDB preservation with per-site source mapping; absent or
-  unsupported symbol forms are reported (`CWR0004`/`CWR0005`), never silently dropped;
-- assembly/rule-set-level idempotence markers: re-running with the same rule set is a
-  verified no-op, and an incompatible rule-set version fails clearly (`CWR0008`)
-  rather than double-rewriting;
+- portable and embedded PDB preservation with per-site source mapping; one-for-one
+  replacements retain Cecil's offset-based sequence points. Member substitutions record
+  the exact operand instruction offset and nearest source point when a call site exists;
+  structural type/member edits without a call site use offset `-1` rather than a fabricated
+  `IL_0000`. Absent or unsupported symbols are reported (`CWR0004`/`CWR0005`), never silently dropped;
+- assembly/rule-set/options-level idempotence markers: re-running with the same rule set and
+  semantic rewrite options is a verified no-op, and an incompatible rule set or options
+  fingerprint fails clearly (`CWR0008`) rather than double-rewriting;
 - strict resolution — a targeted member whose replacement cannot be resolved is a hard
   failure (`CWR0001`); a targeted call is never silently skipped.
 

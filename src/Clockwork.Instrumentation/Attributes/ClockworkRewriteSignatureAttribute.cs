@@ -4,14 +4,14 @@ namespace Clockwork.Instrumentation.Attributes;
 /// <para>
 /// Assembly-level marker applied by <see cref="Rewriting.RewriteEngine"/> to an assembly it has
 /// rewritten. Its presence records the engine version, the identity and version of the rule set
-/// that was applied, and a stable signature hash of that rule set (see
-/// <see cref="Rules.RewriteRuleSet.ComputeSignature"/>).
+/// that was applied, a stable signature hash of that rule set (see
+/// <see cref="Rules.RewriteRuleSet.ComputeSignature"/>), and the semantic rewrite-options fingerprint.
 /// </para>
 /// <para>
 /// This marker is the basis of the engine's idempotence contract (Phase 4A requirement 6): running
-/// the engine again over an already-rewritten assembly with the <em>same</em> rule-set signature is
-/// a verified no-op, while a <em>different, incompatible</em> signature fails clearly instead of
-/// double-rewriting. The engine never inspects the CLR type at runtime - it reads the attribute's
+/// the engine again over an already-rewritten assembly with the <em>same</em> rule-set signature and
+/// options is a verified no-op, while a <em>different, incompatible</em> request fails clearly instead
+/// of double-rewriting. The engine never inspects the CLR type at runtime - it reads the attribute's
 /// stored arguments directly from assembly metadata via Mono.Cecil, so the attribute only needs to
 /// exist as metadata, not to be loaded.
 /// </para>
@@ -26,12 +26,19 @@ public sealed class ClockworkRewriteSignatureAttribute : Attribute
     /// <param name="ruleSetId">The stable identity of the applied <see cref="Rules.RewriteRuleSet"/>.</param>
     /// <param name="ruleSetVersion">The version of the applied rule set.</param>
     /// <param name="signature">A stable content hash of the applied rule set and engine version.</param>
-    public ClockworkRewriteSignatureAttribute(string engineVersion, string ruleSetId, string ruleSetVersion, string signature)
+    /// <param name="optionsFingerprint">A stable fingerprint of every rewrite option.</param>
+    public ClockworkRewriteSignatureAttribute(
+        string engineVersion,
+        string ruleSetId,
+        string ruleSetVersion,
+        string signature,
+        string optionsFingerprint)
     {
         EngineVersion = engineVersion;
         RuleSetId = ruleSetId;
         RuleSetVersion = ruleSetVersion;
         Signature = signature;
+        OptionsFingerprint = optionsFingerprint;
     }
 
     /// <summary>Gets the engine version that performed the rewrite.</summary>
@@ -45,4 +52,7 @@ public sealed class ClockworkRewriteSignatureAttribute : Attribute
 
     /// <summary>Gets the stable content hash of the applied rule set and engine version.</summary>
     public string Signature { get; }
+
+    /// <summary>Gets the stable fingerprint of the rewrite options used to produce the assembly.</summary>
+    public string OptionsFingerprint { get; }
 }
