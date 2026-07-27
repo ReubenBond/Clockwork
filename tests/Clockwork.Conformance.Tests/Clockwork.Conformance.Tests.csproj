@@ -17,6 +17,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Clockwork.Instrumentation\Clockwork.Instrumentation.csproj" />
-    <ProjectReference Include="..\..\Clockwork.csproj" />
+    <ProjectReference Include="..\..\src\Clockwork\Clockwork.csproj" />
   </ItemGroup>
 </Project>

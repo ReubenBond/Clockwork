@@ -16,16 +16,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="src\Clockwork.Runtime\Clockwork.Runtime.csproj" />
+    <ProjectReference Include="..\Clockwork.Runtime\Clockwork.Runtime.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Remove="tests\**\*.cs" />
-    <Compile Remove="src\**\*.cs" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Include="README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>

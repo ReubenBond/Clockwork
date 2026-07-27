@@ -23,10 +23,10 @@ Clockwork targets .NET 10.
 ```powershell
 dotnet build Clockwork.slnx
 dotnet run --project tests\Clockwork.Tests\Clockwork.Tests.csproj -- --timeout 60s
-dotnet pack Clockwork.csproj --configuration Release
+dotnet pack src/Clockwork/Clockwork.csproj --configuration Release
 ```
 
-The NuGet package ID is `Clockwork.Simulation`. Until packages are published, clone the repository or add it as a Git submodule and reference `Clockwork.csproj`.
+The NuGet package ID is `Clockwork.Simulation`. Until packages are published, clone the repository or add it as a Git submodule and reference `src/Clockwork/Clockwork.csproj`.
 
 ## Define a simulation
 
@@ -321,7 +321,8 @@ tracked by the modes in `docs/compatibility.md`.
 
 ## Deterministic instrumentation runtime plumbing (Phase 2)
 
-`Clockwork.Runtime` (referenced by the root `Clockwork.csproj`/`Clockwork.Simulation` package) adds
+`Clockwork.Runtime` (referenced by the `Clockwork`/`Clockwork.Simulation` package at
+`src/Clockwork/Clockwork.csproj`) adds
 the ambient-context, activation-security, seed-domain, decision-log, and API-policy plumbing that
 future controlled/race-exploration instrumentation will build on. **This is runtime plumbing only:
 nothing here intercepts application code yet, and no existing behavior changed** - every type below

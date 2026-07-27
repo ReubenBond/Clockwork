@@ -9,7 +9,7 @@ namespace Clockwork.Runtime.Execution;
 /// </para>
 /// <para>
 /// This is deliberately a plain, optional, additive configuration value (see e.g.
-/// <c>SimulationTaskQueue</c>'s constructor in the root Clockwork.Simulation package): components
+/// <c>SimulationTaskQueue</c>'s constructor in the Clockwork.Simulation package): components
 /// that are never given one keep behaving exactly as they did before ambient-context integration
 /// existed - no scope is installed, no external-entry check runs, and nothing observable changes.
 /// This is what lets pre-existing hand-written <c>SimulationCluster{TNode}</c>/<c>SimulationNode</c>

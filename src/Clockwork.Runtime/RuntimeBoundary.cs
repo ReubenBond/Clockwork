@@ -13,7 +13,7 @@ namespace Clockwork.Runtime;
 /// </para>
 /// <para>
 /// This project deliberately has no dependencies, so the deterministic simulation kernel
-/// (currently in the root Clockwork.csproj / Clockwork.Simulation package) can depend on it
+/// (currently in <c>src/Clockwork/Clockwork.csproj</c>, packaged as Clockwork.Simulation) can depend on it
 /// without any circularity - and so that <c>Clockwork.Instrumentation</c>, <c>Clockwork.Hosting</c>,
 /// <c>Clockwork.Http</c>, and <c>Clockwork.Testing</c> can eventually depend on it without
 /// depending on each other. The kernel itself (clock, task queue, scheduler, network, node
