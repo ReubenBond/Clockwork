@@ -33,6 +33,11 @@ public sealed class MonitorConformanceTests : IDisposable
                 return Task.FromResult(counter);
             }
 
+            public static void EnterActionOnly(int[] sink)
+            {
+                lock (new object()) { sink[0] = 42; }
+            }
+
             // A reentrant (recursive) lock on the same object acquires and releases by recursion count.
             public static Task<int> ReentrantLock()
             {
@@ -344,10 +349,18 @@ public sealed class MonitorConformanceTests : IDisposable
     }
 
     [Fact]
-    public async Task RewrittenLockDelegatesToRealBclOutsideAnySimulation()
+    public async Task OnlyRewrittenMonitorRequiresActiveSimulationWithoutEnteringItsAction()
     {
-        var task = (Task<int>)Method("LockGuardsCriticalSection", optimize: true).Invoke(null, null)!;
+        UninstrumentedProbe uninstrumented = _fixture.CompileUninstrumented(
+            "Conf.UninstrumentedMonitor",
+            "Conf.MonitorProbe",
+            Source);
+        var task = (Task<int>)uninstrumented.Method("LockGuardsCriticalSection").Invoke(null, null)!;
         Assert.Equal(6, await task);
+
+        int[] sink = [0];
+        SimulationNotActiveExceptionAssert.Throws(Method("EnterActionOnly", optimize: true), sink);
+        Assert.Equal(0, sink[0]);
     }
 
     private MethodInfo Method(string name, bool optimize) =>

@@ -80,6 +80,9 @@ public sealed class SpinWaitConformanceTests : IDisposable
                 return Task.FromResult((before == 0 && after == 3 && reset == 0) ? 42 : -1);
             }
 
+            public static void SpinUntilActionOnly(int[] sink) =>
+                SpinWait.SpinUntil(() => { sink[0]++; return true; });
+
             // NextSpinWillYield becomes true once the spin count passes the yield threshold.
             public static Task<bool> NextSpinWillYieldEventually()
             {
@@ -190,10 +193,18 @@ public sealed class SpinWaitConformanceTests : IDisposable
     }
 
     [Fact]
-    public async Task RewrittenSpinWaitDelegatesToRealBclOutsideAnySimulation()
+    public async Task OnlyRewrittenSpinWaitRequiresActiveSimulationWithoutRunningItsPredicate()
     {
-        var task = (Task<int>)Method("SpinOnceAdvancesCount", optimize: true).Invoke(null, null)!;
+        UninstrumentedProbe uninstrumented = _fixture.CompileUninstrumented(
+            "Conf.UninstrumentedSpinWait",
+            "Conf.SpinWaitProbe",
+            Source);
+        var task = (Task<int>)uninstrumented.Method("SpinOnceAdvancesCount").Invoke(null, null)!;
         Assert.Equal(42, await task);
+
+        int[] sink = [0];
+        SimulationNotActiveExceptionAssert.Throws(Method("SpinUntilActionOnly", optimize: true), sink);
+        Assert.Equal(0, sink[0]);
     }
 
     private MethodInfo Method(string name, bool optimize) =>

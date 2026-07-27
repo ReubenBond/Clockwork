@@ -7,8 +7,8 @@ namespace Clockwork.Runtime.Tests.Threading;
 /// <summary>
 /// Tests for <see cref="ControlledLock"/>, the controlled stand-in for <see cref="System.Threading.Lock"/>.
 /// Inside a simulation the lock is modelled on the controlled monitor kernel (mutual exclusion,
-/// reentrancy, <see cref="ControlledLock.Scope"/> disposal releasing exactly once); outside a simulation
-/// it delegates to a real wrapped <see cref="System.Threading.Lock"/>.
+/// reentrancy, <see cref="ControlledLock.Scope"/> disposal releasing exactly once). Controlled entry
+/// points require an active simulation.
 /// </summary>
 public sealed class ControlledLockTests
 {
@@ -83,16 +83,14 @@ public sealed class ControlledLockTests
     }
 
     [Fact]
-    public void OutsideSimulationDelegatesToRealLock()
+    public void OutsideSimulationFailsBeforeCreatingLock()
     {
-        var gate = new ControlledLock();
+        ControlledLock? gate = null;
 
-        using (gate.EnterScope())
-        {
-            Assert.True(gate.IsHeldByCurrentThread);
-        }
+        Exception? exception = Record.Exception(() => gate = new ControlledLock());
 
-        Assert.False(gate.IsHeldByCurrentThread);
+        Assert.Null(gate);
+        SimulationNotActiveExceptionAssert.Equal(exception, "System.Threading.Lock..ctor");
     }
 
     [Fact]

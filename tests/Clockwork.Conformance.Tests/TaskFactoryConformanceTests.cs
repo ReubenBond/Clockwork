@@ -25,6 +25,7 @@ public sealed class TaskFactoryConformanceTests : IDisposable
             // Task.Factory.StartNew(Func<TResult>) computes on the logical thread and returns its value.
             public static Task<int> StartValue() => ValueImpl();
             private static async Task<int> ValueImpl() => await Task.Factory.StartNew(() => 42);
+            public static Task StartActionOnly(int[] sink) => Task.Factory.StartNew(() => sink[0] = 42);
 
             // Task.Factory.StartNew(Action) mutates shared state under the cluster drive.
             public static Task<int> StartAction(int[] sink) => ActionImpl(sink);
@@ -252,10 +253,18 @@ public sealed class TaskFactoryConformanceTests : IDisposable
     }
 
     [Fact]
-    public async Task RewrittenStartNewDelegatesToRealBclOutsideAnySimulation()
+    public async Task OnlyRewrittenStartNewRequiresActiveSimulationWithoutRunningItsAction()
     {
-        var task = (Task<int>)Method("StartValue").Invoke(null, null)!;
+        UninstrumentedProbe uninstrumented = _fixture.CompileUninstrumented(
+            "Conf.UninstrumentedTaskFactory",
+            "Conf.FactoryProbe",
+            Source);
+        var task = (Task<int>)uninstrumented.Method("StartValue").Invoke(null, null)!;
         Assert.Equal(42, await task);
+
+        int[] sink = [0];
+        SimulationNotActiveExceptionAssert.Throws(Method("StartActionOnly"), sink);
+        Assert.Equal(0, sink[0]);
     }
 
     private MethodInfo Method(string name) => _release.Value.Method(name);

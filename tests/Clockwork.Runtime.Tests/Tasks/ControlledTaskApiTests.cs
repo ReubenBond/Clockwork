@@ -323,25 +323,22 @@ public sealed class ControlledTaskApiTests
 
     [Fact]
 #pragma warning disable xUnit1051 // Each exact overload, including those without tokens, is the subject under test.
-    public async Task DelayAndRunPassThroughOutsideSimulation()
+    public void RunOutsideSimulationFailsBeforeInvokingTheDelegate()
     {
         Assert.False(ControlledTaskRuntime.IsSimulationActive);
+        var ran = false;
 
-        // Outside a simulation these must behave exactly like the real BCL APIs.
-        Task[] delays =
-        [
-            ControlledTask.Delay(0),
-            ControlledTask.Delay(TimeSpan.Zero),
-            ControlledTask.Delay(0, TestContext.Current.CancellationToken),
-            ControlledTask.Delay(TimeSpan.Zero, TestContext.Current.CancellationToken),
-            ControlledTask.Delay(TimeSpan.Zero, TimeProvider.System),
-            ControlledTask.Delay(TimeSpan.Zero, TimeProvider.System, TestContext.Current.CancellationToken),
-        ];
-        var run = ControlledTask.Run(() => { }, TestContext.Current.CancellationToken);
-        await Task.WhenAll([.. delays, run]);
+        Exception? exception = Record.Exception(() =>
+        {
+            _ = ControlledTask.Run(
+                () => ran = true,
+                TestContext.Current.CancellationToken);
+        });
 
-        Assert.All(delays, delay => Assert.True(delay.IsCompletedSuccessfully));
-        Assert.True(run.IsCompletedSuccessfully);
+        Assert.False(ran);
+        SimulationNotActiveExceptionAssert.Equal(
+            exception,
+            "System.Threading.Tasks.Task.Run");
     }
 #pragma warning restore xUnit1051
 
@@ -568,30 +565,58 @@ public sealed class ControlledTaskApiTests
     }
 
     [Fact]
-    public async Task TaskFactoryStartNewPassesThroughOutsideSimulation()
+    public void TaskFactoryStartNewOutsideSimulationFailsBeforeInvokingDelegate()
     {
         Assert.False(ControlledTaskRuntime.IsSimulationActive);
+        var ran = false;
+        Task<int>? task = null;
 
-        var task = ControlledTaskFactory.StartNew(Task.Factory, () => 5);
-        var value = await task;
+        Exception? exception = Record.Exception(() =>
+        {
+            task = ControlledTaskFactory.StartNew(
+                Task.Factory,
+                () =>
+                {
+                    ran = true;
+                    return 5;
+                });
+        });
 
-        Assert.Equal(5, value);
+        Assert.False(ran);
+        Assert.Null(task);
+        SimulationNotActiveExceptionAssert.Equal(
+            exception,
+            "System.Threading.Tasks.TaskFactory.StartNew");
     }
 
     [Fact]
-    public async Task TaskFactoryStateAndCustomSchedulerPassThroughOutsideSimulation()
+    public async Task TaskFactoryStateAndCustomSchedulerOutsideSimulationFailBeforeInvokingDelegate()
     {
         Assert.False(ControlledTaskRuntime.IsSimulationActive);
         var schedulers = new ConcurrentExclusiveSchedulerPair();
-        var task = ControlledTaskFactory.StartNew(
-            Task.Factory,
-            state => (int)state! * 2,
-            6,
-            TestContext.Current.CancellationToken,
-            TaskCreationOptions.None,
-            schedulers.ExclusiveScheduler);
+        var ran = false;
+        Task<int>? task = null;
 
-        Assert.Equal(12, await task);
+        Exception? exception = Record.Exception(() =>
+        {
+            task = ControlledTaskFactory.StartNew(
+                Task.Factory,
+                state =>
+                {
+                    ran = true;
+                    return (int)state! * 2;
+                },
+                6,
+                TestContext.Current.CancellationToken,
+                TaskCreationOptions.None,
+                schedulers.ExclusiveScheduler);
+        });
+
+        Assert.False(ran);
+        Assert.Null(task);
+        SimulationNotActiveExceptionAssert.Equal(
+            exception,
+            "System.Threading.Tasks.TaskFactory.StartNew");
         schedulers.Complete();
         await schedulers.Completion;
     }

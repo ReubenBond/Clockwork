@@ -13,7 +13,7 @@ namespace Clockwork.Runtime.Tests.Threading;
 /// unsafe variants do not, the native-overlapped surface is rejected precisely, the registered-wait
 /// factories fire their <see cref="WaitOrTimerCallback"/> as a controlled operation on signal
 /// (<c>timedOut: false</c>) or virtual-time timeout (<c>timedOut: true</c>) honouring executeOnlyOnce /
-/// repeating and <c>Unregister</c>, and outside a simulation every shim delegates to the real API.
+/// repeating and <c>Unregister</c>.
 /// </summary>
 public sealed class ControlledThreadPoolTests
 {
@@ -331,27 +331,42 @@ public sealed class ControlledThreadPoolTests
     }
 
     [Fact]
-    public void OutsideSimulationRegisterWaitDelegatesToRealThreadPool()
+    public void OutsideSimulationRegisterWaitFailsBeforeTouchingHandlesOrCallback()
     {
         using var evt = new ManualResetEvent(false);
         using var fired = new ManualResetEventSlim(false);
+        ControlledRegisteredWaitHandle? registration = null;
 
-        ControlledRegisteredWaitHandle reg = ControlledThreadPool.RegisterWaitForSingleObject(
-            evt, (_, _) => fired.Set(), state: null, Timeout.Infinite, executeOnlyOnce: true);
+        Exception? exception = Record.Exception(
+            () => registration = ControlledThreadPool.RegisterWaitForSingleObject(
+                evt, (_, _) => fired.Set(), state: null, Timeout.Infinite, executeOnlyOnce: true));
 
-        evt.Set();
-        Assert.True(fired.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
-        reg.Unregister(null);
+        Assert.Null(registration);
+        Assert.False(evt.WaitOne(0));
+        Assert.False(fired.IsSet);
+        SimulationNotActiveExceptionAssert.Equal(
+            exception,
+            "System.Threading.ThreadPool.RegisterWaitForSingleObject");
     }
 
     [Fact]
-    public void OutsideSimulationQueueDelegatesToRealThreadPool()
+    public void OutsideSimulationQueueFailsBeforeQueuingTheCallback()
     {
-        using var completed = new ManualResetEventSlim(false);
-        var accepted = ControlledThreadPool.QueueUserWorkItem(_ => completed.Set());
+        var ran = false;
 
-        Assert.True(accepted);
-        Assert.True(completed.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+        Exception? exception = Record.Exception(
+            () => ControlledThreadPool.QueueUserWorkItem(_ => ran = true));
+
+        Assert.False(ran);
+        SimulationNotActiveExceptionAssert.Equal(
+            exception,
+            "System.Threading.ThreadPool.QueueUserWorkItem");
+
+        Exception? nullCallbackException = Record.Exception(
+            () => ControlledThreadPool.QueueUserWorkItem(null!));
+        SimulationNotActiveExceptionAssert.Equal(
+            nullCallbackException,
+            "System.Threading.ThreadPool.QueueUserWorkItem");
     }
 
     // Pumps the loop and folds virtual-time deadlines in, mirroring a host drive loop: run ready work to

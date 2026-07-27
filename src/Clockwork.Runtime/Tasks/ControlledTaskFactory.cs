@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Threading.Tasks;
+using Clockwork.Runtime.Shims;
 
 namespace Clockwork.Runtime.Tasks;
 
@@ -18,7 +19,7 @@ namespace Clockwork.Runtime.Tasks;
 /// <see cref="ControlledTask.Run(System.Action)"/> does), so the work runs deterministically on the
 /// single logical thread with the factory's (or the call's) cancellation token honoured. The
 /// options that change scheduling or parent/continuation semantics and non-default task schedulers are
-/// rejected under simulation rather than silently ignored. Every combination runs unchanged outside a simulation.
+/// rejected under simulation rather than silently ignored.
 /// </para>
 /// </summary>
 public static class ControlledTaskFactory
@@ -29,12 +30,8 @@ public static class ControlledTaskFactory
     /// <returns>A task that completes when the work does.</returns>
     public static Task StartNew(TaskFactory factory, Action action)
     {
+        RequireActive();
         ArgumentNullException.ThrowIfNull(factory);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return factory.StartNew(action);
-        }
-
         return StartNewCore(
             action,
             factory.CancellationToken,
@@ -49,12 +46,8 @@ public static class ControlledTaskFactory
     /// <returns>A task that completes when the work does.</returns>
     public static Task StartNew(TaskFactory factory, Action action, CancellationToken cancellationToken)
     {
+        RequireActive();
         ArgumentNullException.ThrowIfNull(factory);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return factory.StartNew(action, cancellationToken);
-        }
-
         return StartNewCore(
             action,
             cancellationToken,
@@ -69,12 +62,8 @@ public static class ControlledTaskFactory
     /// <returns>A task that completes when the work does.</returns>
     public static Task StartNew(TaskFactory factory, Action action, TaskCreationOptions creationOptions)
     {
+        RequireActive();
         ArgumentNullException.ThrowIfNull(factory);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return factory.StartNew(action, creationOptions);
-        }
-
         return StartNewCore(
             action,
             factory.CancellationToken,
@@ -90,25 +79,17 @@ public static class ControlledTaskFactory
         TaskCreationOptions creationOptions,
         TaskScheduler scheduler)
     {
+        RequireActive();
         ArgumentNullException.ThrowIfNull(factory);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return factory.StartNew(action, cancellationToken, creationOptions, scheduler);
-        }
-
         return StartNewCore(action, cancellationToken, creationOptions, scheduler);
     }
 
     /// <summary>Controlled <c>TaskFactory.StartNew(Action&lt;object&gt;, object)</c>.</summary>
     public static Task StartNew(TaskFactory factory, Action<object?> action, object? state)
     {
+        RequireActive();
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(action);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return factory.StartNew(action, state);
-        }
-
         return StartNewCore(
             () => action(state),
             factory.CancellationToken,
@@ -124,13 +105,9 @@ public static class ControlledTaskFactory
         object? state,
         CancellationToken cancellationToken)
     {
+        RequireActive();
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(action);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return factory.StartNew(action, state, cancellationToken);
-        }
-
         return StartNewCore(
             () => action(state),
             cancellationToken,
@@ -146,13 +123,9 @@ public static class ControlledTaskFactory
         object? state,
         TaskCreationOptions creationOptions)
     {
+        RequireActive();
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(action);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return factory.StartNew(action, state, creationOptions);
-        }
-
         return StartNewCore(
             () => action(state),
             factory.CancellationToken,
@@ -170,13 +143,9 @@ public static class ControlledTaskFactory
         TaskCreationOptions creationOptions,
         TaskScheduler scheduler)
     {
+        RequireActive();
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(action);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return factory.StartNew(action, state, cancellationToken, creationOptions, scheduler);
-        }
-
         return StartNewCore(
             () => action(state),
             cancellationToken,
@@ -218,12 +187,8 @@ public static class ControlledTaskFactory
     /// <returns>A task with the function's result.</returns>
     public static Task<TResult> StartNew<TResult>(TaskFactory factory, Func<TResult> function)
     {
+        RequireActive();
         ArgumentNullException.ThrowIfNull(factory);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return factory.StartNew(function);
-        }
-
         return StartNewCore(
             function,
             factory.CancellationToken,
@@ -239,12 +204,8 @@ public static class ControlledTaskFactory
     /// <returns>A task with the function's result.</returns>
     public static Task<TResult> StartNew<TResult>(TaskFactory factory, Func<TResult> function, CancellationToken cancellationToken)
     {
+        RequireActive();
         ArgumentNullException.ThrowIfNull(factory);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return factory.StartNew(function, cancellationToken);
-        }
-
         return StartNewCore(
             function,
             cancellationToken,
@@ -260,12 +221,8 @@ public static class ControlledTaskFactory
     /// <returns>A task with the function's result.</returns>
     public static Task<TResult> StartNew<TResult>(TaskFactory factory, Func<TResult> function, TaskCreationOptions creationOptions)
     {
+        RequireActive();
         ArgumentNullException.ThrowIfNull(factory);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return factory.StartNew(function, creationOptions);
-        }
-
         return StartNewCore(
             function,
             factory.CancellationToken,
@@ -281,12 +238,8 @@ public static class ControlledTaskFactory
         TaskCreationOptions creationOptions,
         TaskScheduler scheduler)
     {
+        RequireActive();
         ArgumentNullException.ThrowIfNull(factory);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return factory.StartNew(function, cancellationToken, creationOptions, scheduler);
-        }
-
         return StartNewCore(function, cancellationToken, creationOptions, scheduler);
     }
 
@@ -296,13 +249,9 @@ public static class ControlledTaskFactory
         Func<object?, TResult> function,
         object? state)
     {
+        RequireActive();
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(function);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return factory.StartNew(function, state);
-        }
-
         return StartNewCore(
             () => function(state),
             factory.CancellationToken,
@@ -318,13 +267,9 @@ public static class ControlledTaskFactory
         object? state,
         CancellationToken cancellationToken)
     {
+        RequireActive();
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(function);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return factory.StartNew(function, state, cancellationToken);
-        }
-
         return StartNewCore(
             () => function(state),
             cancellationToken,
@@ -340,13 +285,9 @@ public static class ControlledTaskFactory
         object? state,
         TaskCreationOptions creationOptions)
     {
+        RequireActive();
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(function);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return factory.StartNew(function, state, creationOptions);
-        }
-
         return StartNewCore(
             () => function(state),
             factory.CancellationToken,
@@ -364,13 +305,9 @@ public static class ControlledTaskFactory
         TaskCreationOptions creationOptions,
         TaskScheduler scheduler)
     {
+        RequireActive();
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(function);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return factory.StartNew(function, state, cancellationToken, creationOptions, scheduler);
-        }
-
         return StartNewCore(() => function(state), cancellationToken, creationOptions, scheduler, state);
     }
 
@@ -381,12 +318,8 @@ public static class ControlledTaskFactory
     /// <returns>A task with the function's result.</returns>
     public static Task<TResult> StartNew<TResult>(TaskFactory<TResult> factory, Func<TResult> function)
     {
+        RequireActive();
         ArgumentNullException.ThrowIfNull(factory);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return factory.StartNew(function);
-        }
-
         return StartNewCore(
             function,
             factory.CancellationToken,
@@ -402,12 +335,8 @@ public static class ControlledTaskFactory
     /// <returns>A task with the function's result.</returns>
     public static Task<TResult> StartNew<TResult>(TaskFactory<TResult> factory, Func<TResult> function, CancellationToken cancellationToken)
     {
+        RequireActive();
         ArgumentNullException.ThrowIfNull(factory);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return factory.StartNew(function, cancellationToken);
-        }
-
         return StartNewCore(
             function,
             cancellationToken,
@@ -423,12 +352,8 @@ public static class ControlledTaskFactory
     /// <returns>A task with the function's result.</returns>
     public static Task<TResult> StartNew<TResult>(TaskFactory<TResult> factory, Func<TResult> function, TaskCreationOptions creationOptions)
     {
+        RequireActive();
         ArgumentNullException.ThrowIfNull(factory);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return factory.StartNew(function, creationOptions);
-        }
-
         return StartNewCore(
             function,
             factory.CancellationToken,
@@ -444,12 +369,8 @@ public static class ControlledTaskFactory
         TaskCreationOptions creationOptions,
         TaskScheduler scheduler)
     {
+        RequireActive();
         ArgumentNullException.ThrowIfNull(factory);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return factory.StartNew(function, cancellationToken, creationOptions, scheduler);
-        }
-
         return StartNewCore(function, cancellationToken, creationOptions, scheduler);
     }
 
@@ -459,13 +380,9 @@ public static class ControlledTaskFactory
         Func<object?, TResult> function,
         object? state)
     {
+        RequireActive();
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(function);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return factory.StartNew(function, state);
-        }
-
         return StartNewCore(
             () => function(state),
             factory.CancellationToken,
@@ -481,13 +398,9 @@ public static class ControlledTaskFactory
         object? state,
         CancellationToken cancellationToken)
     {
+        RequireActive();
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(function);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return factory.StartNew(function, state, cancellationToken);
-        }
-
         return StartNewCore(
             () => function(state),
             cancellationToken,
@@ -503,13 +416,9 @@ public static class ControlledTaskFactory
         object? state,
         TaskCreationOptions creationOptions)
     {
+        RequireActive();
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(function);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return factory.StartNew(function, state, creationOptions);
-        }
-
         return StartNewCore(
             () => function(state),
             factory.CancellationToken,
@@ -527,13 +436,9 @@ public static class ControlledTaskFactory
         TaskCreationOptions creationOptions,
         TaskScheduler scheduler)
     {
+        RequireActive();
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(function);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return factory.StartNew(function, state, cancellationToken, creationOptions, scheduler);
-        }
-
         return StartNewCore(() => function(state), cancellationToken, creationOptions, scheduler, state);
     }
 
@@ -562,6 +467,9 @@ public static class ControlledTaskFactory
             "System.Threading.Tasks.TaskFactory.StartNew");
         return tcs.Task;
     }
+
+    private static void RequireActive() =>
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.TaskFactory.StartNew");
 
     private static void RunAction(Action action, TaskCompletionSource tcs, CancellationToken cancellationToken)
     {

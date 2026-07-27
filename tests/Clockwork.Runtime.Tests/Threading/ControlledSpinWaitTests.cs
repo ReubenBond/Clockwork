@@ -9,8 +9,8 @@ namespace Clockwork.Runtime.Tests.Threading;
 /// <summary>
 /// Tests for the controlled <see cref="ControlledSpinWait"/> value type. Inside a simulation a spin never
 /// burns CPU or consumes real time: <see cref="ControlledSpinWait.SpinOnce()"/> only advances the observable
-/// spin count and <see cref="ControlledSpinWait.SpinUntil(Func{bool})"/> pumps the deterministic loop. Every
-/// member delegates to a real <see cref="SpinWait"/> outside a simulation.
+/// spin count and <see cref="ControlledSpinWait.SpinUntil(Func{bool})"/> pumps the deterministic loop.
+/// Controlled entry points require an active simulation.
 /// </summary>
 public sealed class ControlledSpinWaitTests
 {
@@ -116,14 +116,29 @@ public sealed class ControlledSpinWaitTests
     }
 
     [Fact]
-    public void MembersDelegateToRealSpinWaitOutsideSimulation()
+    public void OutsideSimulationFailsBeforeMutatingStateOrInvokingCondition()
     {
         var spin = new ControlledSpinWait();
-        Assert.Equal(0, spin.Count);
-        spin.SpinOnce();
-        Assert.True(spin.Count >= 0);
-        spin.Reset();
-        Assert.True(ControlledSpinWait.SpinUntil(() => true, 0));
-        Assert.False(ControlledSpinWait.SpinUntil(() => false, 0));
+        Exception? spinException = Record.Exception(() => spin.SpinOnce());
+
+        Assert.Equal(default, spin);
+        SimulationNotActiveExceptionAssert.Equal(
+            spinException,
+            "System.Threading.SpinWait.SpinOnce");
+
+        var conditionInvoked = false;
+        Exception? untilException = Record.Exception(
+            () => ControlledSpinWait.SpinUntil(
+                () =>
+                {
+                    conditionInvoked = true;
+                    return true;
+                },
+                0));
+
+        Assert.False(conditionInvoked);
+        SimulationNotActiveExceptionAssert.Equal(
+            untilException,
+            "System.Threading.SpinWait.SpinUntil");
     }
 }

@@ -6,9 +6,8 @@ namespace Clockwork.Conformance.Tests;
 /// <summary>
 /// End-to-end conformance for the controlled <see cref="System.Threading.Volatile"/> surface (Phase 7B).
 /// The rule set redirects every <c>Read</c>/<c>Write</c> overload (and the barriers) to a controlled shim
-/// with the identical <c>ref</c>-first signature. Because a volatile access is an indivisible step on the
-/// single cooperative logical thread, the rewritten probe observes exactly the same value read/written as
-/// the real primitive - both inside and outside a simulation.
+/// with the identical <c>ref</c>-first signature. A volatile access is indivisible on the cooperative
+/// logical thread; outside simulation, rewritten calls fail before mutating ref state.
 /// </summary>
 public sealed class VolatileConformanceTests : IDisposable
 {
@@ -43,6 +42,8 @@ public sealed class VolatileConformanceTests : IDisposable
                        && Volatile.Read(ref d) == 2.5 && Volatile.Read(ref b);
                 return Task.FromResult(ok);
             }
+
+            public static void WriteRef(ref int location) => Volatile.Write(ref location, 42);
 
             // The generic reference overloads publish and acquire an object by identity.
             public static Task<bool> GenericReferenceRoundTrip()
@@ -104,10 +105,18 @@ public sealed class VolatileConformanceTests : IDisposable
     }
 
     [Fact]
-    public async Task RewrittenVolatileDelegatesToRealBclOutsideAnySimulation()
+    public async Task OnlyRewrittenVolatileRequiresActiveSimulationWithoutMutatingRefState()
     {
-        var task = (Task<bool>)Method("ReadWriteRoundTrip").Invoke(null, null)!;
+        UninstrumentedProbe uninstrumented = _fixture.CompileUninstrumented(
+            "Conf.UninstrumentedVolatile",
+            "Conf.VolatileProbe",
+            Source);
+        var task = (Task<bool>)uninstrumented.Method("ReadWriteRoundTrip").Invoke(null, null)!;
         Assert.True(await task);
+
+        object?[] args = [7];
+        SimulationNotActiveExceptionAssert.Throws(Method("WriteRef"), args);
+        Assert.Equal(7, args[0]);
     }
 
     private MethodInfo Method(string name) => _probe.Value.Method(name);

@@ -1,5 +1,6 @@
 using System;
 using System.Threading;
+using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks;
 
 namespace Clockwork.Runtime.Threading;
@@ -21,8 +22,7 @@ namespace Clockwork.Runtime.Threading;
 /// pumps the deterministic loop until its predicate holds - a never-satisfiable predicate surfaces as the
 /// loop-model deadlock diagnostic rather than a real busy-spin. The finite <see cref="SpinUntil(Func{bool}, int)"/>
 /// / <see cref="SpinUntil(Func{bool}, TimeSpan)"/> overloads use a virtual-time deadline (first-winner:
-/// a predicate that can be satisfied now always beats the timeout). Outside a simulation every member
-/// delegates to a real wrapped <see cref="System.Threading.SpinWait"/>, preserving production behaviour.
+/// a predicate that can be satisfied now always beats the timeout).
 /// Design adapted from Microsoft Coyote (MIT), whose controlled <c>SpinWait</c> likewise yields to the
 /// scheduler instead of spinning.
 /// </para>
@@ -36,28 +36,21 @@ public struct ControlledSpinWait
     private const string SpinOnceApi = "System.Threading.SpinWait.SpinOnce";
     private const string SpinUntilApi = "System.Threading.SpinWait.SpinUntil";
 
-    // Delegated to outside a simulation so production keeps the real spin behaviour.
-    private SpinWait _real;
-
-    // The modelled spin count used inside a simulation.
+    // The modelled spin count.
     private int _count;
 
     /// <summary>Controlled <see cref="System.Threading.SpinWait.Count"/>: the number of spins performed.</summary>
-    public readonly int Count => ControlledTaskRuntime.IsSimulationActive ? _count : _real.Count;
+    public readonly int Count =>
+        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.SpinWait.get_Count"), _count).Item2;
 
     /// <summary>Controlled <see cref="System.Threading.SpinWait.NextSpinWillYield"/>.</summary>
     public readonly bool NextSpinWillYield =>
-        ControlledTaskRuntime.IsSimulationActive ? _count >= YieldThreshold : _real.NextSpinWillYield;
+        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.SpinWait.get_NextSpinWillYield"), _count >= YieldThreshold).Item2;
 
     /// <summary>Controlled <see cref="System.Threading.SpinWait.Reset"/>.</summary>
     public void Reset()
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            _real.Reset();
-            return;
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.SpinWait.Reset");
         _count = 0;
     }
 
@@ -67,12 +60,7 @@ public struct ControlledSpinWait
     /// </summary>
     public void SpinOnce()
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            _real.SpinOnce();
-            return;
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation(SpinOnceApi);
         AdvanceCount();
     }
 
@@ -84,12 +72,7 @@ public struct ControlledSpinWait
     /// <param name="sleep1Threshold">The BCL sleep-1 threshold (ignored inside a simulation).</param>
     public void SpinOnce(int sleep1Threshold)
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            _real.SpinOnce(sleep1Threshold);
-            return;
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation(SpinOnceApi);
         // Validate exactly as the BCL does (-1 disables the sleep-1 fallback; anything below that is invalid).
         if (sleep1Threshold < -1)
         {
@@ -115,13 +98,8 @@ public struct ControlledSpinWait
     /// <param name="condition">The predicate that ends the spin.</param>
     public static void SpinUntil(Func<bool> condition)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(SpinUntilApi);
         ArgumentNullException.ThrowIfNull(condition);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            SpinWait.SpinUntil(condition);
-            return;
-        }
-
         if (condition())
         {
             return;
@@ -139,15 +117,11 @@ public struct ControlledSpinWait
     /// <returns><see langword="true"/> if <paramref name="condition"/> was met before the deadline.</returns>
     public static bool SpinUntil(Func<bool> condition, int millisecondsTimeout)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(SpinUntilApi);
         ArgumentNullException.ThrowIfNull(condition);
         if (millisecondsTimeout < Timeout.Infinite)
         {
             throw new ArgumentOutOfRangeException(nameof(millisecondsTimeout), millisecondsTimeout, "The timeout must be -1 (infinite) or a non-negative value.");
-        }
-
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return SpinWait.SpinUntil(condition, millisecondsTimeout);
         }
 
         if (condition())
@@ -194,6 +168,7 @@ public struct ControlledSpinWait
     /// <returns><see langword="true"/> if <paramref name="condition"/> was met before the deadline.</returns>
     public static bool SpinUntil(Func<bool> condition, TimeSpan timeout)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(SpinUntilApi);
         long totalMilliseconds = (long)timeout.TotalMilliseconds;
         if (totalMilliseconds < Timeout.Infinite || totalMilliseconds > int.MaxValue)
         {

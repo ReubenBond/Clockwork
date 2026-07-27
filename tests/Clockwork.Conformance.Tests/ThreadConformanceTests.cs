@@ -29,6 +29,12 @@ public sealed class ThreadConformanceTests : IDisposable
                 return Task.FromResult(result);
             }
 
+            public static void StartActionOnly(int[] sink)
+            {
+                var t = new Thread(() => sink[0] = 42);
+                t.Start();
+            }
+
             // Several controlled threads run cooperatively on the single logical thread; all are joined.
             public static Task<int> ManyThreads()
             {
@@ -221,12 +227,18 @@ public sealed class ThreadConformanceTests : IDisposable
     }
 
     [Fact]
-    public async Task RewrittenThreadDelegatesToRealBclOutsideAnySimulation()
+    public async Task OnlyRewrittenThreadRequiresActiveSimulationWithoutStartingItsAction()
     {
-        // No active simulation: the rewritten shims delegate to the real BCL Thread, running on a real
-        // OS thread and joining normally.
-        var task = (Task<int>)Method("StartAndJoin").Invoke(null, null)!;
+        UninstrumentedProbe uninstrumented = _fixture.CompileUninstrumented(
+            "Conf.UninstrumentedThread",
+            "Conf.ThreadProbe",
+            Source);
+        var task = (Task<int>)uninstrumented.Method("StartAndJoin").Invoke(null, null)!;
         Assert.Equal(42, await task);
+
+        int[] sink = [0];
+        SimulationNotActiveExceptionAssert.Throws(Method("StartActionOnly"), sink);
+        Assert.Equal(0, sink[0]);
     }
 
     [Fact]

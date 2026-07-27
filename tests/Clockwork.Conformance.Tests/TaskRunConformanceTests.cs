@@ -8,8 +8,7 @@ namespace Clockwork.Conformance.Tests;
 /// once a fixture is rewritten with the controlled-task rule set, <c>Task.Run</c> queues its body as a
 /// fresh controlled operation on the simulation coordinator rather than an uncontrolled physical
 /// thread-pool thread, so the work runs deterministically on the single logical thread with correct
-/// result, unwrap, fault, and cancellation semantics, and passes through to the real BCL outside any
-/// simulation.
+/// result, unwrap, fault, and cancellation semantics. Rewritten calls require an active simulation.
 /// </summary>
 public sealed class TaskRunConformanceTests : IDisposable
 {
@@ -23,6 +22,7 @@ public sealed class TaskRunConformanceTests : IDisposable
             // Task.Run(Func<TResult>) computes on the logical thread and returns its value.
             public static Task<int> RunValue() => Impl();
             private static async Task<int> Impl() => await Task.Run(() => 42);
+            public static Task RunActionOnly(int[] sink) => Task.Run(() => sink[0] = 42);
 
             // Task.Run(Func<Task<TResult>>) unwraps the inner async task.
             public static Task<int> RunUnwrap() => UnwrapImpl();
@@ -163,10 +163,18 @@ public sealed class TaskRunConformanceTests : IDisposable
     }
 
     [Fact]
-    public async Task RewrittenRunDelegatesToRealBclOutsideAnySimulation()
+    public async Task OnlyRewrittenRunRequiresActiveSimulationWithoutRunningItsAction()
     {
-        var task = (Task<int>)Method("RunValue").Invoke(null, null)!;
+        UninstrumentedProbe uninstrumented = _fixture.CompileUninstrumented(
+            "Conf.UninstrumentedTaskRun",
+            "Conf.RunProbe",
+            Source);
+        var task = (Task<int>)uninstrumented.Method("RunValue").Invoke(null, null)!;
         Assert.Equal(42, await task);
+
+        int[] sink = [0];
+        SimulationNotActiveExceptionAssert.Throws(Method("RunActionOnly"), sink);
+        Assert.Equal(0, sink[0]);
     }
 
     private MethodInfo Method(string name) => _release.Value.Method(name);

@@ -28,6 +28,16 @@ public sealed class ParallelConformanceTests : IDisposable
                 return Task.FromResult(sum);
             }
 
+            public static void ForActionOnly(int[] sink) =>
+                Parallel.For(0, 1, _ => sink[0]++);
+
+            public static Task<int> ForCountsIterations()
+            {
+                int count = 0;
+                Parallel.For(0, 5, _ => System.Threading.Interlocked.Increment(ref count));
+                return Task.FromResult(count);
+            }
+
             // Parallel.Invoke runs every action.
             public static Task<int> InvokeRunsAllActions()
             {
@@ -177,10 +187,18 @@ public sealed class ParallelConformanceTests : IDisposable
     }
 
     [Fact]
-    public async Task RewrittenForDelegatesToRealParallelOutsideAnySimulation()
+    public async Task OnlyRewrittenForRequiresActiveSimulationWithoutRunningItsAction()
     {
-        var task = (Task<int>)Method("ForSumsAllIterations").Invoke(null, null)!;
-        Assert.Equal(0 + 1 + 2 + 3 + 4, await task);
+        UninstrumentedProbe uninstrumented = _fixture.CompileUninstrumented(
+            "Conf.UninstrumentedParallel",
+            "Conf.ParallelProbe",
+            Source);
+        var task = (Task<int>)uninstrumented.Method("ForCountsIterations").Invoke(null, null)!;
+        Assert.Equal(5, await task);
+
+        int[] sink = [0];
+        SimulationNotActiveExceptionAssert.Throws(Method("ForActionOnly"), sink);
+        Assert.Equal(0, sink[0]);
     }
 
     private MethodInfo Method(string name) => _release.Value.Method(name);

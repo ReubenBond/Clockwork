@@ -8,8 +8,8 @@ namespace Clockwork.Conformance.Tests;
 /// directly (combinators, synchronous waits, continuations) once rewritten with the controlled-task
 /// rule set, plus the cross-cutting guarantees the phase must hold: multiple awaiters on one antecedent,
 /// deterministic <c>WhenAny</c> ordering, fault propagation through <c>WhenAll</c>, synchronous waits
-/// that pump the loop instead of dead-locking, per-node isolation, and correct pass-through when the
-/// rewritten assembly runs outside any simulation.
+/// that pump the loop instead of dead-locking, per-node isolation, and simulation-only execution for
+/// rewritten assemblies.
 /// </summary>
 /// <remarks>
 /// These tests drive the non-generic <c>WhenAll</c>/<c>WhenAny</c>, <c>Task.Wait()</c>, and
@@ -169,14 +169,17 @@ public sealed class TaskApiConformanceTests : IDisposable
     }
 
     [Fact]
-    public async Task RewrittenAssemblyDelegatesToRealBclOutsideAnySimulation()
+    public async Task OnlyRewrittenAsyncAssemblyRequiresActiveSimulation()
     {
-        // No SimulationHost: the ambient simulation runtime is inactive, so every controlled awaiter and
-        // the controlled yield must fall through to the real BCL and complete on the thread pool.
-        var task = (Task<int>)Method("Producer").Invoke(null, null)!;
+        UninstrumentedProbe uninstrumented = _fixture.CompileUninstrumented(
+            "Conf.UninstrumentedTaskApi",
+            "Conf.TaskProbe",
+            Source);
+        var task = (Task<int>)uninstrumented.Method("Producer").Invoke(null, null)!;
         int value = await task;
 
         Assert.Equal(30, value);
+        SimulationNotActiveExceptionAssert.Throws(Method("Producer"));
     }
 
     private MethodInfo Method(string name) => _probe.Value.Method(name);

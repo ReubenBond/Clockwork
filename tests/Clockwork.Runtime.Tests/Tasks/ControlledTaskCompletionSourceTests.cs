@@ -103,13 +103,19 @@ public sealed class ControlledTaskCompletionSourceTests
     }
 
     [Fact]
-    public async Task OptionsAreHonoredOutsideSimulation()
+    public void ConstructorOutsideSimulationRequiresActiveSimulation()
     {
         Assert.False(ControlledTaskRuntime.IsSimulationActive);
+        ControlledTaskCompletionSource<int>? source = null;
 
-        var tcs = new ControlledTaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
-        tcs.SetResult(7);
-        Assert.Equal(7, await tcs.Task);
+        Exception? exception = Record.Exception(
+            () => source = new ControlledTaskCompletionSource<int>(
+                TaskCreationOptions.RunContinuationsAsynchronously));
+
+        Assert.Null(source);
+        SimulationNotActiveExceptionAssert.Equal(
+            exception,
+            "System.Threading.Tasks.TaskCompletionSource..ctor");
     }
 
     [Fact]

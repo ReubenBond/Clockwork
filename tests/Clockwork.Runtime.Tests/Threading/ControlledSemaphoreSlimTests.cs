@@ -17,8 +17,7 @@ namespace Clockwork.Runtime.Tests.Threading;
 /// modelled on the cooperative logical thread, a contended synchronous <c>Wait</c> pumps the loop until
 /// a permit is released, <c>WaitAsync</c> completes when a permit is released, max-count is enforced,
 /// cancellation is honoured, and <c>AvailableWaitHandle</c> is bridged to a controlled manual-reset handle
-/// that tracks count &gt; 0 (Phase 7B). Outside a
-/// simulation every shim delegates to the real <see cref="SemaphoreSlim"/>.
+/// that tracks count &gt; 0 (Phase 7B).
 /// </summary>
 public sealed class ControlledSemaphoreSlimTests
 {
@@ -250,15 +249,17 @@ public sealed class ControlledSemaphoreSlimTests
     }
 
     [Fact]
-    public void OutsideSimulationDelegatesToRealSemaphore()
+    public void OutsideSimulationFailsBeforeCreatingSemaphore()
     {
-        var sem = ControlledSemaphoreSlim.Create(1);
-        Assert.Equal(1, ControlledSemaphoreSlim.CurrentCount(sem));
-        Assert.True(ControlledSemaphoreSlim.Wait(sem, 0));
-        Assert.Equal(0, ControlledSemaphoreSlim.CurrentCount(sem));
-        ControlledSemaphoreSlim.Release(sem);
-        Assert.Equal(1, ControlledSemaphoreSlim.CurrentCount(sem));
-        ControlledSemaphoreSlim.Dispose(sem);
+        SemaphoreSlim? semaphore = null;
+
+        Exception? exception = Record.Exception(
+            () => semaphore = ControlledSemaphoreSlim.Create(1));
+
+        Assert.Null(semaphore);
+        SimulationNotActiveExceptionAssert.Equal(
+            exception,
+            "System.Threading.SemaphoreSlim..ctor");
     }
 
     // ---- Finite virtual-time timeouts (SemaphoreSlim.Wait / WaitAsync) ----
@@ -661,13 +662,19 @@ public sealed class ControlledSemaphoreSlimTests
     [InlineData((int)ReceiverOperation.Release)]
     [InlineData((int)ReceiverOperation.ReleaseCount)]
     [InlineData((int)ReceiverOperation.Dispose)]
-    public void ExternallyCreatedSemaphorePassesThroughEveryReceivingShimOutsideSimulation(
+    public void ExternallyCreatedSemaphoreRequiresActiveSimulationForEveryReceivingShim(
         int operationValue)
     {
         var operation = (ReceiverOperation)operationValue;
         using var semaphore = new SemaphoreSlim(1, 1);
 
-        AssertOutsideSimulationPassThrough(semaphore, operation);
+        Exception? exception = Record.Exception(
+            () => InvokeReceiverOperation(semaphore, operation));
+
+        Assert.Equal(1, semaphore.CurrentCount);
+        Assert.True(semaphore.Wait(0));
+        semaphore.Release();
+        SimulationNotActiveExceptionAssert.Equal(exception, ExpectedApiName(operation));
     }
 
     private static void InvokeReceiverOperation(SemaphoreSlim semaphore, ReceiverOperation operation)
@@ -724,115 +731,6 @@ public sealed class ControlledSemaphoreSlimTests
             case ReceiverOperation.Dispose:
                 ControlledSemaphoreSlim.Dispose(semaphore);
                 break;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(operation), operation, null);
-        }
-    }
-
-    private static void AssertOutsideSimulationPassThrough(
-        SemaphoreSlim semaphore,
-        ReceiverOperation operation)
-    {
-        switch (operation)
-        {
-            case ReceiverOperation.CurrentCount:
-                Assert.Equal(1, ControlledSemaphoreSlim.CurrentCount(semaphore));
-                Assert.Equal(1, semaphore.CurrentCount);
-                break;
-            case ReceiverOperation.Wait:
-                ControlledSemaphoreSlim.Wait(semaphore);
-                Assert.Equal(0, semaphore.CurrentCount);
-                break;
-            case ReceiverOperation.WaitCancellationToken:
-                ControlledSemaphoreSlim.Wait(semaphore, CancellationToken.None);
-                Assert.Equal(0, semaphore.CurrentCount);
-                break;
-            case ReceiverOperation.WaitMilliseconds:
-                Assert.True(ControlledSemaphoreSlim.Wait(semaphore, 0));
-                Assert.Equal(0, semaphore.CurrentCount);
-                break;
-            case ReceiverOperation.WaitMillisecondsCancellationToken:
-                Assert.True(ControlledSemaphoreSlim.Wait(semaphore, 0, CancellationToken.None));
-                Assert.Equal(0, semaphore.CurrentCount);
-                break;
-            case ReceiverOperation.WaitTimeSpan:
-                Assert.True(ControlledSemaphoreSlim.Wait(semaphore, TimeSpan.Zero));
-                Assert.Equal(0, semaphore.CurrentCount);
-                break;
-            case ReceiverOperation.WaitTimeSpanCancellationToken:
-                Assert.True(ControlledSemaphoreSlim.Wait(semaphore, TimeSpan.Zero, CancellationToken.None));
-                Assert.Equal(0, semaphore.CurrentCount);
-                break;
-            case ReceiverOperation.WaitAsync:
-                {
-                    Task task = ControlledSemaphoreSlim.WaitAsync(semaphore);
-                    Assert.Equal(TaskStatus.RanToCompletion, task.Status);
-                    task.GetAwaiter().GetResult();
-                    Assert.Equal(0, semaphore.CurrentCount);
-                    break;
-                }
-            case ReceiverOperation.WaitAsyncCancellationToken:
-                {
-                    Task task = ControlledSemaphoreSlim.WaitAsync(semaphore, CancellationToken.None);
-                    Assert.Equal(TaskStatus.RanToCompletion, task.Status);
-                    task.GetAwaiter().GetResult();
-                    Assert.Equal(0, semaphore.CurrentCount);
-                    break;
-                }
-            case ReceiverOperation.WaitAsyncMilliseconds:
-                {
-                    Task<bool> task = ControlledSemaphoreSlim.WaitAsync(semaphore, 0);
-                    Assert.Equal(TaskStatus.RanToCompletion, task.Status);
-                    Assert.True(task.GetAwaiter().GetResult());
-                    Assert.Equal(0, semaphore.CurrentCount);
-                    break;
-                }
-            case ReceiverOperation.WaitAsyncMillisecondsCancellationToken:
-                {
-                    Task<bool> task = ControlledSemaphoreSlim.WaitAsync(semaphore, 0, CancellationToken.None);
-                    Assert.Equal(TaskStatus.RanToCompletion, task.Status);
-                    Assert.True(task.GetAwaiter().GetResult());
-                    Assert.Equal(0, semaphore.CurrentCount);
-                    break;
-                }
-            case ReceiverOperation.WaitAsyncTimeSpan:
-                {
-                    Task<bool> task = ControlledSemaphoreSlim.WaitAsync(semaphore, TimeSpan.Zero);
-                    Assert.Equal(TaskStatus.RanToCompletion, task.Status);
-                    Assert.True(task.GetAwaiter().GetResult());
-                    Assert.Equal(0, semaphore.CurrentCount);
-                    break;
-                }
-            case ReceiverOperation.WaitAsyncTimeSpanCancellationToken:
-                {
-                    Task<bool> task = ControlledSemaphoreSlim.WaitAsync(
-                        semaphore,
-                        TimeSpan.Zero,
-                        CancellationToken.None);
-                    Assert.Equal(TaskStatus.RanToCompletion, task.Status);
-                    Assert.True(task.GetAwaiter().GetResult());
-                    Assert.Equal(0, semaphore.CurrentCount);
-                    break;
-                }
-            case ReceiverOperation.Release:
-                Assert.True(semaphore.Wait(0));
-                Assert.Equal(0, semaphore.CurrentCount);
-                Assert.Equal(0, ControlledSemaphoreSlim.Release(semaphore));
-                Assert.Equal(1, semaphore.CurrentCount);
-                break;
-            case ReceiverOperation.ReleaseCount:
-                Assert.True(semaphore.Wait(0));
-                Assert.Equal(0, semaphore.CurrentCount);
-                Assert.Equal(0, ControlledSemaphoreSlim.Release(semaphore, 1));
-                Assert.Equal(1, semaphore.CurrentCount);
-                break;
-            case ReceiverOperation.Dispose:
-                {
-                    ControlledSemaphoreSlim.Dispose(semaphore);
-                    var exception = Assert.Throws<ObjectDisposedException>(() => semaphore.Wait(0));
-                    Assert.Equal(typeof(SemaphoreSlim).FullName, exception.ObjectName);
-                    break;
-                }
             default:
                 throw new ArgumentOutOfRangeException(nameof(operation), operation, null);
         }

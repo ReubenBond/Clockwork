@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using Clockwork.Runtime.Shims;
 
 namespace Clockwork.Runtime.Tasks.CompilerServices;
 
@@ -15,7 +16,8 @@ public readonly struct ControlledYieldAwaitable
 {
     /// <summary>Gets the awaiter for this yield awaitable.</summary>
     /// <returns>A <see cref="ControlledYieldAwaiter"/>.</returns>
-    public ControlledYieldAwaiter GetAwaiter() => default;
+    public ControlledYieldAwaiter GetAwaiter() =>
+        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.Yield"), default(ControlledYieldAwaiter)).Item2;
 }
 
 /// <summary>The awaiter for <see cref="ControlledYieldAwaitable"/>.</summary>
@@ -27,11 +29,12 @@ public readonly struct ControlledYieldAwaiter : ICriticalNotifyCompletion, INoti
     /// Always <see langword="false"/> so that awaiting a yield always suspends and reschedules the
     /// continuation, exactly like the real yield awaiter.
     /// </summary>
-    public bool IsCompleted => false;
+    public bool IsCompleted => (SimulationRuntimeDispatch.RequireActiveSimulation(ApiName), false).Item2;
 
     /// <summary>Completes the yield. A no-op, as a yield produces no result and cannot fault.</summary>
     public void GetResult()
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(ApiName);
     }
 
     /// <inheritdoc />

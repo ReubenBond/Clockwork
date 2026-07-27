@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Threading.Tasks;
+using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks;
 
 namespace Clockwork.Runtime.Threading;
@@ -22,8 +23,7 @@ namespace Clockwork.Runtime.Threading;
 /// <c>executeOnlyOnce: true</c> fires once; otherwise it re-arms until <see cref="Unregister(WaitHandle)"/>
 /// cancels it. The safe factory flows the caller's <see cref="ExecutionContext"/> to the callback; the unsafe
 /// factory does not. If <see cref="Unregister(WaitHandle)"/> is passed a controlled event it is signalled once
-/// the registration has stopped firing. Outside a simulation every operation delegates to the real
-/// <see cref="RegisteredWaitHandle"/>.
+/// the registration has stopped firing.
 /// </para>
 /// <para>
 /// Adapted for Clockwork from the Microsoft Coyote (MIT) controlled-synchronization model, extended to the
@@ -33,9 +33,6 @@ namespace Clockwork.Runtime.Threading;
 public sealed class ControlledRegisteredWaitHandle
 {
     private const string RegisterApi = "System.Threading.ThreadPool.RegisterWaitForSingleObject";
-
-    // Set for the out-of-simulation wrapper; null for a controlled registration.
-    private readonly RegisteredWaitHandle? _real;
 
     private readonly WaitHandle _waitObject = null!;
     private readonly WaitOrTimerCallback _callback = null!;
@@ -51,9 +48,6 @@ public sealed class ControlledRegisteredWaitHandle
     // The current pending waiter and the event it is registered on, or null between iterations.
     private ControlledWaitHandle.Waiter? _pending;
     private ControlledWaitHandle.EventState? _pendingState;
-
-    /// <summary>Wraps a real registered wait handle for the out-of-simulation pass-through.</summary>
-    internal ControlledRegisteredWaitHandle(RegisteredWaitHandle real) => _real = real;
 
     /// <summary>Creates a controlled registration and arms the first passive wait iteration.</summary>
     internal ControlledRegisteredWaitHandle(
@@ -81,11 +75,7 @@ public sealed class ControlledRegisteredWaitHandle
     /// <returns><see langword="true"/> when this call cancelled the registration.</returns>
     public bool Unregister(WaitHandle? waitObject)
     {
-        if (_real is not null)
-        {
-            return _real.Unregister(waitObject!);
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.RegisteredWaitHandle.Unregister");
         if (_unregistered)
         {
             return false;

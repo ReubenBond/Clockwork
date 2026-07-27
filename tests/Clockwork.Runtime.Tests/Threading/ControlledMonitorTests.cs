@@ -9,8 +9,7 @@ namespace Clockwork.Runtime.Tests.Threading;
 /// Tests for the controlled <see cref="ControlledMonitor"/> shims: mutual exclusion, reentrancy and
 /// ownership are tracked against the cooperative logical strand rather than a physical thread; a
 /// contended acquire pumps the deterministic loop instead of blocking an OS thread; and
-/// <c>Wait</c>/<c>Pulse</c>/<c>PulseAll</c> implement the condition-variable protocol. Outside a
-/// simulation every shim delegates to the real BCL <see cref="Monitor"/>.
+/// <c>Wait</c>/<c>Pulse</c>/<c>PulseAll</c> implement the condition-variable protocol.
 /// </summary>
 public sealed class ControlledMonitorTests
 {
@@ -51,7 +50,10 @@ public sealed class ControlledMonitorTests
     [Fact]
     public void EnterNullThrowsArgumentNull()
     {
-        Assert.Throws<ArgumentNullException>(() => ControlledMonitor.Enter(null!));
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(
+            coordinator,
+            () => Assert.Throws<ArgumentNullException>(() => ControlledMonitor.Enter(null!)));
     }
 
     [Fact]
@@ -89,7 +91,11 @@ public sealed class ControlledMonitorTests
     [Fact]
     public void TryEnterInvalidTimeoutThrows()
     {
-        Assert.Throws<ArgumentOutOfRangeException>(() => ControlledMonitor.TryEnter(new object(), -2));
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(
+            coordinator,
+            () => Assert.Throws<ArgumentOutOfRangeException>(
+                () => ControlledMonitor.TryEnter(new object(), -2)));
     }
 
     [Fact]
@@ -254,16 +260,19 @@ public sealed class ControlledMonitorTests
     }
 
     [Fact]
-    public void OutsideSimulationDelegatesToRealMonitor()
+    public void OutsideSimulationEnterFailsBeforeAcquiringMonitor()
     {
         var gate = new object();
 
-        ControlledMonitor.Enter(gate);
-        Assert.True(ControlledMonitor.IsEntered(gate));
-        Assert.True(Monitor.IsEntered(gate));
-        ControlledMonitor.Exit(gate);
-        Assert.False(ControlledMonitor.IsEntered(gate));
-        Assert.Equal(Monitor.LockContentionCount, ControlledMonitor.LockContentionCount());
+        Exception? exception = Record.Exception(() => ControlledMonitor.Enter(gate));
+
+        Assert.False(Monitor.IsEntered(gate));
+        SimulationNotActiveExceptionAssert.Equal(exception, "System.Threading.Monitor.Enter");
+
+        Exception? nullException = Record.Exception(() => ControlledMonitor.Enter(null!));
+        SimulationNotActiveExceptionAssert.Equal(
+            nullException,
+            "System.Threading.Monitor.Enter");
     }
 
     [Fact]

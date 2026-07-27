@@ -1,5 +1,6 @@
 using System;
 using System.Threading;
+using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks;
 
 namespace Clockwork.Runtime.Threading;
@@ -19,7 +20,7 @@ namespace Clockwork.Runtime.Threading;
 /// event and releases waiters per its reset mode - a manual-reset event releases <em>every</em> waiter and
 /// stays set; an auto-reset event releases exactly <em>one</em> eligible waiter and is consumed by it -
 /// and <see cref="EventWaitHandle.Reset"/> clears the signal. No signal ever touches a kernel object or
-/// runs on a physical thread. Outside a simulation every shim delegates to the real event.
+/// runs on a physical thread.
 /// </para>
 /// <para>
 /// Named / cross-process events (a non-null <c>name</c>, the <see cref="EventWaitHandle.OpenExisting(string)"/>
@@ -45,6 +46,7 @@ public static class ControlledEventWaitHandle
     /// <returns>A real auto-reset event used as the controlled identity handle.</returns>
     public static AutoResetEvent CreateAutoResetEvent(bool initialState)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.AutoResetEvent..ctor");
         var instance = new AutoResetEvent(initialState);
         ControlledWaitHandle.Register(instance, new ControlledWaitHandle.EventState(EventResetMode.AutoReset, initialState));
         return instance;
@@ -55,6 +57,7 @@ public static class ControlledEventWaitHandle
     /// <returns>A real manual-reset event used as the controlled identity handle.</returns>
     public static ManualResetEvent CreateManualResetEvent(bool initialState)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.ManualResetEvent..ctor");
         var instance = new ManualResetEvent(initialState);
         ControlledWaitHandle.Register(instance, new ControlledWaitHandle.EventState(EventResetMode.ManualReset, initialState));
         return instance;
@@ -66,6 +69,7 @@ public static class ControlledEventWaitHandle
     /// <returns>A real event used as the controlled identity handle.</returns>
     public static EventWaitHandle CreateEvent(bool initialState, EventResetMode mode)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.EventWaitHandle..ctor");
         var instance = new EventWaitHandle(initialState, mode);
         ControlledWaitHandle.Register(instance, new ControlledWaitHandle.EventState(mode, initialState));
         return instance;
@@ -78,11 +82,7 @@ public static class ControlledEventWaitHandle
     /// <returns>A real event used as the controlled identity handle.</returns>
     public static EventWaitHandle CreateNamedEvent(bool initialState, EventResetMode mode, string? name)
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return new EventWaitHandle(initialState, mode, name);
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation(CtorApi);
         RejectIfNamed(name);
         return CreateEvent(initialState, mode);
     }
@@ -95,11 +95,7 @@ public static class ControlledEventWaitHandle
     /// <returns>A real event used as the controlled identity handle.</returns>
     public static EventWaitHandle CreateNamedEvent(bool initialState, EventResetMode mode, string? name, out bool createdNew)
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return new EventWaitHandle(initialState, mode, name, out createdNew);
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation(CtorApi);
         RejectIfNamed(name);
         createdNew = true;
         return CreateEvent(initialState, mode);
@@ -113,11 +109,7 @@ public static class ControlledEventWaitHandle
     /// <returns>A real event used as the controlled identity handle.</returns>
     public static EventWaitHandle CreateNamedEvent(bool initialState, EventResetMode mode, string? name, NamedWaitHandleOptions options)
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return new EventWaitHandle(initialState, mode, name, options);
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation(CtorApi);
         RejectIfNamed(name);
         return CreateEvent(initialState, mode);
     }
@@ -131,11 +123,7 @@ public static class ControlledEventWaitHandle
     /// <returns>A real event used as the controlled identity handle.</returns>
     public static EventWaitHandle CreateNamedEvent(bool initialState, EventResetMode mode, string? name, NamedWaitHandleOptions options, out bool createdNew)
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return new EventWaitHandle(initialState, mode, name, options, out createdNew);
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation(CtorApi);
         RejectIfNamed(name);
         createdNew = true;
         return CreateEvent(initialState, mode);
@@ -148,12 +136,8 @@ public static class ControlledEventWaitHandle
     /// <returns>Always <see langword="true"/>, as for the real event.</returns>
     public static bool Set(EventWaitHandle instance)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(SetApi);
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return instance.Set();
-        }
-
         ControlledWaitHandle.EventState state = ControlledWaitHandle.StateForOperation(instance, SetApi);
         state.Signaled = true;
         ControlledWaitHandle.ReleaseWaiters(state);
@@ -165,12 +149,8 @@ public static class ControlledEventWaitHandle
     /// <returns>Always <see langword="true"/>, as for the real event.</returns>
     public static bool Reset(EventWaitHandle instance)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(ResetApi);
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return instance.Reset();
-        }
-
         ControlledWaitHandle.EventState state = ControlledWaitHandle.StateForOperation(instance, ResetApi);
         state.Signaled = false;
         return true;
@@ -183,13 +163,7 @@ public static class ControlledEventWaitHandle
     /// <returns>Never returns inside a simulation; throws instead.</returns>
     public static EventWaitHandle OpenExisting(string name)
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-#pragma warning disable CA1416 // Named events are Windows-only; the passthrough surfaces the platform's own behaviour outside a simulation.
-            return EventWaitHandle.OpenExisting(name);
-#pragma warning restore CA1416
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation(OpenExistingApi);
         throw NamedRejected(OpenExistingApi);
     }
 
@@ -199,13 +173,7 @@ public static class ControlledEventWaitHandle
     /// <returns>Never returns inside a simulation; throws instead.</returns>
     public static EventWaitHandle OpenExisting(string name, NamedWaitHandleOptions options)
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-#pragma warning disable CA1416 // Named events are Windows-only; the passthrough surfaces the platform's own behaviour outside a simulation.
-            return EventWaitHandle.OpenExisting(name, options);
-#pragma warning restore CA1416
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation(OpenExistingApi);
         throw NamedRejected(OpenExistingApi);
     }
 
@@ -215,13 +183,7 @@ public static class ControlledEventWaitHandle
     /// <returns>Never returns inside a simulation; throws instead.</returns>
     public static bool TryOpenExisting(string name, out EventWaitHandle result)
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-#pragma warning disable CA1416 // Named events are Windows-only; the passthrough surfaces the platform's own behaviour outside a simulation.
-            return EventWaitHandle.TryOpenExisting(name, out result!);
-#pragma warning restore CA1416
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation(TryOpenExistingApi);
         throw NamedRejected(TryOpenExistingApi);
     }
 
@@ -232,13 +194,7 @@ public static class ControlledEventWaitHandle
     /// <returns>Never returns inside a simulation; throws instead.</returns>
     public static bool TryOpenExisting(string name, NamedWaitHandleOptions options, out EventWaitHandle result)
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-#pragma warning disable CA1416 // Named events are Windows-only; the passthrough surfaces the platform's own behaviour outside a simulation.
-            return EventWaitHandle.TryOpenExisting(name, options, out result!);
-#pragma warning restore CA1416
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation(TryOpenExistingApi);
         throw NamedRejected(TryOpenExistingApi);
     }
 

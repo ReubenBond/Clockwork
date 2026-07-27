@@ -10,7 +10,7 @@ namespace Clockwork.Runtime.Tests.Threading;
 /// Tests for the controlled <see cref="ControlledInterlocked"/> shims. Under Clockwork's cooperative
 /// single-logical-thread scheduler each read-modify-write is an indivisible step, so every shim delegates
 /// to the real <see cref="Interlocked"/> primitive and must preserve the exact atomic return, overflow,
-/// and reference-write semantics both inside and outside a simulation.
+/// and reference-write semantics under an active simulation.
 /// </summary>
 public sealed class ControlledInterlockedTests
 {
@@ -155,16 +155,16 @@ public sealed class ControlledInterlockedTests
     }
 
     [Fact]
-    public void OutsideSimulationDelegatesToRealPrimitive()
+    public void OutsideSimulationIncrementFailsBeforeMutatingState()
     {
-        int i32 = 0;
-        Assert.Equal(1, ControlledInterlocked.Increment(ref i32));
-        Assert.Equal(1, i32);
+        int value = 41;
 
-        long i64 = 40;
-        Assert.Equal(42L, ControlledInterlocked.Add(ref i64, 2));
+        Exception? exception = Record.Exception(
+            () => ControlledInterlocked.Increment(ref value));
 
-        ControlledInterlocked.MemoryBarrier();
-        ControlledInterlocked.MemoryBarrierProcessWide();
+        Assert.Equal(41, value);
+        SimulationNotActiveExceptionAssert.Equal(
+            exception,
+            "System.Threading.Interlocked.Increment");
     }
 }

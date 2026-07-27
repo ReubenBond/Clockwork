@@ -10,7 +10,7 @@ namespace Clockwork.Runtime.Tests.Threading;
 /// <see cref="Thread"/> object whose body is queued as a fresh controlled operation, <c>Join</c> pumps
 /// the deterministic loop instead of blocking, the static <c>Sleep</c>/<c>Yield</c>/<c>SpinWait</c> hints
 /// are cooperative no-ops that never consume real time, and the OS-specific surface (priority, apartment
-/// state, interrupt) is rejected precisely. Outside a simulation every shim delegates to the real API.
+/// state, interrupt) is rejected precisely.
 /// </summary>
 public sealed class ControlledThreadTests
 {
@@ -215,17 +215,24 @@ public sealed class ControlledThreadTests
     }
 
     [Fact]
-    public void OutsideSimulationYieldDelegatesToRealApi()
+    public void OutsideSimulationThreadApisFailBeforeCreatingOrRunningAThread()
     {
-        // No active simulation: the shim must delegate to the real BCL API unchanged.
-        _ = ControlledThread.Yield();
-
+        Thread? thread = null;
         var ran = false;
-        var thread = ControlledThread.Create(() => ran = true);
-        ControlledThread.Start(thread);
-        ControlledThread.Join(thread);
 
-        Assert.True(ran);
+        Exception? createException = Record.Exception(
+            () => thread = ControlledThread.Create(() => ran = true));
+
+        Assert.Null(thread);
+        Assert.False(ran);
+        SimulationNotActiveExceptionAssert.Equal(
+            createException,
+            "System.Threading.Thread..ctor");
+
+        Exception? yieldException = Record.Exception(() => ControlledThread.Yield());
+        SimulationNotActiveExceptionAssert.Equal(
+            yieldException,
+            "System.Threading.Thread.Yield");
     }
 
     [Fact]

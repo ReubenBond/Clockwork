@@ -1,5 +1,6 @@
 using System.Runtime.ExceptionServices;
 using Clockwork.Runtime.Scheduling;
+using Clockwork.Runtime.Shims;
 
 namespace Clockwork.Runtime;
 
@@ -27,6 +28,8 @@ public static class ControlledExceptionGuard
     /// <param name="exception">The exception the user handler is about to observe.</param>
     public static void ThrowIfControlSignal(object? exception)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(
+            "Clockwork.Runtime.ControlledExceptionGuard.ThrowIfControlSignal");
         if (exception is ControlledOperationAbortSignal signal)
         {
             // Re-throw preserving the original stack trace so the signal keeps unwinding past the user

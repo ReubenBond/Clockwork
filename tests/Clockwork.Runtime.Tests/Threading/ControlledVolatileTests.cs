@@ -8,8 +8,8 @@ namespace Clockwork.Runtime.Tests.Threading;
 
 /// <summary>
 /// Tests for the controlled <see cref="ControlledVolatile"/> shims. Each shim delegates to the real
-/// <see cref="Volatile"/> primitive and must preserve the exact value read/written and the acquire/release
-/// fence intent both inside and outside a simulation.
+/// <see cref="Volatile"/> primitive inside simulation and must preserve the exact value read/written and
+/// the acquire/release fence intent.
 /// </summary>
 public sealed class ControlledVolatileTests
 {
@@ -74,10 +74,15 @@ public sealed class ControlledVolatileTests
     }
 
     [Fact]
-    public void OutsideSimulationDelegatesToRealPrimitive()
+    public void OutsideSimulationWriteFailsBeforeMutatingState()
     {
         int i = 0;
-        ControlledVolatile.Write(ref i, 7);
-        Assert.Equal(7, ControlledVolatile.Read(ref i));
+
+        Exception? exception = Record.Exception(() => ControlledVolatile.Write(ref i, 7));
+
+        Assert.Equal(0, i);
+        SimulationNotActiveExceptionAssert.Equal(
+            exception,
+            "System.Threading.Volatile.Write");
     }
 }

@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks;
 
 namespace Clockwork.Runtime.Threading;
@@ -22,7 +23,7 @@ namespace Clockwork.Runtime.Threading;
 /// coordinator (exactly as <see cref="ControlledTask.Run(System.Action)"/> and
 /// <see cref="ControlledTaskFactory"/> do), so it runs deterministically on the single logical thread.
 /// <see cref="Join(Thread)"/> pumps the deterministic loop until that operation completes rather than
-/// blocking a physical thread. Outside a simulation every shim delegates to the real BCL API unchanged.
+/// blocking a physical thread.
 /// </para>
 /// <para>
 /// This is the cooperative analogue of Microsoft Coyote's controlled <c>Thread</c>
@@ -62,6 +63,7 @@ public static class ControlledThread
     /// <returns>A real thread object whose body is scheduled cooperatively when started under simulation.</returns>
     public static Thread Create(ThreadStart start)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Thread..ctor");
         ArgumentNullException.ThrowIfNull(start);
         var thread = new Thread(start);
         Registry.AddOrUpdate(thread, new Registration { Body = start });
@@ -70,10 +72,11 @@ public static class ControlledThread
 
     /// <summary>Controlled <c>new Thread(ThreadStart, int)</c>.</summary>
     /// <param name="start">The delegate the thread runs.</param>
-    /// <param name="maxStackSize">The requested maximum stack size (honoured only outside a simulation).</param>
+    /// <param name="maxStackSize">The requested maximum stack size for the identity thread object.</param>
     /// <returns>A real thread object whose body is scheduled cooperatively when started under simulation.</returns>
     public static Thread Create(ThreadStart start, int maxStackSize)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Thread..ctor");
         ArgumentNullException.ThrowIfNull(start);
         var thread = new Thread(start, maxStackSize);
         Registry.AddOrUpdate(thread, new Registration { Body = start });
@@ -85,6 +88,7 @@ public static class ControlledThread
     /// <returns>A real thread object whose body is scheduled cooperatively when started under simulation.</returns>
     public static Thread Create(ParameterizedThreadStart start)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Thread..ctor");
         ArgumentNullException.ThrowIfNull(start);
         var thread = new Thread(start);
         Registry.AddOrUpdate(thread, new Registration { Body = start });
@@ -93,10 +97,11 @@ public static class ControlledThread
 
     /// <summary>Controlled <c>new Thread(ParameterizedThreadStart, int)</c>.</summary>
     /// <param name="start">The delegate the thread runs.</param>
-    /// <param name="maxStackSize">The requested maximum stack size (honoured only outside a simulation).</param>
+    /// <param name="maxStackSize">The requested maximum stack size for the identity thread object.</param>
     /// <returns>A real thread object whose body is scheduled cooperatively when started under simulation.</returns>
     public static Thread Create(ParameterizedThreadStart start, int maxStackSize)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Thread..ctor");
         ArgumentNullException.ThrowIfNull(start);
         var thread = new Thread(start, maxStackSize);
         Registry.AddOrUpdate(thread, new Registration { Body = start });
@@ -107,13 +112,8 @@ public static class ControlledThread
     /// <param name="instance">The receiving thread.</param>
     public static void Start(Thread instance)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(StartApi);
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            instance.Start();
-            return;
-        }
-
         StartControlled(instance, parameter: null, parameterSupplied: false);
     }
 
@@ -122,13 +122,8 @@ public static class ControlledThread
     /// <param name="parameter">The object passed to a <see cref="ParameterizedThreadStart"/> body.</param>
     public static void Start(Thread instance, object? parameter)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(StartApi);
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            instance.Start(parameter);
-            return;
-        }
-
         StartControlled(instance, parameter, parameterSupplied: true);
     }
 
@@ -136,13 +131,8 @@ public static class ControlledThread
     /// <param name="instance">The receiving thread.</param>
     public static void Join(Thread instance)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(JoinApi);
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            instance.Join();
-            return;
-        }
-
         JoinControlled(instance);
     }
 
@@ -152,12 +142,8 @@ public static class ControlledThread
     /// <returns><see langword="true"/> once the thread has terminated.</returns>
     public static bool Join(Thread instance, int millisecondsTimeout)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(JoinApi);
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return instance.Join(millisecondsTimeout);
-        }
-
         ValidateTimeout(millisecondsTimeout, nameof(millisecondsTimeout));
         return JoinControlled(instance, millisecondsTimeout);
     }
@@ -168,12 +154,8 @@ public static class ControlledThread
     /// <returns><see langword="true"/> once the thread has terminated.</returns>
     public static bool Join(Thread instance, TimeSpan timeout)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation(JoinApi);
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return instance.Join(timeout);
-        }
-
         int millisecondsTimeout = ValidateTimeout(timeout, nameof(timeout));
         return JoinControlled(instance, millisecondsTimeout);
     }
@@ -182,12 +164,7 @@ public static class ControlledThread
     /// <param name="millisecondsTimeout">The requested sleep duration (its length is a virtual-time concern owned by Phase 8).</param>
     public static void Sleep(int millisecondsTimeout)
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            Thread.Sleep(millisecondsTimeout);
-            return;
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation(SleepApi);
         ValidateTimeout(millisecondsTimeout, nameof(millisecondsTimeout));
         SleepControlled(millisecondsTimeout);
     }
@@ -196,12 +173,7 @@ public static class ControlledThread
     /// <param name="timeout">The requested sleep duration (its length is a virtual-time concern owned by Phase 8).</param>
     public static void Sleep(TimeSpan timeout)
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            Thread.Sleep(timeout);
-            return;
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation(SleepApi);
         SleepControlled(ValidateTimeout(timeout, nameof(timeout)));
     }
 
@@ -209,25 +181,17 @@ public static class ControlledThread
     /// <param name="iterations">The requested spin iterations (ignored inside a simulation).</param>
     public static void SpinWait(int iterations)
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            Thread.SpinWait(iterations);
-        }
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Thread.SpinWait");
     }
 
     /// <summary>Controlled <c>Thread.Yield()</c>.</summary>
     /// <returns>
-    /// Outside a simulation, the real result of <see cref="Thread.Yield()"/>. Inside a simulation,
-    /// <see langword="false"/>: the cooperative loop switches at explicit scheduling points, so a
+    /// The cooperative loop result: the scheduler switches at explicit scheduling points, so a
     /// synchronous yield reports that no OS-level switch occurred.
     /// </returns>
     public static bool Yield()
     {
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            return Thread.Yield();
-        }
-
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Thread.Yield");
         return ControlledTaskRuntime.RunOne("System.Threading.Thread.Yield");
     }
 
@@ -238,13 +202,8 @@ public static class ControlledThread
     /// <param name="priority">The requested priority.</param>
     public static void SetPriority(Thread instance, ThreadPriority priority)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Thread.set_Priority");
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            instance.Priority = priority;
-            return;
-        }
-
         throw Unsupported(
             "System.Threading.Thread.set_Priority",
             "OS thread priority has no meaning for a cooperatively-scheduled controlled operation, and " +
@@ -255,13 +214,8 @@ public static class ControlledThread
     /// <param name="instance">The receiving thread.</param>
     public static void Interrupt(Thread instance)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Thread.Interrupt");
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-            instance.Interrupt();
-            return;
-        }
-
         throw Unsupported(
             "System.Threading.Thread.Interrupt",
             "asynchronous interruption of a blocked thread cannot be modelled by the cooperative scheduler; " +
@@ -273,15 +227,8 @@ public static class ControlledThread
     /// <param name="state">The requested apartment state.</param>
     public static void SetApartmentState(Thread instance, ApartmentState state)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Thread.SetApartmentState");
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-#pragma warning disable CA1416 // Pass-through preserves real behaviour, including the platform exception.
-            instance.SetApartmentState(state);
-#pragma warning restore CA1416
-            return;
-        }
-
         throw Unsupported(
             "System.Threading.Thread.SetApartmentState",
             "COM apartment state is an OS-thread concept with no analogue for a controlled operation.");
@@ -293,14 +240,8 @@ public static class ControlledThread
     /// <returns>Never returns inside a simulation; throws instead.</returns>
     public static bool TrySetApartmentState(Thread instance, ApartmentState state)
     {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Thread.TrySetApartmentState");
         ArgumentNullException.ThrowIfNull(instance);
-        if (!ControlledTaskRuntime.IsSimulationActive)
-        {
-#pragma warning disable CA1416 // Pass-through preserves real behaviour, including the platform exception.
-            return instance.TrySetApartmentState(state);
-#pragma warning restore CA1416
-        }
-
         throw Unsupported(
             "System.Threading.Thread.TrySetApartmentState",
             "COM apartment state is an OS-thread concept with no analogue for a controlled operation.");

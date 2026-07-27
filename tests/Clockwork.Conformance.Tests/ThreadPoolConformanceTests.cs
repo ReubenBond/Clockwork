@@ -30,6 +30,9 @@ public sealed class ThreadPoolConformanceTests : IDisposable
                 return await tcs.Task;
             }
 
+            public static bool QueueActionOnly(int[] sink) =>
+                ThreadPool.QueueUserWorkItem(_ => sink[0] = 42);
+
             // Generic QueueUserWorkItem<TState> passes strongly-typed state.
             public static async Task<int> GenericQueuePassesState()
             {
@@ -258,10 +261,18 @@ public sealed class ThreadPoolConformanceTests : IDisposable
     }
 
     [Fact]
-    public async Task RewrittenQueueDelegatesToRealThreadPoolOutsideAnySimulation()
+    public async Task OnlyRewrittenQueueRequiresActiveSimulationWithoutRunningItsCallback()
     {
-        var task = (Task<int>)Method("QueueRunsCallback").Invoke(null, null)!;
+        UninstrumentedProbe uninstrumented = _fixture.CompileUninstrumented(
+            "Conf.UninstrumentedThreadPool",
+            "Conf.PoolProbe",
+            Source);
+        var task = (Task<int>)uninstrumented.Method("QueueRunsCallback").Invoke(null, null)!;
         Assert.Equal(42, await task);
+
+        int[] sink = [0];
+        SimulationNotActiveExceptionAssert.Throws(Method("QueueActionOnly"), sink);
+        Assert.Equal(0, sink[0]);
     }
 
     [Fact]

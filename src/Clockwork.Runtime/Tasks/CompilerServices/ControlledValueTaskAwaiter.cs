@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
+using Clockwork.Runtime.Shims;
 
 namespace Clockwork.Runtime.Tasks.CompilerServices;
 
@@ -17,13 +18,21 @@ public readonly struct ControlledValueTaskAwaiter : ICriticalNotifyCompletion, I
 
     /// <summary>Initializes a new controlled awaiter over <paramref name="valueTask"/>.</summary>
     /// <param name="valueTask">The value task being awaited.</param>
-    public ControlledValueTaskAwaiter(in ValueTask valueTask) => _valueTask = valueTask;
+    public ControlledValueTaskAwaiter(in ValueTask valueTask)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation(ApiName);
+        _valueTask = valueTask;
+    }
 
     /// <summary>Gets a value indicating whether the awaited value task has already completed.</summary>
-    public bool IsCompleted => _valueTask.IsCompleted;
+    public bool IsCompleted => (SimulationRuntimeDispatch.RequireActiveSimulation(ApiName), _valueTask.IsCompleted).Item2;
 
     /// <summary>Completes the await, throwing the value task's fault or cancellation.</summary>
-    public void GetResult() => _valueTask.GetAwaiter().GetResult();
+    public void GetResult()
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation(ApiName);
+        _valueTask.GetAwaiter().GetResult();
+    }
 
     /// <inheritdoc />
     public void OnCompleted(Action continuation) => Register(continuation, flowExecutionContext: true);
@@ -33,20 +42,10 @@ public readonly struct ControlledValueTaskAwaiter : ICriticalNotifyCompletion, I
 
     private void Register(Action continuation, bool flowExecutionContext)
     {
+        var (coordinator, node) = ControlledTaskRuntime.RequireCoordinator(ApiName);
         ArgumentNullException.ThrowIfNull(continuation);
-        if (ControlledTaskRuntime.TryGetCoordinator(ApiName, out var coordinator, out var node))
-        {
-            var valueTask = _valueTask;
-            coordinator.ScheduleWhenReady(node, () => valueTask.IsCompleted, continuation);
-        }
-        else if (flowExecutionContext)
-        {
-            _valueTask.GetAwaiter().OnCompleted(continuation);
-        }
-        else
-        {
-            _valueTask.GetAwaiter().UnsafeOnCompleted(continuation);
-        }
+        var valueTask = _valueTask;
+        coordinator.ScheduleWhenReady(node, () => valueTask.IsCompleted, continuation);
     }
 }
 
@@ -63,14 +62,19 @@ public readonly struct ControlledValueTaskAwaiter<TResult> : ICriticalNotifyComp
 
     /// <summary>Initializes a new controlled awaiter over <paramref name="valueTask"/>.</summary>
     /// <param name="valueTask">The value task being awaited.</param>
-    public ControlledValueTaskAwaiter(in ValueTask<TResult> valueTask) => _valueTask = valueTask;
+    public ControlledValueTaskAwaiter(in ValueTask<TResult> valueTask)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation(ApiName);
+        _valueTask = valueTask;
+    }
 
     /// <summary>Gets a value indicating whether the awaited value task has already completed.</summary>
-    public bool IsCompleted => _valueTask.IsCompleted;
+    public bool IsCompleted => (SimulationRuntimeDispatch.RequireActiveSimulation(ApiName), _valueTask.IsCompleted).Item2;
 
     /// <summary>Completes the await, returning the result or throwing the value task's fault/cancellation.</summary>
     /// <returns>The awaited value task's result.</returns>
-    public TResult GetResult() => _valueTask.GetAwaiter().GetResult();
+    public TResult GetResult() =>
+        (SimulationRuntimeDispatch.RequireActiveSimulation(ApiName), _valueTask.GetAwaiter().GetResult()).Item2;
 
     /// <inheritdoc />
     public void OnCompleted(Action continuation) => Register(continuation, flowExecutionContext: true);
@@ -80,19 +84,9 @@ public readonly struct ControlledValueTaskAwaiter<TResult> : ICriticalNotifyComp
 
     private void Register(Action continuation, bool flowExecutionContext)
     {
+        var (coordinator, node) = ControlledTaskRuntime.RequireCoordinator(ApiName);
         ArgumentNullException.ThrowIfNull(continuation);
-        if (ControlledTaskRuntime.TryGetCoordinator(ApiName, out var coordinator, out var node))
-        {
-            var valueTask = _valueTask;
-            coordinator.ScheduleWhenReady(node, () => valueTask.IsCompleted, continuation);
-        }
-        else if (flowExecutionContext)
-        {
-            _valueTask.GetAwaiter().OnCompleted(continuation);
-        }
-        else
-        {
-            _valueTask.GetAwaiter().UnsafeOnCompleted(continuation);
-        }
+        var valueTask = _valueTask;
+        coordinator.ScheduleWhenReady(node, () => valueTask.IsCompleted, continuation);
     }
 }
