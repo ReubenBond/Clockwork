@@ -1,0 +1,256 @@
+using Clockwork.Runtime.Execution;
+
+namespace Clockwork.Runtime.Tests.Execution;
+
+/// <summary>
+/// Covers <see cref="SimulationExecutionContext"/>: activity checks, nesting, restoration on
+/// disposal (including under exceptions), async flow, and isolation across parallel logical
+/// call contexts.
+/// </summary>
+public sealed class SimulationExecutionContextTests
+{
+    private static readonly SimulationLogicalExecutionIdSource LogicalExecutionIds = new();
+
+    private static SimulationRuntimeIdentity NewRuntime(int seed = 1, string? description = null) =>
+        new(Guid.NewGuid(), seed, description);
+
+    [Fact]
+    public void IsActiveIsFalseOutsideAnySimulation()
+    {
+        Assert.False(SimulationExecutionContext.IsActive);
+    }
+
+    [Fact]
+    public void CurrentIsNullOutsideAnySimulation()
+    {
+        Assert.Null(SimulationExecutionContext.Current);
+    }
+
+    [Fact]
+    public void TryGetCurrentRuntimeReturnsFalseOutsideAnySimulation()
+    {
+        Assert.False(SimulationExecutionContext.TryGetCurrentRuntime(out var runtime));
+        Assert.Null(runtime);
+    }
+
+    [Fact]
+    public void EnterRuntimeMakesIsActiveTrueAndCurrentReflectsTheRuntime()
+    {
+        var token = SimulationRuntimeActivation.CreateToken();
+        var runtime = NewRuntime();
+
+        using (SimulationExecutionContext.EnterRuntime(token, runtime))
+        {
+            Assert.True(SimulationExecutionContext.IsActive);
+            var current = SimulationExecutionContext.Current;
+            Assert.NotNull(current);
+            Assert.Same(runtime, current!.Runtime);
+            Assert.Null(current.Node);
+
+            Assert.True(SimulationExecutionContext.TryGetCurrentRuntime(out var ambientRuntime));
+            Assert.Same(runtime, ambientRuntime);
+        }
+
+        Assert.False(SimulationExecutionContext.IsActive);
+        Assert.Null(SimulationExecutionContext.Current);
+    }
+
+    [Fact]
+    public void EnterRuntimeThrowsForNullToken()
+    {
+        Assert.Throws<ArgumentNullException>(() => SimulationExecutionContext.EnterRuntime(null!, NewRuntime()));
+    }
+
+    [Fact]
+    public void EnterRuntimeThrowsForNullRuntime()
+    {
+        var token = SimulationRuntimeActivation.CreateToken();
+        Assert.Throws<ArgumentNullException>(() => SimulationExecutionContext.EnterRuntime(token, null!));
+    }
+
+    [Fact]
+    public void EnterNodeThrowsWithoutAnEnclosingRuntimeScope()
+    {
+        Assert.Throws<InvalidOperationException>(() => SimulationExecutionContext.EnterNode(new SimulationNodeIdentity("node-1")));
+    }
+
+    [Fact]
+    public void EnterLogicalExecutionThrowsWithoutAnEnclosingRuntimeScope()
+    {
+        Assert.Throws<InvalidOperationException>(() => SimulationExecutionContext.EnterLogicalExecution(LogicalExecutionIds.Next()));
+    }
+
+    [Fact]
+    public void NestedScopesComposeRuntimeNodeAndLogicalExecutionCorrectly()
+    {
+        var token = SimulationRuntimeActivation.CreateToken();
+        var runtime = NewRuntime();
+        var node = new SimulationNodeIdentity("node-1");
+        var logicalExecutionId = LogicalExecutionIds.Next();
+
+        using (SimulationExecutionContext.EnterRuntime(token, runtime))
+        {
+            Assert.Null(SimulationExecutionContext.Current!.Node);
+
+            using (SimulationExecutionContext.EnterNode(node))
+            {
+                var withNode = SimulationExecutionContext.Current!;
+                Assert.Same(runtime, withNode.Runtime);
+                Assert.Equal(node, withNode.Node);
+
+                using (SimulationExecutionContext.EnterLogicalExecution(logicalExecutionId))
+                {
+                    var withLogicalExecution = SimulationExecutionContext.Current!;
+                    Assert.Same(runtime, withLogicalExecution.Runtime);
+                    Assert.Equal(node, withLogicalExecution.Node);
+                    Assert.Equal(logicalExecutionId, withLogicalExecution.LogicalExecutionId);
+                }
+
+                // Disposing the logical-execution scope restores exactly the enclosing node scope.
+                Assert.Equal(node, SimulationExecutionContext.Current!.Node);
+                Assert.Equal(SimulationLogicalExecutionId.None, SimulationExecutionContext.Current!.LogicalExecutionId);
+            }
+
+            // Disposing the node scope restores exactly the enclosing runtime-only scope.
+            Assert.Null(SimulationExecutionContext.Current!.Node);
+        }
+
+        Assert.False(SimulationExecutionContext.IsActive);
+    }
+
+    [Fact]
+    public void DisposalRestoresThePreviousFrameEvenWhenTheGuardedCodeThrows()
+    {
+        var token = SimulationRuntimeActivation.CreateToken();
+        var outerRuntime = NewRuntime(seed: 1, description: "outer");
+        var innerRuntime = NewRuntime(seed: 2, description: "inner");
+
+        using (SimulationExecutionContext.EnterRuntime(token, outerRuntime))
+        {
+            var caught = false;
+            try
+            {
+                using (SimulationExecutionContext.EnterRuntime(token, innerRuntime))
+                {
+                    Assert.Same(innerRuntime, SimulationExecutionContext.Current!.Runtime);
+                    throw new InvalidOperationException("boom");
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                caught = true;
+            }
+
+            Assert.True(caught);
+
+            // The inner scope's `using` unwound via the exception path and still restored the
+            // outer frame - exception safety without any explicit try/finally at the call site.
+            Assert.Same(outerRuntime, SimulationExecutionContext.Current!.Runtime);
+        }
+
+        Assert.False(SimulationExecutionContext.IsActive);
+    }
+
+    [Fact]
+    public async Task AmbientContextFlowsAcrossAwaitPointsWithoutExplicitPropagation()
+    {
+        var token = SimulationRuntimeActivation.CreateToken();
+        var runtime = NewRuntime();
+
+        using (SimulationExecutionContext.EnterRuntime(token, runtime))
+        {
+            await Task.Delay(1, TestContext.Current.CancellationToken);
+            await Task.Yield();
+
+            // AsyncLocal-backed flow means the ambient runtime survived the awaits above with no
+            // explicit propagation at any await point.
+            Assert.Same(runtime, SimulationExecutionContext.Current!.Runtime);
+        }
+    }
+
+    [Fact]
+    public async Task ParallelLogicalCallContextsDoNotObserveEachOthersAmbientRuntime()
+    {
+        var token = SimulationRuntimeActivation.CreateToken();
+        var runtimeA = NewRuntime(seed: 1, description: "A");
+        var runtimeB = NewRuntime(seed: 2, description: "B");
+
+        async Task<bool> RunUnderRuntime(SimulationRuntimeIdentity runtime)
+        {
+            using (SimulationExecutionContext.EnterRuntime(token, runtime))
+            {
+                // Yield repeatedly so the two tasks interleave on the thread pool; each should
+                // still observe only its own ambient runtime the entire time.
+                for (var i = 0; i < 25; i++)
+                {
+                    await Task.Yield();
+                    if (!ReferenceEquals(SimulationExecutionContext.Current?.Runtime, runtime))
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            }
+        }
+
+        var taskA = RunUnderRuntime(runtimeA);
+        var taskB = RunUnderRuntime(runtimeB);
+
+        var results = await Task.WhenAll(taskA, taskB);
+
+        Assert.All(results, Assert.True);
+        Assert.False(SimulationExecutionContext.IsActive);
+    }
+
+    [Fact]
+#pragma warning disable xUnit1031 // Intentional: verifying synchronous ExecutionContext.SuppressFlow semantics requires a blocking check with no await between suppress and restore.
+    public void SuppressFlowPreventsANewUnflowedTaskRunFromObservingAmbientContext()
+    {
+        var token = SimulationRuntimeActivation.CreateToken();
+        var runtime = NewRuntime();
+
+        using (SimulationExecutionContext.EnterRuntime(token, runtime))
+        {
+            bool observedInsideSuppressedWork;
+
+            using (SimulationExecutionContext.SuppressFlow("test: verifying suppression"))
+            {
+                // Task.Run captures ExecutionContext at the point of the call; with flow
+                // suppressed, the AsyncLocal-backed ambient runtime must not be visible inside.
+                // This must stay synchronous (no await) between SuppressFlow and its Dispose -
+                // AsyncFlowControl.Undo() requires restoring on the same context it suppressed.
+                observedInsideSuppressedWork = Task.Run(() => SimulationExecutionContext.IsActive).GetAwaiter().GetResult();
+            }
+
+            Assert.False(observedInsideSuppressedWork);
+
+            // Flow is restored once the suppression scope is disposed.
+            var observedAfterRestoration = Task.Run(() => SimulationExecutionContext.IsActive).GetAwaiter().GetResult();
+            Assert.True(observedAfterRestoration);
+        }
+    }
+#pragma warning restore xUnit1031
+
+    [Fact]
+    public void SuppressFlowRecordsADiagnosticEntryDescribingWhy()
+    {
+        var token = SimulationRuntimeActivation.CreateToken();
+        var runtime = NewRuntime();
+        var reason = $"unit test suppression reason {Guid.NewGuid()}";
+
+        using (SimulationExecutionContext.EnterRuntime(token, runtime))
+        using (SimulationExecutionContext.SuppressFlow(reason))
+        {
+        }
+
+        var events = SimulationFlowSuppressionDiagnostics.GetRecentEvents();
+        Assert.Contains(events, e => e.Reason == reason && e.CapturedContext?.Runtime == runtime);
+    }
+
+    [Fact]
+    public void SuppressFlowThrowsForNullOrEmptyReason()
+    {
+        Assert.Throws<ArgumentException>(() => SimulationExecutionContext.SuppressFlow(string.Empty));
+    }
+}
