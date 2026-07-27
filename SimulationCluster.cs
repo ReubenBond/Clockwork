@@ -27,6 +27,8 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     private readonly SimulationActivationToken _activationToken;
     private readonly SimulationRuntimeEnvironment _runtimeEnvironment;
     private readonly IDisposable _runtimeRegistration;
+    private readonly Clockwork.Runtime.Tasks.ControlledTaskLoopCoordinator _taskCoordinator;
+    private readonly IDisposable _taskCoordinatorRegistration;
     private bool _disposed;
 
     /// <summary>
@@ -103,6 +105,20 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
             _activationToken,
             RuntimeIdentity,
             _runtimeEnvironment);
+
+        // Controlled async/task wiring (Phase 6A): register a deterministic task coordinator for this
+        // runtime so the controlled compiler machinery (async builders, awaiters, Task/ValueTask shims)
+        // resolves a real coordinator instead of failing with "missing runtime service" whenever
+        // rewritten code runs inside this cluster. A single ControlledTaskLoop per runtime is the whole
+        // async scheduler: continuations from every node share it (see ControlledTaskLoopCoordinator).
+        // The cluster's drive loop pumps this loop in RunOneTaskRoundRobin, so fire-and-forget controlled
+        // continuations advance alongside queued work; synchronous controlled waits pump it directly.
+        // Keyed by the same runtime identity and torn down in DisposeAsync, exactly like the environment.
+        _taskCoordinator = new Clockwork.Runtime.Tasks.ControlledTaskLoopCoordinator();
+        _taskCoordinatorRegistration = Clockwork.Runtime.Tasks.SimulationTaskCoordination.Register(
+            _activationToken,
+            RuntimeIdentity,
+            _taskCoordinator);
     }
 
     /// <summary>
@@ -388,6 +404,24 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
             if (context.State == SimulationNodeState.Running && context.Step())
             {
                 return true;
+            }
+        }
+
+        // Finally, pump any ready controlled async continuations (Phase 6A). Placed last so that when no
+        // controlled async work exists the loop is empty, RunUntilIdle returns 0, and existing behaviour
+        // and trace snapshots are completely unchanged. When controlled continuations are ready (an
+        // awaited controlled task has completed), draining them here lets fire-and-forget async work
+        // advance under the cluster's deterministic single-threaded drive. The pump runs inside the
+        // cluster's ambient runtime scope so a resumed state machine that performs further awaits still
+        // resolves this runtime's coordinator instead of falling back to the real BCL.
+        if (!_taskCoordinator.Loop.IsIdle)
+        {
+            using (SimulationExecutionContext.EnterRuntime(_activationToken, RuntimeIdentity))
+            {
+                if (_taskCoordinator.Loop.RunUntilIdle() > 0)
+                {
+                    return true;
+                }
             }
         }
 
@@ -752,6 +786,10 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
         // Tear down the deterministic runtime environment registration so a later simulation with a
         // fresh runtime identity starts clean and this cluster's environment stops serving shims.
         _runtimeRegistration.Dispose();
+
+        // Unregister the controlled task coordinator so a later runtime starts with no coordinator and
+        // the missing-service path is exercised correctly until it registers its own.
+        _taskCoordinatorRegistration.Dispose();
 
         _teardownCts.Dispose();
         GC.SuppressFinalize(this);
