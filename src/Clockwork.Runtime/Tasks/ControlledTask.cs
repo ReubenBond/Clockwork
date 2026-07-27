@@ -52,6 +52,16 @@ public static class ControlledTask
     /// <returns>A task with the ordered results once all complete.</returns>
     public static Task<TResult[]> WhenAll<TResult>(params Task<TResult>[] tasks) => Task.WhenAll(tasks);
 
+    /// <summary>
+    /// Controlled <c>Task.WhenAll&lt;TResult&gt;(ReadOnlySpan&lt;Task&lt;TResult&gt;&gt;)</c>: the .NET 9+
+    /// params-span overload that a two-or-more argument <c>Task.WhenAll(a, b, ...)</c> of typed tasks
+    /// binds to.
+    /// </summary>
+    /// <typeparam name="TResult">The task result type.</typeparam>
+    /// <param name="tasks">The tasks to await.</param>
+    /// <returns>A task with the ordered results once all complete.</returns>
+    public static Task<TResult[]> WhenAll<TResult>(params ReadOnlySpan<Task<TResult>> tasks) => Task.WhenAll(tasks);
+
     /// <summary>Controlled <c>Task.WhenAll&lt;TResult&gt;(IEnumerable&lt;Task&lt;TResult&gt;&gt;)</c>.</summary>
     /// <typeparam name="TResult">The task result type.</typeparam>
     /// <param name="tasks">The tasks to await.</param>
@@ -90,6 +100,25 @@ public static class ControlledTask
     /// <param name="tasks">The candidate tasks.</param>
     /// <returns>A task whose result is the first task to complete.</returns>
     public static Task<Task<TResult>> WhenAny<TResult>(params Task<TResult>[] tasks) => Task.WhenAny(tasks);
+
+    /// <summary>
+    /// Controlled <c>Task.WhenAny&lt;TResult&gt;(ReadOnlySpan&lt;Task&lt;TResult&gt;&gt;)</c>: the .NET 9+
+    /// params-span overload that a three-or-more argument typed <c>Task.WhenAny(a, b, c, ...)</c> binds to.
+    /// </summary>
+    /// <typeparam name="TResult">The task result type.</typeparam>
+    /// <param name="tasks">The candidate tasks.</param>
+    /// <returns>A task whose result is the first task to complete.</returns>
+    public static Task<Task<TResult>> WhenAny<TResult>(params ReadOnlySpan<Task<TResult>> tasks) => Task.WhenAny(tasks);
+
+    /// <summary>
+    /// Controlled <c>Task.WhenAny&lt;TResult&gt;(Task&lt;TResult&gt;, Task&lt;TResult&gt;)</c>: the
+    /// two-argument overload that a typed <c>Task.WhenAny(a, b)</c> binds to.
+    /// </summary>
+    /// <typeparam name="TResult">The task result type.</typeparam>
+    /// <param name="task1">The first candidate task.</param>
+    /// <param name="task2">The second candidate task.</param>
+    /// <returns>A task whose result is the first task to complete.</returns>
+    public static Task<Task<TResult>> WhenAny<TResult>(Task<TResult> task1, Task<TResult> task2) => Task.WhenAny(task1, task2);
 
     /// <summary>Controlled <c>Task.WhenAny&lt;TResult&gt;(IEnumerable&lt;Task&lt;TResult&gt;&gt;)</c>.</summary>
     /// <typeparam name="TResult">The task result type.</typeparam>
