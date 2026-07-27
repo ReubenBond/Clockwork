@@ -83,45 +83,45 @@ internal sealed class MemberSubstitutionMapper
         switch (type)
         {
             case GenericInstanceType generic:
-            {
-                TypeReference? mappedElement = MapType(generic.ElementType);
-                TypeReference[]? mappedArguments = MapMany(generic.GenericArguments);
-                if (mappedElement is null && mappedArguments is null)
                 {
-                    return null;
-                }
+                    TypeReference? mappedElement = MapType(generic.ElementType);
+                    TypeReference[]? mappedArguments = MapMany(generic.GenericArguments);
+                    if (mappedElement is null && mappedArguments is null)
+                    {
+                        return null;
+                    }
 
-                var result = new GenericInstanceType(mappedElement ?? generic.ElementType);
-                for (int i = 0; i < generic.GenericArguments.Count; i++)
-                {
-                    result.GenericArguments.Add(mappedArguments?[i] ?? generic.GenericArguments[i]);
-                }
+                    var result = new GenericInstanceType(mappedElement ?? generic.ElementType);
+                    for (int i = 0; i < generic.GenericArguments.Count; i++)
+                    {
+                        result.GenericArguments.Add(mappedArguments?[i] ?? generic.GenericArguments[i]);
+                    }
 
-                return result;
-            }
+                    return result;
+                }
 
             case ByReferenceType byReference:
-            {
-                TypeReference? mapped = MapType(byReference.ElementType);
-                return mapped is null ? null : new ByReferenceType(mapped);
-            }
-
-            case ArrayType array:
-            {
-                TypeReference? mapped = MapType(array.ElementType);
-                if (mapped is null)
                 {
-                    return null;
+                    TypeReference? mapped = MapType(byReference.ElementType);
+                    return mapped is null ? null : new ByReferenceType(mapped);
                 }
 
-                return array.IsVector ? new ArrayType(mapped) : new ArrayType(mapped, array.Rank);
-            }
+            case ArrayType array:
+                {
+                    TypeReference? mapped = MapType(array.ElementType);
+                    if (mapped is null)
+                    {
+                        return null;
+                    }
+
+                    return array.IsVector ? new ArrayType(mapped) : new ArrayType(mapped, array.Rank);
+                }
 
             case PointerType pointer:
-            {
-                TypeReference? mapped = MapType(pointer.ElementType);
-                return mapped is null ? null : new PointerType(mapped);
-            }
+                {
+                    TypeReference? mapped = MapType(pointer.ElementType);
+                    return mapped is null ? null : new PointerType(mapped);
+                }
 
             case GenericParameter:
                 return null;

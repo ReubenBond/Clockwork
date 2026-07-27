@@ -96,17 +96,17 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
                 return VisitMethodOperand(instruction, method);
 
             case FieldReference field and not FieldDefinition:
-            {
-                FieldReference? mapped = Mapper.MapField(field);
-                if (mapped is not null)
                 {
-                    instruction.Operand = mapped;
-                    IsMethodBodyModified = true;
-                    RecordType(mapped.FieldType, field.FieldType);
-                }
+                    FieldReference? mapped = Mapper.MapField(field);
+                    if (mapped is not null)
+                    {
+                        instruction.Operand = mapped;
+                        IsMethodBodyModified = true;
+                        RecordType(mapped.FieldType, field.FieldType);
+                    }
 
-                return instruction;
-            }
+                    return instruction;
+                }
 
             default:
                 return instruction;
