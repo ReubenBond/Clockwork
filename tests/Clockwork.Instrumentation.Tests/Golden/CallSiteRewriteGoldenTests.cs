@@ -1,5 +1,8 @@
 using Clockwork.Instrumentation.Manifest;
+using Clockwork.Instrumentation.Rewriting;
+using Clockwork.Instrumentation.Rules;
 using Clockwork.Instrumentation.Tests.Infrastructure;
+using Clockwork.Runtime.Policy;
 using Mono.Cecil;
 
 namespace Clockwork.Instrumentation.Tests.Golden;
@@ -156,6 +159,46 @@ public sealed class CallSiteRewriteGoldenTests
         Assert.Contains(manifest.Transformations, t => t.RuleId == "redirect-widget-ctor" && t.Outcome == TransformationOutcome.Transformed);
         Assert.Contains(manifest.Transformations, t => t.RuleId == "reject-dangerouswrite" && t.Outcome == TransformationOutcome.Rejected);
         Assert.All(manifest.Transformations, t => Assert.False(string.IsNullOrEmpty(t.Method)));
+    }
+
+    [Fact]
+    public void PassThroughLeavesInvocationUnchangedAndRecordsReasonAndSource()
+    {
+        using var context = RewriteTestContext.Create();
+        string fixturePath = context.CompileFixture("Fx.PassThrough", BasicFixture);
+        const string reason = "Explicitly audited integration boundary.";
+        var ruleSet = new RewriteRuleSet(
+            "clockwork.passthrough",
+            "1.0",
+            [
+                RewriteRule.RedirectCall(
+                    "passthrough-ticks",
+                    MemberSignature.Method("ClockworkFixtures.Api.RealClock", "UtcNowTicks"),
+                    RewriteReplacement.Method(
+                        "Missing.Replacement",
+                        "Missing.Replacement.Shim",
+                        "UtcNowTicks"),
+                    SimulationApiPolicy.PassThrough) with
+                {
+                    Description = reason,
+                },
+            ]);
+
+        RewriteResult result = context.Rewrite(fixturePath, ruleSet);
+        result.EnsureSuccess();
+
+        using ModuleDefinition module = context.LoadModule(OutputOf(fixturePath, context));
+        MethodDefinition ticks = CecilInspect.GetMethod(module, "Fx.Basic", "Ticks");
+        Assert.True(CecilInspect.CallsAnyContaining(ticks, "RealClock::UtcNowTicks"));
+        Assert.False(CecilInspect.CallsAnyContaining(ticks, "Missing.Replacement.Shim"));
+
+        ManifestTransformation transformation = Assert.Single(result.Manifest.Transformations);
+        Assert.Equal(TransformationOutcome.PassedThrough, transformation.Outcome);
+        Assert.Equal(SimulationApiPolicy.PassThrough, transformation.Policy);
+        Assert.Null(transformation.Replacement);
+        Assert.Equal(reason, transformation.Reason);
+        Assert.NotNull(transformation.SourceFile);
+        Assert.True(transformation.SourceLine > 0);
     }
 
     [Fact]

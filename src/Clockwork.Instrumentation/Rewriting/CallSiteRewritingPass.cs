@@ -39,6 +39,16 @@ internal sealed class CallSiteRewritingPass : RewritePass
             return instruction;
         }
 
+        if (rule.Policy == Clockwork.Runtime.Policy.SimulationApiPolicy.PassThrough)
+        {
+            Record(
+                rule,
+                instruction.Offset,
+                TransformationOutcome.PassedThrough,
+                rule.Description ?? "Explicit PassThrough policy.");
+            return instruction;
+        }
+
         return rule.Operation switch
         {
             RewriteOperationKind.RedirectCall => RedirectCall(instruction, method, rule),
@@ -213,7 +223,7 @@ internal sealed class CallSiteRewritingPass : RewritePass
         return result;
     }
 
-    private void Record(RewriteRule rule, int offset, TransformationOutcome outcome)
+    private void Record(RewriteRule rule, int offset, TransformationOutcome outcome, string? reason = null)
     {
         string containing = CecilNames.FullyQualifiedMethodName(Method!);
         RewriteSession.TryGetSequencePoint(Method!, FindInstruction(offset), out string? file, out int line);
@@ -228,7 +238,8 @@ internal sealed class CallSiteRewritingPass : RewritePass
             containing,
             offset,
             file,
-            line));
+            line,
+            reason));
     }
 
     private Instruction FindInstruction(int offset)
