@@ -209,4 +209,240 @@ public sealed class ControlledSemaphoreSlimTests
         Assert.Equal(1, ControlledSemaphoreSlim.CurrentCount(sem));
         ControlledSemaphoreSlim.Dispose(sem);
     }
+
+    // ---- Finite virtual-time timeouts (SemaphoreSlim.Wait / WaitAsync) ----
+    //
+    // Modelled time only advances when nothing else can run, so a permit released, or a cancellation, at the
+    // current virtual instant always wins over a timeout that needs a time advance. A "virtual delay" built
+    // from a never-released finite Wait sequences an event at a chosen instant D for exact before/at/after
+    // coverage, with no wall-clock time anywhere.
+
+    private static void VirtualDelayThenRun(int delayMilliseconds, Action action)
+    {
+        var timer = ControlledSemaphoreSlim.Create(0);
+        Assert.False(ControlledSemaphoreSlim.Wait(timer, delayMilliseconds));
+        action();
+    }
+
+    [Fact]
+    public void WaitFiniteTimesOutWhenNeverReleased()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var sem = ControlledSemaphoreSlim.Create(0);
+
+            // The root strand itself pumps the loop; with no other work, modelled time advances to the
+            // deadline and the wait returns false. No physical thread ever blocks and no real time passes.
+            Assert.False(ControlledSemaphoreSlim.Wait(sem, 100));
+            Assert.Equal(0, ControlledSemaphoreSlim.CurrentCount(sem));
+            Assert.True(coordinator.Loop.IsIdle);
+        });
+    }
+
+    [Fact]
+    public void WaitFiniteReleasedBeforeDeadlineSucceeds()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var sem = ControlledSemaphoreSlim.Create(0);
+            var acquired = false;
+
+            var consumer = ControlledThread.Create(() => acquired = ControlledSemaphoreSlim.Wait(sem, 500));
+            var releaser = ControlledThread.Create(() =>
+                VirtualDelayThenRun(100, () => ControlledSemaphoreSlim.Release(sem)));
+
+            ControlledThread.Start(consumer);
+            ControlledThread.Start(releaser);
+            ControlledThread.Join(consumer);
+            ControlledThread.Join(releaser);
+
+            Assert.True(acquired); // Permit released at 100 (< 500) beat the timeout.
+            Assert.True(coordinator.Loop.IsIdle);
+        });
+    }
+
+    [Fact]
+    public void WaitFiniteReleasedAfterDeadlineTimesOut()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var sem = ControlledSemaphoreSlim.Create(0);
+            var acquired = true;
+
+            var consumer = ControlledThread.Create(() => acquired = ControlledSemaphoreSlim.Wait(sem, 100));
+            var releaser = ControlledThread.Create(() =>
+                VirtualDelayThenRun(500, () => ControlledSemaphoreSlim.Release(sem)));
+
+            ControlledThread.Start(consumer);
+            ControlledThread.Start(releaser);
+            ControlledThread.Join(consumer);
+            ControlledThread.Join(releaser);
+
+            Assert.False(acquired); // Timed out at 100 before the release at 500.
+            Assert.Equal(1, ControlledSemaphoreSlim.CurrentCount(sem)); // The late release just raised the count.
+            Assert.True(coordinator.Loop.IsIdle);
+        });
+    }
+
+    [Fact]
+    public void WaitFiniteCancelledBeforeDeadlineThrows()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var sem = ControlledSemaphoreSlim.Create(0);
+            using var cts = new CancellationTokenSource();
+            Exception? caught = null;
+
+            var waiter = ControlledThread.Create(() =>
+            {
+                try
+                {
+                    ControlledSemaphoreSlim.Wait(sem, 500, cts.Token);
+                }
+                catch (Exception exception)
+                {
+                    caught = exception;
+                }
+            });
+            var canceller = ControlledThread.Create(() => VirtualDelayThenRun(100, cts.Cancel));
+
+            ControlledThread.Start(waiter);
+            ControlledThread.Start(canceller);
+            ControlledThread.Join(waiter);
+            ControlledThread.Join(canceller);
+
+            // Cancellation at 100 (< 500) wins over the timeout and throws, exactly as the real semaphore.
+            Assert.IsAssignableFrom<OperationCanceledException>(caught);
+            Assert.True(coordinator.Loop.IsIdle);
+        });
+    }
+
+    [Fact]
+    public void WaitFiniteTimesOutBeforeLateCancellation()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var sem = ControlledSemaphoreSlim.Create(0);
+            using var cts = new CancellationTokenSource();
+            var acquired = true;
+            Exception? caught = null;
+
+            var waiter = ControlledThread.Create(() =>
+            {
+                try
+                {
+                    acquired = ControlledSemaphoreSlim.Wait(sem, 100, cts.Token);
+                }
+                catch (Exception exception)
+                {
+                    caught = exception;
+                }
+            });
+            var canceller = ControlledThread.Create(() => VirtualDelayThenRun(500, cts.Cancel));
+
+            ControlledThread.Start(waiter);
+            ControlledThread.Start(canceller);
+            ControlledThread.Join(waiter);
+            ControlledThread.Join(canceller);
+
+            // Timeout at 100 wins over the cancellation at 500: returns false with no exception.
+            Assert.Null(caught);
+            Assert.False(acquired);
+            Assert.True(coordinator.Loop.IsIdle);
+        });
+    }
+
+    [Fact]
+    public void WaitAsyncFiniteTimesOutWithFalse()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var sem = ControlledSemaphoreSlim.Create(0);
+            var task = ControlledSemaphoreSlim.WaitAsync(sem, 100);
+            Assert.False(task.IsCompleted);
+
+            // Drive the loop: with nothing else runnable, modelled time advances to the deadline, which
+            // completes the task with false.
+            coordinator.Loop.RunUntil(() => task.IsCompleted, "test-drive");
+
+            Assert.True(task.IsCompletedSuccessfully);
+            Assert.False(task.Result);
+            Assert.True(coordinator.Loop.IsIdle);
+        });
+    }
+
+    [Fact]
+    public void WaitAsyncFiniteReleasedBeforeDeadlineCompletesTrue()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var sem = ControlledSemaphoreSlim.Create(0);
+            var task = ControlledSemaphoreSlim.WaitAsync(sem, 500);
+            Assert.False(task.IsCompleted);
+
+            // A release before the deadline completes the task with true and cancels the pending deadline.
+            ControlledSemaphoreSlim.Release(sem);
+
+            Assert.True(task.IsCompletedSuccessfully);
+            Assert.True(task.Result);
+            Assert.True(coordinator.Loop.IsIdle);
+        });
+    }
+
+    [Fact]
+    public void WaitAsyncFiniteCancelledCompletesCanceled()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var sem = ControlledSemaphoreSlim.Create(0);
+            using var cts = new CancellationTokenSource();
+            var task = ControlledSemaphoreSlim.WaitAsync(sem, 500, cts.Token);
+            Assert.False(task.IsCompleted);
+
+            cts.Cancel();
+
+            Assert.True(task.IsCanceled);
+            Assert.True(coordinator.Loop.IsIdle);
+        });
+    }
+
+    [Fact]
+    public void RepeatedFiniteTimeoutsAreDeterministicAndLeakFree()
+    {
+        // Same-seed replay + no-leak stress: the finite-timeout outcome is identical every run and the loop
+        // ends idle each time, so no waiter or deadline leaks across iterations.
+        for (var seed = 1; seed <= 25; seed++)
+        {
+            var coordinator = new ControlledTaskLoopCoordinator();
+            var acquired = true;
+
+            TaskTestHarness.RunInSimulation(
+                coordinator,
+                () =>
+                {
+                    var sem = ControlledSemaphoreSlim.Create(0);
+                    acquired = ControlledSemaphoreSlim.Wait(sem, 50);
+                },
+                runtime: TaskTestHarness.NewRuntime(seed));
+
+            Assert.False(acquired);
+            Assert.True(coordinator.Loop.IsIdle);
+        }
+    }
 }

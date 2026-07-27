@@ -34,8 +34,9 @@ namespace Clockwork.Runtime.Threading;
 /// <para>
 /// Per-instance state is held with weak keys (<see cref="ConditionalWeakTable{TKey,TValue}"/>) so the
 /// association never keeps a semaphore alive. This mirrors Microsoft Coyote's controlled
-/// <c>SemaphoreSlim</c> (MIT-licensed); the finite positive timeout deviation is documented in
-/// <c>docs/compatibility.md</c>.
+/// <c>SemaphoreSlim</c> (MIT-licensed). Finite timeouts use the deterministic virtual-time deadline
+/// engine, so a finite <c>Wait</c>/<c>WaitAsync</c> returns <see langword="false"/> on the simulated
+/// deadline with release-vs-timeout-vs-cancellation resolved by the first-winner policy - never real time.
 /// </para>
 /// </summary>
 public static class ControlledSemaphoreSlim
@@ -48,6 +49,11 @@ public static class ControlledSemaphoreSlim
         public readonly TaskCompletionSource<bool> Completion = new();
 
         public CancellationTokenRegistration Registration;
+
+        // The virtual-time deadline for a finite wait, or null for an infinite wait. Cancelled when the
+        // waiter completes for any other reason (permit served or cancellation) so a stale timeout cannot
+        // fire; when it elapses it completes the waiter with false.
+        public IControlledTimeout? Deadline;
     }
 
     private sealed class State
@@ -139,7 +145,7 @@ public static class ControlledSemaphoreSlim
 
     /// <summary>Controlled <see cref="SemaphoreSlim.Wait(int)"/>.</summary>
     /// <param name="instance">The receiving semaphore.</param>
-    /// <param name="millisecondsTimeout">Zero tries without blocking; -1 or a finite positive value blocks (finite positive is modelled as infinite; virtual-time timeouts are Phase 8).</param>
+    /// <param name="millisecondsTimeout">Zero tries without blocking; -1 blocks indefinitely; a finite positive value blocks until a permit is available or the simulated deadline elapses.</param>
     /// <returns><see langword="true"/> if a permit was acquired.</returns>
     public static bool Wait(SemaphoreSlim instance, int millisecondsTimeout)
     {
@@ -330,6 +336,7 @@ public static class ControlledSemaphoreSlim
             var waiter = state.Waiters[0];
             state.Waiters.RemoveAt(0);
             waiter.Registration.Dispose();
+            waiter.Deadline?.Cancel();
             state.Count--;
             waiter.Completion.TrySetResult(true);
         }
@@ -387,11 +394,12 @@ public static class ControlledSemaphoreSlim
             return false;
         }
 
-        var waiter = Enqueue(state, cancellationToken);
+        var waiter = Enqueue(state, millisecondsTimeout, cancellationToken);
         ControlledTaskRuntime.DrainUntil(() => waiter.Completion.Task.IsCompleted, WaitApi);
 
-        // A cancelled waiter completes as cancelled; GetResult rethrows the OperationCanceledException, so
-        // synchronous cancellation observes the same exception as the real SemaphoreSlim.
+        // The waiter completes as served (true), timed-out (false), or cancelled. GetResult rethrows the
+        // OperationCanceledException for a cancelled waiter, so synchronous cancellation observes the same
+        // exception as the real SemaphoreSlim; a timeout returns false.
         return waiter.Completion.Task.GetAwaiter().GetResult();
     }
 
@@ -428,11 +436,11 @@ public static class ControlledSemaphoreSlim
             return Task.FromResult(false);
         }
 
-        var waiter = Enqueue(state, cancellationToken);
+        var waiter = Enqueue(state, millisecondsTimeout, cancellationToken);
         return waiter.Completion.Task;
     }
 
-    private static Waiter Enqueue(State state, CancellationToken cancellationToken)
+    private static Waiter Enqueue(State state, int millisecondsTimeout, CancellationToken cancellationToken)
     {
         var waiter = new Waiter();
         state.Waiters.Add(waiter);
@@ -444,9 +452,29 @@ public static class ControlledSemaphoreSlim
             {
                 if (state.Waiters.Remove(waiter))
                 {
+                    waiter.Deadline?.Cancel();
                     waiter.Completion.TrySetCanceled(cancellationToken);
                 }
             });
+        }
+
+        if (millisecondsTimeout != Timeout.Infinite)
+        {
+            // A finite wait registers a deterministic virtual-time deadline. It elapses only when the loop
+            // has no other runnable work and advances modelled time to it, so a permit that could be served
+            // now (Release) or a cancellation possible now always wins over the timeout - the first-winner
+            // policy - and a timeout completes the waiter with false.
+            waiter.Deadline = ControlledTaskRuntime.RegisterTimeout(
+                TimeSpan.FromMilliseconds(millisecondsTimeout),
+                onElapsed: () =>
+                {
+                    if (state.Waiters.Remove(waiter))
+                    {
+                        waiter.Registration.Dispose();
+                        waiter.Completion.TrySetResult(false);
+                    }
+                },
+                WaitApi);
         }
 
         return waiter;
