@@ -22,17 +22,17 @@ public static class DeterminismDiagnostics
     public const string Category = "Clockwork.Determinism";
 
     /// <summary>
-    /// <c>CW1001</c>: a controlled nondeterministic BCL member that the built-in rule set redirects to
-    /// a deterministic shim when the containing assembly is instrumented.
+    /// <c>CW1001</c>: a BCL member which must be rewritten to remain under Clockwork's simulation
+    /// control when the containing assembly is instrumented.
     /// </summary>
     public static readonly DiagnosticDescriptor ControlledApi = new(
         id: "CW1001",
         title: "Nondeterministic BCL member requires Clockwork instrumentation",
-        messageFormat: "'{0}' is nondeterministic; Clockwork's built-in '{1}' rule redirects it to a deterministic shim when the assembly is instrumented",
+        messageFormat: "'{0}' requires Clockwork's built-in '{1}' instrumentation to remain under simulation control",
         category: Category,
         defaultSeverity: DiagnosticSeverity.Info,
         isEnabledByDefault: true,
-        description: "Time, identity, and random members are only deterministic under simulation after the assembly is rewritten with the clockwork.bcl.deterministic rule set. Outside a simulation the rewritten call preserves normal BCL behaviour.");
+        description: "Nondeterministic BCL, task, thread, and synchronization members are controlled or rejected under simulation only after the containing assembly is instrumented. Outside a simulation rewritten calls preserve normal BCL behaviour.");
 
     /// <summary>
     /// <c>CW1002</c>: a cryptographic randomness member that obtains OS entropy and is rejected under
