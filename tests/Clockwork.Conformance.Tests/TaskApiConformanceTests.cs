@@ -190,4 +190,205 @@ public sealed class TaskApiConformanceTests : IDisposable
     }
 
     public void Dispose() => _fixture.Dispose();
+
+    [Fact]
+    public void ContinueWithFlowsCapturedExecutionContext()
+    {
+        using var host = new SimulationHost(Start);
+        var task = (Task<int>)host.Invoke(ExecutionContextMethod("ContinueWithFlowsContext"))!;
+
+        Assert.Equal(TaskStatus.RanToCompletion, task.Status);
+        Assert.Equal(5, Result<int>(task));
+    }
+
+    private const string ExecutionContextSource = """
+        using System.Threading;
+        using System.Threading.Tasks;
+        namespace Conf { public static class ContinueExecutionContextProbe {
+            public static Task<int> ContinueWithFlowsContext()
+            {
+                var antecedent = new TaskCompletionSource();
+                var ambient = new AsyncLocal<int> { Value = 5 };
+                var seen = -1;
+                var continuation = antecedent.Task.ContinueWith(_ => { seen = ambient.Value; });
+                ambient.Value = 9;
+                antecedent.SetResult();
+                continuation.Wait();
+                return Task.FromResult(seen);
+            }
+        } }
+        """;
+
+    private StagedProbe? _executionContextProbe;
+
+    private MethodInfo ExecutionContextMethod(string name) =>
+        (_executionContextProbe ??= _fixture.StageControlledTasks(
+            "Conf.TaskApiExecutionContext",
+            "Conf.ContinueExecutionContextProbe",
+            ExecutionContextSource,
+            optimize: true)).Method(name);
+
+    [Theory]
+    [InlineData((int)ContinueWithOceShape.Action, (int)TokenlessOceCase.Bare)]
+    [InlineData((int)ContinueWithOceShape.Action, (int)TokenlessOceCase.Requested)]
+    [InlineData((int)ContinueWithOceShape.Action, (int)TokenlessOceCase.NotRequested)]
+    [InlineData((int)ContinueWithOceShape.Result, (int)TokenlessOceCase.Bare)]
+    [InlineData((int)ContinueWithOceShape.Result, (int)TokenlessOceCase.Requested)]
+    [InlineData((int)ContinueWithOceShape.Result, (int)TokenlessOceCase.NotRequested)]
+    public void ContinueWithOceWithoutAssociatedTokenFaults(int shapeValue, int oceCaseValue)
+    {
+        var shape = (ContinueWithOceShape)shapeValue;
+        var oceCase = (TokenlessOceCase)oceCaseValue;
+        using var thrownSource = new CancellationTokenSource();
+        if (oceCase == TokenlessOceCase.Requested)
+        {
+            thrownSource.Cancel();
+        }
+
+        var thrown = oceCase == TokenlessOceCase.Bare
+            ? new OperationCanceledException()
+            : new OperationCanceledException(thrownSource.Token);
+        using var host = new SimulationHost(Start);
+        string methodName = shape == ContinueWithOceShape.Action
+            ? "ContinueAction"
+            : "ContinueResult";
+        var antecedent = new TaskCompletionSource();
+        var genericAntecedent = new TaskCompletionSource<int>();
+        Task antecedentTask = shape == ContinueWithOceShape.Action
+            ? antecedent.Task
+            : genericAntecedent.Task;
+        Action completeAntecedent = shape == ContinueWithOceShape.Action
+            ? antecedent.SetResult
+            : () => genericAntecedent.SetResult(21);
+        var task = (Task)host.InvokeWithWork(
+            Phase4Method(methodName),
+            [antecedentTask, thrown],
+            completeAntecedent)!;
+
+        Assert.Equal(oceCase == TokenlessOceCase.Requested, thrownSource.IsCancellationRequested);
+        Assert.True(antecedentTask.IsCompletedSuccessfully);
+        AssertOceFault(task, thrown);
+    }
+
+    [Fact]
+    public void WaitAllNullElementMatchesBcl()
+    {
+        using var host = new SimulationHost(Start);
+
+        var error = Assert.Throws<ArgumentException>(() => host.Invoke(Phase4Method("WaitAllNullFirst")));
+
+        Assert.Equal("tasks", error.ParamName);
+    }
+
+    [Fact]
+    public void WaitAnyNullElementMatchesBcl()
+    {
+        using var host = new SimulationHost(Start);
+
+        var error = Assert.Throws<ArgumentException>(() => host.Invoke(Phase4Method("WaitAnyNullFirst")));
+
+        Assert.Equal("tasks", error.ParamName);
+    }
+
+    private const string Phase4Source = """
+        using System;
+        using System.Threading.Tasks;
+        namespace Conf { public static class TaskOceAndWaitProbe {
+            public static Task ContinueAction(Task antecedent, OperationCanceledException error) =>
+                antecedent.ContinueWith(_ => Throw(error));
+
+            public static Task<int> ContinueResult(Task<int> antecedent, OperationCanceledException error) =>
+                antecedent.ContinueWith(_ => ThrowResult(error));
+
+            public static void WaitAllNullFirst() =>
+                Task.WaitAll(new Task[] { null, Task.CompletedTask });
+
+            public static int WaitAnyNullFirst() =>
+                Task.WaitAny(new Task[] { null, Task.CompletedTask });
+
+            private static void Throw(OperationCanceledException error) => throw error;
+            private static int ThrowResult(OperationCanceledException error) => throw error;
+        } }
+        """;
+
+    private StagedProbe? _phase4Probe;
+
+    private MethodInfo Phase4Method(string name) =>
+        (_phase4Probe ??= _fixture.StageControlledTasks(
+            "Conf.TaskOceAndWait",
+            "Conf.TaskOceAndWaitProbe",
+            Phase4Source,
+            optimize: true)).Method(name);
+
+    private static void AssertOceFault(Task task, OperationCanceledException thrown)
+    {
+        Assert.Equal(TaskStatus.Faulted, task.Status);
+        Assert.False(task.IsCanceled);
+        var aggregate = Assert.IsType<AggregateException>(task.Exception);
+        var inner = Assert.Single(aggregate.InnerExceptions);
+        var fault = Assert.IsType<OperationCanceledException>(inner);
+        Assert.Same(thrown, fault);
+        Assert.Equal(thrown.CancellationToken, fault.CancellationToken);
+        var awaited = Assert.Throws<OperationCanceledException>(() => task.GetAwaiter().GetResult());
+        Assert.Same(thrown, awaited);
+        Assert.Equal(thrown.CancellationToken, awaited.CancellationToken);
+    }
+
+    private enum ContinueWithOceShape
+    {
+        Action,
+        Result,
+    }
+
+    private enum TokenlessOceCase
+    {
+        Bare,
+        Requested,
+        NotRequested,
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public void NullWaitElementPositionsMatchBclWithoutCompletingValidSibling(
+        bool waitAll,
+        bool nullFirst)
+    {
+        using var host = new SimulationHost(Start);
+        var pending = new TaskCompletionSource();
+        string methodName = waitAll ? "WaitAll" : "WaitAny";
+
+        Exception? error = Record.Exception(
+            () => host.Invoke(NullWaitPositionMethod(methodName), pending.Task, nullFirst));
+
+        Assert.False(pending.Task.IsCompleted);
+        var argument = Assert.IsType<ArgumentException>(error);
+        Assert.Equal("tasks", argument.ParamName);
+    }
+
+    private const string NullWaitPositionSource = """
+        using System.Threading.Tasks;
+        namespace Conf { public static class TaskNullWaitPositionProbe {
+            public static void WaitAll(Task validSibling, bool nullFirst) =>
+                Task.WaitAll(nullFirst
+                    ? new Task[] { null, validSibling }
+                    : new Task[] { validSibling, null });
+
+            public static int WaitAny(Task validSibling, bool nullFirst) =>
+                Task.WaitAny(nullFirst
+                    ? new Task[] { null, validSibling }
+                    : new Task[] { validSibling, null });
+        } }
+        """;
+
+    private StagedProbe? _nullWaitPositionProbe;
+
+    private MethodInfo NullWaitPositionMethod(string name) =>
+        (_nullWaitPositionProbe ??= _fixture.StageControlledTasks(
+            "Conf.TaskNullWaitPosition",
+            "Conf.TaskNullWaitPositionProbe",
+            NullWaitPositionSource,
+            optimize: true)).Method(name);
 }

@@ -194,6 +194,7 @@ public static class ControlledTask
     public static void WaitAll(params Task[] tasks)
     {
         ArgumentNullException.ThrowIfNull(tasks);
+        ValidateNoNullTasks(tasks);
         if (ControlledTaskRuntime.IsSimulationActive)
         {
             ControlledTaskRuntime.DrainUntil(() => AllCompleted(tasks), "System.Threading.Tasks.Task.WaitAll");
@@ -208,6 +209,7 @@ public static class ControlledTask
     public static int WaitAny(params Task[] tasks)
     {
         ArgumentNullException.ThrowIfNull(tasks);
+        ValidateNoNullTasks(tasks);
         if (ControlledTaskRuntime.IsSimulationActive)
         {
             ControlledTaskRuntime.DrainUntil(() => AnyCompleted(tasks), "System.Threading.Tasks.Task.WaitAny");
@@ -233,10 +235,13 @@ public static class ControlledTask
             return antecedent.ContinueWith(continuationAction, TaskScheduler.Current);
         }
 
+        ExecutionContext? context = ExecutionContext.Capture();
         var tcs = new TaskCompletionSource();
         ControlledTaskRuntime.ScheduleContinuation(
             antecedent,
-            () => RunContinuation(() => continuationAction(antecedent), tcs),
+            () => ControlledTaskRuntime.RunWithCapturedExecutionContextAsNewStrand(
+                context,
+                () => RunContinuation(() => continuationAction(antecedent), tcs)),
             "System.Threading.Tasks.Task.ContinueWith",
             flowExecutionContext: false);
         return tcs.Task;
@@ -258,10 +263,13 @@ public static class ControlledTask
             return antecedent.ContinueWith(continuationFunction, TaskScheduler.Current);
         }
 
+        ExecutionContext? context = ExecutionContext.Capture();
         var tcs = new TaskCompletionSource<TResult>();
         ControlledTaskRuntime.ScheduleContinuation(
             antecedent,
-            () => RunContinuation(() => continuationFunction(antecedent), tcs),
+            () => ControlledTaskRuntime.RunWithCapturedExecutionContextAsNewStrand(
+                context,
+                () => RunContinuation(() => continuationFunction(antecedent), tcs)),
             "System.Threading.Tasks.Task.ContinueWith",
             flowExecutionContext: false);
         return tcs.Task;
@@ -285,10 +293,13 @@ public static class ControlledTask
             return antecedent.ContinueWith(continuationAction, TaskScheduler.Current);
         }
 
+        ExecutionContext? context = ExecutionContext.Capture();
         var tcs = new TaskCompletionSource();
         ControlledTaskRuntime.ScheduleContinuation(
             antecedent,
-            () => RunContinuation(() => continuationAction(antecedent), tcs),
+            () => ControlledTaskRuntime.RunWithCapturedExecutionContextAsNewStrand(
+                context,
+                () => RunContinuation(() => continuationAction(antecedent), tcs)),
             "System.Threading.Tasks.Task.ContinueWith",
             flowExecutionContext: false);
         return tcs.Task;
@@ -316,10 +327,13 @@ public static class ControlledTask
             return antecedent.ContinueWith(continuationFunction, TaskScheduler.Current);
         }
 
+        ExecutionContext? context = ExecutionContext.Capture();
         var tcs = new TaskCompletionSource<TNewResult>();
         ControlledTaskRuntime.ScheduleContinuation(
             antecedent,
-            () => RunContinuation(() => continuationFunction(antecedent), tcs),
+            () => ControlledTaskRuntime.RunWithCapturedExecutionContextAsNewStrand(
+                context,
+                () => RunContinuation(() => continuationFunction(antecedent), tcs)),
             "System.Threading.Tasks.Task.ContinueWith",
             flowExecutionContext: false);
         return tcs.Task;
@@ -423,30 +437,33 @@ public static class ControlledTask
             return Task.Run(action, cancellationToken);
         }
 
+        ExecutionContext? context = ExecutionContext.Capture();
         var tcs = new TaskCompletionSource();
         ControlledTaskRuntime.QueueWork(
-            () =>
-            {
-                if (cancellationToken.IsCancellationRequested)
+            () => ControlledTaskRuntime.RunWithCapturedExecutionContext(
+                context,
+                () =>
                 {
-                    tcs.TrySetCanceled(cancellationToken);
-                    return;
-                }
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        tcs.TrySetCanceled(cancellationToken);
+                        return;
+                    }
 
-                try
-                {
-                    action();
-                    tcs.TrySetResult();
-                }
-                catch (OperationCanceledException oce)
-                {
-                    tcs.TrySetCanceled(oce.CancellationToken);
-                }
-                catch (Exception ex)
-                {
-                    tcs.TrySetException(ex);
-                }
-            },
+                    try
+                    {
+                        action();
+                        tcs.TrySetResult();
+                    }
+                    catch (OperationCanceledException oce)
+                    {
+                        tcs.TrySetCanceled(oce.CancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        tcs.TrySetException(ex);
+                    }
+                }),
             "System.Threading.Tasks.Task.Run");
         return tcs.Task;
     }
@@ -470,29 +487,32 @@ public static class ControlledTask
             return Task.Run(function, cancellationToken);
         }
 
+        ExecutionContext? context = ExecutionContext.Capture();
         var tcs = new TaskCompletionSource<TResult>();
         ControlledTaskRuntime.QueueWork(
-            () =>
-            {
-                if (cancellationToken.IsCancellationRequested)
+            () => ControlledTaskRuntime.RunWithCapturedExecutionContext(
+                context,
+                () =>
                 {
-                    tcs.TrySetCanceled(cancellationToken);
-                    return;
-                }
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        tcs.TrySetCanceled(cancellationToken);
+                        return;
+                    }
 
-                try
-                {
-                    tcs.TrySetResult(function());
-                }
-                catch (OperationCanceledException oce)
-                {
-                    tcs.TrySetCanceled(oce.CancellationToken);
-                }
-                catch (Exception ex)
-                {
-                    tcs.TrySetException(ex);
-                }
-            },
+                    try
+                    {
+                        tcs.TrySetResult(function());
+                    }
+                    catch (OperationCanceledException oce)
+                    {
+                        tcs.TrySetCanceled(oce.CancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        tcs.TrySetException(ex);
+                    }
+                }),
             "System.Threading.Tasks.Task.Run");
         return tcs.Task;
     }
@@ -518,45 +538,48 @@ public static class ControlledTask
             return Task.Run(function, cancellationToken);
         }
 
+        ExecutionContext? context = ExecutionContext.Capture();
         var tcs = new TaskCompletionSource();
         ControlledTaskRuntime.QueueWork(
-            () =>
-            {
-                if (cancellationToken.IsCancellationRequested)
+            () => ControlledTaskRuntime.RunWithCapturedExecutionContext(
+                context,
+                () =>
                 {
-                    tcs.TrySetCanceled(cancellationToken);
-                    return;
-                }
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        tcs.TrySetCanceled(cancellationToken);
+                        return;
+                    }
 
-                Task inner;
-                try
-                {
-                    inner = function();
-                }
-                catch (OperationCanceledException oce)
-                {
-                    tcs.TrySetCanceled(oce.CancellationToken);
-                    return;
-                }
-                catch (Exception ex)
-                {
-                    tcs.TrySetException(ex);
-                    return;
-                }
+                    Task inner;
+                    try
+                    {
+                        inner = function();
+                    }
+                    catch (OperationCanceledException oce)
+                    {
+                        tcs.TrySetCanceled(oce.CancellationToken);
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        tcs.TrySetException(ex);
+                        return;
+                    }
 
-                if (inner is null)
-                {
-                    tcs.TrySetException(new InvalidOperationException(
-                        "Task.Run(Func<Task>) delegate returned a null task."));
-                    return;
-                }
+                    if (inner is null)
+                    {
+                        tcs.TrySetException(new InvalidOperationException(
+                            "Task.Run(Func<Task>) delegate returned a null task."));
+                        return;
+                    }
 
-                ControlledTaskRuntime.ScheduleContinuation(
-                    inner,
-                    () => PropagateTo(inner, tcs),
-                    "System.Threading.Tasks.Task.Run",
-                    flowExecutionContext: false);
-            },
+                    ControlledTaskRuntime.ScheduleContinuation(
+                        inner,
+                        () => PropagateTo(inner, tcs),
+                        "System.Threading.Tasks.Task.Run",
+                        flowExecutionContext: false);
+                }),
             "System.Threading.Tasks.Task.Run");
         return tcs.Task;
     }
@@ -580,45 +603,48 @@ public static class ControlledTask
             return Task.Run(function, cancellationToken);
         }
 
+        ExecutionContext? context = ExecutionContext.Capture();
         var tcs = new TaskCompletionSource<TResult>();
         ControlledTaskRuntime.QueueWork(
-            () =>
-            {
-                if (cancellationToken.IsCancellationRequested)
+            () => ControlledTaskRuntime.RunWithCapturedExecutionContext(
+                context,
+                () =>
                 {
-                    tcs.TrySetCanceled(cancellationToken);
-                    return;
-                }
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        tcs.TrySetCanceled(cancellationToken);
+                        return;
+                    }
 
-                Task<TResult> inner;
-                try
-                {
-                    inner = function();
-                }
-                catch (OperationCanceledException oce)
-                {
-                    tcs.TrySetCanceled(oce.CancellationToken);
-                    return;
-                }
-                catch (Exception ex)
-                {
-                    tcs.TrySetException(ex);
-                    return;
-                }
+                    Task<TResult> inner;
+                    try
+                    {
+                        inner = function();
+                    }
+                    catch (OperationCanceledException oce)
+                    {
+                        tcs.TrySetCanceled(oce.CancellationToken);
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        tcs.TrySetException(ex);
+                        return;
+                    }
 
-                if (inner is null)
-                {
-                    tcs.TrySetException(new InvalidOperationException(
-                        "Task.Run(Func<Task<TResult>>) delegate returned a null task."));
-                    return;
-                }
+                    if (inner is null)
+                    {
+                        tcs.TrySetException(new InvalidOperationException(
+                            "Task.Run(Func<Task<TResult>>) delegate returned a null task."));
+                        return;
+                    }
 
-                ControlledTaskRuntime.ScheduleContinuation(
-                    inner,
-                    () => PropagateTo(inner, tcs),
-                    "System.Threading.Tasks.Task.Run",
-                    flowExecutionContext: false);
-            },
+                    ControlledTaskRuntime.ScheduleContinuation(
+                        inner,
+                        () => PropagateTo(inner, tcs),
+                        "System.Threading.Tasks.Task.Run",
+                        flowExecutionContext: false);
+                }),
             "System.Threading.Tasks.Task.Run");
         return tcs.Task;
     }
@@ -667,10 +693,6 @@ public static class ControlledTask
             body();
             tcs.SetResult();
         }
-        catch (OperationCanceledException oce)
-        {
-            tcs.SetCanceled(oce.CancellationToken);
-        }
         catch (Exception ex)
         {
             tcs.SetException(ex);
@@ -683,10 +705,6 @@ public static class ControlledTask
         {
             tcs.SetResult(body());
         }
-        catch (OperationCanceledException oce)
-        {
-            tcs.SetCanceled(oce.CancellationToken);
-        }
         catch (Exception ex)
         {
             tcs.SetException(ex);
@@ -698,7 +716,7 @@ public static class ControlledTask
     {
         if (inner.IsCanceled)
         {
-            tcs.TrySetCanceled();
+            tcs.TrySetCanceled(GetCancellationToken(inner));
         }
         else if (inner.IsFaulted)
         {
@@ -715,7 +733,7 @@ public static class ControlledTask
     {
         if (inner.IsCanceled)
         {
-            tcs.TrySetCanceled();
+            tcs.TrySetCanceled(GetCancellationToken(inner));
         }
         else if (inner.IsFaulted)
         {
@@ -725,5 +743,30 @@ public static class ControlledTask
         {
             tcs.TrySetResult(inner.Result);
         }
+    }
+
+    private static void ValidateNoNullTasks(Task[] tasks)
+    {
+        foreach (Task? task in tasks)
+        {
+            if (task is null)
+            {
+                throw new ArgumentException("The tasks array included at least one null element.", nameof(tasks));
+            }
+        }
+    }
+
+    private static CancellationToken GetCancellationToken(Task task)
+    {
+        try
+        {
+            task.GetAwaiter().GetResult();
+        }
+        catch (OperationCanceledException exception)
+        {
+            return exception.CancellationToken;
+        }
+
+        return CancellationToken.None;
     }
 }

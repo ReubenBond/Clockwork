@@ -595,4 +595,680 @@ public sealed class ControlledTaskApiTests
         schedulers.Complete();
         await schedulers.Completion;
     }
+
+    [Theory]
+    [InlineData((int)QueuedTaskBodyVariant.TaskRunAction)]
+    [InlineData((int)QueuedTaskBodyVariant.TaskRunFunction)]
+    [InlineData((int)QueuedTaskBodyVariant.TaskFactoryStartNewAction)]
+    [InlineData((int)QueuedTaskBodyVariant.TaskFactoryStartNewFunction)]
+    public void QueuedTaskBodiesCaptureEnqueueTimeExecutionContext(int variantValue)
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var variant = (QueuedTaskBodyVariant)variantValue;
+            var ambient = new System.Threading.AsyncLocal<int> { Value = 5 };
+            var seen = -1;
+            Task<int>? resultTask = null;
+            Task task;
+
+            switch (variant)
+            {
+                case QueuedTaskBodyVariant.TaskRunAction:
+                    task = ControlledTask.Run(() => seen = ambient.Value);
+                    break;
+                case QueuedTaskBodyVariant.TaskRunFunction:
+                    resultTask = ControlledTask.Run(() =>
+                    {
+                        seen = ambient.Value;
+                        return 42;
+                    });
+                    task = resultTask;
+                    break;
+                case QueuedTaskBodyVariant.TaskFactoryStartNewAction:
+                    task = ControlledTaskFactory.StartNew(Task.Factory, () => seen = ambient.Value);
+                    break;
+                case QueuedTaskBodyVariant.TaskFactoryStartNewFunction:
+                    resultTask = ControlledTaskFactory.StartNew(Task.Factory, () =>
+                    {
+                        seen = ambient.Value;
+                        return 42;
+                    });
+                    task = resultTask;
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(variantValue));
+            }
+
+            Assert.False(task.IsCompleted);
+            Assert.Equal(-1, seen);
+            ambient.Value = 9;
+
+            coordinator.Loop.RunUntil(() => task.IsCompleted, "test");
+
+            Assert.Equal(5, seen);
+            Assert.Equal(TaskStatus.RanToCompletion, task.Status);
+            if (resultTask is not null)
+            {
+                Assert.Equal(42, resultTask.GetAwaiter().GetResult());
+            }
+
+            Assert.Equal(9, ambient.Value);
+            Assert.Equal(0, coordinator.Loop.ReadyCount);
+            Assert.Equal(0, coordinator.Loop.WaitingCount);
+            Assert.Null(coordinator.Loop.NextDeadlineDue());
+            Assert.True(coordinator.Loop.IsIdle);
+        });
+    }
+
+    [Theory]
+    [InlineData((int)ContinuationVariant.NonGenericAntecedentAction)]
+    [InlineData((int)ContinuationVariant.NonGenericAntecedentResult)]
+    [InlineData((int)ContinuationVariant.GenericAntecedentAction)]
+    [InlineData((int)ContinuationVariant.GenericAntecedentResult)]
+    public void ContinueWithCapturesRegistrationExecutionContext(int variantValue)
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var variant = (ContinuationVariant)variantValue;
+            var ambient = new System.Threading.AsyncLocal<int> { Value = 5 };
+            var seen = -1;
+            var antecedent = new TaskCompletionSource();
+            var genericAntecedent = new TaskCompletionSource<int>();
+            Task<int>? resultTask = null;
+            Task continuation;
+
+            switch (variant)
+            {
+                case ContinuationVariant.NonGenericAntecedentAction:
+                    continuation = ControlledTask.ContinueWith(
+                        antecedent.Task,
+                        _ => seen = ambient.Value);
+                    break;
+                case ContinuationVariant.NonGenericAntecedentResult:
+                    resultTask = ControlledTask.ContinueWith(
+                        antecedent.Task,
+                        _ =>
+                        {
+                            seen = ambient.Value;
+                            return 42;
+                        });
+                    continuation = resultTask;
+                    break;
+                case ContinuationVariant.GenericAntecedentAction:
+                    continuation = ControlledTask.ContinueWith(
+                        genericAntecedent.Task,
+                        _ => seen = ambient.Value);
+                    break;
+                case ContinuationVariant.GenericAntecedentResult:
+                    resultTask = ControlledTask.ContinueWith(
+                        genericAntecedent.Task,
+                        task =>
+                        {
+                            seen = ambient.Value;
+                            return task.Result * 2;
+                        });
+                    continuation = resultTask;
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(variantValue));
+            }
+
+            Assert.False(continuation.IsCompleted);
+            Assert.Equal(-1, seen);
+            ambient.Value = 9;
+
+            bool generic = variant is ContinuationVariant.GenericAntecedentAction
+                or ContinuationVariant.GenericAntecedentResult;
+            if (generic)
+            {
+                genericAntecedent.SetResult(21);
+            }
+            else
+            {
+                antecedent.SetResult();
+            }
+
+            coordinator.Loop.RunUntil(() => continuation.IsCompleted, "test");
+
+            Assert.Equal(5, seen);
+            Assert.Equal(TaskStatus.RanToCompletion, continuation.Status);
+            Assert.Equal(
+                TaskStatus.RanToCompletion,
+                generic ? genericAntecedent.Task.Status : antecedent.Task.Status);
+            if (resultTask is not null)
+            {
+                Assert.Equal(42, resultTask.GetAwaiter().GetResult());
+            }
+
+            Assert.Equal(9, ambient.Value);
+            Assert.Equal(0, coordinator.Loop.ReadyCount);
+            Assert.Equal(0, coordinator.Loop.WaitingCount);
+            Assert.Null(coordinator.Loop.NextDeadlineDue());
+            Assert.True(coordinator.Loop.IsIdle);
+        });
+    }
+
+    private enum QueuedTaskBodyVariant
+    {
+        TaskRunAction,
+        TaskRunFunction,
+        TaskFactoryStartNewAction,
+        TaskFactoryStartNewFunction,
+    }
+
+    private enum ContinuationVariant
+    {
+        NonGenericAntecedentAction,
+        NonGenericAntecedentResult,
+        GenericAntecedentAction,
+        GenericAntecedentResult,
+    }
+
+    [Theory]
+    [InlineData((int)StartNewOceDelegateShape.Action, (int)StartNewOceCase.Bare)]
+    [InlineData((int)StartNewOceDelegateShape.Action, (int)StartNewOceCase.UnmatchedRequested)]
+    [InlineData((int)StartNewOceDelegateShape.Action, (int)StartNewOceCase.MatchingNotRequested)]
+    [InlineData((int)StartNewOceDelegateShape.Action, (int)StartNewOceCase.MatchingRequested)]
+    [InlineData((int)StartNewOceDelegateShape.Function, (int)StartNewOceCase.Bare)]
+    [InlineData((int)StartNewOceDelegateShape.Function, (int)StartNewOceCase.UnmatchedRequested)]
+    [InlineData((int)StartNewOceDelegateShape.Function, (int)StartNewOceCase.MatchingNotRequested)]
+    [InlineData((int)StartNewOceDelegateShape.Function, (int)StartNewOceCase.MatchingRequested)]
+    public void TaskFactoryStartNewClassifiesOperationCanceledExceptionLikeBcl(
+        int delegateShapeValue,
+        int oceCaseValue)
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var delegateShape = (StartNewOceDelegateShape)delegateShapeValue;
+            var oceCase = (StartNewOceCase)oceCaseValue;
+            using var associatedSource = new CancellationTokenSource();
+            using var unrelatedSource = new CancellationTokenSource();
+
+            OperationCanceledException thrown;
+            switch (oceCase)
+            {
+                case StartNewOceCase.Bare:
+                    thrown = new OperationCanceledException();
+                    break;
+                case StartNewOceCase.UnmatchedRequested:
+                    unrelatedSource.Cancel();
+                    thrown = new OperationCanceledException(unrelatedSource.Token);
+                    break;
+                case StartNewOceCase.MatchingNotRequested:
+                case StartNewOceCase.MatchingRequested:
+                    thrown = new OperationCanceledException(associatedSource.Token);
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(oceCaseValue));
+            }
+
+            void ThrowAction()
+            {
+                if (oceCase == StartNewOceCase.MatchingRequested)
+                {
+                    associatedSource.Cancel();
+                }
+
+                throw thrown;
+            }
+
+            int ThrowFunction()
+            {
+                ThrowAction();
+                return 42;
+            }
+
+            Task task;
+#pragma warning disable xUnit1051 // Dedicated tokens are the contract inputs under test.
+            if (delegateShape == StartNewOceDelegateShape.Action)
+            {
+                task = oceCase == StartNewOceCase.Bare
+                    ? ControlledTaskFactory.StartNew(Task.Factory, ThrowAction)
+                    : ControlledTaskFactory.StartNew(Task.Factory, ThrowAction, associatedSource.Token);
+            }
+            else
+            {
+                task = oceCase == StartNewOceCase.Bare
+                    ? ControlledTaskFactory.StartNew(Task.Factory, ThrowFunction)
+                    : ControlledTaskFactory.StartNew(Task.Factory, ThrowFunction, associatedSource.Token);
+            }
+#pragma warning restore xUnit1051
+
+            Assert.False(task.IsCompleted);
+            coordinator.Loop.RunUntil(() => task.IsCompleted, "test");
+
+            bool shouldCancel = oceCase == StartNewOceCase.MatchingRequested;
+            Assert.Equal(shouldCancel, associatedSource.IsCancellationRequested);
+            AssertOceTaskCompletion(task, thrown, shouldCancel);
+        });
+    }
+
+    [Theory]
+    [InlineData((int)ContinueWithOceShape.NonGenericAntecedentAction, (int)TokenlessOceCase.Bare)]
+    [InlineData((int)ContinueWithOceShape.NonGenericAntecedentAction, (int)TokenlessOceCase.Requested)]
+    [InlineData((int)ContinueWithOceShape.NonGenericAntecedentAction, (int)TokenlessOceCase.NotRequested)]
+    [InlineData((int)ContinueWithOceShape.NonGenericAntecedentResult, (int)TokenlessOceCase.Bare)]
+    [InlineData((int)ContinueWithOceShape.NonGenericAntecedentResult, (int)TokenlessOceCase.Requested)]
+    [InlineData((int)ContinueWithOceShape.NonGenericAntecedentResult, (int)TokenlessOceCase.NotRequested)]
+    [InlineData((int)ContinueWithOceShape.GenericAntecedentAction, (int)TokenlessOceCase.Bare)]
+    [InlineData((int)ContinueWithOceShape.GenericAntecedentAction, (int)TokenlessOceCase.Requested)]
+    [InlineData((int)ContinueWithOceShape.GenericAntecedentAction, (int)TokenlessOceCase.NotRequested)]
+    [InlineData((int)ContinueWithOceShape.GenericAntecedentResult, (int)TokenlessOceCase.Bare)]
+    [InlineData((int)ContinueWithOceShape.GenericAntecedentResult, (int)TokenlessOceCase.Requested)]
+    [InlineData((int)ContinueWithOceShape.GenericAntecedentResult, (int)TokenlessOceCase.NotRequested)]
+    public void ContinueWithWithoutAssociatedCancellationClassifiesOceAsFault(
+        int shapeValue,
+        int oceCaseValue)
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var shape = (ContinueWithOceShape)shapeValue;
+            var oceCase = (TokenlessOceCase)oceCaseValue;
+            using var thrownSource = new CancellationTokenSource();
+            if (oceCase == TokenlessOceCase.Requested)
+            {
+                thrownSource.Cancel();
+            }
+
+            var thrown = oceCase == TokenlessOceCase.Bare
+                ? new OperationCanceledException()
+                : new OperationCanceledException(thrownSource.Token);
+            var antecedent = new TaskCompletionSource();
+            var genericAntecedent = new TaskCompletionSource<int>();
+            Task continuation;
+            Action completeAntecedent;
+
+            switch (shape)
+            {
+                case ContinueWithOceShape.NonGenericAntecedentAction:
+                    continuation = ControlledTask.ContinueWith(
+                        antecedent.Task,
+                        (Action<Task>)(_ => throw thrown));
+                    completeAntecedent = antecedent.SetResult;
+                    break;
+                case ContinueWithOceShape.NonGenericAntecedentResult:
+                    continuation = ControlledTask.ContinueWith(
+                        antecedent.Task,
+                        (Func<Task, int>)(_ => throw thrown));
+                    completeAntecedent = antecedent.SetResult;
+                    break;
+                case ContinueWithOceShape.GenericAntecedentAction:
+                    continuation = ControlledTask.ContinueWith(
+                        genericAntecedent.Task,
+                        (Action<Task<int>>)(_ => throw thrown));
+                    completeAntecedent = () => genericAntecedent.SetResult(21);
+                    break;
+                case ContinueWithOceShape.GenericAntecedentResult:
+                    continuation = ControlledTask.ContinueWith(
+                        genericAntecedent.Task,
+                        (Func<Task<int>, int>)(_ => throw thrown));
+                    completeAntecedent = () => genericAntecedent.SetResult(21);
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(shapeValue));
+            }
+
+            Assert.False(continuation.IsCompleted);
+            coordinator.Loop.Schedule(completeAntecedent);
+            coordinator.Loop.RunUntil(() => continuation.IsCompleted, "test");
+
+            Assert.Equal(oceCase == TokenlessOceCase.Requested, thrownSource.IsCancellationRequested);
+            AssertOceTaskCompletion(continuation, thrown, shouldCancel: false);
+        });
+    }
+
+    [Fact]
+    public void RunOfTaskPreservesCanceledInnerTaskToken()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            using var innerCancellation = new CancellationTokenSource();
+            innerCancellation.Cancel();
+#pragma warning disable xUnit1051 // The inner task's dedicated token is the contract input under test.
+            Task inner = Task.FromCanceled(innerCancellation.Token);
+#pragma warning restore xUnit1051
+
+            Task outer = ControlledTask.Run(() => inner);
+            coordinator.Loop.RunUntil(() => outer.IsCompleted, "test");
+
+            Assert.Equal(TaskStatus.Canceled, inner.Status);
+            Assert.Equal(TaskStatus.Canceled, outer.Status);
+            Assert.True(outer.IsCanceled);
+            Assert.Null(outer.Exception);
+            var error = Assert.Throws<TaskCanceledException>(() => outer.GetAwaiter().GetResult());
+            Assert.Equal(innerCancellation.Token, error.CancellationToken);
+            AssertLoopIsClean(coordinator);
+        });
+    }
+
+    [Fact]
+    public void RunOfGenericTaskPreservesCanceledInnerTaskToken()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            using var innerCancellation = new CancellationTokenSource();
+            innerCancellation.Cancel();
+#pragma warning disable xUnit1051 // The inner task's dedicated token is the contract input under test.
+            Task<int> inner = Task.FromCanceled<int>(innerCancellation.Token);
+#pragma warning restore xUnit1051
+
+            Task<int> outer = ControlledTask.Run(() => inner);
+            coordinator.Loop.RunUntil(() => outer.IsCompleted, "test");
+
+            Assert.Equal(TaskStatus.Canceled, inner.Status);
+            Assert.Equal(TaskStatus.Canceled, outer.Status);
+            Assert.True(outer.IsCanceled);
+            Assert.Null(outer.Exception);
+            var error = Assert.Throws<TaskCanceledException>(() => outer.GetAwaiter().GetResult());
+            Assert.Equal(innerCancellation.Token, error.CancellationToken);
+            AssertLoopIsClean(coordinator);
+        });
+    }
+
+    [Fact]
+    public void WaitAllNullElementMatchesBclExceptionShape()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            Task[] tasks = [null!, Task.CompletedTask];
+
+            var error = Assert.Throws<ArgumentException>(() => ControlledTask.WaitAll(tasks));
+
+            Assert.Equal("tasks", error.ParamName);
+            Assert.True(tasks[1].IsCompletedSuccessfully);
+        });
+    }
+
+    [Fact]
+    public void WaitAnyNullElementMatchesBclExceptionShape()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            Task[] tasks = [null!, Task.CompletedTask];
+
+            var error = Assert.Throws<ArgumentException>(() => ControlledTask.WaitAny(tasks));
+
+            Assert.Equal("tasks", error.ParamName);
+            Assert.True(tasks[1].IsCompletedSuccessfully);
+        });
+    }
+
+    private static void AssertOceTaskCompletion(
+        Task task,
+        OperationCanceledException thrown,
+        bool shouldCancel)
+    {
+        if (shouldCancel)
+        {
+            Assert.Equal(TaskStatus.Canceled, task.Status);
+            Assert.True(task.IsCanceled);
+            Assert.Null(task.Exception);
+            var awaited = Assert.ThrowsAny<OperationCanceledException>(() => task.GetAwaiter().GetResult());
+            Assert.Equal(thrown.CancellationToken, awaited.CancellationToken);
+            return;
+        }
+
+        Assert.Equal(TaskStatus.Faulted, task.Status);
+        Assert.False(task.IsCanceled);
+        var aggregate = Assert.IsType<AggregateException>(task.Exception);
+        var inner = Assert.Single(aggregate.InnerExceptions);
+        var fault = Assert.IsType<OperationCanceledException>(inner);
+        Assert.Same(thrown, fault);
+        Assert.Equal(thrown.CancellationToken, fault.CancellationToken);
+        var awaitedFault = Assert.Throws<OperationCanceledException>(() => task.GetAwaiter().GetResult());
+        Assert.Same(thrown, awaitedFault);
+        Assert.Equal(thrown.CancellationToken, awaitedFault.CancellationToken);
+    }
+
+    private static void AssertLoopIsClean(ControlledTaskLoopCoordinator coordinator)
+    {
+        Assert.Equal(0, coordinator.Loop.ReadyCount);
+        Assert.Equal(0, coordinator.Loop.WaitingCount);
+        Assert.Null(coordinator.Loop.NextDeadlineDue());
+        Assert.True(coordinator.Loop.IsIdle);
+    }
+
+    private enum StartNewOceDelegateShape
+    {
+        Action,
+        Function,
+    }
+
+    private enum StartNewOceCase
+    {
+        Bare,
+        UnmatchedRequested,
+        MatchingNotRequested,
+        MatchingRequested,
+    }
+
+    private enum ContinueWithOceShape
+    {
+        NonGenericAntecedentAction,
+        NonGenericAntecedentResult,
+        GenericAntecedentAction,
+        GenericAntecedentResult,
+    }
+
+    private enum TokenlessOceCase
+    {
+        Bare,
+        Requested,
+        NotRequested,
+    }
+
+    [Theory]
+    [InlineData((int)StartNewOceDelegateShape.Action, (int)StartNewOceCase.Bare)]
+    [InlineData((int)StartNewOceDelegateShape.Action, (int)StartNewOceCase.UnmatchedRequested)]
+    [InlineData((int)StartNewOceDelegateShape.Action, (int)StartNewOceCase.MatchingNotRequested)]
+    [InlineData((int)StartNewOceDelegateShape.Action, (int)StartNewOceCase.MatchingRequested)]
+    [InlineData((int)StartNewOceDelegateShape.Function, (int)StartNewOceCase.Bare)]
+    [InlineData((int)StartNewOceDelegateShape.Function, (int)StartNewOceCase.UnmatchedRequested)]
+    [InlineData((int)StartNewOceDelegateShape.Function, (int)StartNewOceCase.MatchingNotRequested)]
+    [InlineData((int)StartNewOceDelegateShape.Function, (int)StartNewOceCase.MatchingRequested)]
+    public void TaskFactoryStartNewOceClassificationLeavesPublicLoopClean(
+        int delegateShapeValue,
+        int oceCaseValue)
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var delegateShape = (StartNewOceDelegateShape)delegateShapeValue;
+            var oceCase = (StartNewOceCase)oceCaseValue;
+            using var associatedSource = new CancellationTokenSource();
+            using var unrelatedSource = new CancellationTokenSource();
+
+            OperationCanceledException thrown;
+            switch (oceCase)
+            {
+                case StartNewOceCase.Bare:
+                    thrown = new OperationCanceledException();
+                    break;
+                case StartNewOceCase.UnmatchedRequested:
+                    unrelatedSource.Cancel();
+                    thrown = new OperationCanceledException(unrelatedSource.Token);
+                    break;
+                case StartNewOceCase.MatchingNotRequested:
+                case StartNewOceCase.MatchingRequested:
+                    thrown = new OperationCanceledException(associatedSource.Token);
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(oceCaseValue));
+            }
+
+            void ThrowAction()
+            {
+                if (oceCase == StartNewOceCase.MatchingRequested)
+                {
+                    associatedSource.Cancel();
+                }
+
+                throw thrown;
+            }
+
+            int ThrowFunction()
+            {
+                ThrowAction();
+                return 42;
+            }
+
+            Task task;
+#pragma warning disable xUnit1051 // Dedicated tokens are the contract inputs under test.
+            if (delegateShape == StartNewOceDelegateShape.Action)
+            {
+                task = oceCase == StartNewOceCase.Bare
+                    ? ControlledTaskFactory.StartNew(Task.Factory, ThrowAction)
+                    : ControlledTaskFactory.StartNew(Task.Factory, ThrowAction, associatedSource.Token);
+            }
+            else
+            {
+                task = oceCase == StartNewOceCase.Bare
+                    ? ControlledTaskFactory.StartNew(Task.Factory, ThrowFunction)
+                    : ControlledTaskFactory.StartNew(Task.Factory, ThrowFunction, associatedSource.Token);
+            }
+#pragma warning restore xUnit1051
+
+            Assert.False(task.IsCompleted);
+            coordinator.Loop.RunUntil(() => task.IsCompleted, "test");
+
+            bool shouldCancel = oceCase == StartNewOceCase.MatchingRequested;
+            Assert.Equal(shouldCancel, associatedSource.IsCancellationRequested);
+            AssertOceTaskCompletion(task, thrown, shouldCancel);
+            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+            AssertLoopIsClean(coordinator);
+        });
+    }
+
+    [Theory]
+    [InlineData((int)ContinueWithOceShape.NonGenericAntecedentAction, (int)TokenlessOceCase.Bare)]
+    [InlineData((int)ContinueWithOceShape.NonGenericAntecedentAction, (int)TokenlessOceCase.Requested)]
+    [InlineData((int)ContinueWithOceShape.NonGenericAntecedentAction, (int)TokenlessOceCase.NotRequested)]
+    [InlineData((int)ContinueWithOceShape.NonGenericAntecedentResult, (int)TokenlessOceCase.Bare)]
+    [InlineData((int)ContinueWithOceShape.NonGenericAntecedentResult, (int)TokenlessOceCase.Requested)]
+    [InlineData((int)ContinueWithOceShape.NonGenericAntecedentResult, (int)TokenlessOceCase.NotRequested)]
+    [InlineData((int)ContinueWithOceShape.GenericAntecedentAction, (int)TokenlessOceCase.Bare)]
+    [InlineData((int)ContinueWithOceShape.GenericAntecedentAction, (int)TokenlessOceCase.Requested)]
+    [InlineData((int)ContinueWithOceShape.GenericAntecedentAction, (int)TokenlessOceCase.NotRequested)]
+    [InlineData((int)ContinueWithOceShape.GenericAntecedentResult, (int)TokenlessOceCase.Bare)]
+    [InlineData((int)ContinueWithOceShape.GenericAntecedentResult, (int)TokenlessOceCase.Requested)]
+    [InlineData((int)ContinueWithOceShape.GenericAntecedentResult, (int)TokenlessOceCase.NotRequested)]
+    public void ContinueWithOceClassificationLeavesPublicLoopClean(
+        int shapeValue,
+        int oceCaseValue)
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var shape = (ContinueWithOceShape)shapeValue;
+            var oceCase = (TokenlessOceCase)oceCaseValue;
+            using var thrownSource = new CancellationTokenSource();
+            if (oceCase == TokenlessOceCase.Requested)
+            {
+                thrownSource.Cancel();
+            }
+
+            var thrown = oceCase == TokenlessOceCase.Bare
+                ? new OperationCanceledException()
+                : new OperationCanceledException(thrownSource.Token);
+            var antecedent = new TaskCompletionSource();
+            var genericAntecedent = new TaskCompletionSource<int>();
+            Task continuation;
+            Action completeAntecedent;
+
+            switch (shape)
+            {
+                case ContinueWithOceShape.NonGenericAntecedentAction:
+                    continuation = ControlledTask.ContinueWith(
+                        antecedent.Task,
+                        (Action<Task>)(_ => throw thrown));
+                    completeAntecedent = antecedent.SetResult;
+                    break;
+                case ContinueWithOceShape.NonGenericAntecedentResult:
+                    continuation = ControlledTask.ContinueWith(
+                        antecedent.Task,
+                        (Func<Task, int>)(_ => throw thrown));
+                    completeAntecedent = antecedent.SetResult;
+                    break;
+                case ContinueWithOceShape.GenericAntecedentAction:
+                    continuation = ControlledTask.ContinueWith(
+                        genericAntecedent.Task,
+                        (Action<Task<int>>)(_ => throw thrown));
+                    completeAntecedent = () => genericAntecedent.SetResult(21);
+                    break;
+                case ContinueWithOceShape.GenericAntecedentResult:
+                    continuation = ControlledTask.ContinueWith(
+                        genericAntecedent.Task,
+                        (Func<Task<int>, int>)(_ => throw thrown));
+                    completeAntecedent = () => genericAntecedent.SetResult(21);
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(shapeValue));
+            }
+
+            Assert.False(continuation.IsCompleted);
+            coordinator.Loop.Schedule(completeAntecedent);
+            coordinator.Loop.RunUntil(() => continuation.IsCompleted, "test");
+
+            Assert.Equal(oceCase == TokenlessOceCase.Requested, thrownSource.IsCancellationRequested);
+            AssertOceTaskCompletion(continuation, thrown, shouldCancel: false);
+            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+            AssertLoopIsClean(coordinator);
+        });
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public void NullWaitElementValidationPrecedesPumpingAndLeavesLoopClean(
+        bool waitAll,
+        bool nullFirst)
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var pending = new TaskCompletionSource();
+            Task[] tasks = nullFirst
+                ? [null!, pending.Task]
+                : [pending.Task, null!];
+
+            Exception? error = Record.Exception(() =>
+            {
+                if (waitAll)
+                {
+                    ControlledTask.WaitAll(tasks);
+                }
+                else
+                {
+                    _ = ControlledTask.WaitAny(tasks);
+                }
+            });
+
+            Assert.False(pending.Task.IsCompleted);
+            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+            AssertLoopIsClean(coordinator);
+            var argument = Assert.IsType<ArgumentException>(error);
+            Assert.Equal("tasks", argument.ParamName);
+        });
+    }
 }

@@ -183,4 +183,93 @@ public sealed class TaskRunConformanceTests : IDisposable
     }
 
     public void Dispose() => _fixture.Dispose();
+
+    [Fact]
+    public void TaskRunFlowsCapturedExecutionContext()
+    {
+        using var host = new SimulationHost(Start);
+        var task = (Task<int>)host.Invoke(ExecutionContextMethod("RunFlowsContext"))!;
+
+        Assert.Equal(TaskStatus.RanToCompletion, task.Status);
+        Assert.Equal(5, Result<int>(task));
+    }
+
+    private const string ExecutionContextSource = """
+        using System.Threading;
+        using System.Threading.Tasks;
+        namespace Conf { public static class RunExecutionContextProbe {
+            public static Task<int> RunFlowsContext()
+            {
+                var ambient = new AsyncLocal<int> { Value = 5 };
+                var task = Task.Run(() => ambient.Value);
+                ambient.Value = 9;
+                return task;
+            }
+        } }
+        """;
+
+    private StagedProbe? _executionContextProbe;
+
+    private MethodInfo ExecutionContextMethod(string name) =>
+        (_executionContextProbe ??= _fixture.StageControlledTasks(
+            "Conf.TaskRunExecutionContext",
+            "Conf.RunExecutionContextProbe",
+            ExecutionContextSource,
+            optimize: true)).Method(name);
+
+    [Fact]
+    public void RunOfCanceledInnerTaskPreservesToken()
+    {
+        using var innerCancellation = new CancellationTokenSource();
+        innerCancellation.Cancel();
+        using var host = new SimulationHost(Start);
+
+        var task = (Task)host.Invoke(Phase4Method("RunCanceledInner"), innerCancellation.Token)!;
+
+        AssertCanceledTaskCarriesToken(task, innerCancellation.Token);
+    }
+
+    [Fact]
+    public void RunOfCanceledGenericInnerTaskPreservesToken()
+    {
+        using var innerCancellation = new CancellationTokenSource();
+        innerCancellation.Cancel();
+        using var host = new SimulationHost(Start);
+
+        var task = (Task<int>)host.Invoke(
+            Phase4Method("RunCanceledGenericInner"),
+            innerCancellation.Token)!;
+
+        AssertCanceledTaskCarriesToken(task, innerCancellation.Token);
+    }
+
+    private const string Phase4Source = """
+        using System.Threading;
+        using System.Threading.Tasks;
+        namespace Conf { public static class RunCanceledInnerProbe {
+            public static Task RunCanceledInner(CancellationToken token) =>
+                Task.Run(() => Task.FromCanceled(token));
+
+            public static Task<int> RunCanceledGenericInner(CancellationToken token) =>
+                Task.Run(() => Task.FromCanceled<int>(token));
+        } }
+        """;
+
+    private StagedProbe? _phase4Probe;
+
+    private MethodInfo Phase4Method(string name) =>
+        (_phase4Probe ??= _fixture.StageControlledTasks(
+            "Conf.TaskRunCanceledInner",
+            "Conf.RunCanceledInnerProbe",
+            Phase4Source,
+            optimize: true)).Method(name);
+
+    private static void AssertCanceledTaskCarriesToken(Task task, CancellationToken expectedToken)
+    {
+        Assert.Equal(TaskStatus.Canceled, task.Status);
+        Assert.True(task.IsCanceled);
+        Assert.Null(task.Exception);
+        var error = Assert.Throws<TaskCanceledException>(() => task.GetAwaiter().GetResult());
+        Assert.Equal(expectedToken, error.CancellationToken);
+    }
 }

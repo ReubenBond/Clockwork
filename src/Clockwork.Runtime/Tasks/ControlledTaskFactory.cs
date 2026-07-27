@@ -201,9 +201,12 @@ public static class ControlledTaskFactory
             return Task.FromCanceled(cancellationToken);
         }
 
+        ExecutionContext? context = ExecutionContext.Capture();
         var tcs = new TaskCompletionSource(asyncState);
         ControlledTaskRuntime.QueueWork(
-            () => RunAction(action, tcs, cancellationToken),
+            () => ControlledTaskRuntime.RunWithCapturedExecutionContext(
+                context,
+                () => RunAction(action, tcs, cancellationToken)),
             "System.Threading.Tasks.TaskFactory.StartNew");
         return tcs.Task;
     }
@@ -550,9 +553,12 @@ public static class ControlledTaskFactory
             return Task.FromCanceled<TResult>(cancellationToken);
         }
 
+        ExecutionContext? context = ExecutionContext.Capture();
         var tcs = new TaskCompletionSource<TResult>(asyncState);
         ControlledTaskRuntime.QueueWork(
-            () => RunFunc(function, tcs, cancellationToken),
+            () => ControlledTaskRuntime.RunWithCapturedExecutionContext(
+                context,
+                () => RunFunc(function, tcs, cancellationToken)),
             "System.Threading.Tasks.TaskFactory.StartNew");
         return tcs.Task;
     }
