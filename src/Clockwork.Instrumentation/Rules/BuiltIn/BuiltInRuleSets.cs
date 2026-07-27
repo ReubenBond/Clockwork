@@ -55,6 +55,7 @@ public static class BuiltInRuleSets
     private const string ParallelShim = "Clockwork.Runtime.Threading.ControlledParallel";
     private const string MonitorShim = "Clockwork.Runtime.Threading.ControlledMonitor";
     private const string SemaphoreSlimShim = "Clockwork.Runtime.Threading.ControlledSemaphoreSlim";
+    private const string InterlockedShim = "Clockwork.Runtime.Threading.ControlledInterlocked";
 
     // Cecil full names for the exact overload parameters (from the net10 reference assemblies).
     private const string Int32 = "System.Int32";
@@ -205,6 +206,38 @@ public static class BuiltInRuleSets
     private const string ControlledLockScopeType = "Clockwork.Runtime.Threading.ControlledLock/Scope";
     private const string SemaphoreSlimType = "System.Threading.SemaphoreSlim";
 
+    // Cecil full names for the controlled Phase 7B Interlocked atomic surface. Every overload takes its
+    // first argument by reference, which Cecil renders with a trailing '&'. The generic Exchange<T>/
+    // CompareExchange<T> overloads are GenericInstanceMethods at the call site (`!!0`/`!!0&` target)
+    // resolved against their shim definitions, whose generic parameter is named T (`T`/`T&` replacement).
+    private const string InterlockedType = "System.Threading.Interlocked";
+    private const string Int32Ref = "System.Int32&";
+    private const string Int64Ref = "System.Int64&";
+    private const string UInt32Ref = "System.UInt32&";
+    private const string UInt64 = "System.UInt64";
+    private const string UInt64Ref = "System.UInt64&";
+    private const string SByteType = "System.SByte";
+    private const string SByteRef = "System.SByte&";
+    private const string Int16Type = "System.Int16";
+    private const string Int16Ref = "System.Int16&";
+    private const string ByteType = "System.Byte";
+    private const string ByteRef = "System.Byte&";
+    private const string UInt16Type = "System.UInt16";
+    private const string UInt16Ref = "System.UInt16&";
+    private const string SingleType = "System.Single";
+    private const string SingleRef = "System.Single&";
+    private const string DoubleType = "System.Double";
+    private const string DoubleRef = "System.Double&";
+    private const string IntPtrType = "System.IntPtr";
+    private const string IntPtrRef = "System.IntPtr&";
+    private const string UIntPtrType = "System.UIntPtr";
+    private const string UIntPtrRef = "System.UIntPtr&";
+    private const string ObjectRef = "System.Object&";
+    private const string GenericArg0 = "!!0";
+    private const string GenericArg0Ref = "!!0&";
+    private const string GenericTDecl = "T";
+    private const string GenericTRefDecl = "T&";
+
 
     // Cecil full names for the compiler-generated async machinery (BCL) and their controlled substitutes.
     // Nested awaiter types use Cecil's '/' separator; generic arities carry the backtick.
@@ -274,6 +307,10 @@ public static class BuiltInRuleSets
         BuiltInRuleFamily.Monitor,
         BuiltInRuleFamily.Lock,
         BuiltInRuleFamily.Semaphore,
+        BuiltInRuleFamily.Interlocked,
+        BuiltInRuleFamily.Volatile,
+        BuiltInRuleFamily.SpinWait,
+        BuiltInRuleFamily.WaitHandle,
         BuiltInRuleFamily.UncontrolledInvocation,
     ];
 
@@ -728,7 +765,85 @@ public static class BuiltInRuleSets
         RejectedRule(builder, BuiltInRuleFamily.Semaphore, "clockwork.semaphoreslim.get_availablewaithandle",
             MemberSignature.Method(SemaphoreSlimType, "get_AvailableWaitHandle"), Shim(SemaphoreSlimShim, "AvailableWaitHandle", SemaphoreSlimType));
 
+        BuildInterlockedEntries(builder);
+
         return builder.ToImmutable();
+    }
+
+    // Phase 7B: the full .NET 10 System.Threading.Interlocked surface. Every call site is redirected to a
+    // shim carrying the identical ref-first signature. Under Clockwork's cooperative single-logical-thread
+    // scheduler a read-modify-write is an indivisible step, so each shim delegates to the real primitive,
+    // preserving exact atomic return / overflow / reference-write semantics. The generic Exchange<T> /
+    // CompareExchange<T> overloads use the `!!0`/`!!0&` target -> `T`/`T&` replacement split.
+    private static void BuildInterlockedEntries(ImmutableArray<BuiltInRuleEntry>.Builder builder)
+    {
+        void Rule(string id, string member, string[] target, string[] replacement) =>
+            TaskRule(builder, BuiltInRuleFamily.Interlocked, id,
+                MemberSignature.Method(InterlockedType, member, target), Shim(InterlockedShim, member, replacement));
+
+        // Increment / Decrement (int, long, uint, ulong).
+        Rule("clockwork.interlocked.increment.int32", "Increment", [Int32Ref], [Int32Ref]);
+        Rule("clockwork.interlocked.increment.int64", "Increment", [Int64Ref], [Int64Ref]);
+        Rule("clockwork.interlocked.increment.uint32", "Increment", [UInt32Ref], [UInt32Ref]);
+        Rule("clockwork.interlocked.increment.uint64", "Increment", [UInt64Ref], [UInt64Ref]);
+        Rule("clockwork.interlocked.decrement.int32", "Decrement", [Int32Ref], [Int32Ref]);
+        Rule("clockwork.interlocked.decrement.int64", "Decrement", [Int64Ref], [Int64Ref]);
+        Rule("clockwork.interlocked.decrement.uint32", "Decrement", [UInt32Ref], [UInt32Ref]);
+        Rule("clockwork.interlocked.decrement.uint64", "Decrement", [UInt64Ref], [UInt64Ref]);
+
+        // Add (int, long, uint, ulong).
+        Rule("clockwork.interlocked.add.int32", "Add", [Int32Ref, Int32], [Int32Ref, Int32]);
+        Rule("clockwork.interlocked.add.int64", "Add", [Int64Ref, Int64], [Int64Ref, Int64]);
+        Rule("clockwork.interlocked.add.uint32", "Add", [UInt32Ref, UInt32], [UInt32Ref, UInt32]);
+        Rule("clockwork.interlocked.add.uint64", "Add", [UInt64Ref, UInt64], [UInt64Ref, UInt64]);
+
+        // And / Or (int, uint, long, ulong).
+        Rule("clockwork.interlocked.and.int32", "And", [Int32Ref, Int32], [Int32Ref, Int32]);
+        Rule("clockwork.interlocked.and.uint32", "And", [UInt32Ref, UInt32], [UInt32Ref, UInt32]);
+        Rule("clockwork.interlocked.and.int64", "And", [Int64Ref, Int64], [Int64Ref, Int64]);
+        Rule("clockwork.interlocked.and.uint64", "And", [UInt64Ref, UInt64], [UInt64Ref, UInt64]);
+        Rule("clockwork.interlocked.or.int32", "Or", [Int32Ref, Int32], [Int32Ref, Int32]);
+        Rule("clockwork.interlocked.or.uint32", "Or", [UInt32Ref, UInt32], [UInt32Ref, UInt32]);
+        Rule("clockwork.interlocked.or.int64", "Or", [Int64Ref, Int64], [Int64Ref, Int64]);
+        Rule("clockwork.interlocked.or.uint64", "Or", [UInt64Ref, UInt64], [UInt64Ref, UInt64]);
+
+        // Exchange (every primitive, native-int, floating-point, reference, generic reference).
+        Rule("clockwork.interlocked.exchange.int32", "Exchange", [Int32Ref, Int32], [Int32Ref, Int32]);
+        Rule("clockwork.interlocked.exchange.int64", "Exchange", [Int64Ref, Int64], [Int64Ref, Int64]);
+        Rule("clockwork.interlocked.exchange.object", "Exchange", [ObjectRef, ObjectType], [ObjectRef, ObjectType]);
+        Rule("clockwork.interlocked.exchange.sbyte", "Exchange", [SByteRef, SByteType], [SByteRef, SByteType]);
+        Rule("clockwork.interlocked.exchange.int16", "Exchange", [Int16Ref, Int16Type], [Int16Ref, Int16Type]);
+        Rule("clockwork.interlocked.exchange.byte", "Exchange", [ByteRef, ByteType], [ByteRef, ByteType]);
+        Rule("clockwork.interlocked.exchange.uint16", "Exchange", [UInt16Ref, UInt16Type], [UInt16Ref, UInt16Type]);
+        Rule("clockwork.interlocked.exchange.uint32", "Exchange", [UInt32Ref, UInt32], [UInt32Ref, UInt32]);
+        Rule("clockwork.interlocked.exchange.uint64", "Exchange", [UInt64Ref, UInt64], [UInt64Ref, UInt64]);
+        Rule("clockwork.interlocked.exchange.single", "Exchange", [SingleRef, SingleType], [SingleRef, SingleType]);
+        Rule("clockwork.interlocked.exchange.double", "Exchange", [DoubleRef, DoubleType], [DoubleRef, DoubleType]);
+        Rule("clockwork.interlocked.exchange.intptr", "Exchange", [IntPtrRef, IntPtrType], [IntPtrRef, IntPtrType]);
+        Rule("clockwork.interlocked.exchange.uintptr", "Exchange", [UIntPtrRef, UIntPtrType], [UIntPtrRef, UIntPtrType]);
+        Rule("clockwork.interlocked.exchange.generic", "Exchange", [GenericArg0Ref, GenericArg0], [GenericTRefDecl, GenericTDecl]);
+
+        // CompareExchange (every primitive, native-int, floating-point, reference, generic reference).
+        Rule("clockwork.interlocked.compareexchange.int32", "CompareExchange", [Int32Ref, Int32, Int32], [Int32Ref, Int32, Int32]);
+        Rule("clockwork.interlocked.compareexchange.int64", "CompareExchange", [Int64Ref, Int64, Int64], [Int64Ref, Int64, Int64]);
+        Rule("clockwork.interlocked.compareexchange.object", "CompareExchange", [ObjectRef, ObjectType, ObjectType], [ObjectRef, ObjectType, ObjectType]);
+        Rule("clockwork.interlocked.compareexchange.sbyte", "CompareExchange", [SByteRef, SByteType, SByteType], [SByteRef, SByteType, SByteType]);
+        Rule("clockwork.interlocked.compareexchange.int16", "CompareExchange", [Int16Ref, Int16Type, Int16Type], [Int16Ref, Int16Type, Int16Type]);
+        Rule("clockwork.interlocked.compareexchange.byte", "CompareExchange", [ByteRef, ByteType, ByteType], [ByteRef, ByteType, ByteType]);
+        Rule("clockwork.interlocked.compareexchange.uint16", "CompareExchange", [UInt16Ref, UInt16Type, UInt16Type], [UInt16Ref, UInt16Type, UInt16Type]);
+        Rule("clockwork.interlocked.compareexchange.uint32", "CompareExchange", [UInt32Ref, UInt32, UInt32], [UInt32Ref, UInt32, UInt32]);
+        Rule("clockwork.interlocked.compareexchange.uint64", "CompareExchange", [UInt64Ref, UInt64, UInt64], [UInt64Ref, UInt64, UInt64]);
+        Rule("clockwork.interlocked.compareexchange.single", "CompareExchange", [SingleRef, SingleType, SingleType], [SingleRef, SingleType, SingleType]);
+        Rule("clockwork.interlocked.compareexchange.double", "CompareExchange", [DoubleRef, DoubleType, DoubleType], [DoubleRef, DoubleType, DoubleType]);
+        Rule("clockwork.interlocked.compareexchange.intptr", "CompareExchange", [IntPtrRef, IntPtrType, IntPtrType], [IntPtrRef, IntPtrType, IntPtrType]);
+        Rule("clockwork.interlocked.compareexchange.uintptr", "CompareExchange", [UIntPtrRef, UIntPtrType, UIntPtrType], [UIntPtrRef, UIntPtrType, UIntPtrType]);
+        Rule("clockwork.interlocked.compareexchange.generic", "CompareExchange", [GenericArg0Ref, GenericArg0, GenericArg0], [GenericTRefDecl, GenericTDecl, GenericTDecl]);
+
+        // Read (long, ulong) and the memory barriers.
+        Rule("clockwork.interlocked.read.int64", "Read", [Int64Ref], [Int64Ref]);
+        Rule("clockwork.interlocked.read.uint64", "Read", [UInt64Ref], [UInt64Ref]);
+        Rule("clockwork.interlocked.memorybarrier", "MemoryBarrier", [], []);
+        Rule("clockwork.interlocked.memorybarrierprocesswide", "MemoryBarrierProcessWide", [], []);
     }
 
     // Rejects a Parallel overload at the call site. The BCL methods return ParallelLoopResult, so

@@ -199,6 +199,16 @@ public static class RuleInventoryDocument
             "process at all. A throwing guard is injected before each call site so a rewritten assembly can " +
             "never launch, kill, wait on, or terminate a real OS process; unlike the controlled shims the " +
             "rejection is unconditional (it fires whether or not a simulation is active).",
+        BuiltInRuleFamily.Interlocked =>
+            "The full .NET 10 `Interlocked` surface - `Increment`/`Decrement`/`Add`/`And`/`Or` (`int`/`long`/" +
+            "`uint`/`ulong`), `Exchange`/`CompareExchange` (every primitive, native-int, floating-point, " +
+            "reference, and generic reference overload), `Read` (`long`/`ulong`), and the memory barriers - " +
+            "redirects each call site to a shim with the identical `ref`-first signature. Clockwork's " +
+            "cooperative single-logical-thread scheduler makes every read-modify-write an indivisible step " +
+            "(never split, never interleaved mid-operation), so the shim delegates to the real primitive and " +
+            "preserves exact atomic return, overflow, and reference-write semantics inside and outside " +
+            "simulation. The exploration policy injects no mid-operation scheduling point; the single " +
+            "delegation site is the future Phase 9 race-hook attachment point.",
         _ => string.Empty,
     };
 

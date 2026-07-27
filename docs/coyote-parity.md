@@ -289,6 +289,37 @@ wins over the timeout (Phase 3B first-winner), no wall-clock time is used; a nev
 
 ---
 
+## `System.Threading.Interlocked` — Coyote `…Types.Threading.Interlocked` (Phase 7B)
+
+Coyote controls the interlocked surface so that under its scheduler each atomic read-modify-write is
+observed as an indivisible operation. Clockwork mirrors the **full .NET 10 `Interlocked` surface** by
+redirecting every call site to a shim with the identical `ref`-first signature. Because Clockwork runs on
+a **single cooperative logical thread** the operation can never be interleaved mid-flight, so each shim
+delegates straight to the real primitive — preserving exact atomic return, overflow, and reference-write
+semantics inside and outside a simulation. The **documented exploration policy** injects **no**
+mid-operation scheduling point (unlike Coyote, whose real preemptible threads require one); an atomic
+operation is never split. The single delegation site is the future Phase 9 race-hook attachment point.
+
+| .NET 10 member | Posture | Rule id |
+| --- | --- | --- |
+| `Increment(ref int/long/uint/ulong)` | ✅ Controlled | `clockwork.interlocked.increment.*` |
+| `Decrement(ref int/long/uint/ulong)` | ✅ Controlled | `clockwork.interlocked.decrement.*` |
+| `Add(ref int/long/uint/ulong, …)` | ✅ Controlled | `clockwork.interlocked.add.*` |
+| `And(ref int/uint/long/ulong, …)` | ✅ Controlled | `clockwork.interlocked.and.*` |
+| `Or(ref int/uint/long/ulong, …)` | ✅ Controlled | `clockwork.interlocked.or.*` |
+| `Exchange(ref T, …)` — int, long, object, sbyte, short, byte, ushort, uint, ulong, float, double, IntPtr, UIntPtr, generic `<T> where T : class?` | ✅ Controlled | `clockwork.interlocked.exchange.*` |
+| `CompareExchange(ref T, …, …)` — same 13 primitive/native/float/reference overloads + generic `<T> where T : class?` | ✅ Controlled | `clockwork.interlocked.compareexchange.*` |
+| `Read(ref long/ulong)` | ✅ Controlled | `clockwork.interlocked.read.*` |
+| `MemoryBarrier()`, `MemoryBarrierProcessWide()` | ✅ Controlled | `clockwork.interlocked.memorybarrier`, `…processwide` |
+
+**Semantics:** every overload returns exactly what the BCL returns (the incremented/decremented value,
+the sum, the *original* value for `And`/`Or`/`Exchange`/`CompareExchange`) and writes the same result to
+the referenced location; `CompareExchange` swaps only when the comparand matches; the generic reference
+overloads operate by identity. No overflow checking is added or removed. Enumerated against the .NET 10
+reference assemblies; no applicable `Interlocked` overload is left uncontrolled.
+
+---
+
 ## Coyote surfaces intentionally deferred (Phase 7B / Phase 8)
 
 These Coyote controlled types are **out of Phase 7A scope** by the phase plan. Where a surface would
@@ -299,7 +330,8 @@ lands.
 | Coyote type(s) | Owning phase | Current posture |
 | --- | --- | --- |
 | `WaitHandle`, `EventWaitHandle`, `AutoResetEvent`, `ManualResetEvent`, `WaitAny`/`WaitAll` | Phase 7B | not rewritten; unblocks `ThreadPool` registered-wait APIs and `SemaphoreSlim.AvailableWaitHandle`, which stay rejected until then |
-| `Interlocked`, `Volatile` | Phase 7B (race instrumentation) | not rewritten |
+| `Interlocked` | ✅ **Controlled (Phase 7B)** — see the `Interlocked` section above | full .NET 10 surface redirected to `clockwork.interlocked.*` |
+| `Volatile` | Phase 7B | not rewritten |
 | `SpinWait` (struct) | Phase 7B | not rewritten (`Thread.SpinWait(int)` *static* **is** controlled — `clockwork.thread.spinwait`) |
 | `ReaderWriterLockSlim`, `Mutex`, `Semaphore`, `SpinLock`, `ManualResetEventSlim` | Phase 8 | not rewritten (real BCL calls) |
 | `Timer` / `PeriodicTimer` / `Task.Delay` / cancellation timers | Phase 8 | `Task.Delay` rejected; `Thread.Sleep` **is** a controlled virtual wait |
@@ -326,7 +358,10 @@ lands.
   C# `lock (Lock)` scope lowering; nothing rejected.
 - **Coyote `SemaphoreSlim`:** every constructor, `CurrentCount`, sync `Wait`, async `WaitAsync`,
   `Release`, and `Dispose` controlled (Phase 7A); `AvailableWaitHandle` rejected pending Phase 7B.
-- **Deferred by phase plan:** wait handles / events / `Interlocked` / `Volatile` / `SpinWait` struct
+- **Coyote `Interlocked`:** full .NET 10 surface controlled (Phase 7B) — every `Increment`/`Decrement`/
+  `Add`/`And`/`Or`/`Exchange`/`CompareExchange`/`Read` overload plus the memory barriers, each delegating
+  to the real primitive since a cooperative logical thread makes the read-modify-write indivisible.
+- **Deferred by phase plan:** wait handles / events / `Volatile` / `SpinWait` struct
   (Phase 7B); `ReaderWriterLockSlim`/`Mutex`/`Semaphore`/`SpinLock` and timers/`Task.Delay` (Phase 8).
 
 Every Coyote entry above is therefore **controlled** (with a cited rule id or by architecture),
