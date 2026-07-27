@@ -6,7 +6,7 @@ against. It is a durable product document, not a task plan: it should stay accur
 as the corresponding capabilities are implemented, and it should be updated (not
 duplicated) as scope firms up in later phases.
 
-> **Status:** Phase 1B. The deterministic simulation kernel described in the root
+> **Status:** Phase 2. The deterministic simulation kernel described in the root
 > [README](../README.md) exists today (clock, task scheduler, synchronization
 > context, seeded random, simulated network, chaos injection), its
 > `RunUntil`/`RunUntilIdle`/`RunForDuration` drive loops share one internal
@@ -14,7 +14,7 @@ duplicated) as scope firms up in later phases.
 > (`SimulationExecutionResult` and the `*Detailed` methods), and adaptive
 > `RunUntilConverged`/`RunUntilIdleConverged` entry points escalate the iteration
 > budget automatically instead of requiring a hand-picked `maxIterations` (see the
-> README's "Adaptive execution budgets" section). Phase 1B additionally adds
+> README's "Adaptive execution budgets" section). Phase 1B added
 > pre-instrumentation ergonomics that sit entirely inside cooperative mode: a
 > `SimulationBuilder` fluent composition API (`BuiltSimulation`) so common
 > simulations don't need a hand-written `SimulationCluster<TNode>`/`SimulationNode`
@@ -25,12 +25,34 @@ duplicated) as scope firms up in later phases.
 > `SimulationLatch`, `SimulationBarrier`), and a reworked
 > `SimulationSynchronizationContext.Send` that supports inline-reentrant and
 > schedule-and-pump cases without a real-time wait, and rejects genuine
-> cross-thread contention with a precise diagnostic instead of deadlocking. None
-> of this changes any existing public API's signature or behavior - it is purely
-> additive. None of the modes or instrumentation capabilities below (controlled,
-> race exploration, deep instrumentation) are implemented yet; nor is ambient
-> runtime context, controlled-operation physical-thread gating, IL rewriting
-> (Cecil), fault injection ("Buggify"), API compatibility shims, Generic Host
+> cross-thread contention with a precise diagnostic instead of deadlocking.
+>
+> Phase 2 adds the **runtime plumbing** that controlled/race-exploration
+> instrumentation will build on, hosted in `Clockwork.Runtime` (see
+> [Project layout](#project-layout)): an ambient, `AsyncLocal`-backed
+> `SimulationExecutionContext` (nested scopes, exception-safe disposal, async
+> flow, parallel isolation, explicit flow-suppression diagnostics); secure,
+> capability-token-gated activation (no public global switch, environment
+> variable, or accidental default can activate simulation context); a root
+> deterministic seed/decision authority with independent named domains
+> (scheduler, network, application, identity, Buggify, model) and stable
+> per-node/per-site child derivation that does not depend on registration order;
+> a typed deterministic decision-log model plus a replay *validation* contract
+> (content-only comparison, first-divergence detection - not a scheduler); an API
+> interception policy classification model (`Controlled`/`Rejected`/`PassThrough`
+> with deterministic per-API/per-assembly precedence, and pass-through always
+> explicit); and an external-entry guard that flags a callback executing under a
+> *different* simulation's ambient context without falsely flagging the normal
+> no-ambient-context case. `SimulationCluster<TNode>`, `SimulationNodeContext`,
+> `SimulationTaskQueue`, and `SimulationBuilder`/`BuiltSimulation` install and
+> restore this ambient context automatically; hand-written cluster/node subclasses
+> that predate it are unaffected (see the README's "Deterministic instrumentation
+> runtime plumbing" section for the exact compatibility rule). None of this
+> changes any existing public API's signature or behavior - it is purely
+> additive, and none of it intercepts, schedules, or rewrites application code
+> yet. Phase 2 explicitly does **not** implement: controlled-operation
+> physical-thread gating, resource pause/resume, deadlock detection, IL rewriting
+> (Cecil), a public Buggify API, BCL compatibility shims, Generic Host
 > integration, or HTTP support - this document exists to pin down the contract
 > those will be designed against, so the package scaffolding under `src/` (see
 > [Project layout](#project-layout)) has a stable target.
@@ -58,7 +80,11 @@ construction) automatically, so that accidental escapes from the simulation are
 caught early instead of silently reintroducing flakiness. This is expected to be the
 first mode built on top of the `Clockwork.Instrumentation` boundary and the
 Roslyn analyzers in `Clockwork.Analyzers` (diagnostics for direct wall-clock/thread
-pool/`Random.Shared` usage), rather than requiring IL rewriting.
+pool/`Random.Shared` usage), rather than requiring IL rewriting. Phase 2's runtime
+plumbing (ambient `SimulationExecutionContext`, the `SimulationApiPolicyRegistry`
+classification model, and the external-entry guard) is the substrate this mode is
+expected to build on; it does not itself intercept or redirect any API yet - see the
+README's "Deterministic instrumentation runtime plumbing" section.
 
 ### Race exploration mode
 
@@ -136,7 +162,7 @@ The package boundaries scaffolded under `src/` map to the modes above:
 
 | Project | Depends on | Future purpose |
 |---|---|---|
-| `Clockwork.Runtime` | *(none)* | Eventual home of the deterministic kernel (currently the root `Clockwork.csproj` / `Clockwork.Simulation` package). |
+| `Clockwork.Runtime` | *(none)* | **Phase 2 (current):** ambient `SimulationExecutionContext`, secure activation, named seed domains, the decision-log/replay contract, and the API policy classification model - see the README's "Deterministic instrumentation runtime plumbing" section. Eventual home of the deterministic kernel itself (currently the root `Clockwork.csproj` / `Clockwork.Simulation` package), which the root package now references. |
 | `Clockwork.Instrumentation` | `Clockwork.Runtime` | Contracts and hooks shared by controlled, race exploration, and deep instrumentation modes. |
 | `Clockwork.Instrumentation.Build` | `Clockwork.Instrumentation` | Build-time IL rewriting for deep instrumentation mode. |
 | `Clockwork.Tool` | `Clockwork.Instrumentation` | CLI for running/inspecting instrumented simulations. |
@@ -145,6 +171,10 @@ The package boundaries scaffolded under `src/` map to the modes above:
 | `Clockwork.Http` | `Clockwork.Runtime` | `HttpMessageHandler` routed through the simulated network. |
 | `Clockwork.Testing` | `Clockwork.Runtime` | Reusable test helpers and scenario builders for consumers. |
 
-As of Phase 0 these are empty, minimal placeholder projects with no behavior; see
-the root `Clockwork.csproj` for the current, real implementation. No public behavior
-of the existing kernel changes as a result of this scaffolding.
+As of Phase 2, `Clockwork.Runtime` hosts the runtime plumbing described above (and is
+referenced by the root `Clockwork.csproj`); `Clockwork.Instrumentation`,
+`Clockwork.Instrumentation.Build`, `Clockwork.Tool`, `Clockwork.Analyzers`,
+`Clockwork.Hosting`, `Clockwork.Http`, and `Clockwork.Testing` remain empty, minimal
+placeholder projects with no behavior. See the root `Clockwork.csproj` for the
+deterministic kernel's current, real implementation. No public behavior of the
+existing kernel changed as a result of this or prior scaffolding phases.

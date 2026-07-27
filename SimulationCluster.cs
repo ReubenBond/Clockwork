@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
+using Clockwork.Runtime.Execution;
+using Clockwork.Runtime.Random;
 using Microsoft.Extensions.Logging;
 
 namespace Clockwork;
@@ -21,6 +23,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     private readonly SimulationTimeProvider _timeProvider;
     private readonly CancellationTokenSource _teardownCts;
     private readonly SimulationDriveLoop _driveLoop;
+    private readonly SimulationActivationToken _activationToken;
     private bool _disposed;
 
     /// <summary>
@@ -39,9 +42,17 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
 
         Random = new SimulationRandom(seed);
 
+        // Runtime plumbing: an activation token minted once per cluster instance (this is the
+        // simulation host, so it is entitled to one - see SimulationActivationToken) plus the
+        // runtime identity and seed authority that flow through every ambient scope this cluster
+        // installs.
+        _activationToken = SimulationRuntimeActivation.CreateToken();
+        RuntimeIdentity = new SimulationRuntimeIdentity(Guid.NewGuid(), seed, GetType().Name);
+        SeedAuthority = new SimulationSeedAuthority(seed);
+
         // Create shared clock and cluster-level queue
         Clock = new SimulationClock(StartDateTime);
-        TaskQueue = new SimulationTaskQueue(Clock, Guard);
+        TaskQueue = new SimulationTaskQueue(Clock, Guard, CreateClusterAmbientContext());
         TaskScheduler = new SimulationTaskScheduler(TaskQueue);
 
         // Create time provider using cluster queue (for GetUtcNow queries)
@@ -61,6 +72,30 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     /// Gets the seed used for this cluster.
     /// </summary>
     public int Seed { get; }
+
+    /// <summary>
+    /// <para>
+    /// Gets this cluster's runtime identity - a process-unique id (plus the seed and this
+    /// cluster's concrete type name, for diagnostics) that becomes ambient (see
+    /// <see cref="Clockwork.Runtime.Execution.SimulationExecutionContext"/>) around every piece of
+    /// work this cluster or its nodes execute through an ambient-integrated queue.
+    /// </para>
+    /// <para>
+    /// This is runtime plumbing only: nothing currently reads this identity to change behavior
+    /// (there is no interception yet), but it gives future controlled interception (Phase 3+) a
+    /// stable "which simulation is this?" answer wherever ambient context is installed.
+    /// </para>
+    /// </summary>
+    public SimulationRuntimeIdentity RuntimeIdentity { get; }
+
+    /// <summary>
+    /// Gets the root deterministic seed/decision authority for this cluster, exposing independent
+    /// named seed domains (scheduler, network, application, identity, Buggify, model - see
+    /// <see cref="Clockwork.Runtime.Random.SimulationSeedDomain"/>) plus stable per-node/per-site
+    /// child derivation, all as pure functions of <see cref="Seed"/> - never of registration or
+    /// fork order.
+    /// </summary>
+    public SimulationSeedAuthority SeedAuthority { get; }
 
     /// <summary>
     /// Gets a cancellation token used to signal when the simulation is being torn down.
@@ -209,6 +244,35 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
         return new SimulationRandom(Random.Next());
 #pragma warning restore CA5394 // Do not use insecure randomness
     }
+
+    /// <summary>
+    /// <para>
+    /// Creates the ambient-context configuration for a node-scoped queue: this cluster's
+    /// activation token and runtime identity, narrowed to the given node's identity. Pass the
+    /// result to a per-node <see cref="SimulationTaskQueue"/>/<see cref="SimulationNodeContext"/>
+    /// so that work executed on that queue ambiently reports both the cluster's runtime and this
+    /// specific node - see <see cref="Clockwork.Runtime.Execution.SimulationExecutionContext"/>.
+    /// </para>
+    /// <para>
+    /// Purely additive plumbing: nodes that never call this (e.g. hand-written
+    /// <see cref="SimulationNodeContext"/> construction outside a builder-created simulation)
+    /// simply get no ambient integration, exactly as before this existed.
+    /// </para>
+    /// </summary>
+    /// <param name="nodeAddress">The node's stable network address.</param>
+    /// <returns>An ambient-context configuration scoped to this cluster and the given node.</returns>
+    protected SimulationAmbientContextConfiguration CreateNodeAmbientContext(string nodeAddress)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(nodeAddress);
+        return new SimulationAmbientContextConfiguration(_activationToken, RuntimeIdentity, new SimulationNodeIdentity(nodeAddress));
+    }
+
+    /// <summary>
+    /// Creates the ambient-context configuration for the cluster-level (non-node-scoped) queue:
+    /// this cluster's activation token and runtime identity, with no node narrowing.
+    /// </summary>
+    private SimulationAmbientContextConfiguration CreateClusterAmbientContext() =>
+        new(_activationToken, RuntimeIdentity, Node: null);
 
     /// <summary>
     /// Runs the simulation until the specified condition is met.

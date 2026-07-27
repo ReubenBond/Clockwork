@@ -1,6 +1,4 @@
-using System.Buffers.Binary;
-using System.Security.Cryptography;
-using System.Text;
+using Clockwork.Runtime.Random;
 
 namespace Clockwork;
 
@@ -20,25 +18,19 @@ namespace Clockwork;
 /// </para>
 /// <para>
 /// Instead, the seed is derived by SHA-256 hashing the UTF-8 bytes of the input and interpreting
-/// the first four bytes of the digest as a big-endian, signed <see cref="int"/>. SHA-256 is a
-/// fixed, versioned algorithm with no process- or platform-specific behavior, and UTF-8 encoding
-/// is likewise fixed and unambiguous, so the same string always produces the same seed on any
-/// machine, any .NET version, and any run - including across separate processes and separate
-/// machines, which is what "cross-process-safe" means here. The result can be negative: any
-/// <see cref="int"/> value is a valid seed for <see cref="Random"/>/<see cref="SimulationRandom"/>.
+/// the first four bytes of the digest as a big-endian, signed <see cref="int"/> - see
+/// <see cref="DeterministicHash"/>, the shared primitive this type delegates to (also used by
+/// <see cref="Clockwork.Runtime.Random.SimulationSeedAuthority"/>'s per-domain derivation, so
+/// "derive a stable seed from a string" has exactly one implementation across the codebase).
+/// SHA-256 is a fixed, versioned algorithm with no process- or platform-specific behavior, and
+/// UTF-8 encoding is likewise fixed and unambiguous, so the same string always produces the same
+/// seed on any machine, any .NET version, and any run - including across separate processes and
+/// separate machines, which is what "cross-process-safe" means here. The result can be negative:
+/// any <see cref="int"/> value is a valid seed for <see cref="Random"/>/<see cref="SimulationRandom"/>.
 /// </para>
 /// </summary>
 public static class SimulationSeed
 {
-    /// <summary>
-    /// The separator inserted between components by <see cref="FromStrings(IEnumerable{string})"/>
-    /// before hashing, so that e.g. combining ("ab", "c") never collides with ("a", "bc"). This is
-    /// the ASCII "unit separator" control character (U+001F), chosen because it is not valid in
-    /// most human-authored identifiers (test names, node addresses) and is stable across .NET
-    /// versions and platforms.
-    /// </summary>
-    private const char ComponentSeparator = '\u001f';
-
     /// <summary>
     /// Derives a deterministic seed from a single string, such as a test name.
     /// </summary>
@@ -49,11 +41,7 @@ public static class SimulationSeed
     /// The same <paramref name="value"/> always produces the same result, on any machine, .NET
     /// version, or process.
     /// </returns>
-    public static int FromString(string value)
-    {
-        ArgumentNullException.ThrowIfNull(value);
-        return HashToSeed(value);
-    }
+    public static int FromString(string value) => DeterministicHash.ToInt32(value);
 
     /// <summary>
     /// Derives a single deterministic seed from multiple string components (for example, a test
@@ -62,11 +50,7 @@ public static class SimulationSeed
     /// </summary>
     /// <param name="values">The components to combine, in order.</param>
     /// <returns>A deterministic seed derived from all of <paramref name="values"/>; see <see cref="FromString(string)"/> for the underlying algorithm.</returns>
-    public static int FromStrings(IEnumerable<string> values)
-    {
-        ArgumentNullException.ThrowIfNull(values);
-        return HashToSeed(string.Join(ComponentSeparator, values));
-    }
+    public static int FromStrings(IEnumerable<string> values) => DeterministicHash.ToInt32(values);
 
     /// <summary>
     /// Derives a single deterministic seed from multiple string components (for example, a test
@@ -75,15 +59,4 @@ public static class SimulationSeed
     /// <param name="values">The components to combine, in order.</param>
     /// <returns>A deterministic seed derived from all of <paramref name="values"/>.</returns>
     public static int FromStrings(params string[] values) => FromStrings((IEnumerable<string>)values);
-
-    private static int HashToSeed(string value)
-    {
-        var byteCount = Encoding.UTF8.GetByteCount(value);
-        Span<byte> buffer = byteCount <= 256 ? stackalloc byte[byteCount] : new byte[byteCount];
-        Encoding.UTF8.GetBytes(value, buffer);
-
-        Span<byte> hash = stackalloc byte[SHA256.HashSizeInBytes];
-        SHA256.HashData(buffer, hash);
-        return BinaryPrimitives.ReadInt32BigEndian(hash);
-    }
 }

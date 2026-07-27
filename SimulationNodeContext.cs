@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Clockwork.Runtime.Execution;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -50,12 +51,20 @@ public sealed partial class SimulationNodeContext
     /// even when this node is suspended (e.g., auto-resume from SuspendFor). If not provided,
     /// SuspendFor will throw InvalidOperationException.</param>
     /// <param name="logger">Optional logger for suspend/resume operations.</param>
+    /// <param name="ambientContext">
+    /// Optional ambient-context configuration (see <see cref="SimulationAmbientContextConfiguration"/>)
+    /// passed through to this node's <see cref="TaskQueue"/>. Omit for nodes that should not
+    /// participate in ambient <see cref="SimulationExecutionContext"/> integration (e.g. hand-written
+    /// <see cref="SimulationCluster{TNode}"/> subclasses that predate it) - this preserves prior
+    /// behavior exactly.
+    /// </param>
     public SimulationNodeContext(
         SimulationClock clock,
         SingleThreadedGuard guard,
         SimulationRandom random,
         SimulationTaskQueue? externalTaskQueue = null,
-        ILogger? logger = null)
+        ILogger? logger = null,
+        SimulationAmbientContextConfiguration? ambientContext = null)
     {
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(guard);
@@ -65,7 +74,7 @@ public sealed partial class SimulationNodeContext
         Random = random;
         _externalTaskQueue = externalTaskQueue;
         _logger = logger ?? NullLogger.Instance;
-        TaskQueue = new SimulationTaskQueue(clock, guard);
+        TaskQueue = new SimulationTaskQueue(clock, guard, ambientContext);
         TaskScheduler = new SimulationTaskScheduler(TaskQueue);
         TimeProvider = new SimulationTimeProvider(TaskQueue, clock);
     }

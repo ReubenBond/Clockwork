@@ -16,6 +16,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="src\Clockwork.Runtime\Clockwork.Runtime.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Remove="tests\**\*.cs" />
     <Compile Remove="src\**\*.cs" />
   </ItemGroup>
