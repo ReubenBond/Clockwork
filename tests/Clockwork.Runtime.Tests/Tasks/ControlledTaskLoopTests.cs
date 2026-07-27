@@ -290,4 +290,45 @@ public sealed class ControlledTaskLoopTests
         Assert.True(elapsed);
         Assert.Equal(TimeSpan.MaxValue, loop.VirtualNow);
     }
+
+    [Fact]
+    public void CancellationReturningBeforeElapsePreventsDeadlineCallback()
+    {
+        var testCancellation = TestContext.Current.CancellationToken;
+        for (var iteration = 0; iteration < 500; iteration++)
+        {
+            var loop = new ControlledTaskLoop();
+            var fired = false;
+            var deadline = loop.RegisterDeadline(TimeSpan.FromTicks(1), () => fired = true);
+            var cancelReturnedBeforeElapsedClaim = false;
+            using var start = new Barrier(2);
+            var advancer = new Thread(() =>
+            {
+                start.SignalAndWait(testCancellation);
+                loop.AdvanceTimeTo(TimeSpan.FromTicks(1));
+            })
+            {
+                IsBackground = true,
+            };
+            var canceler = new Thread(() =>
+            {
+                start.SignalAndWait(testCancellation);
+                deadline.Cancel();
+                cancelReturnedBeforeElapsedClaim = !deadline.IsElapsed;
+            })
+            {
+                IsBackground = true,
+            };
+
+            advancer.Start();
+            canceler.Start();
+            Assert.True(advancer.Join(TimeSpan.FromSeconds(5)));
+            Assert.True(canceler.Join(TimeSpan.FromSeconds(5)));
+
+            if (cancelReturnedBeforeElapsedClaim)
+            {
+                Assert.False(fired);
+            }
+        }
+    }
 }

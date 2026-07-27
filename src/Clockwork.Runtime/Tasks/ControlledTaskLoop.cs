@@ -164,6 +164,7 @@ public sealed class ControlledTaskLoop
         while (true)
         {
             Deadline? next = null;
+            Action? callback;
             lock (_deadlineGate)
             {
                 foreach (var deadline in _deadlines)
@@ -185,9 +186,13 @@ public sealed class ControlledTaskLoop
                 }
 
                 _deadlines.Remove(next);
+                if (!next.TryClaimElapsed(out callback))
+                {
+                    continue;
+                }
             }
 
-            next.MarkElapsed();
+            callback?.Invoke();
         }
     }
 
@@ -195,7 +200,10 @@ public sealed class ControlledTaskLoop
     {
         lock (_deadlineGate)
         {
-            _deadlines.Remove(deadline);
+            if (deadline.TryCancel())
+            {
+                _deadlines.Remove(deadline);
+            }
         }
     }
 
@@ -305,25 +313,38 @@ public sealed class ControlledTaskLoop
     private sealed class Deadline(TimeSpan due, long sequence, Action? onElapsed) : IControlledTimeout
     {
         private Action? _onElapsed = onElapsed;
-        private bool _elapsed;
+        private int _state;
 
         public TimeSpan Due { get; } = due;
 
         public long Sequence { get; } = sequence;
 
-        public bool IsElapsed => _elapsed;
+        public bool IsElapsed => Volatile.Read(ref _state) == 1;
 
-        public void MarkElapsed()
+        public bool TryClaimElapsed(out Action? callback)
         {
-            if (_elapsed)
+            if (_state != 0)
             {
-                return;
+                callback = null;
+                return false;
             }
 
-            _elapsed = true;
-            var callback = _onElapsed;
+            Volatile.Write(ref _state, 1);
+            callback = _onElapsed;
             _onElapsed = null;
-            callback?.Invoke();
+            return true;
+        }
+
+        public bool TryCancel()
+        {
+            if (_state != 0)
+            {
+                return false;
+            }
+
+            Volatile.Write(ref _state, 2);
+            _onElapsed = null;
+            return true;
         }
 
         public void Cancel() => _canceller?.Invoke(this);
