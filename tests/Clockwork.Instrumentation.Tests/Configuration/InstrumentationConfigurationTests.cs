@@ -35,7 +35,8 @@ public sealed class InstrumentationConfigurationTests
               "rewriteDependencies": false,
               "targetRuntime": "10.0",
               "readyToRunPolicy": "StripToIL",
-              "strongNamePolicy": "RemoveStrongName"
+              "strongNamePolicy": "ReSign",
+              "strongNameKeyPath": "app.snk"
             }
             """;
 
@@ -48,7 +49,7 @@ public sealed class InstrumentationConfigurationTests
         Assert.False(config.RewriteDependencies);
         Assert.Equal(new Version(10, 0), config.TargetRuntime);
         Assert.Equal(ReadyToRunPolicy.StripToIL, config.ReadyToRunPolicy);
-        Assert.Equal(StrongNamePolicy.RemoveStrongName, config.StrongNamePolicy);
+        Assert.Equal(StrongNamePolicy.ReSign, config.StrongNamePolicy);
     }
 
     [Fact]

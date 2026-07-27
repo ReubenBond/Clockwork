@@ -20,11 +20,4 @@ public enum StrongNamePolicy
     /// available or the runtime/Cecil cannot perform the signing.
     /// </summary>
     ReSign,
-
-    /// <summary>
-    /// Emit the rewritten assembly <b>without</b> a strong name, dropping the public key entirely.
-    /// This is an explicit, potentially breaking choice (references expecting the signed identity
-    /// will not bind); it never silently happens.
-    /// </summary>
-    RemoveStrongName,
 }
