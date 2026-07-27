@@ -25,6 +25,34 @@ public sealed record InstrumentationConfiguration
     public ImmutableArray<string> RuleSetPaths { get; init; } = [];
 
     /// <summary>
+    /// Gets the ids of the built-in rule sets to enable (see
+    /// <see cref="Rules.BuiltIn.BuiltInRuleSets.AvailableIds"/>). Built-in rule sets are merged at the
+    /// <em>lowest</em> precedence, so a document in <see cref="RuleSetPaths"/> can override any
+    /// built-in rule by id. Empty (the default) enables no built-ins, preserving prior behaviour.
+    /// </summary>
+    public ImmutableArray<string> BuiltInRuleSetIds { get; init; } = [];
+
+    /// <summary>
+    /// Gets the built-in rule families to include (see <see cref="Rules.BuiltIn.BuiltInRuleFamily"/>).
+    /// Empty (the default) includes every family. Applied to every enabled built-in rule set.
+    /// </summary>
+    public ImmutableArray<string> BuiltInIncludeFamilies { get; init; } = [];
+
+    /// <summary>
+    /// Gets the built-in rule families to exclude even when included. Exclusion always wins. Excluding
+    /// the <c>Crypto</c> family is only permitted when <see cref="StrictBuiltIns"/> is
+    /// <see langword="false"/>, so a strict build cannot silently drop the crypto-randomness guard.
+    /// </summary>
+    public ImmutableArray<string> BuiltInExcludeFamilies { get; init; } = [];
+
+    /// <summary>
+    /// Gets a value indicating whether built-in rule selection is strict. Defaults to
+    /// <see langword="true"/>: the crypto-randomness guard family cannot be excluded, so a build cannot
+    /// accidentally ship without rejecting non-deterministic cryptographic randomness.
+    /// </summary>
+    public bool StrictBuiltIns { get; init; } = true;
+
+    /// <summary>
     /// Gets the case-insensitive file-name glob patterns (<c>*</c>/<c>?</c>) selecting which
     /// assemblies in the discovered closure are eligible for rewriting. An empty list includes every
     /// non-excluded managed assembly.
@@ -86,6 +114,10 @@ public sealed record InstrumentationConfiguration
         var builder = new StringBuilder();
         builder.Append("schema:").Append(CurrentSchemaVersion).Append('\n');
         AppendList(builder, "ruleSets", RuleSetPaths);
+        AppendList(builder, "builtInRuleSets", BuiltInRuleSetIds);
+        AppendList(builder, "builtInInclude", BuiltInIncludeFamilies);
+        AppendList(builder, "builtInExclude", BuiltInExcludeFamilies);
+        builder.Append("strictBuiltIns:").Append(StrictBuiltIns).Append('\n');
         AppendList(builder, "include", IncludePatterns);
         AppendList(builder, "exclude", ExcludePatterns);
         builder.Append("excludeFramework:").Append(ExcludeFrameworkAssemblies).Append('\n');

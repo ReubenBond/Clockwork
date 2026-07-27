@@ -84,6 +84,30 @@ public sealed class CliCommandTests : IDisposable
     }
 
     [Fact]
+    public void RewriteDryRunUsesBuiltInRuleSetWhenSelected()
+    {
+        BuildMinimalClosure();
+
+        (ExitCode code, string output, _) = Invoke(
+            "rewrite", "--source", _source, "--builtin", "clockwork.bcl.deterministic", "--dry-run");
+
+        Assert.Equal(ExitCode.Success, code);
+        Assert.Contains("clockwork.bcl.deterministic", output);
+    }
+
+    [Fact]
+    public void RewriteDryRunBuiltInAllExpandsToEveryRuleSet()
+    {
+        BuildMinimalClosure();
+
+        (ExitCode code, string output, _) = Invoke(
+            "rewrite", "--source", _source, "--builtin", "all", "--dry-run");
+
+        Assert.Equal(ExitCode.Success, code);
+        Assert.Contains("clockwork.bcl.deterministic", output);
+    }
+
+    [Fact]
     public void RewriteDryRunFlagsStrongNamedInputAsBlocking()
     {
         string keyPath = Path.Combine(_root, "test.snk");

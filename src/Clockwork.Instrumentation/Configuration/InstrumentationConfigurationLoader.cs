@@ -72,6 +72,10 @@ public static class InstrumentationConfigurationLoader
             }
 
             ImmutableArray<string> ruleSets = ResolvePaths(GetStringArray(root, "ruleSets", origin), baseDirectory);
+            ImmutableArray<string> builtInRuleSets = GetStringArray(root, "builtInRuleSets", origin);
+            ImmutableArray<string> builtInInclude = GetStringArray(root, "builtInIncludeFamilies", origin);
+            ImmutableArray<string> builtInExclude = GetStringArray(root, "builtInExcludeFamilies", origin);
+            bool strictBuiltIns = GetOptionalBool(root, "strictBuiltIns", origin) ?? true;
             ImmutableArray<string> include = GetStringArray(root, "include", origin);
             ImmutableArray<string> exclude = GetStringArray(root, "exclude", origin);
             bool excludeFramework = GetOptionalBool(root, "excludeFrameworkAssemblies", origin) ?? true;
@@ -94,6 +98,10 @@ public static class InstrumentationConfigurationLoader
             return new InstrumentationConfiguration
             {
                 RuleSetPaths = ruleSets,
+                BuiltInRuleSetIds = builtInRuleSets,
+                BuiltInIncludeFamilies = builtInInclude,
+                BuiltInExcludeFamilies = builtInExclude,
+                StrictBuiltIns = strictBuiltIns,
                 IncludePatterns = include,
                 ExcludePatterns = exclude,
                 ExcludeFrameworkAssemblies = excludeFramework,

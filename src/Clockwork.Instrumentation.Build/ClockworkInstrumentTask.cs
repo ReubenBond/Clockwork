@@ -34,6 +34,18 @@ public sealed class ClockworkInstrumentTask : MSBuildTask
     /// <summary>Gets or sets the rule-set JSON documents to load and merge (appended to any from the configuration file).</summary>
     public ITaskItem[] RuleSetPaths { get; set; } = [];
 
+    /// <summary>Gets or sets the built-in rule set ids to enable (e.g. <c>clockwork.bcl.deterministic</c>). Merged at lowest precedence.</summary>
+    public ITaskItem[] BuiltInRuleSets { get; set; } = [];
+
+    /// <summary>Gets or sets the built-in rule families to include (empty includes every family).</summary>
+    public ITaskItem[] BuiltInIncludeFamilies { get; set; } = [];
+
+    /// <summary>Gets or sets the built-in rule families to exclude even when included.</summary>
+    public ITaskItem[] BuiltInExcludeFamilies { get; set; } = [];
+
+    /// <summary>Gets or sets a value indicating whether built-in selection is strict (the crypto guard cannot be excluded). Defaults to <see langword="true"/>.</summary>
+    public bool StrictBuiltIns { get; set; } = true;
+
     /// <summary>Gets or sets the include glob patterns selecting assemblies eligible for rewriting.</summary>
     public ITaskItem[] IncludePatterns { get; set; } = [];
 
@@ -170,6 +182,34 @@ public sealed class ClockworkInstrumentTask : MSBuildTask
             {
                 RuleSetPaths = [.. configuration.RuleSetPaths, .. taskRuleSets],
             };
+        }
+
+        System.Collections.Immutable.ImmutableArray<string> builtInIds = ToPatternArray(BuiltInRuleSets);
+        if (!builtInIds.IsDefaultOrEmpty)
+        {
+            configuration = configuration with
+            {
+                BuiltInRuleSetIds = [.. configuration.BuiltInRuleSetIds.Concat(builtInIds).Distinct(StringComparer.Ordinal)],
+            };
+        }
+
+        System.Collections.Immutable.ImmutableArray<string> includeFamilies = ToPatternArray(BuiltInIncludeFamilies);
+        if (!includeFamilies.IsDefaultOrEmpty)
+        {
+            configuration = configuration with { BuiltInIncludeFamilies = includeFamilies };
+        }
+
+        System.Collections.Immutable.ImmutableArray<string> excludeFamilies = ToPatternArray(BuiltInExcludeFamilies);
+        if (!excludeFamilies.IsDefaultOrEmpty)
+        {
+            configuration = configuration with { BuiltInExcludeFamilies = excludeFamilies };
+        }
+
+        // Only override strictness when the configuration did not come from a file, or when explicitly
+        // relaxed, so a config file's stricter setting is never silently loosened by the default.
+        if (NullIfEmpty(ConfigurationPath) is null || !StrictBuiltIns)
+        {
+            configuration = configuration with { StrictBuiltIns = StrictBuiltIns };
         }
 
         return configuration;

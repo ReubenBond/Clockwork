@@ -53,6 +53,36 @@ public sealed class InstrumentationConfigurationTests
     }
 
     [Fact]
+    public void ParsesBuiltInSelectionFields()
+    {
+        const string doc = """
+            {
+              "schemaVersion": 1,
+              "builtInRuleSets": ["clockwork.bcl.deterministic"],
+              "builtInIncludeFamilies": ["Clock", "Random"],
+              "builtInExcludeFamilies": ["Crypto"],
+              "strictBuiltIns": false
+            }
+            """;
+
+        InstrumentationConfiguration config = InstrumentationConfigurationLoader.Parse(doc);
+
+        Assert.Equal(["clockwork.bcl.deterministic"], config.BuiltInRuleSetIds);
+        Assert.Equal(["Clock", "Random"], config.BuiltInIncludeFamilies);
+        Assert.Equal(["Crypto"], config.BuiltInExcludeFamilies);
+        Assert.False(config.StrictBuiltIns);
+    }
+
+    [Fact]
+    public void BuiltInDefaultsAreEmptyAndStrict()
+    {
+        InstrumentationConfiguration config = InstrumentationConfigurationLoader.Parse("""{ "ruleSets": ["r.json"] }""");
+
+        Assert.True(config.BuiltInRuleSetIds.IsDefaultOrEmpty);
+        Assert.True(config.StrictBuiltIns);
+    }
+
+    [Fact]
     public void ResolvesRelativePathsAgainstBaseDirectory()
     {
         string baseDir = OperatingSystem.IsWindows() ? @"C:\proj\cfg" : "/proj/cfg";

@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
 using Clockwork.Instrumentation.Rules;
+using Clockwork.Instrumentation.Rules.BuiltIn;
 
 namespace Clockwork.Instrumentation.Configuration;
 
@@ -93,25 +94,113 @@ public static class RuleSetMerge
             [.. overrides.OrderBy(o => o.RuleId, StringComparer.Ordinal).ThenBy(o => o.WinningSource, StringComparer.Ordinal)]);
     }
 
-    /// <summary>Loads and merges rule-set documents from the paths in a configuration.</summary>
-    /// <param name="configuration">The configuration whose <see cref="InstrumentationConfiguration.RuleSetPaths"/> are loaded.</param>
+    /// <summary>Loads and merges the built-in rule sets and rule-set documents referenced by a configuration.</summary>
+    /// <param name="configuration">The configuration whose built-in ids and <see cref="InstrumentationConfiguration.RuleSetPaths"/> are loaded.</param>
     /// <returns>The merge result.</returns>
-    /// <exception cref="ConfigurationException">No rule-set paths are configured.</exception>
+    /// <exception cref="ConfigurationException">No documents or built-in rule sets are configured, or a built-in selection is invalid.</exception>
     /// <exception cref="RuleSetFormatException">A rule-set document is malformed.</exception>
     public static RuleSetMergeResult LoadAndMerge(InstrumentationConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(configuration);
-        if (configuration.RuleSetPaths.IsDefaultOrEmpty)
-        {
-            throw new ConfigurationException("No rule-set documents are configured; nothing would be rewritten.");
-        }
 
         var sources = new List<(string, RewriteRuleSet)>();
-        foreach (string path in configuration.RuleSetPaths)
+
+        // Built-in rule sets are merged first, so they sit at the lowest precedence: any rule with the
+        // same id in a configured document overrides the built-in definition.
+        foreach (RewriteRuleSet builtIn in ResolveBuiltIns(configuration))
         {
-            sources.Add((path, RuleSetJson.Load(path)));
+            sources.Add(($"builtin:{builtIn.Id}", builtIn));
+        }
+
+        if (configuration.RuleSetPaths.IsDefaultOrEmpty && sources.Count == 0)
+        {
+            throw new ConfigurationException(
+                "No rule-set documents or built-in rule sets are configured; nothing would be rewritten.");
+        }
+
+        if (!configuration.RuleSetPaths.IsDefaultOrEmpty)
+        {
+            foreach (string path in configuration.RuleSetPaths)
+            {
+                sources.Add((path, RuleSetJson.Load(path)));
+            }
         }
 
         return Merge(sources);
+    }
+
+    /// <summary>
+    /// Resolves the enabled built-in rule sets for a configuration, applying family include/exclude
+    /// selection and the strict crypto-guard invariant. Returns an empty sequence when no built-in
+    /// rule set is enabled.
+    /// </summary>
+    /// <param name="configuration">The configuration whose built-in selection is resolved.</param>
+    /// <returns>The enabled built-in rule sets, in id order.</returns>
+    /// <exception cref="ConfigurationException">A built-in id or family name is unknown, or a strict build excludes the crypto guard.</exception>
+    public static IReadOnlyList<RewriteRuleSet> ResolveBuiltIns(InstrumentationConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        if (configuration.BuiltInRuleSetIds.IsDefaultOrEmpty)
+        {
+            return [];
+        }
+
+        ImmutableArray<BuiltInRuleFamily> families = ResolveFamilies(configuration);
+
+        var result = new List<RewriteRuleSet>();
+        foreach (string id in configuration.BuiltInRuleSetIds.Distinct(StringComparer.Ordinal))
+        {
+            if (!BuiltInRuleSets.IsKnownId(id))
+            {
+                string known = string.Join(", ", BuiltInRuleSets.AvailableIds);
+                throw new ConfigurationException($"Unknown built-in rule set id '{id}'. Known ids: {known}.");
+            }
+
+            // Only one built-in rule set exists today; it is family-filtered identically for each id.
+            result.Add(BuiltInRuleSets.BuildDeterministicBcl(families));
+        }
+
+        return result;
+    }
+
+    private static ImmutableArray<BuiltInRuleFamily> ResolveFamilies(InstrumentationConfiguration configuration)
+    {
+        var included = new HashSet<BuiltInRuleFamily>(
+            configuration.BuiltInIncludeFamilies.IsDefaultOrEmpty
+                ? BuiltInRuleSets.AllFamilies
+                : ParseFamilies(configuration.BuiltInIncludeFamilies, "include"));
+
+        foreach (BuiltInRuleFamily excluded in ParseFamilies(configuration.BuiltInExcludeFamilies, "exclude"))
+        {
+            if (excluded == BuiltInRuleFamily.Crypto && configuration.StrictBuiltIns)
+            {
+                throw new ConfigurationException(
+                    "The 'Crypto' built-in rule family cannot be excluded while strict built-in selection is enabled. " +
+                    "Set strictBuiltIns to false to intentionally drop the cryptographic-randomness guard.");
+            }
+
+            included.Remove(excluded);
+        }
+
+        return [.. BuiltInRuleSets.AllFamilies.Where(included.Contains)];
+    }
+
+    private static IEnumerable<BuiltInRuleFamily> ParseFamilies(ImmutableArray<string> names, string role)
+    {
+        if (names.IsDefaultOrEmpty)
+        {
+            yield break;
+        }
+
+        foreach (string name in names)
+        {
+            if (!BuiltInRuleSets.TryParseFamily(name, out BuiltInRuleFamily family))
+            {
+                string allowed = string.Join(", ", BuiltInRuleSets.AllFamilies);
+                throw new ConfigurationException($"Unknown built-in rule family '{name}' in {role} list. Known families: {allowed}.");
+            }
+
+            yield return family;
+        }
     }
 }

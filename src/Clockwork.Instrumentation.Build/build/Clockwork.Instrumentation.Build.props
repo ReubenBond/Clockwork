@@ -16,7 +16,20 @@
     <ClockworkRewriteDependencies Condition="'$(ClockworkRewriteDependencies)' == ''">true</ClockworkRewriteDependencies>
     <ClockworkReadyToRunPolicy Condition="'$(ClockworkReadyToRunPolicy)' == ''">Reject</ClockworkReadyToRunPolicy>
     <ClockworkStrongNamePolicy Condition="'$(ClockworkStrongNamePolicy)' == ''">Fail</ClockworkStrongNamePolicy>
+
+    <!--
+      Built-in deterministic BCL rule set. Set ClockworkUseBuiltInRules=true to enable the shipped
+      deterministic clock/identity/random/crypto rules without authoring JSON. Strict selection (the
+      default) forbids dropping the cryptographic-randomness guard family.
+    -->
+    <ClockworkUseBuiltInRules Condition="'$(ClockworkUseBuiltInRules)' == ''">false</ClockworkUseBuiltInRules>
+    <ClockworkStrictBuiltIns Condition="'$(ClockworkStrictBuiltIns)' == ''">true</ClockworkStrictBuiltIns>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- When ClockworkUseBuiltInRules is on, enable the first production deterministic BCL rule set. -->
+    <ClockworkBuiltInRuleSet Condition="'$(ClockworkUseBuiltInRules)' == 'true'" Include="clockwork.bcl.deterministic" />
+  </ItemGroup>
 
   <!--
     NOTE: The out-of-place staging and manifest paths are intentionally NOT defaulted here.

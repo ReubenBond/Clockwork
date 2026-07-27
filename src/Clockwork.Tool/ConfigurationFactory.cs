@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Clockwork.Instrumentation.Configuration;
+using Clockwork.Instrumentation.Rules.BuiltIn;
 
 namespace Clockwork.Tool;
 
@@ -17,6 +18,7 @@ internal static class ConfigurationFactory
     [
         "config", "rule-set", "include", "exclude", "r2r", "strong-name",
         "key", "target-runtime", "exclude-framework", "rewrite-dependencies",
+        "builtin", "builtin-include", "builtin-exclude", "builtin-strict",
     ];
 
     /// <summary>Builds the configuration described by the reader's options.</summary>
@@ -48,6 +50,47 @@ internal static class ConfigurationFactory
             {
                 RuleSetPaths = [.. configuration.RuleSetPaths, .. extraRuleSets.Select(Path.GetFullPath)],
             };
+        }
+
+        configuration = ApplyBuiltInOptions(reader, configuration);
+
+        return configuration;
+    }
+
+    private static InstrumentationConfiguration ApplyBuiltInOptions(ArgumentReader reader, InstrumentationConfiguration configuration)
+    {
+        IReadOnlyList<string> builtIns = reader.GetMany("builtin");
+        IReadOnlyList<string> include = reader.GetMany("builtin-include");
+        IReadOnlyList<string> exclude = reader.GetMany("builtin-exclude");
+        string? strict = reader.GetString("builtin-strict");
+
+        if (builtIns.Count > 0)
+        {
+            // '--builtin all' is a convenience for every shipped rule set id.
+            IEnumerable<string> ids = builtIns.SelectMany(value =>
+                string.Equals(value, "all", StringComparison.OrdinalIgnoreCase)
+                    ? BuiltInRuleSets.AvailableIds.AsEnumerable()
+                    : [value]);
+
+            configuration = configuration with
+            {
+                BuiltInRuleSetIds = [.. configuration.BuiltInRuleSetIds.Concat(ids).Distinct(StringComparer.Ordinal)],
+            };
+        }
+
+        if (include.Count > 0)
+        {
+            configuration = configuration with { BuiltInIncludeFamilies = [.. include] };
+        }
+
+        if (exclude.Count > 0)
+        {
+            configuration = configuration with { BuiltInExcludeFamilies = [.. exclude] };
+        }
+
+        if (strict is not null)
+        {
+            configuration = configuration with { StrictBuiltIns = reader.GetBool("builtin-strict", true) };
         }
 
         return configuration;
