@@ -619,5 +619,5 @@ public static class ControlledTaskFactory
         }
     }
 
-    #pragma warning restore CA1068
+#pragma warning restore CA1068
 }
