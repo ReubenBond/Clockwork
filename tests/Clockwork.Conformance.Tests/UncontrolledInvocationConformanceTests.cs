@@ -73,9 +73,7 @@ public sealed class UncontrolledInvocationConformanceTests : IDisposable
     [Fact]
     public void RejectionIsUnconditionalOutsideAnySimulation()
     {
-        // The rewritten site rejects even with no active simulation - uncontrolled APIs cannot be modelled,
-        // so a rewritten assembly is never allowed to reach them (a deliberate deviation from the
-        // outside-simulation pass-through that the controlled shims provide).
+        // Uncontrolled APIs cannot be modelled, so a rewritten assembly is never allowed to reach them.
         var ex = Assert.ThrowsAny<Exception>(() => Method("StartProcess").Invoke(null, null));
         AssertUncontrolled(ex);
     }

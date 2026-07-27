@@ -75,8 +75,8 @@ public static class RuleInventoryDocument
 
         Line($"# {title}");
         Line();
-        Line($"Rule set id: `{id}`  ");
-        Line($"Version: `{version}`  ");
+        Line($"Rule set id: `{id}`");
+        Line($"Version: `{version}`");
         Line($"Shim assembly: `{BuiltInRuleSets.ShimAssemblyName}`");
         Line();
 

@@ -7,8 +7,8 @@ This is the exact, exhaustive surface the built-in rule sets redirect. Every oth
 
 # Deterministic BCL rule set
 
-Rule set id: `clockwork.bcl.deterministic`  
-Version: `2.0.0`  
+Rule set id: `clockwork.bcl.deterministic`
+Version: `2.0.0`
 Shim assembly: `Clockwork.Runtime`
 
 ## Clock family
@@ -65,8 +65,8 @@ Policy: **Rejected**. Static entropy APIs are redirected to `ControlledRandomNum
 
 # Controlled task rule set
 
-Rule set id: `clockwork.tasks.controlled`  
-Version: `1.0.0`  
+Rule set id: `clockwork.tasks.controlled`
+Version: `1.0.0`
 Shim assembly: `Clockwork.Runtime`
 
 ## TaskCombinators family

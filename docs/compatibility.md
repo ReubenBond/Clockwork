@@ -245,21 +245,27 @@ single-file binary remains deferred (see below).
 
 #### First deterministic BCL rule set (Phase 5)
 
-The first production built-in rule set, `clockwork.bcl.deterministic` (version `1.0.0`),
+The built-in simulation rule set `clockwork.bcl.deterministic` (version `2.0.0`),
 redirects the direct **static** time / identity / random BCL surface to Cecil-free runtime
 shims in `Clockwork.Runtime` (namespace `Clockwork.Runtime.Shims`). The complete, exhaustive
 list of controlled and rejected signatures is generated into
 [`rule-inventory.md`](rule-inventory.md) and verified against the shipped rules by a test, so
 the published inventory can never drift from the code.
 
-The redirect is a three-state contract enforced by the shim, never a silent fallback:
+Instrumented closure binaries are simulation/test artifacts, not production replacements. Every
+Controlled entry point requires an active Clockwork simulation; without one it throws
+`SimulationNotActiveException` before any real BCL operation runs. With an active simulation:
 
-- **Outside a simulation** the shim runs the real BCL API unchanged (production pass-through).
-- **Inside a simulation with a registered runtime environment** it dispatches to the node's
+- **With a registered runtime environment** it dispatches to the node's
   simulated clock and the correct independent seed domain (Application/Identity only - never
   the scheduler, network, or Buggify domains).
-- **Inside a simulation with no registered environment** it throws
+- **With no registered environment** it throws
   `SimulationServiceMissingException` rather than read real wall-clock time or OS entropy.
+
+Uninstrumented production binaries retain ordinary BCL behavior. The runtime inventory names are
+`ControlledDateTime`, `ControlledDateTimeOffset`, `ControlledStopwatch`, `ControlledEnvironment`,
+`ControlledGuid`, `ControlledRandom`, `ControlledRandomNumberGenerator`,
+`ControlledInsecureRandomNumberGenerator`, and `SimulationStableHash`.
 
 Semantics: local-time clocks (`DateTime.Now`/`Today`, `DateTimeOffset.Now`) honour the
 configured simulation time zone; `Environment.TickCount`/`TickCount64` wrap with correct
@@ -282,7 +288,7 @@ so incremental rebuilds stay correct.
 
 #### Controlled task and async rule set (Phase 6A)
 
-The second production built-in rule set, `clockwork.tasks.controlled` (version `1.0.0`),
+The second built-in simulation rule set, `clockwork.tasks.controlled` (version `1.0.0`),
 controls the compiler-generated async machinery and the direct `Task` surface that ordinary
 application code uses, so `async`/`await` runs on the simulation's single logical thread instead
 of the physical thread pool. It is selected independently of the BCL rule set (CLI
@@ -303,8 +309,9 @@ or Release state machine is fully controlled. The same pass also retargets the
 their `Controlled…` counterparts (the `ValueTaskMachinery` family) — so value-task `async`/`await`
 and `ValueTask.ConfigureAwait(false)` are controlled identically. The controlled awaiter hands
 every continuation to the simulation coordinator rather than the awaited task's completion
-callback, which is exactly why **`ConfigureAwait(false)` stays controlled** while still delegating
-to normal BCL semantics outside a simulation. A **call-site redirect** half routes both the
+callback, which is exactly why **`ConfigureAwait(false)` stays controlled**. Uninstrumented
+production binaries retain normal BCL async semantics. A
+**call-site redirect** half routes both the
 non-generic `Task.WhenAll` / `Task.WhenAny` (array, span, pair, enumerable) combinators **and their
 generic `Task<T>` overloads** (array, span, enumerable, and the `WhenAny<T>` pair), the synchronous
 `Task.Wait()` / `Task.WaitAll` / `Task.WaitAny(Task[])` waits, the blocking generic
@@ -318,11 +325,10 @@ real API to reproduce its exact `AggregateException` semantics, so a synchronous
 At the Phase 6A milestone, `Task.Run` and `TaskFactory.StartNew` were rejected rather than allowed to
 escape. Phase 6B replaced those guards with controlled scheduling; only `Task.Delay` remains rejected.
 
-The redirect obeys the same three-state contract as the BCL rule set: outside a simulation every
-controlled builder/awaiter/shim is a transparent pass-through to the real BCL; inside a simulation
-continuations and waits route through the coordinator; inside a simulation with no registered task
-coordinator the shim throws `ControlledTaskServiceMissingException` rather than silently escaping
-to the thread pool.
+The redirect obeys the same simulation-only invariant as the BCL rule set: instrumented Controlled
+builders, awaiters, and shims require an active Clockwork simulation. Continuations and waits route
+through the coordinator; if that active simulation has no registered task coordinator, the shim
+throws `ControlledTaskServiceMissingException` rather than silently escaping to the thread pool.
 
 **Historical Phase 6A boundary (closed by Phase 6B):** `Thread`/`ThreadPool`/`Parallel`,
 `Monitor`/semaphore/wait-handle public shims, timers and the `Task.Delay` implementation,
@@ -379,9 +385,8 @@ physical-gate backend lands):
 - **Uncontrolled process/termination APIs are rejected *unconditionally*.** `Process.Start`/`Kill`/
   `WaitForExit`/`WaitForExitAsync` and `Environment.Exit`/`FailFast` throw whether or not a
   simulation is active (a rewritten assembly must never launch, kill, or tear down a real OS
-  process). This is a deliberate departure from the three-state pass-through contract the shims
-  otherwise follow, because there is no faithful in-simulation model of spawning or killing a
-  process.
+  process). This unconditional guard is distinct from the simulation-only Controlled invariant,
+  because there is no faithful in-simulation model of spawning or killing a process.
 - **Cross-assembly uncontrolled-task detection is diagnosis, not wrapping.** With
   `DetectUncontrolledTasks` enabled, a call into an uncontrolled dependency assembly that returns a
   `Task`/`Task<T>`/`ValueTask`/`ValueTask<T>` or a custom awaitable is flagged with the `CWR0200`
@@ -397,9 +402,8 @@ physical-gate backend lands):
   layers on top of Phase 6A's preference for explicit gate/state transitions over control
   exceptions.
 
-The three-state contract still holds for every controlled shim: outside a simulation each is a
-transparent pass-through to the real BCL API; inside a simulation the work routes through the
-coordinator; inside a simulation with no registered coordinator the shim throws rather than silently
+Every instrumented Controlled shim requires an active simulation: work routes through the
+coordinator, and an active simulation with no registered coordinator throws rather than silently
 escaping. Phase 7A subsequently delivered `Monitor`, `System.Threading.Lock`, and `SemaphoreSlim`;
 general wait handles remain unimplemented, and timers/cancellation timers remain future work.
 
@@ -465,9 +469,9 @@ physical-gate backend lands):
   `ConditionalWeakTable` keyed weakly by the lock/semaphore object, so a controlled association never
   roots an otherwise-collectible object.
 
-The three-state contract still holds for every Phase 7A/7B shim: outside a simulation each is a transparent
-pass-through to the real BCL primitive; inside a simulation the operation routes through the coordinator;
-inside a simulation with no registered coordinator the shim throws rather than silently escaping.
+Every instrumented Phase 7A/7B Controlled shim requires an active simulation. The operation routes
+through the coordinator; an active simulation with no registered coordinator throws rather than
+silently escaping. Uninstrumented production binaries continue to call the ordinary BCL primitives.
 **Phase 7B** brings wait handles / events (`WaitHandle`/`EventWaitHandle`/`AutoResetEvent`/`ManualResetEvent`,
 including `WaitAny`/`WaitAll`/`SignalAndWait`), `Interlocked`, `Volatile`, `SpinWait`, the
 `SemaphoreSlim.AvailableWaitHandle` bridge, and the `ThreadPool` registered-wait APIs under control;

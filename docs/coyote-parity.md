@@ -26,6 +26,11 @@ several Coyote wrapper types map to "controlled by architecture" rather than a d
 Clockwork additionally goes **beyond** Coyote for `System.Threading.ThreadPool`, which Coyote does
 not model at all.
 
+This ledger describes instrumented closure binaries, which are simulation/test artifacts. Their
+Controlled entry points require an active Clockwork simulation and fail before performing real BCL
+work when none is active. Production binaries remain uninstrumented and retain ordinary BCL
+behavior.
+
 ---
 
 ## `System.Threading.Thread` — Coyote `…Types.Threading.Thread`
@@ -302,7 +307,7 @@ observed as an indivisible operation. Clockwork mirrors the **full .NET 10 `Inte
 redirecting every call site to a shim with the identical `ref`-first signature. Because Clockwork runs on
 a **single cooperative logical thread** the operation can never be interleaved mid-flight, so each shim
 delegates straight to the real primitive — preserving exact atomic return, overflow, and reference-write
-semantics inside and outside a simulation. The **documented exploration policy** injects **no**
+semantics under the active simulation. The **documented exploration policy** injects **no**
 mid-operation scheduling point (unlike Coyote, whose real preemptible threads require one); an atomic
 operation is never split. The single delegation site is the future Phase 9 race-hook attachment point.
 
@@ -360,8 +365,8 @@ remap onto the controlled `ControlledSpinWait` struct. Coyote controls `SpinWait
 scheduler instead of burning CPU; Clockwork does the same. Inside a simulation a spin never consumes real
 time: `SpinOnce` is a cooperative no-op that only advances the observable spin count, and `SpinUntil` pumps
 the deterministic loop until its predicate holds (a never-satisfiable predicate surfaces as the loop-model
-deadlock diagnostic). The finite `SpinUntil` overloads use a first-winner virtual-time deadline. Outside a
-simulation every member delegates to a real wrapped `SpinWait`.
+deadlock diagnostic). The finite `SpinUntil` overloads use a first-winner virtual-time deadline.
+Invoking the substituted type without an active simulation fails before spinning.
 
 | .NET 10 member | Posture | Rule id |
 | --- | --- | --- |
@@ -396,7 +401,8 @@ while a **manual-reset** `Set` releases every waiter and stays signalled until `
 a first-winner virtual-time deadline (zero polls, infinite never times out). Named / cross-process APIs and
 the raw native-handle accessors cannot be modelled in a single simulated process and are rejected precisely.
 Coyote controls the same event surface on its cooperative scheduler; adapted from Microsoft Coyote (MIT).
-Outside a simulation every shim delegates to the real BCL primitive.
+Invoking these instrumented entry points without an active simulation fails before touching a real
+BCL primitive.
 
 | .NET 10 member | Posture | Rule id |
 | --- | --- | --- |
