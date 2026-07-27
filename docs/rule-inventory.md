@@ -407,6 +407,14 @@ Policy: **Controlled**. The full .NET 10 `Volatile` surface - `Read`/`Write` (ev
 | `clockwork.volatile.readbarrier` | `System.Threading.Volatile::ReadBarrier()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::ReadBarrier()` | Controlled |
 | `clockwork.volatile.writebarrier` | `System.Threading.Volatile::WriteBarrier()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledVolatile::WriteBarrier()` | Controlled |
 
+## SpinWait family
+
+Policy: **Controlled**. `System.Threading.SpinWait` is a value type retargeted by whole-type substitution (like `System.Threading.Lock`): every local/field/parameter typed `SpinWait`, each `new SpinWait()`/`default`, the instance members (`Count`, `NextSpinWillYield`, `Reset`, both `SpinOnce` overloads) and the static `SpinUntil` overloads remap onto the controlled struct. Inside a simulation a spin never burns CPU or consumes real time: `SpinOnce` is a cooperative no-op that only advances the observable spin count, and `SpinUntil` pumps the deterministic loop until its predicate holds (a never-satisfiable predicate surfaces as the loop-model deadlock diagnostic). The finite `SpinUntil` overloads use a first-winner virtual-time deadline. Outside a simulation every member delegates to a real wrapped `SpinWait`.
+
+| Rule id | BCL target | Shim | Policy |
+| --- | --- | --- | --- |
+| `clockwork.spinwait.type` | `System.Threading.SpinWait` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledSpinWait` | Controlled |
+
 ## UncontrolledInvocation family
 
 Policy: **Rejected**. Process control and abrupt-termination APIs (`Process.Start`/`Start` instance/`Kill`/`WaitForExit`/`WaitForExitAsync`, `Environment.Exit`/`FailFast`) cannot be modelled inside a single simulated process at all. A throwing guard is injected before each call site so a rewritten assembly can never launch, kill, wait on, or terminate a real OS process; unlike the controlled shims the rejection is unconditional (it fires whether or not a simulation is active).

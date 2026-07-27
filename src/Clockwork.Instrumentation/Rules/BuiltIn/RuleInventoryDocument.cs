@@ -217,6 +217,16 @@ public static class RuleInventoryDocument
             "shim delegates to the real primitive and preserves the exact value read/written together with " +
             "the acquire (read) / release (write) fence intent. The single delegation site is the future " +
             "Phase 9 race-hook attachment point.",
+        BuiltInRuleFamily.SpinWait =>
+            "`System.Threading.SpinWait` is a value type retargeted by whole-type substitution (like " +
+            "`System.Threading.Lock`): every local/field/parameter typed `SpinWait`, each `new SpinWait()`/" +
+            "`default`, the instance members (`Count`, `NextSpinWillYield`, `Reset`, both `SpinOnce` " +
+            "overloads) and the static `SpinUntil` overloads remap onto the controlled struct. Inside a " +
+            "simulation a spin never burns CPU or consumes real time: `SpinOnce` is a cooperative no-op that " +
+            "only advances the observable spin count, and `SpinUntil` pumps the deterministic loop until its " +
+            "predicate holds (a never-satisfiable predicate surfaces as the loop-model deadlock diagnostic). " +
+            "The finite `SpinUntil` overloads use a first-winner virtual-time deadline. Outside a simulation " +
+            "every member delegates to a real wrapped `SpinWait`.",
         _ => string.Empty,
     };
 

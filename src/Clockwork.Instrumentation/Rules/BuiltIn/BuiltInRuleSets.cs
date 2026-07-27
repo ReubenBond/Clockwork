@@ -244,6 +244,13 @@ public static class BuiltInRuleSets
     // `T`/`T&` replacement split.
     private const string VolatileType = "System.Threading.Volatile";
 
+    // System.Threading.SpinWait is a value type (struct) retargeted by whole-type substitution, exactly like
+    // System.Threading.Lock/Scope. Every local/field/parameter typed SpinWait, each `new SpinWait()` /
+    // `default`, the instance members (Count, NextSpinWillYield, Reset, SpinOnce overloads) and the static
+    // SpinUntil overloads remap onto the controlled struct.
+    private const string SpinWaitType = "System.Threading.SpinWait";
+    private const string ControlledSpinWaitType = "Clockwork.Runtime.Threading.ControlledSpinWait";
+
 
     // Cecil full names for the compiler-generated async machinery (BCL) and their controlled substitutes.
     // Nested awaiter types use Cecil's '/' separator; generic arities carry the backtick.
@@ -773,6 +780,13 @@ public static class BuiltInRuleSets
 
         BuildInterlockedEntries(builder);
         BuildVolatileEntries(builder);
+
+        // ---- System.Threading.SpinWait (Phase 7B): a value type retargeted by whole-type substitution,
+        // exactly like System.Threading.Lock/Scope. This remaps every field/local/parameter typed SpinWait,
+        // each `new SpinWait()` / `default`, the instance members (Count, NextSpinWillYield, Reset, both
+        // SpinOnce overloads) and the static SpinUntil overloads onto the controlled struct, so no per-member
+        // call rules are required. A controlled spin never busy-waits: it yields to the deterministic loop. ----
+        Sub(builder, BuiltInRuleFamily.SpinWait, "clockwork.spinwait.type", SpinWaitType, ControlledSpinWaitType);
 
         return builder.ToImmutable();
     }

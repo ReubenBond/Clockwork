@@ -345,6 +345,36 @@ left uncontrolled.
 
 ---
 
+## `System.Threading.SpinWait` — Coyote `…Types.Threading.SpinWait` (Phase 7B)
+
+`SpinWait` is a **value type**, so — exactly like `System.Threading.Lock` — it is retargeted by
+**whole-type substitution** rather than per-member call redirects. Every local/field/parameter typed
+`SpinWait`, each `new SpinWait()` / `default`, the instance members and the static `SpinUntil` overloads
+remap onto the controlled `ControlledSpinWait` struct. Coyote controls `SpinWait` so a spin yields to its
+scheduler instead of burning CPU; Clockwork does the same. Inside a simulation a spin never consumes real
+time: `SpinOnce` is a cooperative no-op that only advances the observable spin count, and `SpinUntil` pumps
+the deterministic loop until its predicate holds (a never-satisfiable predicate surfaces as the loop-model
+deadlock diagnostic). The finite `SpinUntil` overloads use a first-winner virtual-time deadline. Outside a
+simulation every member delegates to a real wrapped `SpinWait`.
+
+| .NET 10 member | Posture | Rule id |
+| --- | --- | --- |
+| `SpinWait` type (value type) | ✅ Controlled (type substitution) | `clockwork.spinwait.type` |
+| `Count` { get; } | ✅ Controlled | via `clockwork.spinwait.type` |
+| `NextSpinWillYield` { get; } | ✅ Controlled | via `clockwork.spinwait.type` |
+| `Reset()` | ✅ Controlled | via `clockwork.spinwait.type` |
+| `SpinOnce()`, `SpinOnce(int)` | ✅ Controlled | via `clockwork.spinwait.type` |
+| `SpinUntil(Func<bool>)` | ✅ Controlled | via `clockwork.spinwait.type` |
+| `SpinUntil(Func<bool>, int)`, `SpinUntil(Func<bool>, TimeSpan)` | ✅ Controlled | via `clockwork.spinwait.type` |
+
+**Semantics:** `Count` and `NextSpinWillYield` mirror the BCL's observable spin progress (the yield
+threshold matches the documented value); `Reset` clears the count; `SpinOnce` never busy-spins; the
+`SpinUntil` predicate is evaluated on the logical thread and the loop is pumped deterministically until it
+holds or a virtual deadline elapses. Enumerated against the .NET 10 reference assemblies (2 properties, 4
+instance methods, 3 static `SpinUntil` overloads); no applicable `SpinWait` member is left uncontrolled.
+
+---
+
 ## Coyote surfaces intentionally deferred (Phase 7B / Phase 8)
 
 These Coyote controlled types are **out of Phase 7A scope** by the phase plan. Where a surface would
@@ -357,7 +387,7 @@ lands.
 | `WaitHandle`, `EventWaitHandle`, `AutoResetEvent`, `ManualResetEvent`, `WaitAny`/`WaitAll` | Phase 7B | not rewritten; unblocks `ThreadPool` registered-wait APIs and `SemaphoreSlim.AvailableWaitHandle`, which stay rejected until then |
 | `Interlocked` | ✅ **Controlled (Phase 7B)** — see the `Interlocked` section above | full .NET 10 surface redirected to `clockwork.interlocked.*` |
 | `Volatile` | ✅ **Controlled (Phase 7B)** — see the `Volatile` section above | full .NET 10 surface redirected to `clockwork.volatile.*` |
-| `SpinWait` (struct) | Phase 7B | not rewritten (`Thread.SpinWait(int)` *static* **is** controlled — `clockwork.thread.spinwait`) |
+| `SpinWait` (struct) | ✅ **Controlled (Phase 7B)** — see the `SpinWait` section above | value-type substitution `clockwork.spinwait.type` (the `Thread.SpinWait(int)` *static* is also controlled — `clockwork.thread.spinwait`) |
 | `ReaderWriterLockSlim`, `Mutex`, `Semaphore`, `SpinLock`, `ManualResetEventSlim` | Phase 8 | not rewritten (real BCL calls) |
 | `Timer` / `PeriodicTimer` / `Task.Delay` / cancellation timers | Phase 8 | `Task.Delay` rejected; `Thread.Sleep` **is** a controlled virtual wait |
 
@@ -389,8 +419,12 @@ lands.
 - **Coyote `Volatile`:** full .NET 10 surface controlled (Phase 7B) — every `Read`/`Write` overload plus
   the `ReadBarrier`/`WriteBarrier` fences, delegating to the real primitive with acquire/release intent
   preserved.
-- **Deferred by phase plan:** wait handles / events / `SpinWait` struct
-  (Phase 7B); `ReaderWriterLockSlim`/`Mutex`/`Semaphore`/`SpinLock` and timers/`Task.Delay` (Phase 8).
+- **Coyote `SpinWait`:** the `SpinWait` value type controlled (Phase 7B) by type substitution — `Count`,
+  `NextSpinWillYield`, `Reset`, both `SpinOnce` overloads and all three static `SpinUntil` overloads; a
+  controlled spin yields to the deterministic loop instead of burning CPU, and finite `SpinUntil` uses a
+  first-winner virtual-time deadline.
+- **Deferred by phase plan:** wait handles / events (Phase 7B);
+  `ReaderWriterLockSlim`/`Mutex`/`Semaphore`/`SpinLock` and timers/`Task.Delay` (Phase 8).
 
 Every Coyote entry above is therefore **controlled** (with a cited rule id or by architecture),
 **deliberately rejected with a tested reason**, or **explicitly deferred to a named later phase** —
