@@ -83,6 +83,14 @@ public static class BuiltInRuleSets
     private const string IEnumerableTaskTDecl = "System.Collections.Generic.IEnumerable`1<System.Threading.Tasks.Task`1<TResult>>";
     private const string ReadOnlySpanTaskTDecl = "System.ReadOnlySpan`1<System.Threading.Tasks.Task`1<TResult>>";
 
+    // Cecil full names for the TaskExtensions.Unwrap(this Task<Task>) / Unwrap<TResult>(this Task<Task<TResult>>)
+    // extension methods. Unwrap is a static extension whose receiver is the first parameter, so the shim is a
+    // direct static-to-static redirect. The generic overload uses the `!!0` target / `TResult` replacement split.
+    private const string TaskExtensionsType = "System.Threading.Tasks.TaskExtensions";
+    private const string TaskOfTask = "System.Threading.Tasks.Task`1<System.Threading.Tasks.Task>";
+    private const string TaskOfTaskT = "System.Threading.Tasks.Task`1<System.Threading.Tasks.Task`1<!!0>>";
+    private const string TaskOfTaskTDecl = "System.Threading.Tasks.Task`1<System.Threading.Tasks.Task`1<TResult>>";
+
     // Cecil full names for the TaskFactory scheduling surface (rejected under simulation). Task.Factory
     // is the non-generic TaskFactory; its StartNew(Func<TResult>) is a generic method (`!!0` target,
     // `TResult` replacement), whereas TaskFactory`1's StartNew(Func<TResult>) is a non-generic method
@@ -244,6 +252,14 @@ public static class BuiltInRuleSets
             MemberSignature.Method(Task, "WhenAny", TaskT, TaskT), Shim(TaskShim, "WhenAny", TaskTDecl, TaskTDecl));
         TaskRule(builder, BuiltInRuleFamily.TaskCombinators, "clockwork.tasks.whenany.generic.enumerable",
             MemberSignature.Method(Task, "WhenAny", IEnumerableTaskT), Shim(TaskShim, "WhenAny", IEnumerableTaskTDecl));
+
+        // ---- Task extension methods: TaskExtensions.Unwrap -> controlled equivalents. Unwrap is a static
+        // extension whose receiver is the first parameter, so this is a direct static-to-static redirect; the
+        // unwrapped proxy completes on the logical thread, so delegating to the real API stays deterministic.
+        TaskRule(builder, BuiltInRuleFamily.TaskCombinators, "clockwork.tasks.unwrap",
+            MemberSignature.Method(TaskExtensionsType, "Unwrap", TaskOfTask), Shim(TaskShim, "Unwrap", TaskOfTask));
+        TaskRule(builder, BuiltInRuleFamily.TaskCombinators, "clockwork.tasks.unwrap.generic",
+            MemberSignature.Method(TaskExtensionsType, "Unwrap", TaskOfTaskT), Shim(TaskShim, "Unwrap", TaskOfTaskTDecl));
 
         // ---- Synchronization: blocking waits -> controlled waits that pump the deterministic loop ----
         // The receiver of the instance Wait() is already on the IL stack, so a redirect to the static
