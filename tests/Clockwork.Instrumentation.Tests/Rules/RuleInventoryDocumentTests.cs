@@ -1,4 +1,6 @@
 using System.Runtime.CompilerServices;
+using System.Reflection;
+using System.Text.RegularExpressions;
 using Clockwork.Instrumentation.Rules;
 using Clockwork.Instrumentation.Rules.BuiltIn;
 
@@ -78,6 +80,56 @@ public sealed class RuleInventoryDocumentTests
         Assert.All(classified, rule =>
             Assert.Equal(Clockwork.Runtime.Policy.SimulationApiPolicy.Controlled, rule.Policy));
     }
+
+    [Fact]
+    public void DocumentedHolesDoNotNameFullyClassifiedFamilies()
+    {
+        string rendered = RuleInventoryDocument.Render();
+        string holes = rendered[rendered.IndexOf("## Documented holes", StringComparison.Ordinal)..];
+
+        Assert.DoesNotMatch(new Regex(@"\bTask\.Delay\b", RegexOptions.CultureInvariant), holes);
+        Assert.DoesNotMatch(new Regex(@"\bTaskFactory\b", RegexOptions.CultureInvariant), holes);
+        Assert.DoesNotMatch(new Regex(@"\bMonitor\b", RegexOptions.CultureInvariant), holes);
+        Assert.DoesNotMatch(new Regex(@"(?<!ReaderWriter)\bLock\b", RegexOptions.CultureInvariant), holes);
+        Assert.DoesNotMatch(new Regex(@"\bSemaphoreSlim\b", RegexOptions.CultureInvariant), holes);
+    }
+
+    [Fact]
+    public void MonitorRulesClassifyEveryNet10Method()
+    {
+        string[] framework = typeof(Monitor)
+            .GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)
+            .Select(MethodShape)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        string[] classified = BuiltInRuleSets.ControlledTasksInventory
+            .Where(entry => entry.Family == BuiltInRuleFamily.Monitor)
+            .Select(entry => entry.Rule.Target.MemberName + "(" +
+                string.Join(",", entry.Rule.Target.ParameterTypeFullNames) + ")")
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(framework, classified);
+    }
+
+    [Fact]
+    public void SemaphoreSlimRulesClassifyEveryNet10DeclaredMember()
+    {
+        int frameworkMemberCount =
+            typeof(SemaphoreSlim).GetConstructors(BindingFlags.Public | BindingFlags.Instance).Length +
+            typeof(SemaphoreSlim).GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly).Length;
+        RewriteRule[] classified = BuiltInRuleSets.ControlledTasksInventory
+            .Where(entry => entry.Family == BuiltInRuleFamily.Semaphore)
+            .Select(entry => entry.Rule)
+            .ToArray();
+
+        Assert.Equal(19, frameworkMemberCount);
+        Assert.Equal(frameworkMemberCount, classified.Length);
+        Assert.Equal(classified.Length, classified.Select(rule => rule.Target.ToCanonicalString()).Distinct().Count());
+    }
+
+    private static string MethodShape(MethodInfo method) =>
+        method.Name + "(" + string.Join(",", method.GetParameters().Select(parameter => parameter.ParameterType.FullName)) + ")";
 
     private static string InventoryPath()
     {

@@ -90,9 +90,10 @@ public enum BuiltInRuleFamily
     /// <see cref="System.Threading.Tasks.TaskFactory"/> / <see cref="System.Threading.Tasks.TaskFactory{TResult}"/>
     /// scheduling: <c>StartNew</c> offloads work onto a task scheduler (the thread pool by default).
     /// Classified <c>Controlled</c> (Phase 6B) - the shim queues the delegate body as a fresh controlled
-    /// operation on the coordinator (honouring the factory's/call's cancellation token) instead of
-    /// escaping onto a physical thread, rejects the unsupported <c>AttachedToParent</c> creation option,
-    /// and runs the real BCL API unchanged outside simulation.
+    /// operation on the coordinator (honouring state, cancellation, options with controlled meaning, and
+    /// results) instead of escaping onto a physical thread. The complete .NET 10 overload set is classified;
+    /// custom schedulers and unsupported option semantics are rejected, and every form runs the real BCL API
+    /// unchanged outside simulation.
     /// </summary>
     TaskFactory,
 
@@ -163,8 +164,8 @@ public enum BuiltInRuleFamily
     /// releases the full recursion count and re-acquires it after being pulsed, and <c>Pulse</c>/
     /// <c>PulseAll</c> move waiters to the ready set with replayable ordering. A never-satisfiable acquire
     /// or wait surfaces as the loop-model deadlock diagnostic. Zero timeouts are faithful non-blocking
-    /// tries; finite positive timeouts are modelled as infinite under simulation (virtual-time timeouts
-    /// are Phase 8). Ownership/argument/timeout errors throw exactly as the BCL. Outside a simulation every
+    /// tries; finite positive timeouts use deterministic simulated deadlines. Ownership/argument/timeout
+    /// errors throw exactly as the BCL. Outside a simulation every
     /// shim delegates to the real <see cref="System.Threading.Monitor"/>.
     /// </summary>
     Monitor,
@@ -190,8 +191,8 @@ public enum BuiltInRuleFamily
     /// <c>WaitAsync</c> returns a task completed when a permit is released; <c>Release</c> enforces the
     /// maximum count (<see cref="System.Threading.SemaphoreFullException"/>) and serves waiters in a
     /// deterministic, replayable order; cancellation is honoured on the logical thread. Zero timeouts are
-    /// faithful non-blocking tries; finite positive timeouts are modelled as infinite (virtual-time
-    /// timeouts are Phase 8). <c>AvailableWaitHandle</c> depends on the Phase 7B wait-handle surface and is
+    /// faithful non-blocking tries; finite positive timeouts use deterministic simulated deadlines.
+    /// <c>AvailableWaitHandle</c> depends on the Phase 7B wait-handle surface and is
     /// classified <c>Rejected</c>: the rewritten call site fails precisely under simulation until then.
     /// Outside a simulation every shim delegates to the real <see cref="System.Threading.SemaphoreSlim"/>.
     /// </summary>

@@ -722,6 +722,8 @@ public static class BuiltInRuleSets
             MemberSignature.Method(MonitorType, "Exit", ObjectType), Shim(MonitorShim, "Exit", ObjectType));
         TaskRule(builder, BuiltInRuleFamily.Monitor, "clockwork.monitor.isentered",
             MemberSignature.Method(MonitorType, "IsEntered", ObjectType), Shim(MonitorShim, "IsEntered", ObjectType));
+        RejectedRule(builder, BuiltInRuleFamily.Monitor, "clockwork.monitor.get_lockcontentioncount",
+            MemberSignature.Method(MonitorType, "get_LockContentionCount"), Shim(MonitorShim, "LockContentionCount"));
         TaskRule(builder, BuiltInRuleFamily.Monitor, "clockwork.monitor.tryenter",
             MemberSignature.Method(MonitorType, "TryEnter", ObjectType), Shim(MonitorShim, "TryEnter", ObjectType));
         TaskRule(builder, BuiltInRuleFamily.Monitor, "clockwork.monitor.tryenter.locktaken",

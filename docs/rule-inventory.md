@@ -274,7 +274,7 @@ Policy: **Controlled**. `Parallel.Invoke`, `Parallel.For` (`int`/`long`, with an
 
 ## Monitor family
 
-Policy: **Controlled**. 
+Policy: **Controlled**. The complete .NET 10 `Monitor` surface is classified: synchronization and C# `lock (object)` lowering are controlled with deterministic virtual-time deadlines, while the process-wide `LockContentionCount` metric is rejected because it has no per-simulation meaning.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -282,6 +282,7 @@ Policy: **Controlled**.
 | `clockwork.monitor.enter.locktaken` | `System.Threading.Monitor::Enter(System.Object,System.Boolean&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::Enter(System.Object,System.Boolean&)` | Controlled |
 | `clockwork.monitor.exit` | `System.Threading.Monitor::Exit(System.Object)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::Exit(System.Object)` | Controlled |
 | `clockwork.monitor.isentered` | `System.Threading.Monitor::IsEntered(System.Object)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::IsEntered(System.Object)` | Controlled |
+| `clockwork.monitor.get_lockcontentioncount` | `System.Threading.Monitor::get_LockContentionCount()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::LockContentionCount()` | Rejected |
 | `clockwork.monitor.tryenter` | `System.Threading.Monitor::TryEnter(System.Object)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::TryEnter(System.Object)` | Controlled |
 | `clockwork.monitor.tryenter.locktaken` | `System.Threading.Monitor::TryEnter(System.Object,System.Boolean&)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::TryEnter(System.Object,System.Boolean&)` | Controlled |
 | `clockwork.monitor.tryenter.milliseconds` | `System.Threading.Monitor::TryEnter(System.Object,System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledMonitor::TryEnter(System.Object,System.Int32)` | Controlled |
@@ -298,7 +299,7 @@ Policy: **Controlled**.
 
 ## Lock family
 
-Policy: **Controlled**. 
+Policy: **Controlled**. The .NET 9+ `System.Threading.Lock` type and nested `Scope` are substituted onto controlled equivalents, covering the dedicated C# lock lowering in Debug and Release builds.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -307,7 +308,7 @@ Policy: **Controlled**.
 
 ## Semaphore family
 
-Policy: **Controlled**. 
+Policy: **Controlled**. The .NET 10 `SemaphoreSlim` constructors, counts, waits, releases, and disposal are controlled; `AvailableWaitHandle` is explicitly rejected until general wait handles are modelled.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -363,7 +364,7 @@ remain real BCL calls even under simulation:
 - Generic cryptographic helpers `RandomNumberGenerator.GetItems<T>` and `Shuffle<T>`, and any `GetString`/`GetHexString` overloads beyond those listed above.
 - `DateTime`/`DateTimeOffset` parsing/formatting and any culture-, timezone-, or kind-conversion helpers other than the `Now`/`UtcNow`/`Today` clocks above.
 - Synchronous blocking on `ValueTask`/`ValueTask<T>` (`.Result`/`.GetResult()` outside an awaiter): a value task may be consumed only once, so a blocking drain is unsafe. `await` is the supported controlled path.
-- `Monitor`, semaphores, and wait handles (including the `ThreadPool` registered-wait APIs, which are rejected until then). These are Phase 7 scope.
-- Timers, `PeriodicTimer`, the `Task.Delay` implementation, and cancellation timers. These are Phase 8 scope (`Thread.Sleep` is a controlled virtual wait now).
+- `ReaderWriterLockSlim`, `Mutex`, the kernel `Semaphore`, `SpinLock`, and general `WaitHandle` operations remain unrewritten. The `ThreadPool` registered-wait APIs listed above are rejected.
+- `Timer`, `PeriodicTimer`, and cancellation timers remain unrewritten Phase 8 scope.
 
 Determinism is claimed **only** for the exact rules tabulated above.

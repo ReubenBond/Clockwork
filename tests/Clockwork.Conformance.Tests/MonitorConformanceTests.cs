@@ -197,6 +197,19 @@ public sealed class MonitorConformanceTests : IDisposable
                     return Task.FromResult(true);
                 }
             }
+
+            public static Task<bool> RejectsLockContentionCount()
+            {
+                try
+                {
+                    _ = Monitor.LockContentionCount;
+                    return Task.FromResult(false);
+                }
+                catch (Exception ex) when (ex.GetType().Name == "ControlledTaskUnsupportedException")
+                {
+                    return Task.FromResult(true);
+                }
+            }
         } }
         """;
 
@@ -265,6 +278,15 @@ public sealed class MonitorConformanceTests : IDisposable
     {
         using var host = new SimulationHost(Start);
         var task = (Task<bool>)host.Invoke(Method("ExitWithoutOwnershipThrows", optimize))!;
+        Assert.True(Result<bool>(task));
+    }
+
+    [Theory]
+    [MemberData(nameof(Optimize))]
+    public void LockContentionCountIsClassifiedAndRejected(bool optimize)
+    {
+        using var host = new SimulationHost(Start);
+        var task = (Task<bool>)host.Invoke(Method("RejectsLockContentionCount", optimize))!;
         Assert.True(Result<bool>(task));
     }
 
