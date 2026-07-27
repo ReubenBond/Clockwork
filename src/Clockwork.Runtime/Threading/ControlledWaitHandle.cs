@@ -145,6 +145,46 @@ public static class ControlledWaitHandle
         }
     }
 
+    /// <summary>The modelled permit count of one controlled kernel semaphore.</summary>
+    internal sealed class SemaphoreState : HandleState
+    {
+        public SemaphoreState(int count, int maximumCount)
+        {
+            Count = count;
+            MaximumCount = maximumCount;
+        }
+
+        public int Count { get; private set; }
+
+        public int MaximumCount { get; }
+
+        internal override bool IsAvailable(long strandId) => Count > 0;
+
+        internal override bool TryAcquire(long strandId)
+        {
+            if (Count == 0)
+            {
+                return false;
+            }
+
+            Count--;
+            return true;
+        }
+
+        internal int Release(int releaseCount)
+        {
+            int previous = Count;
+            if ((long)Count + releaseCount > MaximumCount)
+            {
+                throw new SemaphoreFullException();
+            }
+
+            Count += releaseCount;
+            ReleaseWaiters(this);
+            return previous;
+        }
+    }
+
     private static readonly ConditionalWeakTable<WaitHandle, HandleState> States = new();
 
     /// <summary>Associates a modelled signalled state with a controlled wait handle. Used by the event and bridge factories.</summary>
@@ -185,6 +225,24 @@ public static class ControlledWaitHandle
         HandleState state = StateOrThrow(handle, api);
         ThrowIfDisposed(state);
         return state as MutexState ?? throw new ControlledWaitHandleUnsupportedException(
+            api,
+            "the requested operation is not supported by this controlled wait-handle type.");
+    }
+
+    /// <summary>Resolves the modelled state of a controlled handle for an operation which can wait on any handle kind.</summary>
+    internal static HandleState StateForWaitOperation(WaitHandle handle, string api)
+    {
+        HandleState state = StateOrThrow(handle, api);
+        ThrowIfDisposed(state);
+        return state;
+    }
+
+    /// <summary>Resolves the modelled state of a controlled kernel semaphore.</summary>
+    internal static SemaphoreState SemaphoreStateForOperation(Semaphore handle, string api)
+    {
+        HandleState state = StateOrThrow(handle, api);
+        ThrowIfDisposed(state);
+        return state as SemaphoreState ?? throw new ControlledWaitHandleUnsupportedException(
             api,
             "the requested operation is not supported by this controlled wait-handle type.");
     }
@@ -324,11 +382,23 @@ public static class ControlledWaitHandle
         }
     }
 
+    private static void ReleaseWaiters(SemaphoreState state)
+    {
+        while (state.Count > 0 && state.Waiters.Count > 0)
+        {
+            Waiter waiter = state.Waiters[0];
+            state.Waiters.RemoveAt(0);
+            if (state.TryAcquire(waiter.OwnerId))
+            {
+                Complete(waiter);
+            }
+        }
+    }
+
     internal static bool WaitControlled(WaitHandle handle, int millisecondsTimeout, string api)
     {
         ValidateTimeout(millisecondsTimeout);
-        HandleState state = StateOrThrow(handle, api);
-        ThrowIfDisposed(state);
+        HandleState state = StateForWaitOperation(handle, api);
 
         if (state.TryAcquire(ControlledSynchronizationFlow.CurrentId))
         {
@@ -767,20 +837,20 @@ public static class ControlledWaitHandle
     // ---- registered-wait kernel (ThreadPool.RegisterWaitForSingleObject) ----
 
     /// <summary>
-    /// Arms one passive, non-blocking registered-wait iteration: adds a waiter to the target event's FIFO
-    /// waiter set (so an auto-reset signal is consumed exactly once, in arrival order, by
-    /// <see cref="ReleaseWaiters"/>) and registers a virtual-time deadline that completes the waiter with
+    /// Arms one passive, non-blocking registered-wait iteration: adds a waiter to the target handle's FIFO
+    /// waiter set (so an auto-reset signal or semaphore permit is consumed exactly once, in arrival order)
+    /// and registers a virtual-time deadline that completes the waiter with
     /// <see langword="false"/> on elapse. The caller schedules a controlled continuation on the returned
     /// waiter's completion task rather than blocking the logical thread, so a background registration never
     /// occupies the cooperative scheduler. A result of <see langword="true"/> means signalled;
     /// <see langword="false"/> means the deadline elapsed (or the waiter was cancelled by
     /// <see cref="CancelRegisteredWaiter"/>).
     /// </summary>
-    /// <param name="state">The controlled target event's modelled state.</param>
+    /// <param name="state">The controlled target handle's modelled state.</param>
     /// <param name="millisecondsTimeout">The virtual-time timeout, or <see cref="Timeout.Infinite"/>.</param>
     /// <param name="api">The originating API name, used for diagnostics.</param>
     /// <returns>The registered waiter, whose completion task the caller continues on.</returns>
-    internal static Waiter ArmRegisteredWaiter(EventState state, int millisecondsTimeout, string api)
+    internal static Waiter ArmRegisteredWaiter(HandleState state, int millisecondsTimeout, string api)
     {
         var waiter = new Waiter();
         state.Waiters.Add(waiter);
@@ -806,9 +876,9 @@ public static class ControlledWaitHandle
     /// waiter set, cancels its virtual-time deadline, and completes it with <see langword="false"/> so the
     /// caller's scheduled continuation runs and observes the cancellation. Idempotent if already completed.
     /// </summary>
-    /// <param name="state">The event the waiter is registered on.</param>
+    /// <param name="state">The handle the waiter is registered on.</param>
     /// <param name="waiter">The pending waiter to cancel.</param>
-    internal static void CancelRegisteredWaiter(EventState state, Waiter waiter)
+    internal static void CancelRegisteredWaiter(HandleState state, Waiter waiter)
     {
         state.Waiters.Remove(waiter);
         waiter.Deadline?.Cancel();
@@ -841,6 +911,13 @@ public static class ControlledWaitHandle
         if (States.TryGetValue(instance, out HandleState? state))
         {
             state.Disposed = true;
+            foreach (Waiter waiter in state.Waiters)
+            {
+                waiter.Deadline?.Cancel();
+                waiter.Completion.TrySetException(new ObjectDisposedException(nameof(WaitHandle)));
+            }
+
+            state.Waiters.Clear();
         }
 
         // Always release the real identity object's OS handle; the modelled state above is what a
