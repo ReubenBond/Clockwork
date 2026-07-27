@@ -96,6 +96,23 @@ internal static class CecilInspect
         return operands;
     }
 
+    /// <summary>Returns <see langword="true"/> if any method in the module has a call target containing <paramref name="fragment"/>.</summary>
+    public static bool AnyMethodCallsContaining(ModuleDefinition module, string fragment)
+    {
+        foreach (TypeDefinition type in module.GetTypes())
+        {
+            foreach (MethodDefinition method in type.Methods)
+            {
+                if (CallsAnyContaining(method, fragment))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>Returns <see langword="true"/> if the assembly carries the idempotence signature marker.</summary>
     public static bool HasRewriteSignature(ModuleDefinition module) =>
         module.Assembly.CustomAttributes.Any(a => a.AttributeType.Name == "ClockworkRewriteSignatureAttribute");
