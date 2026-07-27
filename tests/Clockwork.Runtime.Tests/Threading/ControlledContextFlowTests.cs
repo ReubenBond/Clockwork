@@ -339,8 +339,8 @@ public sealed class ControlledContextFlowTests
             Record.Exception(() => ControlledSynchronizationContext.Wait(null!, null!, false, 0)),
             "System.Threading.SynchronizationContext.Wait");
     }
-    #pragma warning restore SYSLIB0051
-    #pragma warning restore CS0618
+#pragma warning restore SYSLIB0051
+#pragma warning restore CS0618
 
     private sealed class EscapingSynchronizationContext : SynchronizationContext
     {
