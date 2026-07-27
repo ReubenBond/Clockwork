@@ -334,6 +334,62 @@ can substitute deterministic-insecure bytes - production security semantics are 
 `--builtin-strict`. The selected families are versioned and folded into the rule-set signature,
 so incremental rebuilds stay correct.
 
+#### Controlled task and async rule set (Phase 6A)
+
+The second production built-in rule set, `clockwork.tasks.controlled` (version `1.0.0`),
+controls the compiler-generated async machinery and the direct `Task` surface that ordinary
+application code uses, so `async`/`await` runs on the simulation's single logical thread instead
+of the physical thread pool. It is selected independently of the BCL rule set (CLI
+`--builtin clockwork.tasks.controlled`, or `--builtin all` for both). The exhaustive controlled
+and rejected signature list is generated into [`rule-inventory.md`](rule-inventory.md) and
+verified against the shipped rules by a test.
+
+The rule set has two halves. A **member-aware type substitution** pass retargets the
+compiler-generated builder and awaiter types of an `async` state machine onto controlled
+value-type equivalents in `Clockwork.Runtime.Tasks.CompilerServices`
+(`AsyncTaskMethodBuilder`(`<T>`) → `ControlledAsyncTaskMethodBuilder`(`<T>`); `TaskAwaiter`(`<T>`),
+`ConfiguredTaskAwaitable`(`<T>`)`/ConfiguredTaskAwaiter`, and `YieldAwaitable`/`YieldAwaiter` →
+their `Controlled…` counterparts), rewriting field, local, method- and field-reference, and
+type-operand metadata (including closed generic instances such as `TaskAwaiter<int>`) so a Debug
+or Release state machine is fully controlled. The same pass also retargets the
+`async ValueTask`/`async ValueTask<T>` machinery — `AsyncValueTaskMethodBuilder`(`<T>`),
+`ValueTaskAwaiter`(`<T>`), and `ConfiguredValueTaskAwaitable`(`<T>`)`/ConfiguredValueTaskAwaiter` →
+their `Controlled…` counterparts (the `ValueTaskMachinery` family) — so value-task `async`/`await`
+and `ValueTask.ConfigureAwait(false)` are controlled identically. The controlled awaiter hands
+every continuation to the simulation coordinator rather than the awaited task's completion
+callback, which is exactly why **`ConfigureAwait(false)` stays controlled** while still delegating
+to normal BCL semantics outside a simulation. A **call-site redirect** half routes both the
+non-generic `Task.WhenAll` / `Task.WhenAny` (array, span, pair, enumerable) combinators **and their
+generic `Task<T>` overloads** (array, span, enumerable, and the `WhenAny<T>` pair), the synchronous
+`Task.Wait()` / `Task.WaitAll` / `Task.WaitAny(Task[])` waits, the blocking generic
+`Task<T>.Result` accessor, the `TaskExtensions.Unwrap` extension methods, and
+`Task.ContinueWith(Action<Task>)` to
+`Clockwork.Runtime.Tasks.ControlledTask`. Combinators delegate to the real BCL (their completion
+is driven by antecedents that complete on the logical thread); synchronous waits **pump the
+coordinator loop until completion instead of blocking a physical thread**, then delegate to the
+real API to reproduce its exact `AggregateException` semantics, so a synchronous wait or a blocking
+`Task<T>.Result` read on incomplete controlled work never deadlocks the scheduler.
+`TaskFactory.StartNew` / `TaskFactory<T>.StartNew` are **rejected** at the rewritten call site (they
+offload onto a task scheduler / the thread pool) rather than escaping onto a physical thread.
+
+The redirect obeys the same three-state contract as the BCL rule set: outside a simulation every
+controlled builder/awaiter/shim is a transparent pass-through to the real BCL; inside a simulation
+continuations and waits route through the coordinator; inside a simulation with no registered task
+coordinator the shim throws `ControlledTaskServiceMissingException` rather than silently escaping
+to the thread pool. `Task.Delay` (virtual timers) and `Task.Run` (thread-pool scheduling) are
+**rejected** under simulation with a precise diagnostic rather than modelled with wall-clock time
+or an uncontrolled thread — they are owned by later phases.
+
+**Deferred to Phase 6B** (deliberately *not* in this rule set): `Thread`/`ThreadPool`/`Parallel`,
+`Monitor`/semaphore/wait-handle public shims, timers and the `Task.Delay` implementation,
+cancellation timers, synchronous blocking on `ValueTask`/`ValueTask<T>` (a value task may be
+consumed only once, so a blocking drain is unsafe — `await` is the supported controlled path),
+generic `Task<T>.ContinueWith<TNewResult>` overloads, `TaskCompletionSource`/`TaskFactory` surfaces
+beyond the rejected `StartNew` sites, cross-assembly enforcement, and hardening of exception
+filters/handlers against swallowing scheduler-control flow. Phase 6A already prefers explicit
+gate/state transitions over control exceptions, so a user `catch` cannot swallow the scheduler; the
+remaining filter-level hardening is reported to Phase 6B as a boundary.
+
 Each mode is intended to be strictly additive: an application written for
 cooperative mode should continue to work unmodified under controlled, race
 exploration, or deep instrumentation mode.
@@ -349,6 +405,14 @@ exploration, or deep instrumentation mode.
 - **Deterministic BCL rule set** (`clockwork.bcl.deterministic`) covers the direct static
   time/identity/random surface enumerated in [`rule-inventory.md`](rule-inventory.md).
   Determinism is claimed **only** for those exact signatures.
+- **Controlled task rule set** (`clockwork.tasks.controlled`) controls the compiler-generated
+  `async Task`/`async ValueTask` machinery and the direct `Task`/`Task<T>` combinator (non-generic
+  and generic `WhenAll`/`WhenAny`), synchronous-wait, blocking `Task<T>.Result`, and continuation
+  surface enumerated in [`rule-inventory.md`](rule-inventory.md), routing `async`/`await` and
+  synchronous waits through the simulation coordinator. Control is claimed **only** for those exact
+  signatures; `Task.Delay`/`Task.Run` and `TaskFactory.StartNew` are rejected, and
+  `TaskCompletionSource`, generic `Task<T>.ContinueWith`, synchronous `ValueTask` blocking, and
+  threading primitives are deferred to Phase 6B.
 - **ReadyToRun (R2R) published assemblies** are expected to work for the existing
   kernel and for cooperative/controlled/race-exploration modes, since none of those
   modes require rewriting already-compiled method bodies at load time. This is a

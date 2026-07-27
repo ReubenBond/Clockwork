@@ -98,6 +98,7 @@ public static class RewriteEngine
         [
             new CallSiteRewritingPass(session),
             new TypeReferenceRewritingPass(session),
+            new MemberSubstitutionRewritingPass(session),
         ];
 
         foreach (RewritePass pass in passes)

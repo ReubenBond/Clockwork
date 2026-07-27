@@ -26,4 +26,63 @@ public enum BuiltInRuleFamily
     /// by default and only serves deterministic-insecure bytes under an explicit test-only opt-in.
     /// </summary>
     Crypto,
+
+    /// <summary>
+    /// Task combinators: the static <see cref="System.Threading.Tasks.Task.WhenAll(System.Threading.Tasks.Task[])"/>
+    /// and <c>WhenAny</c> family, redirected to controlled equivalents whose completion order is a
+    /// deterministic function of when the antecedents complete on the logical thread.
+    /// </summary>
+    TaskCombinators,
+
+    /// <summary>
+    /// Task synchronous waits: <c>Task.Wait()</c>, <c>Task.WaitAll</c>, and <c>Task.WaitAny</c>, redirected
+    /// to controlled waits that pump the deterministic loop instead of blocking a physical thread (a
+    /// never-satisfiable wait surfaces as a precise deadlock diagnostic).
+    /// </summary>
+    TaskSynchronization,
+
+    /// <summary>
+    /// Task continuations: <c>Task.ContinueWith</c>, redirected so the continuation is scheduled on the
+    /// controlled coordinator and runs on the logical thread after the antecedent.
+    /// </summary>
+    TaskContinuations,
+
+    /// <summary>
+    /// Task surfaces deferred to later phases: <c>Task.Delay</c> (virtual timers, Phase 8) and
+    /// <c>Task.Run</c> (thread-pool offload, Phase 6B). Classified <c>Rejected</c>:
+    /// the shim fails the call with a precise diagnostic under simulation rather than silently using wall
+    /// time or a real thread-pool thread, and runs the real BCL API unchanged outside simulation.
+    /// </summary>
+    TaskDeferred,
+
+    /// <summary>
+    /// Compiler-generated async machinery: the <c>SubstituteType</c> rules that retarget an
+    /// <c>async</c> state machine's builder and awaiter types
+    /// (<see cref="System.Runtime.CompilerServices.AsyncTaskMethodBuilder"/>, <c>TaskAwaiter</c>,
+    /// <c>ConfiguredTaskAwaitable</c>/<c>YieldAwaitable</c> and their awaiters, generic and non-generic)
+    /// onto Clockwork's controlled equivalents, plus the <c>Task.Yield()</c> redirect. Applied by the
+    /// member-aware substitution pass so every awaited continuation is scheduled through the simulation
+    /// coordinator instead of the thread pool, while <c>ConfigureAwait(false)</c> stays controlled.
+    /// </summary>
+    AsyncMachinery,
+
+    /// <summary>
+    /// Compiler-generated <see cref="System.Threading.Tasks.ValueTask"/> machinery: the
+    /// <c>SubstituteType</c> rules that retarget an <c>async ValueTask</c>/<c>async ValueTask&lt;T&gt;</c>
+    /// state machine's builder and awaiter types
+    /// (<see cref="System.Runtime.CompilerServices.AsyncValueTaskMethodBuilder"/>, <c>ValueTaskAwaiter</c>,
+    /// <c>ConfiguredValueTaskAwaitable</c> and their awaiters, generic and non-generic) onto Clockwork's
+    /// controlled equivalents, so awaiting a <see cref="System.Threading.Tasks.ValueTask"/> is scheduled
+    /// through the coordinator and <c>ConfigureAwait(false)</c> stays controlled.
+    /// </summary>
+    ValueTaskMachinery,
+
+    /// <summary>
+    /// <see cref="System.Threading.Tasks.TaskFactory"/> / <see cref="System.Threading.Tasks.TaskFactory{TResult}"/>
+    /// scheduling: <c>StartNew</c> offloads work onto a task scheduler (the thread pool by default).
+    /// Classified <c>Rejected</c> - the shim fails the call with a precise diagnostic under simulation
+    /// rather than letting work escape onto an uncontrolled physical thread (thread-pool scheduling is
+    /// owned by the threading phase), and runs the real BCL API unchanged outside simulation.
+    /// </summary>
+    TaskFactory,
 }

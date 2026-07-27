@@ -48,6 +48,28 @@ must be updated in the same change with:
   Clockwork-specific changes are noted in each file header and are developed in
   commits separate from the mechanical adaptation.
 
+- **Adapted material (Phase 6A):** Phase 6A's controlled task/async machinery
+  (`src/Clockwork.Runtime/Tasks/` and `.../Tasks/CompilerServices/`, and the
+  member-aware substitution pass in `src/Clockwork.Instrumentation/Rewriting/`) is a
+  **design-level adaptation** of Coyote's controlled-task model — its
+  `Microsoft.Coyote.Runtime.CompilerServices` builder/awaiter types
+  (`AsyncTaskMethodBuilder`, `TaskAwaiter`, `ConfiguredTaskAwaitable`, `YieldAwaitable`,
+  the `AsyncValueTaskMethodBuilder`, `ValueTaskAwaiter`, and `ConfiguredValueTaskAwaitable`
+  value-task equivalents, and their awaiters), its `Microsoft.Coyote.Runtime.CompilerServices`
+  rewriting pass
+  that retargets compiler-generated state machines, and the shape of its controlled
+  task/awaiter tests. **No Coyote source was copied verbatim into these files:** unlike
+  Coyote's from-scratch task reimplementation, Clockwork's controlled builders/awaiters
+  are thin value-type wrappers that forward to the real BCL builder/awaiter and only
+  redirect *where the continuation is scheduled* (to Clockwork's
+  `ISimulationTaskCoordinator` rather than Coyote's `CoyoteRuntime`). The conformance
+  tests are original (they compile and rewrite real state machines with Roslyn) rather
+  than ports of Coyote's test source. Because the approach — not literal source — was
+  adapted, these files do not carry a Coyote copyright header; this entry records the
+  design lineage per the attribution policy above. Control parity is claimed **only**
+  for the exact signatures enumerated in
+  [docs/rule-inventory.md](docs/rule-inventory.md), not for Coyote's full surface.
+
 ### Mono.Cecil
 
 - **License:** MIT

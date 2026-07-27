@@ -19,26 +19,73 @@ public static class RuleInventoryDocument
         var sb = new StringBuilder();
         void Line(string text = "") => sb.Append(text).Append('\n');
 
-        Line("# Deterministic BCL rule inventory");
+        Line("# Built-in rewrite rule inventory");
         Line();
         Line("<!-- Generated from Clockwork.Instrumentation.Rules.BuiltIn.RuleInventoryDocument.Render().");
         Line("     Do not edit by hand; a test verifies this file matches the shipped rule set. -->");
         Line();
-        Line($"Rule set id: `{BuiltInRuleSets.DeterministicBclId}`  ");
-        Line($"Version: `{BuiltInRuleSets.DeterministicBclVersion}`  ");
-        Line($"Shim assembly: `{BuiltInRuleSets.ShimAssemblyName}`");
-        Line();
         Line(
-            "This is the exact, exhaustive surface the built-in rule set redirects. Every other API is " +
+            "This is the exact, exhaustive surface the built-in rule sets redirect. Every other API is " +
             "**not** rewritten. Outside an active simulation each shim runs the real BCL API unchanged; " +
             "under an active simulation with no registered runtime environment the shim fails explicitly " +
-            "rather than fall back to real time or randomness.");
+            "rather than fall back to real time, randomness, or an uncontrolled task.");
+        Line();
+
+        RenderSet(
+            sb,
+            "Deterministic BCL rule set",
+            BuiltInRuleSets.DeterministicBclId,
+            BuiltInRuleSets.DeterministicBclVersion,
+            BuiltInRuleSets.DeterministicBclInventory);
+
+        RenderSet(
+            sb,
+            "Controlled task rule set",
+            BuiltInRuleSets.ControlledTasksId,
+            BuiltInRuleSets.ControlledTasksVersion,
+            BuiltInRuleSets.ControlledTasksInventory);
+
+        Line("## Documented holes (not rewritten in these rule sets)");
+        Line();
+        Line("These nondeterministic or entropy-drawing surfaces are intentionally **not** covered and");
+        Line("remain real BCL calls even under simulation:");
+        Line();
+        Line("- `Stopwatch` instance APIs (`Start`/`Stop`/`Restart`/`Elapsed`/`ElapsedMilliseconds`/`ElapsedTicks`) and the `GetElapsedTime(long, long)` overload.");
+        Line("- Generic cryptographic helpers `RandomNumberGenerator.GetItems<T>` and `Shuffle<T>`, and any `GetString`/`GetHexString` overloads beyond those listed above.");
+        Line("- `DateTime`/`DateTimeOffset` parsing/formatting and any culture-, timezone-, or kind-conversion helpers other than the `Now`/`UtcNow`/`Today` clocks above.");
+        Line("- Synchronous blocking on `ValueTask`/`ValueTask<T>` (`.Result`/`.GetResult()` outside an awaiter): a value task may be consumed only once, so a blocking drain is unsafe. `await` is the supported controlled path; deferred to Phase 6B.");
+        Line("- Generic `Task<TResult>.ContinueWith<TNewResult>` overloads and `TaskFactory`/`TaskFactory<T>` surfaces other than the rejected `StartNew` sites above. Deferred to Phase 6B.");
+        Line("- Thread/`ThreadPool`/`Parallel`, `Monitor`/semaphores/wait handles, timers and the `Task.Delay` implementation, and cancellation timers. These are Phase 6B / Phase 8 scope.");
+        Line();
+        Line("Determinism is claimed **only** for the exact rules tabulated above.");
+
+        return sb.ToString();
+    }
+
+    private static void RenderSet(
+        StringBuilder sb,
+        string title,
+        string id,
+        string version,
+        ImmutableArray<(BuiltInRuleFamily Family, RewriteRule Rule)> inventory)
+    {
+        void Line(string text = "") => sb.Append(text).Append('\n');
+
+        Line($"# {title}");
+        Line();
+        Line($"Rule set id: `{id}`  ");
+        Line($"Version: `{version}`  ");
+        Line($"Shim assembly: `{BuiltInRuleSets.ShimAssemblyName}`");
         Line();
 
         foreach (BuiltInRuleFamily family in BuiltInRuleSets.AllFamilies)
         {
             ImmutableArray<RewriteRule> rules =
-                [.. BuiltInRuleSets.DeterministicBclInventory.Where(e => e.Family == family).Select(e => e.Rule)];
+                [.. inventory.Where(e => e.Family == family).Select(e => e.Rule)];
+            if (rules.IsEmpty)
+            {
+                continue;
+            }
 
             Line($"## {family} family");
             Line();
@@ -56,20 +103,6 @@ public static class RuleInventoryDocument
 
             Line();
         }
-
-        Line("## Documented holes (not rewritten in this rule set)");
-        Line();
-        Line("These nondeterministic or entropy-drawing surfaces are intentionally **not** covered by");
-        Line("Phase 5 and remain real BCL calls even under simulation:");
-        Line();
-        Line("- `Stopwatch` instance APIs (`Start`/`Stop`/`Restart`/`Elapsed`/`ElapsedMilliseconds`/`ElapsedTicks`) and the `GetElapsedTime(long, long)` overload.");
-        Line("- Generic cryptographic helpers `RandomNumberGenerator.GetItems<T>` and `Shuffle<T>`, and any `GetString`/`GetHexString` overloads beyond those listed above.");
-        Line("- `DateTime`/`DateTimeOffset` parsing/formatting and any culture-, timezone-, or kind-conversion helpers other than the `Now`/`UtcNow`/`Today` clocks above.");
-        Line("- Everything outside time/identity/random: task/thread/synchronization primitives, timers, collections, Buggify, hosting, and network/HTTP. These are out of scope for Phase 5.");
-        Line();
-        Line("Determinism is claimed **only** for the exact rules tabulated above.");
-
-        return sb.ToString();
     }
 
     private static string DescribePolicy(ImmutableArray<RewriteRule> rules) =>
@@ -93,6 +126,43 @@ public static class RuleInventoryDocument
             "Static entropy APIs are redirected to a policy shim. The default under simulation is a precise " +
             "rejected-call diagnostic; a test-only opt-in can substitute deterministic-insecure bytes. " +
             "Production security semantics are never changed.",
+        BuiltInRuleFamily.TaskCombinators =>
+            "`Task.WhenAll`/`WhenAny` (the non-generic `Task[]`, `IEnumerable<Task>`, .NET 9+ params " +
+            "`ReadOnlySpan<Task>`, and two-argument overloads, plus their generic `Task<TResult>` " +
+            "counterparts) and the `TaskExtensions.Unwrap` extension methods redirect to controlled " +
+            "combinators. Completion and the returned winner become a deterministic function of when the " +
+            "antecedents complete on the logical thread instead of a physical thread-pool race.",
+        BuiltInRuleFamily.TaskSynchronization =>
+            "Blocking `Task.Wait()`, `Task.WaitAll`, and `Task.WaitAny` redirect to controlled waits that pump " +
+            "the deterministic loop rather than blocking a physical thread; a never-satisfiable wait surfaces " +
+            "as a precise deadlock diagnostic instead of hanging the scheduler.",
+        BuiltInRuleFamily.TaskContinuations =>
+            "`Task.ContinueWith(Action<Task>)` redirects so the continuation is scheduled on the controlled " +
+            "coordinator and runs on the logical thread after the antecedent completes.",
+        BuiltInRuleFamily.TaskDeferred =>
+            "`Task.Delay` (virtual timers, Phase 8) and `Task.Run` (thread-pool offload, Phase 6B) are " +
+            "rejected under simulation with a precise diagnostic rather than silently using wall time or a " +
+            "real thread-pool thread. Outside simulation they run the real BCL API unchanged.",
+        BuiltInRuleFamily.AsyncMachinery =>
+            "The compiler-generated builder and awaiter types of an `async` state machine " +
+            "(`AsyncTaskMethodBuilder`, `TaskAwaiter`, `ConfiguredTaskAwaitable`/`YieldAwaitable` and their " +
+            "awaiters, generic and non-generic) are substituted onto Clockwork's controlled equivalents by " +
+            "the member-aware pass, and `Task.Yield()` redirects to the controlled yield. Every awaited " +
+            "continuation is scheduled through the simulation coordinator instead of the thread pool, and " +
+            "`ConfigureAwait(false)` stays controlled while preserving normal semantics outside simulation.",
+        BuiltInRuleFamily.ValueTaskMachinery =>
+            "The compiler-generated builder and awaiter types of an `async ValueTask`/`async ValueTask<T>` " +
+            "state machine (`AsyncValueTaskMethodBuilder`, `ValueTaskAwaiter`, `ConfiguredValueTaskAwaitable` " +
+            "and their awaiters, generic and non-generic) are substituted onto Clockwork's controlled " +
+            "equivalents by the member-aware pass, so every awaited value-task continuation is scheduled " +
+            "through the simulation coordinator. `ConfigureAwait(false)` stays controlled in simulation while " +
+            "preserving normal semantics outside. Synchronous blocking on a value task is not rewritten " +
+            "(a value task may be consumed only once); `await` is the supported controlled path.",
+        BuiltInRuleFamily.TaskFactory =>
+            "`TaskFactory.StartNew` and `TaskFactory<T>.StartNew` offload work onto a task scheduler (the " +
+            "thread pool by default), which Phase 6A does not control. They are rejected under simulation " +
+            "with a precise diagnostic at the rewritten call site rather than silently escaping onto a " +
+            "physical thread; outside simulation they run the real BCL API unchanged.",
         _ => string.Empty,
     };
 

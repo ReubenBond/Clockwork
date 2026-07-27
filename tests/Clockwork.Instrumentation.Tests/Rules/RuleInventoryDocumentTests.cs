@@ -34,6 +34,11 @@ public sealed class RuleInventoryDocumentTests
         {
             Assert.Contains(rule.Id, rendered, StringComparison.Ordinal);
         }
+
+        foreach ((_, RewriteRule rule) in BuiltInRuleSets.ControlledTasksInventory)
+        {
+            Assert.Contains(rule.Id, rendered, StringComparison.Ordinal);
+        }
     }
 
     private static string InventoryPath()
