@@ -152,6 +152,24 @@ public static class ControlledMonitor
         return StateOf(obj).Owner == ControlledSynchronizationFlow.CurrentId;
     }
 
+    /// <summary>
+    /// Rejects the process-wide <see cref="Monitor.LockContentionCount"/> metric inside simulation.
+    /// Its value aggregates physical runtime contention across unrelated simulations and cannot be
+    /// represented faithfully by a per-simulation cooperative scheduler.
+    /// </summary>
+    /// <returns>The real process-wide count outside simulation.</returns>
+    public static long LockContentionCount()
+    {
+        if (!ControlledTaskRuntime.IsSimulationActive)
+        {
+            return Monitor.LockContentionCount;
+        }
+
+        throw new ControlledTaskUnsupportedException(
+            "System.Threading.Monitor.LockContentionCount",
+            "the process-wide physical lock contention metric has no faithful per-simulation meaning.");
+    }
+
     /// <summary>Controlled <see cref="Monitor.TryEnter(object)"/>: a non-blocking acquire attempt.</summary>
     /// <param name="obj">The lock object.</param>
     /// <returns><see langword="true"/> if the lock was acquired.</returns>

@@ -77,7 +77,7 @@ continuations, async machinery, `Yield`) and Phase 6B (`Run`). All are controlle
 | `Task<T>.ContinueWith<TNewResult>(Func<Task<T>,TNewResult>)` | ✅ Controlled **(Phase 6B gap-closure)** | `clockwork.tasks.continuewith.generic.func` |
 | `Task.Yield()` | ✅ Controlled | `clockwork.tasks.yield.call` (AsyncMachinery) |
 | `async` builder + awaiter types (`AsyncTaskMethodBuilder`, `TaskAwaiter`, `ConfiguredTaskAwaitable`, `YieldAwaitable`, generic + non-generic) | ✅ Controlled | AsyncMachinery family (type substitution) |
-| `Task.Delay` | 🕗 Deferred (Phase 8) | `clockwork.tasks.delay.milliseconds` — **Rejected** until virtual timers land; a virtual-time delay is Phase 8 |
+| `Task.Delay` (all 6 .NET 10 overloads: `int`/`TimeSpan`, cancellation, and `TimeProvider`) | ⛔ Rejected (tested) | `clockwork.tasks.delay.*` — every overload rejects until virtual timers land in Phase 8 |
 | `Task.FromResult` / `FromException` / `FromCanceled` / `CompletedTask` | 🏛 Controlled by architecture | already-completed tasks need no scheduling; awaiting one routes through the controlled awaiter |
 
 ---
@@ -93,19 +93,19 @@ continuations, async machinery, `Yield`) and Phase 6B (`Run`). All are controlle
 
 ## `System.Threading.Tasks.TaskFactory` / `TaskFactory<TResult>`
 
-Coyote wraps the full `StartNew` overload set plus the read-only property getters. Clockwork controls
-the `Action`/`Func<TResult>` `StartNew` overloads (± `CancellationToken`/`TaskCreationOptions`) — the
-forms that actually offload work.
+Coyote wraps the full `StartNew` overload set plus the read-only property getters. Clockwork
+classifies and rewrites the same 24 .NET 10 `StartNew` signatures.
 
 | Coyote surface | Clockwork status | Rule |
 | --- | --- | --- |
-| `TaskFactory.StartNew(Action)` | ✅ Controlled | `clockwork.tasks.factory.startnew.action` |
-| `TaskFactory.StartNew(Action, CancellationToken)` | ✅ Controlled | `clockwork.tasks.factory.startnew.action.cancellationtoken` |
-| `TaskFactory.StartNew(Action, TaskCreationOptions)` | ✅ Controlled | `clockwork.tasks.factory.startnew.action.options` |
-| `TaskFactory.StartNew<TResult>(Func<TResult>)` (+ token / options) | ✅ Controlled | `clockwork.tasks.factory.startnew.func[.cancellationtoken|.options]` |
-| `TaskFactory<TResult>.StartNew(Func<TResult>)` (+ token / options) | ✅ Controlled | `clockwork.tasks.factory.generic.startnew.func[.cancellationtoken|.options]` |
-| `StartNew(…, TaskCreationOptions, TaskScheduler)` (explicit non-default scheduler) | ⛔ Rejected (tested) | folded into the options overload's guard: a non-default `TaskScheduler` / `AttachedToParent` cannot be honoured by the coordinator, so an unsupported combination is rejected with a precise diagnostic |
-| `StartNew(Action<object>, object state, …)` (state overloads) | 🏛 Controlled by architecture | the delegate is scheduled the same way; the state-carrying overloads reduce to the controlled forms |
+| `TaskFactory.StartNew(Action)` (+ token / options / full scheduler) | ✅ Controlled | `clockwork.tasks.factory.startnew.action*` |
+| `TaskFactory.StartNew(Action<object>, object)` (+ token / options / full scheduler) | ✅ Controlled | `clockwork.tasks.factory.startnew.action.state*` |
+| `TaskFactory.StartNew<TResult>(Func<TResult>)` (+ token / options / full scheduler) | ✅ Controlled | `clockwork.tasks.factory.startnew.func*` |
+| `TaskFactory.StartNew<TResult>(Func<object,TResult>, object)` (+ token / options / full scheduler) | ✅ Controlled | `clockwork.tasks.factory.startnew.func.state*` |
+| `TaskFactory<TResult>.StartNew(Func<TResult>)` (+ token / options / full scheduler) | ✅ Controlled | `clockwork.tasks.factory.generic.startnew.func*` |
+| `TaskFactory<TResult>.StartNew(Func<object,TResult>, object)` (+ token / options / full scheduler) | ✅ Controlled | `clockwork.tasks.factory.generic.startnew.func.state*` |
+| Full-scheduler form with `TaskScheduler.Default` and `TaskCreationOptions.None` | ✅ Controlled | state, cancellation, result, and `Task.AsyncState` are preserved |
+| Full-scheduler form with a custom scheduler; any non-`None` creation options | ⛔ Rejected (tested) | unsupported observable semantics are never silently ignored or allowed to escape the logical strand |
 | `get_ContinuationOptions` / `get_CancellationToken` / `get_CreationOptions` / `get_Scheduler` | n/a | pure read-only property getters — no scheduling, no interception needed |
 
 ---
@@ -186,9 +186,9 @@ not — matching the BCL contract exactly, and covered by conformance tests.
 
 ## `System.Threading.Monitor` — Coyote `…Types.Threading.Monitor` (Phase 7A)
 
-Coyote's controlled `Monitor` mirrors the BCL static surface (`Enter`, `Exit`, `IsEntered`, `TryEnter`,
-`Wait`, `Pulse`, `PulseAll`) on its scheduler. Clockwork mirrors the **entire** .NET 10 static surface on
-the cooperative logical-thread kernel. Because the C# `lock (object)` statement lowers to
+Coyote's controlled `Monitor` mirrors the synchronization surface (`Enter`, `Exit`, `IsEntered`,
+`TryEnter`, `Wait`, `Pulse`, `PulseAll`) on its scheduler. Clockwork classifies the **entire** .NET 10
+declared surface on the cooperative logical-thread kernel. Because the C# `lock (object)` statement lowers to
 `Monitor.Enter(obj, ref bool)` + `finally Monitor.Exit(obj)`, redirecting these members controls **every**
 `lock` automatically — no separate lock rule is needed (verified for both Debug and Release lowering).
 
@@ -198,6 +198,7 @@ the cooperative logical-thread kernel. Because the C# `lock (object)` statement 
 | `Monitor.Enter(object, ref bool)` | ✅ Controlled | `clockwork.monitor.enter.locktaken` (the `lock` lowering target) |
 | `Monitor.Exit(object)` | ✅ Controlled | `clockwork.monitor.exit` |
 | `Monitor.IsEntered(object)` | ✅ Controlled | `clockwork.monitor.isentered` |
+| `Monitor.LockContentionCount` | ⛔ Rejected (tested) | `clockwork.monitor.get_lockcontentioncount` — process-wide physical contention has no per-simulation meaning |
 | `Monitor.TryEnter(object)` | ✅ Controlled | `clockwork.monitor.tryenter` |
 | `Monitor.TryEnter(object, ref bool)` | ✅ Controlled | `clockwork.monitor.tryenter.locktaken` |
 | `Monitor.TryEnter(object, int)` | ✅ Controlled | `clockwork.monitor.tryenter.milliseconds` |
@@ -310,24 +311,25 @@ lands.
 
 - **Coyote `Thread`:** 13/13 controlled surfaces mirrored; Clockwork additionally **rejects** 4
   OS-specific members Coyote leaves uncontrolled.
-- **Coyote `Task` static / async machinery:** fully controlled (Phase 6A + `Task.Run` in 6B);
-  `Task.Delay` deferred to Phase 8.
-- **Coyote `TaskFactory`:** the offloading `StartNew` overloads controlled; unsupported
-  scheduler/option combinations rejected.
+- **Coyote `Task` static / async machinery:** fully controlled except all six `Task.Delay` overloads,
+  which are explicitly rejected until Phase 8.
+- **Coyote `TaskFactory`:** all 24 .NET 10 `StartNew` signatures classified and rewritten; default
+  scheduler forms controlled, unsupported scheduler/option combinations rejected.
 - **Coyote `TaskCompletionSource` / `TaskExtensions` / `ValueTask`:** controlled by architecture
   (awaiter substitution) with explicit `Controlled*` types available.
 - **Coyote `Parallel`:** simple-body overloads controlled; loop-state / thread-local / partitioner
   overloads rejected with tested diagnostics.
 - **`ThreadPool`:** modelled by Clockwork **beyond Coyote**; native-overlapped and registered-wait
   APIs rejected (registered waits pending Phase 7B).
-- **Coyote `Monitor`:** 17/17 .NET 10 static overloads controlled (Phase 7A), which also controls every
-  C# `lock (object)` statement in both Debug and Release lowering.
+- **Coyote `Monitor`:** all 18 .NET 10 declared members classified: 17 synchronization methods
+  controlled and process-wide `LockContentionCount` rejected; C# `lock (object)` is controlled in
+  both Debug and Release lowering.
 - **`System.Threading.Lock`:** controlled by type substitution **beyond Coyote** (Phase 7A), covering the
   C# `lock (Lock)` scope lowering; nothing rejected.
 - **Coyote `SemaphoreSlim`:** every constructor, `CurrentCount`, sync `Wait`, async `WaitAsync`,
   `Release`, and `Dispose` controlled (Phase 7A); `AvailableWaitHandle` rejected pending Phase 7B.
 - **Deferred by phase plan:** wait handles / events / `Interlocked` / `Volatile` / `SpinWait` struct
-  (Phase 7B); `ReaderWriterLockSlim`/`Mutex`/`Semaphore`/`SpinLock` and timers/`Task.Delay` (Phase 8).
+  (Phase 7B); `ReaderWriterLockSlim`/`Mutex`/`Semaphore`/`SpinLock` and timers (Phase 8).
 
 Every Coyote entry above is therefore **controlled** (with a cited rule id or by architecture),
 **deliberately rejected with a tested reason**, or **explicitly deferred to a named later phase** —

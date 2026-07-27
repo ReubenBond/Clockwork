@@ -54,8 +54,8 @@ public static class RuleInventoryDocument
         Line("- Generic cryptographic helpers `RandomNumberGenerator.GetItems<T>` and `Shuffle<T>`, and any `GetString`/`GetHexString` overloads beyond those listed above.");
         Line("- `DateTime`/`DateTimeOffset` parsing/formatting and any culture-, timezone-, or kind-conversion helpers other than the `Now`/`UtcNow`/`Today` clocks above.");
         Line("- Synchronous blocking on `ValueTask`/`ValueTask<T>` (`.Result`/`.GetResult()` outside an awaiter): a value task may be consumed only once, so a blocking drain is unsafe. `await` is the supported controlled path.");
-        Line("- `Monitor`, semaphores, and wait handles (including the `ThreadPool` registered-wait APIs, which are rejected until then). These are Phase 7 scope.");
-        Line("- Timers, `PeriodicTimer`, the `Task.Delay` implementation, and cancellation timers. These are Phase 8 scope (`Thread.Sleep` is a controlled virtual wait now).");
+        Line("- `ReaderWriterLockSlim`, `Mutex`, the kernel `Semaphore`, `SpinLock`, and general `WaitHandle` operations remain unrewritten. The `ThreadPool` registered-wait APIs listed above are rejected.");
+        Line("- `Timer`, `PeriodicTimer`, and cancellation timers remain unrewritten Phase 8 scope.");
         Line();
         Line("Determinism is claimed **only** for the exact rules tabulated above.");
 
@@ -165,12 +165,12 @@ public static class RuleInventoryDocument
             "preserving normal semantics outside. Synchronous blocking on a value task is not rewritten " +
             "(a value task may be consumed only once); `await` is the supported controlled path.",
         BuiltInRuleFamily.TaskFactory =>
-            "`TaskFactory.StartNew` and `TaskFactory<T>.StartNew` (the `Action`/`Func<TResult>` overloads with " +
-            "and without a `CancellationToken` or `TaskCreationOptions`) offload work onto a task scheduler " +
-            "that Phase 6A left uncontrolled. Each redirects to a controlled equivalent that schedules the " +
-            "delegate as a controlled operation on the simulation coordinator; `TaskCreationOptions` are " +
-            "honoured where they have a controlled meaning and an unsupported combination is rejected with a " +
-            "precise diagnostic. Outside simulation they run the real BCL API unchanged.",
+            "All 24 .NET 10 `TaskFactory.StartNew` and `TaskFactory<T>.StartNew` overloads are classified, " +
+            "including state-carrying delegates and the full cancellation/options/scheduler forms. Each " +
+            "redirects to a controlled equivalent that schedules the delegate as a fresh logical strand while " +
+            "preserving state, cancellation, and results. Non-default schedulers and creation options whose " +
+            "semantics cannot be preserved are rejected precisely; outside simulation every overload runs the " +
+            "real BCL API unchanged.",
         BuiltInRuleFamily.Thread =>
             "`Thread` construction (`ThreadStart`/`ParameterizedThreadStart`, with and without a stack size), " +
             "`Start`, `Join` (all overloads), `Sleep`, `Yield`, and `SpinWait` redirect to a controlled thread " +
@@ -193,6 +193,16 @@ public static class RuleInventoryDocument
             "coordinator, preserving results, cancellation, and exception aggregation. The `ParallelLoopState` " +
             "break/stop overloads cannot be modelled deterministically yet and are rejected with a precise " +
             "diagnostic.",
+        BuiltInRuleFamily.Monitor =>
+            "The complete .NET 10 `Monitor` surface is classified: synchronization and C# `lock (object)` " +
+            "lowering are controlled with deterministic virtual-time deadlines, while the process-wide " +
+            "`LockContentionCount` metric is rejected because it has no per-simulation meaning.",
+        BuiltInRuleFamily.Lock =>
+            "The .NET 9+ `System.Threading.Lock` type and nested `Scope` are substituted onto controlled " +
+            "equivalents, covering the dedicated C# lock lowering in Debug and Release builds.",
+        BuiltInRuleFamily.Semaphore =>
+            "The .NET 10 `SemaphoreSlim` constructors, counts, waits, releases, and disposal are controlled; " +
+            "`AvailableWaitHandle` is explicitly rejected until general wait handles are modelled.",
         BuiltInRuleFamily.UncontrolledInvocation =>
             "Process control and abrupt-termination APIs (`Process.Start`/`Start` instance/`Kill`/`WaitForExit`/" +
             "`WaitForExitAsync`, `Environment.Exit`/`FailFast`) cannot be modelled inside a single simulated " +

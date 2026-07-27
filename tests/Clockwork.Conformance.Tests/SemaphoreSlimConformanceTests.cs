@@ -135,11 +135,29 @@ public sealed class SemaphoreSlimConformanceTests : IDisposable
         """;
 
     private readonly RewriteFixture _fixture = new();
-    private readonly Lazy<StagedProbe> _probe;
+    private readonly Lazy<StagedProbe> _release;
+    private readonly Lazy<StagedProbe> _debug;
 
-    public SemaphoreSlimConformanceTests() =>
-        _probe = new Lazy<StagedProbe>(() =>
-            _fixture.StageControlledTasks("Conf.Semaphore", "Conf.SemaphoreProbe", Source, optimize: true));
+    public SemaphoreSlimConformanceTests()
+    {
+        _release = new Lazy<StagedProbe>(() =>
+            _fixture.StageControlledTasks("Conf.SemaphoreRel", "Conf.SemaphoreProbe", Source, optimize: true));
+        _debug = new Lazy<StagedProbe>(() =>
+            _fixture.StageControlledTasks("Conf.SemaphoreDbg", "Conf.SemaphoreProbe", Source, optimize: false));
+    }
+
+    public static TheoryData<bool> Optimize => new() { true, false };
+
+    [Theory]
+    [MemberData(nameof(Optimize))]
+    public void SemaphoreLoweringIsEquivalentInDebugAndRelease(bool optimize)
+    {
+        using var host = new SimulationHost(Start);
+        Assert.Equal(0, Result<int>((Task<int>)host.Invoke(Method("WaitBlocksUntilRelease", optimize))!));
+        Assert.Equal(0, Result<int>((Task<int>)host.Invoke(Method("WaitAsyncCompletesOnRelease", optimize))!));
+        Assert.True(Result<bool>((Task<bool>)host.Invoke(Method("WaitFiniteTimesOut", optimize))!));
+        Assert.True(Result<bool>((Task<bool>)host.Invoke(Method("AvailableWaitHandleRejected", optimize))!));
+    }
 
     [Fact]
     public void WaitBlocksUntilRelease()
@@ -228,7 +246,10 @@ public sealed class SemaphoreSlimConformanceTests : IDisposable
         Assert.True(await task);
     }
 
-    private MethodInfo Method(string name) => _probe.Value.Method(name);
+    private MethodInfo Method(string name) => _release.Value.Method(name);
+
+    private MethodInfo Method(string name, bool optimize) =>
+        (optimize ? _release : _debug).Value.Method(name);
 
     private static T Result<T>(object task)
     {

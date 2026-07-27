@@ -115,19 +115,39 @@ must be updated in the same change with:
 
 - **License:** MIT
 - **Repository:** https://github.com/jbevain/cecil
-- **Why it's relevant:** Cecil is the leading .NET IL manipulation library and the
-  most likely dependency for "deep instrumentation mode" build-time IL rewriting
-  (`Clockwork.Instrumentation.Build`, see [docs/compatibility.md](docs/compatibility.md)).
-  As of Phase 4A it is a **package dependency** of `Clockwork.Instrumentation`
-  (`Mono.Cecil` 0.11.6), used by the rewrite engine. It is not referenced by the
-  runtime or simulation projects.
-- **Adaptation policy:** Cecil is added as a NuGet **package** reference, not source
-  adaptation, so it only requires standard NuGet license acknowledgment (MIT, covered
-  by the package's `PackageLicenseExpression` and consumer tooling) plus this entry
-  noting the dependency and its MIT license. No Cecil source has been copied or
-  adapted into this repository; the Coyote-adapted files above use Cecil purely
-  through its public API. If any Cecil source is ever copied or adapted directly, the
-  same attribution requirements as Coyote above apply.
+- **Distribution:** `Clockwork.Instrumentation.Build` and `Clockwork.Tool` bundle the
+  Mono.Cecil 0.11.6 binaries so their build task and tool can run without exposing
+  Mono.Cecil as a package dependency. Both packages therefore include this notice and
+  the complete Mono.Cecil MIT copyright/license text below. Mono.Cecil is not
+  referenced by the Clockwork runtime or simulation projects.
+- **Adaptation policy:** Mono.Cecil is used through its public API; no Mono.Cecil source
+  has been copied or adapted into this repository. If source is copied or adapted in
+  the future, the same attribution requirements as Coyote above apply.
+
+Mono.Cecil license:
+
+> Copyright (c) 2008 - 2015 Jb Evain
+>
+> Copyright (c) 2008 - 2011 Novell, Inc.
+>
+> Permission is hereby granted, free of charge, to any person obtaining
+> a copy of this software and associated documentation files (the
+> "Software"), to deal in the Software without restriction, including
+> without limitation the rights to use, copy, modify, merge, publish,
+> distribute, sublicense, and/or sell copies of the Software, and to
+> permit persons to whom the Software is furnished to do so, subject to
+> the following conditions:
+>
+> The above copyright notice and this permission notice shall be
+> included in all copies or substantial portions of the Software.
+>
+> THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+> EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+> MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+> NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+> LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+> OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+> WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### FoundationDB
 
