@@ -34,13 +34,19 @@ are historical implementation notes.
   `Task.Run`, all 24 .NET 10 `TaskFactory`/`TaskFactory<T>.StartNew` overloads, `Thread`,
   `ThreadPool`, `Parallel`, `Monitor`, `System.Threading.Lock`, and `SemaphoreSlim`. Work executes on
   controlled logical strands; Debug and Release compiler lowering are both conformance-tested.
+- Phase 7B completes the synchronization surface: the full .NET 10 `Interlocked` and `Volatile`
+  surfaces, `SpinWait`/`SpinUntil`, the wait-handle / event family
+  (`WaitHandle`/`EventWaitHandle`/`AutoResetEvent`/`ManualResetEvent` with
+  `WaitOne`/`WaitAny`/`WaitAll`/`SignalAndWait`), the `SemaphoreSlim.AvailableWaitHandle` bridge, and
+  the `ThreadPool` registered-wait APIs
+  (`RegisterWaitForSingleObject`/`UnsafeRegisterWaitForSingleObject`) are all controlled.
 - All six .NET 10 `Task.Delay` overloads are rejected during simulation until virtual delays are
   implemented, and pass through unchanged outside simulation. Custom `TaskScheduler` instances and
   unsupported `TaskCreationOptions` are likewise rejected rather than ignored.
-- Exact limitations: general wait handles/events, `ReaderWriterLockSlim`, `Mutex`, kernel `Semaphore`,
-  struct `SpinLock`, timers/cancellation timers, and synchronous `ValueTask` blocking are not rewritten.
-  `SemaphoreSlim.AvailableWaitHandle`, registered thread-pool waits, and unmodellable OS APIs are
-  explicitly rejected. Execution is cooperative and non-preemptive between yield points.
+- Exact limitations: `ReaderWriterLockSlim`, `Mutex`, kernel `Semaphore`, struct `SpinLock`,
+  `ManualResetEventSlim`, timers/cancellation timers, and synchronous `ValueTask` blocking are not
+  rewritten (Phase 8+). Named / cross-process event APIs, raw wait-handle accessors, and unmodellable
+  OS APIs are explicitly rejected. Execution is cooperative and non-preemptive between yield points.
 
 ## Build and test
 

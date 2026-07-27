@@ -175,8 +175,9 @@ queue raw work items are deterministic.
 | `UnsafeQueueUserWorkItem(IThreadPoolWorkItem, bool)` | ✅ Controlled (does **not** flow `ExecutionContext`) | `clockwork.threadpool.unsafequeue.workitem` |
 | `UnsafeQueueUserWorkItem<TState>(Action<TState>, TState, bool)` | ✅ Controlled (does **not** flow `ExecutionContext`) | `clockwork.threadpool.unsafequeue.generic` |
 | `UnsafeQueueNativeOverlapped(NativeOverlapped*)` | ⛔ Rejected (tested) | `clockwork.threadpool.unsafequeuenativeoverlapped` — native overlapped I/O cannot be modelled |
-| `RegisterWaitForSingleObject(…)` (uint32/int32/int64/TimeSpan) | ⛔ Rejected (tested) → 🕗 Phase 7 | `clockwork.threadpool.registerwait.*` — depends on controlled `WaitHandle`s (Phase 7); rejected until then |
-| `UnsafeRegisterWaitForSingleObject(…)` (uint32/int32/int64/TimeSpan) | ⛔ Rejected (tested) → 🕗 Phase 7 | `clockwork.threadpool.unsaferegisterwait.*` |
+| `RegisterWaitForSingleObject(…)` (uint32/int32/int64/TimeSpan) | ✅ Controlled (flows `ExecutionContext`) | `clockwork.threadpool.registerwait.*` — passive event-driven controlled wait; fires `timedOut:false` on signal, `timedOut:true` on the virtual-time deadline |
+| `UnsafeRegisterWaitForSingleObject(…)` (uint32/int32/int64/TimeSpan) | ✅ Controlled (does **not** flow `ExecutionContext`) | `clockwork.threadpool.unsaferegisterwait.*` |
+| `RegisteredWaitHandle` (returned token; `Unregister(WaitHandle)`) | ✅ Controlled (whole-type substitution → `ControlledRegisteredWaitHandle`) | `clockwork.threadpool.registeredwaithandle.type` — `Unregister` stops the wait and signals its completion event |
 
 **ExecutionContext modelling:** the safe `QueueUserWorkItem` variants capture and flow the caller's
 `ExecutionContext` (so `AsyncLocal` values are visible to the callback); the `Unsafe…` variants do
@@ -276,13 +277,17 @@ constructors redirect to `Create` factories and every instance member is a recei
 | `Release()` | ✅ Controlled | `clockwork.semaphoreslim.release` |
 | `Release(int)` | ✅ Controlled | `clockwork.semaphoreslim.release.count` |
 | `Dispose()` | ✅ Controlled | `clockwork.semaphoreslim.dispose` |
-| `SemaphoreSlim.AvailableWaitHandle` | ⛔ Rejected (tested) | `clockwork.semaphoreslim.get_availablewaithandle` — exposes a `WaitHandle` (Phase 7B); rejected precisely until then |
+| `SemaphoreSlim.AvailableWaitHandle` | ✅ Controlled | `clockwork.semaphoreslim.get_availablewaithandle` — bridged to a controlled manual-reset wait handle (Phase 7B) tracking count > 0 |
 
 **Semantics:** a synchronous `Wait` with no permit pumps the loop until a permit is released; `WaitAsync`
 returns a task completed when a permit is released (driven by the controlled awaiter when awaited);
 `Release` enforces the maximum count (`SemaphoreFullException`) and serves waiters in a deterministic,
 replayable FIFO order (matching arrival, not promising BCL fairness); cancellation is honoured
-synchronously on the logical thread (`OperationCanceledException`). **Timeouts:** zero timeouts are
+synchronously on the logical thread (`OperationCanceledException`). `AvailableWaitHandle` is bridged to a
+controlled manual-reset wait handle — materialised once and cached — whose signalled state tracks whether
+a permit is available (count > 0) across every `Wait`/`Release` transition; observing it never consumes a
+permit and it composes with `WaitAny`/`WaitAll`, and it faults after the semaphore is disposed.
+**Timeouts:** zero timeouts are
 faithful non-blocking tries; a finite positive timeout (sync `Wait` or async `WaitAsync`) completes with
 `false` on a **simulated** deadline driven by the cluster clock — a same-instant release or cancellation
 wins over the timeout (Phase 3B first-winner), no wall-clock time is used; a never-satisfiable *infinite*
@@ -290,18 +295,170 @@ wins over the timeout (Phase 3B first-winner), no wall-clock time is used; a nev
 
 ---
 
+## `System.Threading.Interlocked` — Coyote `…Types.Threading.Interlocked` (Phase 7B)
+
+Coyote controls the interlocked surface so that under its scheduler each atomic read-modify-write is
+observed as an indivisible operation. Clockwork mirrors the **full .NET 10 `Interlocked` surface** by
+redirecting every call site to a shim with the identical `ref`-first signature. Because Clockwork runs on
+a **single cooperative logical thread** the operation can never be interleaved mid-flight, so each shim
+delegates straight to the real primitive — preserving exact atomic return, overflow, and reference-write
+semantics inside and outside a simulation. The **documented exploration policy** injects **no**
+mid-operation scheduling point (unlike Coyote, whose real preemptible threads require one); an atomic
+operation is never split. The single delegation site is the future Phase 9 race-hook attachment point.
+
+| .NET 10 member | Posture | Rule id |
+| --- | --- | --- |
+| `Increment(ref int/long/uint/ulong)` | ✅ Controlled | `clockwork.interlocked.increment.*` |
+| `Decrement(ref int/long/uint/ulong)` | ✅ Controlled | `clockwork.interlocked.decrement.*` |
+| `Add(ref int/long/uint/ulong, …)` | ✅ Controlled | `clockwork.interlocked.add.*` |
+| `And(ref int/uint/long/ulong, …)` | ✅ Controlled | `clockwork.interlocked.and.*` |
+| `Or(ref int/uint/long/ulong, …)` | ✅ Controlled | `clockwork.interlocked.or.*` |
+| `Exchange(ref T, …)` — int, long, object, sbyte, short, byte, ushort, uint, ulong, float, double, IntPtr, UIntPtr, generic `<T> where T : class?` | ✅ Controlled | `clockwork.interlocked.exchange.*` |
+| `CompareExchange(ref T, …, …)` — same 13 primitive/native/float/reference overloads + generic `<T> where T : class?` | ✅ Controlled | `clockwork.interlocked.compareexchange.*` |
+| `Read(ref long/ulong)` | ✅ Controlled | `clockwork.interlocked.read.*` |
+| `MemoryBarrier()`, `MemoryBarrierProcessWide()` | ✅ Controlled | `clockwork.interlocked.memorybarrier`, `…processwide` |
+
+**Semantics:** every overload returns exactly what the BCL returns (the incremented/decremented value,
+the sum, the *original* value for `And`/`Or`/`Exchange`/`CompareExchange`) and writes the same result to
+the referenced location; `CompareExchange` swaps only when the comparand matches; the generic reference
+overloads operate by identity. No overflow checking is added or removed. Enumerated against the .NET 10
+reference assemblies; no applicable `Interlocked` overload is left uncontrolled.
+
+---
+
+## `System.Threading.Volatile` — Coyote `…Types.Threading.Volatile` (Phase 7B)
+
+Coyote controls the volatile surface so a read/write and its fence are observed atomically under its
+scheduler. Clockwork mirrors the **full .NET 10 `Volatile` surface** by redirecting every call site to a
+shim with the identical `ref`-first signature. On the single cooperative logical thread a volatile access
+is an indivisible step, so each shim delegates to the real primitive — preserving the exact value together
+with the acquire (read) / release (write) fence intent. The single delegation site is the future Phase 9
+race-hook attachment point.
+
+| .NET 10 member | Posture | Rule id |
+| --- | --- | --- |
+| `Read(ref bool/sbyte/byte/short/ushort/int/uint/long/ulong/IntPtr/UIntPtr/float/double)` | ✅ Controlled | `clockwork.volatile.read.*` |
+| `Read<T>(ref T) where T : class?` | ✅ Controlled | `clockwork.volatile.read.generic` |
+| `Write(ref bool/sbyte/byte/short/ushort/int/uint/long/ulong/IntPtr/UIntPtr/float/double, …)` | ✅ Controlled | `clockwork.volatile.write.*` |
+| `Write<T>(ref T, T) where T : class?` | ✅ Controlled | `clockwork.volatile.write.generic` |
+| `ReadBarrier()`, `WriteBarrier()` | ✅ Controlled | `clockwork.volatile.readbarrier`, `…writebarrier` |
+
+**Semantics:** `Read` returns exactly the value at the location; `Write` stores exactly the supplied
+value; the generic overloads publish/acquire a reference by identity; the barriers are controlled
+acquire/release fences. Enumerated against the .NET 10 reference assemblies (13 primitive/native/float
+`Read` + 1 generic, the matching 14 `Write`, and both barriers); no applicable `Volatile` overload is
+left uncontrolled.
+
+---
+
+## `System.Threading.SpinWait` — Coyote `…Types.Threading.SpinWait` (Phase 7B)
+
+`SpinWait` is a **value type**, so — exactly like `System.Threading.Lock` — it is retargeted by
+**whole-type substitution** rather than per-member call redirects. Every local/field/parameter typed
+`SpinWait`, each `new SpinWait()` / `default`, the instance members and the static `SpinUntil` overloads
+remap onto the controlled `ControlledSpinWait` struct. Coyote controls `SpinWait` so a spin yields to its
+scheduler instead of burning CPU; Clockwork does the same. Inside a simulation a spin never consumes real
+time: `SpinOnce` is a cooperative no-op that only advances the observable spin count, and `SpinUntil` pumps
+the deterministic loop until its predicate holds (a never-satisfiable predicate surfaces as the loop-model
+deadlock diagnostic). The finite `SpinUntil` overloads use a first-winner virtual-time deadline. Outside a
+simulation every member delegates to a real wrapped `SpinWait`.
+
+| .NET 10 member | Posture | Rule id |
+| --- | --- | --- |
+| `SpinWait` type (value type) | ✅ Controlled (type substitution) | `clockwork.spinwait.type` |
+| `Count` { get; } | ✅ Controlled | via `clockwork.spinwait.type` |
+| `NextSpinWillYield` { get; } | ✅ Controlled | via `clockwork.spinwait.type` |
+| `Reset()` | ✅ Controlled | via `clockwork.spinwait.type` |
+| `SpinOnce()`, `SpinOnce(int)` | ✅ Controlled | via `clockwork.spinwait.type` |
+| `SpinUntil(Func<bool>)` | ✅ Controlled | via `clockwork.spinwait.type` |
+| `SpinUntil(Func<bool>, int)`, `SpinUntil(Func<bool>, TimeSpan)` | ✅ Controlled | via `clockwork.spinwait.type` |
+
+**Semantics:** `Count` and `NextSpinWillYield` mirror the BCL's observable spin progress (the yield
+threshold matches the documented value); `Reset` clears the count; `SpinOnce` never busy-spins; the
+`SpinUntil` predicate is evaluated on the logical thread and the loop is pumped deterministically until it
+holds or a virtual deadline elapses. Enumerated against the .NET 10 reference assemblies (2 properties, 4
+instance methods, 3 static `SpinUntil` overloads); no applicable `SpinWait` member is left uncontrolled.
+
+---
+
+## `System.Threading.WaitHandle` / `EventWaitHandle` / `AutoResetEvent` / `ManualResetEvent` — Coyote `…Types.Threading` events (Phase 7B)
+
+`AutoResetEvent`, `ManualResetEvent` and `EventWaitHandle` are **concrete sealed classes**, so — exactly
+like the controlled `SemaphoreSlim` — the real object is retained as an **identity handle** while its
+signalled state and a **deterministic FIFO waiter set** live in a weak-keyed side table. Each `new` is
+redirected to a `Create` factory (`clockwork.autoresetevent.ctor`, `clockwork.manualresetevent.ctor`,
+`clockwork.eventwaithandle.ctor.*`); every member inherited from `WaitHandle` (`WaitOne` ×5, `Dispose`,
+`Close`) is a receiver-first shim on `ControlledWaitHandle`; `Set`/`Reset` are receiver-first shims on
+`ControlledEventWaitHandle`. A `WaitOne` with no signal pumps the deterministic loop until `Set` (a
+never-satisfiable wait surfaces as the loop-model deadlock diagnostic); an **auto-reset** `Set` wakes and
+consumes exactly one eligible waiter (or leaves the event signalled until the next `WaitOne` consumes it),
+while a **manual-reset** `Set` releases every waiter and stays signalled until `Reset`. Finite timeouts use
+a first-winner virtual-time deadline (zero polls, infinite never times out). Named / cross-process APIs and
+the raw native-handle accessors cannot be modelled in a single simulated process and are rejected precisely.
+Coyote controls the same event surface on its cooperative scheduler; adapted from Microsoft Coyote (MIT).
+Outside a simulation every shim delegates to the real BCL primitive.
+
+| .NET 10 member | Posture | Rule id |
+| --- | --- | --- |
+| `new AutoResetEvent(bool)` | ✅ Controlled | `clockwork.autoresetevent.ctor` |
+| `new ManualResetEvent(bool)` | ✅ Controlled | `clockwork.manualresetevent.ctor` |
+| `new EventWaitHandle(bool, EventResetMode)` | ✅ Controlled | `clockwork.eventwaithandle.ctor.mode` |
+| `new EventWaitHandle(bool, EventResetMode, string)` | ✅ Controlled (null name) / ⛔ Rejected (non-null name) | `clockwork.eventwaithandle.ctor.named` |
+| `new EventWaitHandle(bool, EventResetMode, string, out bool)` | ✅ Controlled (null name) / ⛔ Rejected (non-null name) | `clockwork.eventwaithandle.ctor.named.creatednew` |
+| `new EventWaitHandle(bool, EventResetMode, string, NamedWaitHandleOptions)` | ✅ Controlled (null name) / ⛔ Rejected (non-null name) | `clockwork.eventwaithandle.ctor.named.options` |
+| `new EventWaitHandle(bool, EventResetMode, string, NamedWaitHandleOptions, out bool)` | ✅ Controlled (null name) / ⛔ Rejected (non-null name) | `clockwork.eventwaithandle.ctor.named.options.creatednew` |
+| `WaitHandle.WaitOne()` | ✅ Controlled | `clockwork.waithandle.waitone` |
+| `WaitHandle.WaitOne(int)` | ✅ Controlled | `clockwork.waithandle.waitone.milliseconds` |
+| `WaitHandle.WaitOne(TimeSpan)` | ✅ Controlled | `clockwork.waithandle.waitone.timespan` |
+| `WaitHandle.WaitOne(int, bool)` | ✅ Controlled | `clockwork.waithandle.waitone.milliseconds.exitcontext` |
+| `WaitHandle.WaitOne(TimeSpan, bool)` | ✅ Controlled | `clockwork.waithandle.waitone.timespan.exitcontext` |
+| `WaitHandle.WaitAny(WaitHandle[])` | ✅ Controlled | `clockwork.waithandle.waitany` |
+| `WaitHandle.WaitAny(WaitHandle[], int)` | ✅ Controlled | `clockwork.waithandle.waitany.milliseconds` |
+| `WaitHandle.WaitAny(WaitHandle[], TimeSpan)` | ✅ Controlled | `clockwork.waithandle.waitany.timespan` |
+| `WaitHandle.WaitAny(WaitHandle[], int, bool)` | ✅ Controlled | `clockwork.waithandle.waitany.milliseconds.exitcontext` |
+| `WaitHandle.WaitAny(WaitHandle[], TimeSpan, bool)` | ✅ Controlled | `clockwork.waithandle.waitany.timespan.exitcontext` |
+| `WaitHandle.WaitAll(WaitHandle[])` | ✅ Controlled | `clockwork.waithandle.waitall` |
+| `WaitHandle.WaitAll(WaitHandle[], int)` | ✅ Controlled | `clockwork.waithandle.waitall.milliseconds` |
+| `WaitHandle.WaitAll(WaitHandle[], TimeSpan)` | ✅ Controlled | `clockwork.waithandle.waitall.timespan` |
+| `WaitHandle.WaitAll(WaitHandle[], int, bool)` | ✅ Controlled | `clockwork.waithandle.waitall.milliseconds.exitcontext` |
+| `WaitHandle.WaitAll(WaitHandle[], TimeSpan, bool)` | ✅ Controlled | `clockwork.waithandle.waitall.timespan.exitcontext` |
+| `WaitHandle.SignalAndWait(WaitHandle, WaitHandle)` | ✅ Controlled | `clockwork.waithandle.signalandwait` |
+| `WaitHandle.SignalAndWait(WaitHandle, WaitHandle, int, bool)` | ✅ Controlled | `clockwork.waithandle.signalandwait.milliseconds.exitcontext` |
+| `WaitHandle.SignalAndWait(WaitHandle, WaitHandle, TimeSpan, bool)` | ✅ Controlled | `clockwork.waithandle.signalandwait.timespan.exitcontext` |
+| `WaitHandle.Dispose()` | ✅ Controlled | `clockwork.waithandle.dispose` |
+| `WaitHandle.Close()` | ✅ Controlled | `clockwork.waithandle.close` |
+| `EventWaitHandle.Set()` | ✅ Controlled | `clockwork.eventwaithandle.set` |
+| `EventWaitHandle.Reset()` | ✅ Controlled | `clockwork.eventwaithandle.reset` |
+| `WaitHandle.Handle` { get; set; } | ⛔ Rejected (tested) | `clockwork.waithandle.get_handle` / `.set_handle` — exposes the OS handle |
+| `WaitHandle.SafeWaitHandle` { get; set; } | ⛔ Rejected (tested) | `clockwork.waithandle.get_safewaithandle` / `.set_safewaithandle` — exposes the OS handle |
+| `EventWaitHandle.OpenExisting(string)` / `(string, NamedWaitHandleOptions)` | ⛔ Rejected (tested) | `clockwork.eventwaithandle.openexisting[.options]` — cross-process |
+| `EventWaitHandle.TryOpenExisting(string, out)` / `(string, NamedWaitHandleOptions, out)` | ⛔ Rejected (tested) | `clockwork.eventwaithandle.tryopenexisting[.options]` — cross-process |
+
+**Semantics:** enumerated against the .NET 10 reference assemblies. The static multi-handle operations
+`WaitHandle.WaitAny` (returns the lowest-index signalled handle), `WaitAll` (waits until every handle is
+simultaneously signalled, then consumes them atomically so an auto-reset handle is never partially
+consumed), and `SignalAndWait` (atomically signals the first handle then waits on the second) register
+across all handles with no lost signals; they validate null / empty / over-64 arrays and — for `WaitAll`
+— reject duplicate handles with `DuplicateWaitObjectException`. A non-null event
+name and the `OpenExisting`/`TryOpenExisting` open-by-name APIs model a **system-wide kernel object** that
+a single simulation process cannot faithfully represent, so they are rejected with a precise diagnostic; a
+`null` name is a degenerate unnamed event and stays fully controlled. The raw `Handle`/`SafeWaitHandle`
+accessors expose the underlying OS primitive (which would let code block a physical thread or signal a
+kernel object outside the scheduler) and are likewise rejected.
+
+---
+
 ## Coyote surfaces intentionally deferred (Phase 7B / Phase 8)
 
-These Coyote controlled types are **out of Phase 7A scope** by the phase plan. Where a surface would
-otherwise need them (the `ThreadPool` registered-wait APIs and `SemaphoreSlim.AvailableWaitHandle` need
-controlled wait handles), Clockwork **rejects** the call with a tested diagnostic until the owning phase
-lands.
+These Coyote controlled types are **out of Phase 7A/7B scope** by the phase plan. They are not
+rewritten and remain real BCL calls under simulation until the owning slice lands.
 
 | Coyote type(s) | Owning phase | Current posture |
 | --- | --- | --- |
-| `WaitHandle`, `EventWaitHandle`, `AutoResetEvent`, `ManualResetEvent`, `WaitAny`/`WaitAll` | Phase 7B | not rewritten; unblocks `ThreadPool` registered-wait APIs and `SemaphoreSlim.AvailableWaitHandle`, which stay rejected until then |
-| `Interlocked`, `Volatile` | Phase 7B (race instrumentation) | not rewritten |
-| `SpinWait` (struct) | Phase 7B | not rewritten (`Thread.SpinWait(int)` *static* **is** controlled — `clockwork.thread.spinwait`) |
+| `WaitHandle`, `EventWaitHandle`, `AutoResetEvent`, `ManualResetEvent` | ✅ **Controlled (Phase 7B)** — see the events section above | ctors → `Create` factories, `WaitOne`/`WaitAny`/`WaitAll`/`SignalAndWait`/`Dispose`/`Close` and `Set`/`Reset` controlled; named/cross-process + raw-handle APIs rejected |
+| `Interlocked` | ✅ **Controlled (Phase 7B)** — see the `Interlocked` section above | full .NET 10 surface redirected to `clockwork.interlocked.*` |
+| `Volatile` | ✅ **Controlled (Phase 7B)** — see the `Volatile` section above | full .NET 10 surface redirected to `clockwork.volatile.*` |
+| `SpinWait` (struct) | ✅ **Controlled (Phase 7B)** — see the `SpinWait` section above | value-type substitution `clockwork.spinwait.type` (the `Thread.SpinWait(int)` *static* is also controlled — `clockwork.thread.spinwait`) |
 | `ReaderWriterLockSlim`, `Mutex`, `Semaphore`, `SpinLock`, `ManualResetEventSlim` | Phase 8 | not rewritten (real BCL calls) |
 | `Timer` / `PeriodicTimer` / `Task.Delay` / cancellation timers | Phase 8 | `Task.Delay` rejected; `Thread.Sleep` **is** a controlled virtual wait |
 
@@ -319,17 +476,43 @@ lands.
   (awaiter substitution) with explicit `Controlled*` types available.
 - **Coyote `Parallel`:** simple-body overloads controlled; loop-state / thread-local / partitioner
   overloads rejected with tested diagnostics.
-- **`ThreadPool`:** modelled by Clockwork **beyond Coyote**; native-overlapped and registered-wait
-  APIs rejected (registered waits pending Phase 7B).
+- **`ThreadPool`:** modelled by Clockwork **beyond Coyote**; the registered-wait APIs
+  (`RegisterWaitForSingleObject`/`UnsafeRegisterWaitForSingleObject`, all four timeout overloads) are
+  controlled (Phase 7B) as passive event-driven waits and `UnsafeQueueNativeOverlapped` is rejected.
 - **Coyote `Monitor`:** all 18 .NET 10 declared members classified: 17 synchronization methods
   controlled and process-wide `LockContentionCount` rejected; C# `lock (object)` is controlled in
   both Debug and Release lowering.
 - **`System.Threading.Lock`:** controlled by type substitution **beyond Coyote** (Phase 7A), covering the
   C# `lock (Lock)` scope lowering; nothing rejected.
 - **Coyote `SemaphoreSlim`:** every constructor, `CurrentCount`, sync `Wait`, async `WaitAsync`,
-  `Release`, and `Dispose` controlled (Phase 7A); `AvailableWaitHandle` rejected pending Phase 7B.
-- **Deferred by phase plan:** wait handles / events / `Interlocked` / `Volatile` / `SpinWait` struct
-  (Phase 7B); `ReaderWriterLockSlim`/`Mutex`/`Semaphore`/`SpinLock` and timers (Phase 8).
+  `Release`, and `Dispose` controlled (Phase 7A); `AvailableWaitHandle` bridged to a controlled manual-reset
+  wait handle tracking count > 0 (Phase 7B).
+- **Coyote `Interlocked`:** full .NET 10 surface controlled (Phase 7B) — every `Increment`/`Decrement`/
+  `Add`/`And`/`Or`/`Exchange`/`CompareExchange`/`Read` overload plus the memory barriers, each delegating
+  to the real primitive since a cooperative logical thread makes the read-modify-write indivisible.
+- **Coyote `Volatile`:** full .NET 10 surface controlled (Phase 7B) — every `Read`/`Write` overload plus
+  the `ReadBarrier`/`WriteBarrier` fences, delegating to the real primitive with acquire/release intent
+  preserved.
+- **Coyote `SpinWait`:** the `SpinWait` value type controlled (Phase 7B) by type substitution — `Count`,
+  `NextSpinWillYield`, `Reset`, both `SpinOnce` overloads and all three static `SpinUntil` overloads; a
+  controlled spin yields to the deterministic loop instead of burning CPU, and finite `SpinUntil` uses a
+  first-winner virtual-time deadline.
+- **Coyote events (`AutoResetEvent`/`ManualResetEvent`/`EventWaitHandle`/`WaitHandle`):** controlled
+  (Phase 7B) — ctors redirect to `Create` factories, the five `WaitOne` overloads plus `Dispose`/`Close`
+  and `Set`/`Reset` are receiver-first shims over a modelled signalled state and deterministic FIFO waiter
+  set (auto-reset wakes exactly one waiter, manual-reset releases all and stays signalled), finite timeouts
+  use a virtual-time deadline; the static `WaitAny` (lowest-index signalled), `WaitAll` (all-signalled,
+  atomic consume) and `SignalAndWait` (atomic signal-then-wait) multi-handle operations are controlled with
+  full array validation; named/cross-process open APIs and the raw `Handle`/`SafeWaitHandle` accessors are
+  rejected with tested diagnostics.
+- **`ThreadPool` registered waits (`RegisterWaitForSingleObject`/`UnsafeRegisterWaitForSingleObject`):**
+  controlled (Phase 7B) — a passive event-driven waiter on the target handle's modelled signalled state
+  that never blocks the logical thread; fires `timedOut:false` on a signal (auto-reset consumes exactly
+  one) or `timedOut:true` on the virtual-time deadline, honours `executeOnlyOnce`/re-arm, flows
+  `ExecutionContext` for the safe family only, and substitutes the returned `RegisteredWaitHandle` so
+  `Unregister` stops the wait and signals its completion event.
+- **Deferred by phase plan:** `ReaderWriterLockSlim`/`Mutex`/`Semaphore`/`SpinLock`/`ManualResetEventSlim`
+  and timers/`Task.Delay`/cancellation timers (Phase 8).
 
 Every Coyote entry above is therefore **controlled** (with a cited rule id or by architecture),
 **deliberately rejected with a tested reason**, or **explicitly deferred to a named later phase** —

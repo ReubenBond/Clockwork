@@ -32,7 +32,7 @@ public sealed class ProcessExecutionTests
             $"Source process failed ({source.ExitCode}):\n{source.StandardOutput}\n{source.StandardError}");
         Assert.Contains("monitor=real", source.Output);
         Assert.Contains("lock=System.Threading.Lock", source.Output);
-        Assert.Contains("semaphore=real", source.Output);
+        Assert.Contains("semaphore=signaled", source.Output);
         Assert.Contains("delays=0", source.Output);
 
         InstrumentationResult instrumentation = fixture.Instrument();
@@ -43,7 +43,7 @@ public sealed class ProcessExecutionTests
             $"Staged process failed ({staged.ExitCode}):\n{staged.StandardOutput}\n{staged.StandardError}");
         Assert.Contains("monitor=rejected", staged.Output);
         Assert.Contains("lock=Clockwork.Runtime.Threading.ControlledLock", staged.Output);
-        Assert.Contains("semaphore=rejected", staged.Output);
+        Assert.Contains("semaphore=signaled", staged.Output);
         Assert.Contains("delays=6", staged.Output);
     }
 

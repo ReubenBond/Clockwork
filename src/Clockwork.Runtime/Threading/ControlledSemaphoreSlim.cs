@@ -26,10 +26,10 @@ namespace Clockwork.Runtime.Threading;
 /// delegates to the real <see cref="SemaphoreSlim"/>.
 /// </para>
 /// <para>
-/// <see cref="SemaphoreSlim.AvailableWaitHandle"/> materialises a real
-/// <see cref="System.Threading.WaitHandle"/> - an OS synchronization primitive owned by Phase 7B - so it
-/// is rejected precisely (<see cref="ControlledSemaphoreSlimUnsupportedException"/>) until that phase
-/// provides a controlled wait handle.
+/// <see cref="SemaphoreSlim.AvailableWaitHandle"/> is bridged to a controlled manual-reset wait handle
+/// (Phase 7B): the handle is materialised once, cached, and its signalled state tracks whether a permit
+/// is available (count &gt; 0) across every <c>Wait</c>/<c>Release</c> transition. Observing it never
+/// consumes a permit, and it composes with <c>WaitAny</c>/<c>WaitAll</c> across the controlled surface.
 /// </para>
 /// <para>
 /// Per-instance state is held with weak keys (<see cref="ConditionalWeakTable{TKey,TValue}"/>) so the
@@ -42,7 +42,6 @@ namespace Clockwork.Runtime.Threading;
 public static class ControlledSemaphoreSlim
 {
     private const string WaitApi = "System.Threading.SemaphoreSlim.Wait";
-    private const string AvailableWaitHandleApi = "System.Threading.SemaphoreSlim.get_AvailableWaitHandle";
 
     private sealed class Waiter
     {
@@ -60,15 +59,35 @@ public static class ControlledSemaphoreSlim
     {
         public State(int count, int maxCount)
         {
-            Count = count;
+            _count = count;
             MaxCount = maxCount;
         }
 
-        public int Count { get; set; }
+        private int _count;
+
+        // Mutating the modelled count immediately republishes the AvailableWaitHandle bridge (if one has
+        // been materialised) so its signalled state tracks "a permit is available" (count > 0) across every
+        // Wait/Release transition without instrumenting each mutation site.
+        public int Count
+        {
+            get => _count;
+            set
+            {
+                _count = value;
+                if (AvailableHandle is not null)
+                {
+                    ControlledWaitHandle.UpdateBridgeSignal(AvailableHandle, _count > 0);
+                }
+            }
+        }
 
         public int MaxCount { get; }
 
         public bool Disposed { get; set; }
+
+        // The lazily-materialised AvailableWaitHandle bridge (a controlled manual-reset handle), or null
+        // until first observed. Kept for the lifetime of the semaphore's modelled state.
+        public WaitHandle? AvailableHandle { get; set; }
 
         // Waiters blocked for a permit, in arrival order. Release serves the front waiters.
         public List<Waiter> Waiters { get; } = new();
@@ -355,12 +374,21 @@ public static class ControlledSemaphoreSlim
             return;
         }
 
-        StateOf(instance).Disposed = true;
+        var state = StateOf(instance);
+        state.Disposed = true;
+
+        // A materialised AvailableWaitHandle bridge is disposed with its semaphore so a later wait faults.
+        ControlledWaitHandle.DisposeBridge(state.AvailableHandle);
     }
 
-    /// <summary>Rejected controlled <see cref="SemaphoreSlim.AvailableWaitHandle"/> (depends on Phase 7B wait handles).</summary>
+    /// <summary>
+    /// Controlled <see cref="SemaphoreSlim.AvailableWaitHandle"/>. Returns a controlled manual-reset wait
+    /// handle - materialised once and cached - whose signalled state tracks whether a permit is available
+    /// (count &gt; 0). Waiting on it observes availability without consuming a permit, exactly as the BCL
+    /// handle does; it composes with <c>WaitAny</c>/<c>WaitAll</c> across the controlled surface.
+    /// </summary>
     /// <param name="instance">The receiving semaphore.</param>
-    /// <returns>Never returns inside a simulation; throws instead.</returns>
+    /// <returns>The controlled availability handle.</returns>
     public static WaitHandle AvailableWaitHandle(SemaphoreSlim instance)
     {
         ArgumentNullException.ThrowIfNull(instance);
@@ -369,11 +397,9 @@ public static class ControlledSemaphoreSlim
             return instance.AvailableWaitHandle;
         }
 
-        throw new ControlledSemaphoreSlimUnsupportedException(
-            AvailableWaitHandleApi,
-            "it materialises a real OS WaitHandle, which belongs to the controlled wait-handle infrastructure " +
-            "landing in Phase 7B; until then a controlled semaphore cannot expose one without escaping the " +
-            "deterministic scheduler.");
+        var state = StateOf(instance);
+        ThrowIfDisposed(state);
+        return state.AvailableHandle ??= ControlledWaitHandle.CreateBridge(state.Count > 0);
     }
 
     private static bool WaitControlled(SemaphoreSlim instance, int millisecondsTimeout, CancellationToken cancellationToken)

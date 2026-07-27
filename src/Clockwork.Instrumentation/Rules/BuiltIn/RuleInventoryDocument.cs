@@ -54,7 +54,8 @@ public static class RuleInventoryDocument
         Line("- Generic cryptographic helpers `RandomNumberGenerator.GetItems<T>` and `Shuffle<T>`, and any `GetString`/`GetHexString` overloads beyond those listed above.");
         Line("- `DateTime`/`DateTimeOffset` parsing/formatting and any culture-, timezone-, or kind-conversion helpers other than the `Now`/`UtcNow`/`Today` clocks above.");
         Line("- Synchronous blocking on `ValueTask`/`ValueTask<T>` (`.Result`/`.GetResult()` outside an awaiter): a value task may be consumed only once, so a blocking drain is unsafe. `await` is the supported controlled path.");
-        Line("- `ReaderWriterLockSlim`, `Mutex`, the kernel `Semaphore`, `SpinLock`, and general `WaitHandle` operations remain unrewritten. The `ThreadPool` registered-wait APIs listed above are rejected.");
+        Line("- Named/cross-process synchronization (named `EventWaitHandle`/`Mutex`/`Semaphore` and their `OpenExisting`/`TryOpenExisting` APIs): a single-process simulation cannot model kernel-object sharing, so these are rejected.");
+        Line("- `ReaderWriterLockSlim`, `Mutex`, the kernel `Semaphore`, `SpinLock`, and `ManualResetEventSlim` remain unrewritten Phase 8 scope.");
         Line("- `Timer`, `PeriodicTimer`, and cancellation timers remain unrewritten Phase 8 scope.");
         Line();
         Line("Determinism is claimed **only** for the exact rules tabulated above.");
@@ -184,9 +185,15 @@ public static class RuleInventoryDocument
             "`Action<TState>`+state+preferLocal forms) and `UnsafeQueueUserWorkItem` (the `WaitCallback`+state, " +
             "`IThreadPoolWorkItem`, and generic forms) queue the callback as a controlled operation on the " +
             "simulation coordinator; the safe variants flow `ExecutionContext` while the unsafe variants do " +
-            "not, matching the BCL. `UnsafeQueueNativeOverlapped` and the registered-wait APIs " +
-            "(`RegisterWaitForSingleObject`/`UnsafeRegisterWaitForSingleObject`) depend on native I/O and " +
-            "wait-handle primitives that arrive in Phase 7, so they are rejected with a precise diagnostic.",
+            "not, matching the BCL. The registered-wait APIs (`RegisterWaitForSingleObject`/" +
+            "`UnsafeRegisterWaitForSingleObject`, across the `uint`/`int`/`long`/`TimeSpan` timeout overloads) " +
+            "run as passive, event-driven controlled waits on the target handle's modelled signalled state: " +
+            "the callback fires with `timedOut: false` on a signal (an auto-reset handle consumes exactly one) " +
+            "or `timedOut: true` on the virtual-time deadline, honouring `executeOnlyOnce`, re-arming " +
+            "otherwise, and flowing `ExecutionContext` for the safe family only; the returned " +
+            "`RegisteredWaitHandle` is substituted with the controlled handle so `Unregister` stops the wait " +
+            "and signals its completion event. `UnsafeQueueNativeOverlapped` depends on native I/O and is " +
+            "rejected with a precise diagnostic.",
         BuiltInRuleFamily.Parallel =>
             "`Parallel.Invoke`, `Parallel.For` (`int`/`long`, with and without `ParallelOptions`), and " +
             "`Parallel.ForEach(IEnumerable<T>)` run their bodies as controlled operations on the simulation " +
@@ -209,6 +216,55 @@ public static class RuleInventoryDocument
             "process at all. A throwing guard is injected before each call site so a rewritten assembly can " +
             "never launch, kill, wait on, or terminate a real OS process; unlike the controlled shims the " +
             "rejection is unconditional (it fires whether or not a simulation is active).",
+        BuiltInRuleFamily.Interlocked =>
+            "The full .NET 10 `Interlocked` surface - `Increment`/`Decrement`/`Add`/`And`/`Or` (`int`/`long`/" +
+            "`uint`/`ulong`), `Exchange`/`CompareExchange` (every primitive, native-int, floating-point, " +
+            "reference, and generic reference overload), `Read` (`long`/`ulong`), and the memory barriers - " +
+            "redirects each call site to a shim with the identical `ref`-first signature. Clockwork's " +
+            "cooperative single-logical-thread scheduler makes every read-modify-write an indivisible step " +
+            "(never split, never interleaved mid-operation), so the shim delegates to the real primitive and " +
+            "preserves exact atomic return, overflow, and reference-write semantics inside and outside " +
+            "simulation. The exploration policy injects no mid-operation scheduling point; the single " +
+            "delegation site is the future Phase 9 race-hook attachment point.",
+        BuiltInRuleFamily.Volatile =>
+            "The full .NET 10 `Volatile` surface - `Read`/`Write` (every primitive, native-int, " +
+            "floating-point, and generic reference overload) and the `ReadBarrier`/`WriteBarrier` fences - " +
+            "redirects each call site to a shim with the identical `ref`-first signature. Under the " +
+            "cooperative single-logical-thread scheduler a volatile access is an indivisible step, so the " +
+            "shim delegates to the real primitive and preserves the exact value read/written together with " +
+            "the acquire (read) / release (write) fence intent. The single delegation site is the future " +
+            "Phase 9 race-hook attachment point.",
+        BuiltInRuleFamily.SpinWait =>
+            "`System.Threading.SpinWait` is a value type retargeted by whole-type substitution (like " +
+            "`System.Threading.Lock`): every local/field/parameter typed `SpinWait`, each `new SpinWait()`/" +
+            "`default`, the instance members (`Count`, `NextSpinWillYield`, `Reset`, both `SpinOnce` " +
+            "overloads) and the static `SpinUntil` overloads remap onto the controlled struct. Inside a " +
+            "simulation a spin never burns CPU or consumes real time: `SpinOnce` is a cooperative no-op that " +
+            "only advances the observable spin count, and `SpinUntil` pumps the deterministic loop until its " +
+            "predicate holds (a never-satisfiable predicate surfaces as the loop-model deadlock diagnostic). " +
+            "The finite `SpinUntil` overloads use a first-winner virtual-time deadline. Outside a simulation " +
+            "every member delegates to a real wrapped `SpinWait`.",
+        BuiltInRuleFamily.WaitHandle =>
+            "The controlled event / wait-handle surface - `AutoResetEvent`, `ManualResetEvent`, " +
+            "`EventWaitHandle`, and the shared `WaitHandle` operations. Each concrete event is a sealed BCL " +
+            "class, so the real object is retained as an identity handle while its signaled state and a " +
+            "deterministic FIFO waiter set live in a side table; every `new` redirects to a `Create` factory " +
+            "and each instance member is a receiver-first shim. `WaitOne` (all five overloads) pumps the " +
+            "deterministic loop until the event is signaled - a never-satisfiable wait surfaces as the " +
+            "loop-model deadlock diagnostic rather than hanging - and `Set`/`Reset` model exact reset-mode " +
+            "semantics: an auto-reset `Set` wakes and consumes exactly one eligible waiter (or leaves the " +
+            "event signaled until the next `WaitOne` consumes it), while a manual-reset `Set` releases every " +
+            "waiter and stays signaled until `Reset`. The static multi-handle operations `WaitAny` (returns " +
+            "the lowest-index signaled handle) and `WaitAll` (waits until every handle is simultaneously " +
+            "signaled, then consumes them atomically so an auto-reset handle is never partially consumed) " +
+            "register across all handles with no lost signals, validating null/empty/over-64 arrays and - " +
+            "for `WaitAll` - duplicate handles; `SignalAndWait` atomically signals the first handle then " +
+            "waits on the second. Finite timeouts use a first-winner virtual-time deadline (zero polls, " +
+            "infinite never times out); `Dispose`/`Close` mark the modelled state disposed. Named / " +
+            "cross-process APIs (named constructors, `OpenExisting`, `TryOpenExisting`) and the raw " +
+            "native-handle accessors (`Handle`, `SafeWaitHandle`) cannot be modelled in a single simulated " +
+            "process and are rejected with a precise diagnostic. Outside a simulation every shim delegates " +
+            "to the real BCL primitive unchanged.",
         _ => string.Empty,
     };
 

@@ -8,8 +8,8 @@ namespace Clockwork.Conformance.Tests;
 /// 7A). The rule set redirects the constructors to the controlled <c>Create</c> factories and every
 /// instance member (<c>CurrentCount</c>, the synchronous <c>Wait</c> overloads, the asynchronous
 /// <c>WaitAsync</c> overloads, <c>Release</c>, <c>Dispose</c>) to receiver-first controlled shims whose
-/// permit count and waiter set live on the single logical thread. <c>AvailableWaitHandle</c> is rejected
-/// precisely until Phase 7B.
+/// permit count and waiter set live on the single logical thread. <c>AvailableWaitHandle</c> is bridged
+/// (Phase 7B) to a controlled manual-reset handle that tracks count &gt; 0.
 /// </summary>
 public sealed class SemaphoreSlimConformanceTests : IDisposable
 {
@@ -69,19 +69,31 @@ public sealed class SemaphoreSlimConformanceTests : IDisposable
                 catch (SemaphoreFullException) { return Task.FromResult(true); }
             }
 
-            // AvailableWaitHandle is rejected until Phase 7B.
-            public static Task<bool> AvailableWaitHandleRejected()
+            // AvailableWaitHandle is signalled while a permit is available and clears when drained.
+            public static Task<bool> AvailableWaitHandleTracksCount()
             {
-                var s = new SemaphoreSlim(1, 1);
-                try
-                {
-                    _ = s.AvailableWaitHandle;
-                    return Task.FromResult(false);
-                }
-                catch (Exception ex) when (ex.GetType().Name.Contains("Unsupported"))
-                {
-                    return Task.FromResult(true);
-                }
+                var s = new SemaphoreSlim(1, 2);
+                WaitHandle h = s.AvailableWaitHandle;
+                bool availableInitially = h.WaitOne(0); // Signalled: a permit is available.
+                s.Wait();                               // Drain the only permit.
+                bool clearedWhenEmpty = !h.WaitOne(0);  // Cleared: no permit.
+                s.Release();                            // Refill.
+                bool reSignalled = h.WaitOne(0);        // Signalled again on the same handle.
+                return Task.FromResult(availableInitially && clearedWhenEmpty && reSignalled);
+            }
+
+            // A thread waiting on AvailableWaitHandle wakes when another thread releases a permit.
+            public static Task<bool> AvailableWaitHandleWakesOnRelease()
+            {
+                var s = new SemaphoreSlim(0, 1);
+                WaitHandle h = s.AvailableWaitHandle;
+                bool woke = false;
+                var t = new Thread(() => { woke = h.WaitOne(); });
+                t.Start();
+                s.Release();
+                t.Join();
+                // Observing the handle did not consume the permit.
+                return Task.FromResult(woke && s.CurrentCount == 1);
             }
 
             // A finite synchronous Wait with no permit returns false once the simulated deadline elapses,
@@ -156,7 +168,7 @@ public sealed class SemaphoreSlimConformanceTests : IDisposable
         Assert.Equal(0, Result<int>((Task<int>)host.Invoke(Method("WaitBlocksUntilRelease", optimize))!));
         Assert.Equal(0, Result<int>((Task<int>)host.Invoke(Method("WaitAsyncCompletesOnRelease", optimize))!));
         Assert.True(Result<bool>((Task<bool>)host.Invoke(Method("WaitFiniteTimesOut", optimize))!));
-        Assert.True(Result<bool>((Task<bool>)host.Invoke(Method("AvailableWaitHandleRejected", optimize))!));
+        Assert.True(Result<bool>((Task<bool>)host.Invoke(Method("AvailableWaitHandleTracksCount", optimize))!));
     }
 
     [Fact]
@@ -200,10 +212,18 @@ public sealed class SemaphoreSlimConformanceTests : IDisposable
     }
 
     [Fact]
-    public void AvailableWaitHandleRejected()
+    public void AvailableWaitHandleTracksCount()
     {
         using var host = new SimulationHost(Start);
-        var task = (Task<bool>)host.Invoke(Method("AvailableWaitHandleRejected"))!;
+        var task = (Task<bool>)host.Invoke(Method("AvailableWaitHandleTracksCount"))!;
+        Assert.True(Result<bool>(task));
+    }
+
+    [Fact]
+    public void AvailableWaitHandleWakesOnRelease()
+    {
+        using var host = new SimulationHost(Start);
+        var task = (Task<bool>)host.Invoke(Method("AvailableWaitHandleWakesOnRelease"))!;
         Assert.True(Result<bool>(task));
     }
 

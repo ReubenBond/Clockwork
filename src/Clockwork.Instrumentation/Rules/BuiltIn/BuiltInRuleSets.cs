@@ -55,6 +55,8 @@ public static class BuiltInRuleSets
     private const string ParallelShim = "Clockwork.Runtime.Threading.ControlledParallel";
     private const string MonitorShim = "Clockwork.Runtime.Threading.ControlledMonitor";
     private const string SemaphoreSlimShim = "Clockwork.Runtime.Threading.ControlledSemaphoreSlim";
+    private const string InterlockedShim = "Clockwork.Runtime.Threading.ControlledInterlocked";
+    private const string VolatileShim = "Clockwork.Runtime.Threading.ControlledVolatile";
 
     // Cecil full names for the exact overload parameters (from the net10 reference assemblies).
     private const string Int32 = "System.Int32";
@@ -156,10 +158,17 @@ public static class BuiltInRuleSets
     private const string TStateDecl = "TState";
     private const string NativeOverlappedPtr = "System.Threading.NativeOverlapped*";
 
-    // Cecil full names for the registered-wait surface (Phase 6B slice 5). These bind a callback to a
-    // WaitHandle (a Phase 7 synchronization primitive), so they are rejected at the call site until the
-    // controlled wait-handle infrastructure lands in Phase 7. Each of RegisterWaitForSingleObject and
-    // UnsafeRegisterWaitForSingleObject has four timeout overloads (UInt32/Int32/Int64/TimeSpan).
+    // Cecil full names for the controlled Phase 7B registered-wait surface. RegisteredWaitHandle is a sealed
+    // class returned by the eight ThreadPool.RegisterWaitForSingleObject / UnsafeRegisterWaitForSingleObject
+    // factories; it is retargeted by whole-type substitution (like System.Threading.Lock) so every local /
+    // field / parameter and the Unregister instance member remap onto the controlled type, while the static
+    // factories are redirected to shims returning it.
+    private const string RegisteredWaitHandleType = "System.Threading.RegisteredWaitHandle";
+    private const string ControlledRegisteredWaitHandleType = "Clockwork.Runtime.Threading.ControlledRegisteredWaitHandle";
+
+    // Cecil full names shared by the registered-wait factory redirects (Phase 7B). Each of
+    // RegisterWaitForSingleObject and UnsafeRegisterWaitForSingleObject has four timeout overloads
+    // (UInt32/Int32/Int64/TimeSpan); the callback delegate is WaitOrTimerCallback.
     private const string UInt32 = "System.UInt32";
     private const string WaitHandle = "System.Threading.WaitHandle";
     private const string WaitOrTimerCallback = "System.Threading.WaitOrTimerCallback";
@@ -210,6 +219,70 @@ public static class BuiltInRuleSets
     private const string ControlledLockType = "Clockwork.Runtime.Threading.ControlledLock";
     private const string ControlledLockScopeType = "Clockwork.Runtime.Threading.ControlledLock/Scope";
     private const string SemaphoreSlimType = "System.Threading.SemaphoreSlim";
+
+    // Cecil full names for the controlled Phase 7B Interlocked atomic surface. Every overload takes its
+    // first argument by reference, which Cecil renders with a trailing '&'. The generic Exchange<T>/
+    // CompareExchange<T> overloads are GenericInstanceMethods at the call site (`!!0`/`!!0&` target)
+    // resolved against their shim definitions, whose generic parameter is named T (`T`/`T&` replacement).
+    private const string InterlockedType = "System.Threading.Interlocked";
+    private const string Int32Ref = "System.Int32&";
+    private const string Int64Ref = "System.Int64&";
+    private const string UInt32Ref = "System.UInt32&";
+    private const string UInt64 = "System.UInt64";
+    private const string UInt64Ref = "System.UInt64&";
+    private const string SByteType = "System.SByte";
+    private const string SByteRef = "System.SByte&";
+    private const string Int16Type = "System.Int16";
+    private const string Int16Ref = "System.Int16&";
+    private const string ByteType = "System.Byte";
+    private const string ByteRef = "System.Byte&";
+    private const string UInt16Type = "System.UInt16";
+    private const string UInt16Ref = "System.UInt16&";
+    private const string SingleType = "System.Single";
+    private const string SingleRef = "System.Single&";
+    private const string DoubleType = "System.Double";
+    private const string DoubleRef = "System.Double&";
+    private const string IntPtrType = "System.IntPtr";
+    private const string IntPtrRef = "System.IntPtr&";
+    private const string UIntPtrType = "System.UIntPtr";
+    private const string UIntPtrRef = "System.UIntPtr&";
+    private const string ObjectRef = "System.Object&";
+    private const string GenericArg0 = "!!0";
+    private const string GenericArg0Ref = "!!0&";
+    private const string GenericTDecl = "T";
+    private const string GenericTRefDecl = "T&";
+
+    // Cecil full name for the controlled Phase 7B Volatile acquire/release surface. Reuses the primitive
+    // ref-type constants above; the generic Read<T>/Write<T> overloads use the `!!0`/`!!0&` target ->
+    // `T`/`T&` replacement split.
+    private const string VolatileType = "System.Threading.Volatile";
+
+    // System.Threading.SpinWait is a value type (struct) retargeted by whole-type substitution, exactly like
+    // System.Threading.Lock/Scope. Every local/field/parameter typed SpinWait, each `new SpinWait()` /
+    // `default`, the instance members (Count, NextSpinWillYield, Reset, SpinOnce overloads) and the static
+    // SpinUntil overloads remap onto the controlled struct.
+    private const string SpinWaitType = "System.Threading.SpinWait";
+    private const string ControlledSpinWaitType = "Clockwork.Runtime.Threading.ControlledSpinWait";
+
+    // Cecil full names for the controlled Phase 7B event / wait-handle surface. AutoResetEvent,
+    // ManualResetEvent and EventWaitHandle are concrete sealed classes: the real objects are retained as
+    // identity handles and side state is held in a ConditionalWeakTable, so each `new` is redirected to a
+    // Create factory and every instance member is a receiver-first static shim declared on WaitHandle
+    // (WaitOne/Dispose/Close/Handle/SafeWaitHandle) or EventWaitHandle (Set/Reset). Named / cross-process
+    // event APIs (named ctors, OpenExisting, TryOpenExisting) are rejected: a single simulation process
+    // cannot faithfully model a system-wide kernel object. EventResetMode/NamedWaitHandleOptions select the
+    // reset mode / named options; SafeWaitHandle is the raw-handle type surfaced by the rejected accessors.
+    private const string WaitHandleType = "System.Threading.WaitHandle";
+    private const string EventWaitHandleType = "System.Threading.EventWaitHandle";
+    private const string AutoResetEventType = "System.Threading.AutoResetEvent";
+    private const string ManualResetEventType = "System.Threading.ManualResetEvent";
+    private const string EventResetModeType = "System.Threading.EventResetMode";
+    private const string NamedWaitHandleOptionsType = "System.Threading.NamedWaitHandleOptions";
+    private const string SafeWaitHandleType = "Microsoft.Win32.SafeHandles.SafeWaitHandle";
+    private const string EventWaitHandleRef = "System.Threading.EventWaitHandle&";
+    private const string WaitHandleArray = "System.Threading.WaitHandle[]";
+    private const string WaitHandleShim = "Clockwork.Runtime.Threading.ControlledWaitHandle";
+    private const string EventWaitHandleShim = "Clockwork.Runtime.Threading.ControlledEventWaitHandle";
 
 
     // Cecil full names for the compiler-generated async machinery (BCL) and their controlled substitutes.
@@ -280,6 +353,10 @@ public static class BuiltInRuleSets
         BuiltInRuleFamily.Monitor,
         BuiltInRuleFamily.Lock,
         BuiltInRuleFamily.Semaphore,
+        BuiltInRuleFamily.Interlocked,
+        BuiltInRuleFamily.Volatile,
+        BuiltInRuleFamily.SpinWait,
+        BuiltInRuleFamily.WaitHandle,
         BuiltInRuleFamily.UncontrolledInvocation,
     ];
 
@@ -642,19 +719,23 @@ public static class BuiltInRuleSets
             MemberSignature.Method(ThreadPoolType, "UnsafeQueueNativeOverlapped", NativeOverlappedPtr),
             Shim(ThreadPoolShim, "RejectNativeOverlapped", String))));
 
-        // ---- Registered waits (Phase 6B slice 5): RegisterWaitForSingleObject / UnsafeRegisterWaitForSingleObject
-        // bind a callback to a WaitHandle, a Phase 7 synchronization primitive that the controlled scheduler
-        // cannot yet model. Reject every overload precisely at the call site (InjectRejection keeps the value-
-        // returning call in place for stack balance; the injected throw runs first). Each method has four
-        // timeout overloads (UInt32/Int32/Int64/TimeSpan). Lifted to controlled waits in Phase 7. ----
-        RegisterWaitRejection(builder, "clockwork.threadpool.registerwait.uint32", "RegisterWaitForSingleObject", UInt32);
-        RegisterWaitRejection(builder, "clockwork.threadpool.registerwait.int32", "RegisterWaitForSingleObject", Int32);
-        RegisterWaitRejection(builder, "clockwork.threadpool.registerwait.int64", "RegisterWaitForSingleObject", Int64);
-        RegisterWaitRejection(builder, "clockwork.threadpool.registerwait.timespan", "RegisterWaitForSingleObject", TimeSpan);
-        RegisterWaitRejection(builder, "clockwork.threadpool.unsaferegisterwait.uint32", "UnsafeRegisterWaitForSingleObject", UInt32);
-        RegisterWaitRejection(builder, "clockwork.threadpool.unsaferegisterwait.int32", "UnsafeRegisterWaitForSingleObject", Int32);
-        RegisterWaitRejection(builder, "clockwork.threadpool.unsaferegisterwait.int64", "UnsafeRegisterWaitForSingleObject", Int64);
-        RegisterWaitRejection(builder, "clockwork.threadpool.unsaferegisterwait.timespan", "UnsafeRegisterWaitForSingleObject", TimeSpan);
+        // ---- Registered waits (Phase 7B): RegisterWaitForSingleObject / UnsafeRegisterWaitForSingleObject
+        // bind a WaitOrTimerCallback to a controlled event, which the coordinator now models. RegisteredWaitHandle
+        // is retargeted by whole-type substitution so its locals/fields and the Unregister instance member remap
+        // onto the controlled type; the eight static factories (four timeout overloads x safe/unsafe) are redirected
+        // to shims that return the controlled handle. The safe family flows ExecutionContext; the unsafe family does
+        // not. The static factory shim signatures match the BCL targets exactly (no receiver prepended). ----
+        Sub(builder, BuiltInRuleFamily.ThreadPool, "clockwork.threadpool.registeredwaithandle.type",
+            RegisteredWaitHandleType, ControlledRegisteredWaitHandleType);
+
+        RegisterWaitRedirect(builder, "clockwork.threadpool.registerwait.uint32", "RegisterWaitForSingleObject", UInt32);
+        RegisterWaitRedirect(builder, "clockwork.threadpool.registerwait.int32", "RegisterWaitForSingleObject", Int32);
+        RegisterWaitRedirect(builder, "clockwork.threadpool.registerwait.int64", "RegisterWaitForSingleObject", Int64);
+        RegisterWaitRedirect(builder, "clockwork.threadpool.registerwait.timespan", "RegisterWaitForSingleObject", TimeSpan);
+        RegisterWaitRedirect(builder, "clockwork.threadpool.unsaferegisterwait.uint32", "UnsafeRegisterWaitForSingleObject", UInt32);
+        RegisterWaitRedirect(builder, "clockwork.threadpool.unsaferegisterwait.int32", "UnsafeRegisterWaitForSingleObject", Int32);
+        RegisterWaitRedirect(builder, "clockwork.threadpool.unsaferegisterwait.int64", "UnsafeRegisterWaitForSingleObject", Int64);
+        RegisterWaitRedirect(builder, "clockwork.threadpool.unsaferegisterwait.timespan", "UnsafeRegisterWaitForSingleObject", TimeSpan);
 
         // ---- Parallel (Phase 6B slice 6): the simple-body Invoke / For / ForEach overloads decompose into
         // controlled operations on the coordinator (each branch queued, then the loop drained until all
@@ -761,8 +842,8 @@ public static class BuiltInRuleSets
         // ---- SemaphoreSlim (Phase 7A): SemaphoreSlim is a sealed class, so the controlled object is a real
         // SemaphoreSlim identity handle whose count/waiter state lives in a weak-keyed side table. The two
         // constructors redirect to Create factories; every instance member is receiver-first (the shim
-        // prepends the SemaphoreSlim receiver). AvailableWaitHandle depends on the Phase 7B wait-handle
-        // surface and is rejected precisely until then. ----
+        // prepends the SemaphoreSlim receiver). AvailableWaitHandle is bridged to a controlled manual-reset
+        // wait handle (Phase 7B) whose signalled state tracks whether a permit is available. ----
         builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Semaphore, RewriteRule.RedirectNewObj(
             "clockwork.semaphoreslim.ctor.initial",
             MemberSignature.Constructor(SemaphoreSlimType, Int32), Shim(SemaphoreSlimShim, "Create", Int32))));
@@ -803,10 +884,265 @@ public static class BuiltInRuleSets
         TaskRule(builder, BuiltInRuleFamily.Semaphore, "clockwork.semaphoreslim.dispose",
             MemberSignature.Method(SemaphoreSlimType, "Dispose"), Shim(SemaphoreSlimShim, "Dispose", SemaphoreSlimType));
 
-        RejectedRule(builder, BuiltInRuleFamily.Semaphore, "clockwork.semaphoreslim.get_availablewaithandle",
+        // AvailableWaitHandle is bridged to a controlled manual-reset wait handle (Phase 7B) tracking count > 0.
+        TaskRule(builder, BuiltInRuleFamily.Semaphore, "clockwork.semaphoreslim.get_availablewaithandle",
             MemberSignature.Method(SemaphoreSlimType, "get_AvailableWaitHandle"), Shim(SemaphoreSlimShim, "AvailableWaitHandle", SemaphoreSlimType));
 
+        BuildInterlockedEntries(builder);
+        BuildVolatileEntries(builder);
+
+        // ---- System.Threading.SpinWait (Phase 7B): a value type retargeted by whole-type substitution,
+        // exactly like System.Threading.Lock/Scope. This remaps every field/local/parameter typed SpinWait,
+        // each `new SpinWait()` / `default`, the instance members (Count, NextSpinWillYield, Reset, both
+        // SpinOnce overloads) and the static SpinUntil overloads onto the controlled struct, so no per-member
+        // call rules are required. A controlled spin never busy-waits: it yields to the deterministic loop. ----
+        Sub(builder, BuiltInRuleFamily.SpinWait, "clockwork.spinwait.type", SpinWaitType, ControlledSpinWaitType);
+
+        BuildWaitHandleEntries(builder);
+
         return builder.ToImmutable();
+    }
+
+    // Phase 7B: the full .NET 10 System.Threading.Interlocked surface. Every call site is redirected to a
+    // shim carrying the identical ref-first signature. Under Clockwork's cooperative single-logical-thread
+    // scheduler a read-modify-write is an indivisible step, so each shim delegates to the real primitive,
+    // preserving exact atomic return / overflow / reference-write semantics. The generic Exchange<T> /
+    // CompareExchange<T> overloads use the `!!0`/`!!0&` target -> `T`/`T&` replacement split.
+    private static void BuildInterlockedEntries(ImmutableArray<BuiltInRuleEntry>.Builder builder)
+    {
+        void Rule(string id, string member, string[] target, string[] replacement) =>
+            TaskRule(builder, BuiltInRuleFamily.Interlocked, id,
+                MemberSignature.Method(InterlockedType, member, target), Shim(InterlockedShim, member, replacement));
+
+        // Increment / Decrement (int, long, uint, ulong).
+        Rule("clockwork.interlocked.increment.int32", "Increment", [Int32Ref], [Int32Ref]);
+        Rule("clockwork.interlocked.increment.int64", "Increment", [Int64Ref], [Int64Ref]);
+        Rule("clockwork.interlocked.increment.uint32", "Increment", [UInt32Ref], [UInt32Ref]);
+        Rule("clockwork.interlocked.increment.uint64", "Increment", [UInt64Ref], [UInt64Ref]);
+        Rule("clockwork.interlocked.decrement.int32", "Decrement", [Int32Ref], [Int32Ref]);
+        Rule("clockwork.interlocked.decrement.int64", "Decrement", [Int64Ref], [Int64Ref]);
+        Rule("clockwork.interlocked.decrement.uint32", "Decrement", [UInt32Ref], [UInt32Ref]);
+        Rule("clockwork.interlocked.decrement.uint64", "Decrement", [UInt64Ref], [UInt64Ref]);
+
+        // Add (int, long, uint, ulong).
+        Rule("clockwork.interlocked.add.int32", "Add", [Int32Ref, Int32], [Int32Ref, Int32]);
+        Rule("clockwork.interlocked.add.int64", "Add", [Int64Ref, Int64], [Int64Ref, Int64]);
+        Rule("clockwork.interlocked.add.uint32", "Add", [UInt32Ref, UInt32], [UInt32Ref, UInt32]);
+        Rule("clockwork.interlocked.add.uint64", "Add", [UInt64Ref, UInt64], [UInt64Ref, UInt64]);
+
+        // And / Or (int, uint, long, ulong).
+        Rule("clockwork.interlocked.and.int32", "And", [Int32Ref, Int32], [Int32Ref, Int32]);
+        Rule("clockwork.interlocked.and.uint32", "And", [UInt32Ref, UInt32], [UInt32Ref, UInt32]);
+        Rule("clockwork.interlocked.and.int64", "And", [Int64Ref, Int64], [Int64Ref, Int64]);
+        Rule("clockwork.interlocked.and.uint64", "And", [UInt64Ref, UInt64], [UInt64Ref, UInt64]);
+        Rule("clockwork.interlocked.or.int32", "Or", [Int32Ref, Int32], [Int32Ref, Int32]);
+        Rule("clockwork.interlocked.or.uint32", "Or", [UInt32Ref, UInt32], [UInt32Ref, UInt32]);
+        Rule("clockwork.interlocked.or.int64", "Or", [Int64Ref, Int64], [Int64Ref, Int64]);
+        Rule("clockwork.interlocked.or.uint64", "Or", [UInt64Ref, UInt64], [UInt64Ref, UInt64]);
+
+        // Exchange (every primitive, native-int, floating-point, reference, generic reference).
+        Rule("clockwork.interlocked.exchange.int32", "Exchange", [Int32Ref, Int32], [Int32Ref, Int32]);
+        Rule("clockwork.interlocked.exchange.int64", "Exchange", [Int64Ref, Int64], [Int64Ref, Int64]);
+        Rule("clockwork.interlocked.exchange.object", "Exchange", [ObjectRef, ObjectType], [ObjectRef, ObjectType]);
+        Rule("clockwork.interlocked.exchange.sbyte", "Exchange", [SByteRef, SByteType], [SByteRef, SByteType]);
+        Rule("clockwork.interlocked.exchange.int16", "Exchange", [Int16Ref, Int16Type], [Int16Ref, Int16Type]);
+        Rule("clockwork.interlocked.exchange.byte", "Exchange", [ByteRef, ByteType], [ByteRef, ByteType]);
+        Rule("clockwork.interlocked.exchange.uint16", "Exchange", [UInt16Ref, UInt16Type], [UInt16Ref, UInt16Type]);
+        Rule("clockwork.interlocked.exchange.uint32", "Exchange", [UInt32Ref, UInt32], [UInt32Ref, UInt32]);
+        Rule("clockwork.interlocked.exchange.uint64", "Exchange", [UInt64Ref, UInt64], [UInt64Ref, UInt64]);
+        Rule("clockwork.interlocked.exchange.single", "Exchange", [SingleRef, SingleType], [SingleRef, SingleType]);
+        Rule("clockwork.interlocked.exchange.double", "Exchange", [DoubleRef, DoubleType], [DoubleRef, DoubleType]);
+        Rule("clockwork.interlocked.exchange.intptr", "Exchange", [IntPtrRef, IntPtrType], [IntPtrRef, IntPtrType]);
+        Rule("clockwork.interlocked.exchange.uintptr", "Exchange", [UIntPtrRef, UIntPtrType], [UIntPtrRef, UIntPtrType]);
+        Rule("clockwork.interlocked.exchange.generic", "Exchange", [GenericArg0Ref, GenericArg0], [GenericTRefDecl, GenericTDecl]);
+
+        // CompareExchange (every primitive, native-int, floating-point, reference, generic reference).
+        Rule("clockwork.interlocked.compareexchange.int32", "CompareExchange", [Int32Ref, Int32, Int32], [Int32Ref, Int32, Int32]);
+        Rule("clockwork.interlocked.compareexchange.int64", "CompareExchange", [Int64Ref, Int64, Int64], [Int64Ref, Int64, Int64]);
+        Rule("clockwork.interlocked.compareexchange.object", "CompareExchange", [ObjectRef, ObjectType, ObjectType], [ObjectRef, ObjectType, ObjectType]);
+        Rule("clockwork.interlocked.compareexchange.sbyte", "CompareExchange", [SByteRef, SByteType, SByteType], [SByteRef, SByteType, SByteType]);
+        Rule("clockwork.interlocked.compareexchange.int16", "CompareExchange", [Int16Ref, Int16Type, Int16Type], [Int16Ref, Int16Type, Int16Type]);
+        Rule("clockwork.interlocked.compareexchange.byte", "CompareExchange", [ByteRef, ByteType, ByteType], [ByteRef, ByteType, ByteType]);
+        Rule("clockwork.interlocked.compareexchange.uint16", "CompareExchange", [UInt16Ref, UInt16Type, UInt16Type], [UInt16Ref, UInt16Type, UInt16Type]);
+        Rule("clockwork.interlocked.compareexchange.uint32", "CompareExchange", [UInt32Ref, UInt32, UInt32], [UInt32Ref, UInt32, UInt32]);
+        Rule("clockwork.interlocked.compareexchange.uint64", "CompareExchange", [UInt64Ref, UInt64, UInt64], [UInt64Ref, UInt64, UInt64]);
+        Rule("clockwork.interlocked.compareexchange.single", "CompareExchange", [SingleRef, SingleType, SingleType], [SingleRef, SingleType, SingleType]);
+        Rule("clockwork.interlocked.compareexchange.double", "CompareExchange", [DoubleRef, DoubleType, DoubleType], [DoubleRef, DoubleType, DoubleType]);
+        Rule("clockwork.interlocked.compareexchange.intptr", "CompareExchange", [IntPtrRef, IntPtrType, IntPtrType], [IntPtrRef, IntPtrType, IntPtrType]);
+        Rule("clockwork.interlocked.compareexchange.uintptr", "CompareExchange", [UIntPtrRef, UIntPtrType, UIntPtrType], [UIntPtrRef, UIntPtrType, UIntPtrType]);
+        Rule("clockwork.interlocked.compareexchange.generic", "CompareExchange", [GenericArg0Ref, GenericArg0, GenericArg0], [GenericTRefDecl, GenericTDecl, GenericTDecl]);
+
+        // Read (long, ulong) and the memory barriers.
+        Rule("clockwork.interlocked.read.int64", "Read", [Int64Ref], [Int64Ref]);
+        Rule("clockwork.interlocked.read.uint64", "Read", [UInt64Ref], [UInt64Ref]);
+        Rule("clockwork.interlocked.memorybarrier", "MemoryBarrier", [], []);
+        Rule("clockwork.interlocked.memorybarrierprocesswide", "MemoryBarrierProcessWide", [], []);
+    }
+
+    // Phase 7B: the full .NET 10 System.Threading.Volatile surface. Each Read/Write call site is redirected
+    // to a shim with the identical ref-first signature; the generic Read<T>/Write<T> overloads use the
+    // `!!0`/`!!0&` target -> `T`/`T&` replacement split. Under the cooperative single-logical-thread
+    // scheduler a volatile access is an indivisible step, so each shim delegates to the real primitive,
+    // preserving the exact value and the acquire (read) / release (write) fence intent.
+    private static void BuildVolatileEntries(ImmutableArray<BuiltInRuleEntry>.Builder builder)
+    {
+        void Rule(string id, string member, string[] target, string[] replacement) =>
+            TaskRule(builder, BuiltInRuleFamily.Volatile, id,
+                MemberSignature.Method(VolatileType, member, target), Shim(VolatileShim, member, replacement));
+
+        // Read (every primitive, native-int, floating-point, generic reference).
+        Rule("clockwork.volatile.read.boolean", "Read", [BooleanRef], [BooleanRef]);
+        Rule("clockwork.volatile.read.sbyte", "Read", [SByteRef], [SByteRef]);
+        Rule("clockwork.volatile.read.byte", "Read", [ByteRef], [ByteRef]);
+        Rule("clockwork.volatile.read.int16", "Read", [Int16Ref], [Int16Ref]);
+        Rule("clockwork.volatile.read.uint16", "Read", [UInt16Ref], [UInt16Ref]);
+        Rule("clockwork.volatile.read.int32", "Read", [Int32Ref], [Int32Ref]);
+        Rule("clockwork.volatile.read.uint32", "Read", [UInt32Ref], [UInt32Ref]);
+        Rule("clockwork.volatile.read.int64", "Read", [Int64Ref], [Int64Ref]);
+        Rule("clockwork.volatile.read.uint64", "Read", [UInt64Ref], [UInt64Ref]);
+        Rule("clockwork.volatile.read.intptr", "Read", [IntPtrRef], [IntPtrRef]);
+        Rule("clockwork.volatile.read.uintptr", "Read", [UIntPtrRef], [UIntPtrRef]);
+        Rule("clockwork.volatile.read.single", "Read", [SingleRef], [SingleRef]);
+        Rule("clockwork.volatile.read.double", "Read", [DoubleRef], [DoubleRef]);
+        Rule("clockwork.volatile.read.generic", "Read", [GenericArg0Ref], [GenericTRefDecl]);
+
+        // Write (every primitive, native-int, floating-point, generic reference).
+        Rule("clockwork.volatile.write.boolean", "Write", [BooleanRef, Boolean], [BooleanRef, Boolean]);
+        Rule("clockwork.volatile.write.sbyte", "Write", [SByteRef, SByteType], [SByteRef, SByteType]);
+        Rule("clockwork.volatile.write.byte", "Write", [ByteRef, ByteType], [ByteRef, ByteType]);
+        Rule("clockwork.volatile.write.int16", "Write", [Int16Ref, Int16Type], [Int16Ref, Int16Type]);
+        Rule("clockwork.volatile.write.uint16", "Write", [UInt16Ref, UInt16Type], [UInt16Ref, UInt16Type]);
+        Rule("clockwork.volatile.write.int32", "Write", [Int32Ref, Int32], [Int32Ref, Int32]);
+        Rule("clockwork.volatile.write.uint32", "Write", [UInt32Ref, UInt32], [UInt32Ref, UInt32]);
+        Rule("clockwork.volatile.write.int64", "Write", [Int64Ref, Int64], [Int64Ref, Int64]);
+        Rule("clockwork.volatile.write.uint64", "Write", [UInt64Ref, UInt64], [UInt64Ref, UInt64]);
+        Rule("clockwork.volatile.write.intptr", "Write", [IntPtrRef, IntPtrType], [IntPtrRef, IntPtrType]);
+        Rule("clockwork.volatile.write.uintptr", "Write", [UIntPtrRef, UIntPtrType], [UIntPtrRef, UIntPtrType]);
+        Rule("clockwork.volatile.write.single", "Write", [SingleRef, SingleType], [SingleRef, SingleType]);
+        Rule("clockwork.volatile.write.double", "Write", [DoubleRef, DoubleType], [DoubleRef, DoubleType]);
+        Rule("clockwork.volatile.write.generic", "Write", [GenericArg0Ref, GenericArg0], [GenericTRefDecl, GenericTDecl]);
+
+        // Acquire / release fences.
+        Rule("clockwork.volatile.readbarrier", "ReadBarrier", [], []);
+        Rule("clockwork.volatile.writebarrier", "WriteBarrier", [], []);
+    }
+
+    // Phase 7B: the controlled event / wait-handle surface. AutoResetEvent, ManualResetEvent and
+    // EventWaitHandle are concrete sealed classes, so the real objects are retained as identity handles and
+    // side state lives in a ConditionalWeakTable keyed by that object. Each `new` is redirected to a Create
+    // factory; every instance member is a receiver-first static shim (the WaitHandle receiver is prepended).
+    // WaitOne / Dispose / Close / Handle / SafeWaitHandle are declared on the WaitHandle base and shimmed on
+    // ControlledWaitHandle; Set / Reset are declared on EventWaitHandle and shimmed on
+    // ControlledEventWaitHandle. Named / cross-process APIs (named constructors, OpenExisting,
+    // TryOpenExisting) and the raw-handle accessors are rejected: a single simulation process cannot model a
+    // system-wide kernel object, and a controlled event exposes no native handle.
+    private static void BuildWaitHandleEntries(ImmutableArray<BuiltInRuleEntry>.Builder builder)
+    {
+        // ---- constructors -> Create factories (RedirectNewObj) ----
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.WaitHandle, RewriteRule.RedirectNewObj(
+            "clockwork.autoresetevent.ctor",
+            MemberSignature.Constructor(AutoResetEventType, Boolean),
+            Shim(EventWaitHandleShim, "CreateAutoResetEvent", Boolean))));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.WaitHandle, RewriteRule.RedirectNewObj(
+            "clockwork.manualresetevent.ctor",
+            MemberSignature.Constructor(ManualResetEventType, Boolean),
+            Shim(EventWaitHandleShim, "CreateManualResetEvent", Boolean))));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.WaitHandle, RewriteRule.RedirectNewObj(
+            "clockwork.eventwaithandle.ctor.mode",
+            MemberSignature.Constructor(EventWaitHandleType, Boolean, EventResetModeType),
+            Shim(EventWaitHandleShim, "CreateEvent", Boolean, EventResetModeType))));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.WaitHandle, RewriteRule.RedirectNewObj(
+            "clockwork.eventwaithandle.ctor.named",
+            MemberSignature.Constructor(EventWaitHandleType, Boolean, EventResetModeType, String),
+            Shim(EventWaitHandleShim, "CreateNamedEvent", Boolean, EventResetModeType, String))));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.WaitHandle, RewriteRule.RedirectNewObj(
+            "clockwork.eventwaithandle.ctor.named.creatednew",
+            MemberSignature.Constructor(EventWaitHandleType, Boolean, EventResetModeType, String, BooleanRef),
+            Shim(EventWaitHandleShim, "CreateNamedEvent", Boolean, EventResetModeType, String, BooleanRef))));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.WaitHandle, RewriteRule.RedirectNewObj(
+            "clockwork.eventwaithandle.ctor.named.options",
+            MemberSignature.Constructor(EventWaitHandleType, Boolean, EventResetModeType, String, NamedWaitHandleOptionsType),
+            Shim(EventWaitHandleShim, "CreateNamedEvent", Boolean, EventResetModeType, String, NamedWaitHandleOptionsType))));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.WaitHandle, RewriteRule.RedirectNewObj(
+            "clockwork.eventwaithandle.ctor.named.options.creatednew",
+            MemberSignature.Constructor(EventWaitHandleType, Boolean, EventResetModeType, String, NamedWaitHandleOptionsType, BooleanRef),
+            Shim(EventWaitHandleShim, "CreateNamedEvent", Boolean, EventResetModeType, String, NamedWaitHandleOptionsType, BooleanRef))));
+
+        // ---- WaitHandle.WaitOne overloads -> receiver-first controlled kernel ----
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitone",
+            MemberSignature.Method(WaitHandleType, "WaitOne"), Shim(WaitHandleShim, "WaitOne", WaitHandleType));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitone.milliseconds",
+            MemberSignature.Method(WaitHandleType, "WaitOne", Int32), Shim(WaitHandleShim, "WaitOne", WaitHandleType, Int32));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitone.timespan",
+            MemberSignature.Method(WaitHandleType, "WaitOne", TimeSpan), Shim(WaitHandleShim, "WaitOne", WaitHandleType, TimeSpan));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitone.milliseconds.exitcontext",
+            MemberSignature.Method(WaitHandleType, "WaitOne", Int32, Boolean), Shim(WaitHandleShim, "WaitOne", WaitHandleType, Int32, Boolean));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitone.timespan.exitcontext",
+            MemberSignature.Method(WaitHandleType, "WaitOne", TimeSpan, Boolean), Shim(WaitHandleShim, "WaitOne", WaitHandleType, TimeSpan, Boolean));
+
+        // ---- WaitHandle.WaitAny -> controlled multi-handle kernel (first-signalled, lowest index) ----
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitany",
+            MemberSignature.Method(WaitHandleType, "WaitAny", WaitHandleArray), Shim(WaitHandleShim, "WaitAny", WaitHandleArray));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitany.milliseconds",
+            MemberSignature.Method(WaitHandleType, "WaitAny", WaitHandleArray, Int32), Shim(WaitHandleShim, "WaitAny", WaitHandleArray, Int32));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitany.timespan",
+            MemberSignature.Method(WaitHandleType, "WaitAny", WaitHandleArray, TimeSpan), Shim(WaitHandleShim, "WaitAny", WaitHandleArray, TimeSpan));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitany.milliseconds.exitcontext",
+            MemberSignature.Method(WaitHandleType, "WaitAny", WaitHandleArray, Int32, Boolean), Shim(WaitHandleShim, "WaitAny", WaitHandleArray, Int32, Boolean));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitany.timespan.exitcontext",
+            MemberSignature.Method(WaitHandleType, "WaitAny", WaitHandleArray, TimeSpan, Boolean), Shim(WaitHandleShim, "WaitAny", WaitHandleArray, TimeSpan, Boolean));
+
+        // ---- WaitHandle.WaitAll -> controlled multi-handle kernel (all-signalled, atomic consume) ----
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitall",
+            MemberSignature.Method(WaitHandleType, "WaitAll", WaitHandleArray), Shim(WaitHandleShim, "WaitAll", WaitHandleArray));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitall.milliseconds",
+            MemberSignature.Method(WaitHandleType, "WaitAll", WaitHandleArray, Int32), Shim(WaitHandleShim, "WaitAll", WaitHandleArray, Int32));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitall.timespan",
+            MemberSignature.Method(WaitHandleType, "WaitAll", WaitHandleArray, TimeSpan), Shim(WaitHandleShim, "WaitAll", WaitHandleArray, TimeSpan));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitall.milliseconds.exitcontext",
+            MemberSignature.Method(WaitHandleType, "WaitAll", WaitHandleArray, Int32, Boolean), Shim(WaitHandleShim, "WaitAll", WaitHandleArray, Int32, Boolean));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.waitall.timespan.exitcontext",
+            MemberSignature.Method(WaitHandleType, "WaitAll", WaitHandleArray, TimeSpan, Boolean), Shim(WaitHandleShim, "WaitAll", WaitHandleArray, TimeSpan, Boolean));
+
+        // ---- WaitHandle.SignalAndWait -> atomic signal-then-wait on the controlled kernel ----
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.signalandwait",
+            MemberSignature.Method(WaitHandleType, "SignalAndWait", WaitHandleType, WaitHandleType), Shim(WaitHandleShim, "SignalAndWait", WaitHandleType, WaitHandleType));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.signalandwait.milliseconds.exitcontext",
+            MemberSignature.Method(WaitHandleType, "SignalAndWait", WaitHandleType, WaitHandleType, Int32, Boolean), Shim(WaitHandleShim, "SignalAndWait", WaitHandleType, WaitHandleType, Int32, Boolean));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.signalandwait.timespan.exitcontext",
+            MemberSignature.Method(WaitHandleType, "SignalAndWait", WaitHandleType, WaitHandleType, TimeSpan, Boolean), Shim(WaitHandleShim, "SignalAndWait", WaitHandleType, WaitHandleType, TimeSpan, Boolean));
+
+        // ---- WaitHandle disposal ----
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.dispose",
+            MemberSignature.Method(WaitHandleType, "Dispose"), Shim(WaitHandleShim, "Dispose", WaitHandleType));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.close",
+            MemberSignature.Method(WaitHandleType, "Close"), Shim(WaitHandleShim, "Close", WaitHandleType));
+
+        // ---- raw-handle accessors: rejected (a controlled event has no native handle) ----
+        RejectedRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.get_handle",
+            MemberSignature.Method(WaitHandleType, "get_Handle"), Shim(WaitHandleShim, "GetHandle", WaitHandleType));
+        RejectedRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.set_handle",
+            MemberSignature.Method(WaitHandleType, "set_Handle", IntPtrType), Shim(WaitHandleShim, "SetHandle", WaitHandleType, IntPtrType));
+        RejectedRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.get_safewaithandle",
+            MemberSignature.Method(WaitHandleType, "get_SafeWaitHandle"), Shim(WaitHandleShim, "GetSafeWaitHandle", WaitHandleType));
+        RejectedRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.waithandle.set_safewaithandle",
+            MemberSignature.Method(WaitHandleType, "set_SafeWaitHandle", SafeWaitHandleType), Shim(WaitHandleShim, "SetSafeWaitHandle", WaitHandleType, SafeWaitHandleType));
+
+        // ---- EventWaitHandle.Set / Reset -> receiver-first controlled signalling ----
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.eventwaithandle.set",
+            MemberSignature.Method(EventWaitHandleType, "Set"), Shim(EventWaitHandleShim, "Set", EventWaitHandleType));
+        TaskRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.eventwaithandle.reset",
+            MemberSignature.Method(EventWaitHandleType, "Reset"), Shim(EventWaitHandleShim, "Reset", EventWaitHandleType));
+
+        // ---- named / cross-process open APIs: rejected ----
+        RejectedRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.eventwaithandle.openexisting",
+            MemberSignature.Method(EventWaitHandleType, "OpenExisting", String), Shim(EventWaitHandleShim, "OpenExisting", String));
+        RejectedRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.eventwaithandle.openexisting.options",
+            MemberSignature.Method(EventWaitHandleType, "OpenExisting", String, NamedWaitHandleOptionsType), Shim(EventWaitHandleShim, "OpenExisting", String, NamedWaitHandleOptionsType));
+        RejectedRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.eventwaithandle.tryopenexisting",
+            MemberSignature.Method(EventWaitHandleType, "TryOpenExisting", String, EventWaitHandleRef), Shim(EventWaitHandleShim, "TryOpenExisting", String, EventWaitHandleRef));
+        RejectedRule(builder, BuiltInRuleFamily.WaitHandle, "clockwork.eventwaithandle.tryopenexisting.options",
+            MemberSignature.Method(EventWaitHandleType, "TryOpenExisting", String, NamedWaitHandleOptionsType, EventWaitHandleRef), Shim(EventWaitHandleShim, "TryOpenExisting", String, NamedWaitHandleOptionsType, EventWaitHandleRef));
     }
 
     // Rejects a Parallel overload at the call site. The BCL methods return ParallelLoopResult, so
@@ -852,19 +1188,18 @@ public static class BuiltInRuleSets
         builder.Add(new BuiltInRuleEntry(family, RewriteRule.RedirectCall(id, target, replacement, SimulationApiPolicy.Rejected)));
     }
 
-    // Rejects a registered-wait overload at the call site. The BCL method returns RegisteredWaitHandle, so
-    // InjectRejection is used (it prepends a throwing Reject(string) before the original call, keeping the
-    // value-returning invocation in place for stack balance) rather than a return-value shim.
-    private static void RegisterWaitRejection(
+    // Redirects a registered-wait factory overload to its controlled shim. The BCL method is static, so the
+    // shim signature matches the target parameters exactly (no receiver prepended); the shim returns the
+    // controlled RegisteredWaitHandle, which composes with the whole-type substitution of the receiving local.
+    private static void RegisterWaitRedirect(
         ImmutableArray<BuiltInRuleEntry>.Builder builder,
         string id,
         string method,
         string timeoutType)
     {
-        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.ThreadPool, RewriteRule.InjectRejection(
-            id,
+        TaskRule(builder, BuiltInRuleFamily.ThreadPool, id,
             MemberSignature.Method(ThreadPoolType, method, WaitHandle, WaitOrTimerCallback, ObjectType, timeoutType, Boolean),
-            Shim(ThreadPoolShim, "RejectRegisteredWait", String))));
+            Shim(ThreadPoolShim, method, WaitHandle, WaitOrTimerCallback, ObjectType, timeoutType, Boolean));
     }
 
     private static void Sub(

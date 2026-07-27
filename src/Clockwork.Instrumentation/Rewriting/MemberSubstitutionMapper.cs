@@ -289,6 +289,8 @@ internal sealed class MemberSubstitutionMapper
     private MethodDefinition? FindMatchingMethod(TypeDefinition definition, MethodReference original)
     {
         MethodReference elementOriginal = original is GenericInstanceMethod generic ? generic.ElementMethod : original;
+
+        MethodDefinition? arityMatch = null;
         foreach (MethodDefinition candidate in definition.Methods)
         {
             if (candidate.Name != elementOriginal.Name
@@ -320,11 +322,37 @@ internal sealed class MemberSubstitutionMapper
 
             if (parametersMatch)
             {
-                return candidate;
+                arityMatch ??= candidate;
+
+                // When the substitute declares several same-arity overloads (for example SpinWait's
+                // SpinUntil(Func<bool>, int) vs SpinUntil(Func<bool>, TimeSpan)), matching on arity alone
+                // would bind every call site to the first overload and emit invalid IL. Disambiguate by
+                // parameter type in that case.
+                if (ParametersMatch(candidate, elementOriginal))
+                {
+                    return candidate;
+                }
             }
         }
 
-        return null;
+        // A single same-arity candidate is unambiguous (and parameter types may legitimately differ, e.g.
+        // a parameter of the substituted type maps to the controlled type). Fall back to the first match.
+        return arityMatch;
+    }
+
+    private bool ParametersMatch(MethodDefinition candidate, MethodReference original)
+    {
+        for (int i = 0; i < original.Parameters.Count; i++)
+        {
+            TypeReference originalParameter = original.Parameters[i].ParameterType;
+            string expected = (MapType(originalParameter) ?? originalParameter).FullName;
+            if (!string.Equals(candidate.Parameters[i].ParameterType.FullName, expected, StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static bool SameTypeShape(TypeReference left, TypeReference right)

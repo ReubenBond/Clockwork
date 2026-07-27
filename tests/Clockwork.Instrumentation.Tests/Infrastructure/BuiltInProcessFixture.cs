@@ -38,8 +38,10 @@ internal sealed class BuiltInProcessFixture : IDisposable
                     {
                         slim.Wait();
                         slim.Release();
-                        try { _ = slim.AvailableWaitHandle; semaphore = "real"; }
-                        catch (Exception ex) when (ex.GetType().Name.Contains("Unsupported")) { semaphore = "rejected"; }
+                        // AvailableWaitHandle is controlled (Phase 7B), not rejected: a permit is available
+                        // (count == 1) so the bridged handle is signalled in both source and staged runs.
+                        WaitHandle h = slim.AvailableWaitHandle;
+                        semaphore = h.WaitOne(0) ? "signaled" : "unsignaled";
                     }
 
                     Func<Task>[] delays =

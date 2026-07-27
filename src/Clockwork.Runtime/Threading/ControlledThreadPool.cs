@@ -22,11 +22,20 @@ namespace Clockwork.Runtime.Threading;
 /// time rather than the caller's captured snapshot.
 /// </para>
 /// <para>
+/// <b>Registered waits (Phase 7B).</b> The <c>RegisterWaitForSingleObject</c> family and its unsafe sibling
+/// bind a <see cref="WaitOrTimerCallback"/> to a <see cref="WaitHandle"/>. Now that controlled wait handles
+/// exist, each factory returns a <see cref="ControlledRegisteredWaitHandle"/> whose wait loop runs as a
+/// controlled operation on the coordinator: it fires the callback with <c>timedOut: false</c> when the handle
+/// is signalled and <c>timedOut: true</c> when the virtual-time deadline elapses, honours
+/// <c>executeOnlyOnce</c> versus repeating registrations, and stops on <c>Unregister</c>. The safe variants
+/// flow the caller's <see cref="ExecutionContext"/>; the unsafe variants do not. No physical thread-pool wait
+/// thread is ever used.
+/// </para>
+/// <para>
 /// This goes beyond Microsoft Coyote, which routes thread-pool work through its controlled
-/// <c>Task</c>/<c>TaskFactory</c> types and does not intercept <c>ThreadPool.QueueUserWorkItem</c>
-/// directly. The native-I/O surface (<c>UnsafeQueueNativeOverlapped</c>) and, until Phase 7, the
-/// registered-wait surface cannot be modelled faithfully and are rejected precisely - see
-/// <see cref="ControlledThreadPoolUnsupportedException"/>.
+/// <c>Task</c>/<c>TaskFactory</c> types and does not intercept <c>ThreadPool.QueueUserWorkItem</c> or the
+/// registered-wait surface directly. The native-I/O surface (<c>UnsafeQueueNativeOverlapped</c>) cannot be
+/// modelled faithfully and is rejected precisely - see <see cref="ControlledThreadPoolUnsupportedException"/>.
 /// </para>
 /// </summary>
 public static class ControlledThreadPool
@@ -142,20 +151,134 @@ public static class ControlledThreadPool
             "native overlapped I/O cannot be modelled by the deterministic scheduler; the controlled " +
             "thread pool has no OS I/O completion port.");
 
-    /// <summary>
-    /// Rejection injected before a registered-wait call site
-    /// (<c>RegisterWaitForSingleObject</c> / <c>UnsafeRegisterWaitForSingleObject</c>). These bind a
-    /// callback to a <see cref="WaitHandle"/>, a synchronization primitive that the controlled scheduler
-    /// gains in Phase 7; until then the surface is rejected precisely rather than silently running on a
-    /// real thread-pool wait thread.
-    /// </summary>
-    /// <param name="apiName">The unsupported API, supplied by the rewriter.</param>
-    public static void RejectRegisteredWait(string apiName) =>
-        throw new ControlledThreadPoolUnsupportedException(
-            apiName,
-            "registered waits bind a callback to a WaitHandle; controlled wait handles arrive in Phase 7. " +
-            "Until then this surface is rejected so a real thread-pool wait thread cannot escape the " +
-            "deterministic scheduler.");
+    // ---- Registered waits (Phase 7B): RegisterWaitForSingleObject / UnsafeRegisterWaitForSingleObject
+    // bind a WaitOrTimerCallback to a controlled event. Each of the two families has four timeout overloads
+    // (UInt32/Int32/Int64/TimeSpan). The safe family flows the caller's ExecutionContext; the unsafe family
+    // does not. Inside a simulation the registration runs as a controlled operation; outside, it delegates to
+    // the real ThreadPool and wraps the returned handle. ----
+
+    /// <summary>Controlled <see cref="ThreadPool.RegisterWaitForSingleObject(WaitHandle, WaitOrTimerCallback, object, uint, bool)"/> (flows ExecutionContext).</summary>
+    public static ControlledRegisteredWaitHandle RegisterWaitForSingleObject(WaitHandle waitObject, WaitOrTimerCallback callBack, object? state, uint millisecondsTimeOutInterval, bool executeOnlyOnce)
+    {
+        ArgumentNullException.ThrowIfNull(waitObject);
+        ArgumentNullException.ThrowIfNull(callBack);
+        return !ControlledTaskRuntime.IsSimulationActive
+            ? new ControlledRegisteredWaitHandle(ThreadPool.RegisterWaitForSingleObject(waitObject, callBack, state, millisecondsTimeOutInterval, executeOnlyOnce))
+            : RegisterControlled(waitObject, callBack, state, NormalizeTimeout(millisecondsTimeOutInterval), executeOnlyOnce, flow: true);
+    }
+
+    /// <summary>Controlled <see cref="ThreadPool.RegisterWaitForSingleObject(WaitHandle, WaitOrTimerCallback, object, int, bool)"/> (flows ExecutionContext).</summary>
+    public static ControlledRegisteredWaitHandle RegisterWaitForSingleObject(WaitHandle waitObject, WaitOrTimerCallback callBack, object? state, int millisecondsTimeOutInterval, bool executeOnlyOnce)
+    {
+        ArgumentNullException.ThrowIfNull(waitObject);
+        ArgumentNullException.ThrowIfNull(callBack);
+        return !ControlledTaskRuntime.IsSimulationActive
+            ? new ControlledRegisteredWaitHandle(ThreadPool.RegisterWaitForSingleObject(waitObject, callBack, state, millisecondsTimeOutInterval, executeOnlyOnce))
+            : RegisterControlled(waitObject, callBack, state, NormalizeTimeout(millisecondsTimeOutInterval), executeOnlyOnce, flow: true);
+    }
+
+    /// <summary>Controlled <see cref="ThreadPool.RegisterWaitForSingleObject(WaitHandle, WaitOrTimerCallback, object, long, bool)"/> (flows ExecutionContext).</summary>
+    public static ControlledRegisteredWaitHandle RegisterWaitForSingleObject(WaitHandle waitObject, WaitOrTimerCallback callBack, object? state, long millisecondsTimeOutInterval, bool executeOnlyOnce)
+    {
+        ArgumentNullException.ThrowIfNull(waitObject);
+        ArgumentNullException.ThrowIfNull(callBack);
+        return !ControlledTaskRuntime.IsSimulationActive
+            ? new ControlledRegisteredWaitHandle(ThreadPool.RegisterWaitForSingleObject(waitObject, callBack, state, millisecondsTimeOutInterval, executeOnlyOnce))
+            : RegisterControlled(waitObject, callBack, state, NormalizeTimeout(millisecondsTimeOutInterval), executeOnlyOnce, flow: true);
+    }
+
+    /// <summary>Controlled <see cref="ThreadPool.RegisterWaitForSingleObject(WaitHandle, WaitOrTimerCallback, object, TimeSpan, bool)"/> (flows ExecutionContext).</summary>
+    public static ControlledRegisteredWaitHandle RegisterWaitForSingleObject(WaitHandle waitObject, WaitOrTimerCallback callBack, object? state, TimeSpan timeout, bool executeOnlyOnce)
+    {
+        ArgumentNullException.ThrowIfNull(waitObject);
+        ArgumentNullException.ThrowIfNull(callBack);
+        return !ControlledTaskRuntime.IsSimulationActive
+            ? new ControlledRegisteredWaitHandle(ThreadPool.RegisterWaitForSingleObject(waitObject, callBack, state, timeout, executeOnlyOnce))
+            : RegisterControlled(waitObject, callBack, state, NormalizeTimeout(timeout), executeOnlyOnce, flow: true);
+    }
+
+    /// <summary>Controlled <see cref="ThreadPool.UnsafeRegisterWaitForSingleObject(WaitHandle, WaitOrTimerCallback, object, uint, bool)"/> (does not flow ExecutionContext).</summary>
+    public static ControlledRegisteredWaitHandle UnsafeRegisterWaitForSingleObject(WaitHandle waitObject, WaitOrTimerCallback callBack, object? state, uint millisecondsTimeOutInterval, bool executeOnlyOnce)
+    {
+        ArgumentNullException.ThrowIfNull(waitObject);
+        ArgumentNullException.ThrowIfNull(callBack);
+        return !ControlledTaskRuntime.IsSimulationActive
+            ? new ControlledRegisteredWaitHandle(ThreadPool.UnsafeRegisterWaitForSingleObject(waitObject, callBack, state, millisecondsTimeOutInterval, executeOnlyOnce))
+            : RegisterControlled(waitObject, callBack, state, NormalizeTimeout(millisecondsTimeOutInterval), executeOnlyOnce, flow: false);
+    }
+
+    /// <summary>Controlled <see cref="ThreadPool.UnsafeRegisterWaitForSingleObject(WaitHandle, WaitOrTimerCallback, object, int, bool)"/> (does not flow ExecutionContext).</summary>
+    public static ControlledRegisteredWaitHandle UnsafeRegisterWaitForSingleObject(WaitHandle waitObject, WaitOrTimerCallback callBack, object? state, int millisecondsTimeOutInterval, bool executeOnlyOnce)
+    {
+        ArgumentNullException.ThrowIfNull(waitObject);
+        ArgumentNullException.ThrowIfNull(callBack);
+        return !ControlledTaskRuntime.IsSimulationActive
+            ? new ControlledRegisteredWaitHandle(ThreadPool.UnsafeRegisterWaitForSingleObject(waitObject, callBack, state, millisecondsTimeOutInterval, executeOnlyOnce))
+            : RegisterControlled(waitObject, callBack, state, NormalizeTimeout(millisecondsTimeOutInterval), executeOnlyOnce, flow: false);
+    }
+
+    /// <summary>Controlled <see cref="ThreadPool.UnsafeRegisterWaitForSingleObject(WaitHandle, WaitOrTimerCallback, object, long, bool)"/> (does not flow ExecutionContext).</summary>
+    public static ControlledRegisteredWaitHandle UnsafeRegisterWaitForSingleObject(WaitHandle waitObject, WaitOrTimerCallback callBack, object? state, long millisecondsTimeOutInterval, bool executeOnlyOnce)
+    {
+        ArgumentNullException.ThrowIfNull(waitObject);
+        ArgumentNullException.ThrowIfNull(callBack);
+        return !ControlledTaskRuntime.IsSimulationActive
+            ? new ControlledRegisteredWaitHandle(ThreadPool.UnsafeRegisterWaitForSingleObject(waitObject, callBack, state, millisecondsTimeOutInterval, executeOnlyOnce))
+            : RegisterControlled(waitObject, callBack, state, NormalizeTimeout(millisecondsTimeOutInterval), executeOnlyOnce, flow: false);
+    }
+
+    /// <summary>Controlled <see cref="ThreadPool.UnsafeRegisterWaitForSingleObject(WaitHandle, WaitOrTimerCallback, object, TimeSpan, bool)"/> (does not flow ExecutionContext).</summary>
+    public static ControlledRegisteredWaitHandle UnsafeRegisterWaitForSingleObject(WaitHandle waitObject, WaitOrTimerCallback callBack, object? state, TimeSpan timeout, bool executeOnlyOnce)
+    {
+        ArgumentNullException.ThrowIfNull(waitObject);
+        ArgumentNullException.ThrowIfNull(callBack);
+        return !ControlledTaskRuntime.IsSimulationActive
+            ? new ControlledRegisteredWaitHandle(ThreadPool.UnsafeRegisterWaitForSingleObject(waitObject, callBack, state, timeout, executeOnlyOnce))
+            : RegisterControlled(waitObject, callBack, state, NormalizeTimeout(timeout), executeOnlyOnce, flow: false);
+    }
+
+    private static ControlledRegisteredWaitHandle RegisterControlled(
+        WaitHandle waitObject, WaitOrTimerCallback callBack, object? state, int timeoutMs, bool executeOnlyOnce, bool flow)
+    {
+        ExecutionContext? context = flow ? ExecutionContext.Capture() : null;
+        return new ControlledRegisteredWaitHandle(waitObject, callBack, state, timeoutMs, executeOnlyOnce, context);
+    }
+
+    // A uint timeout of 0xFFFFFFFF is the BCL's "infinite" sentinel; other values are virtual-time
+    // milliseconds (clamped to Int32.MaxValue for the controlled timer, an unobservably long deadline).
+    private static int NormalizeTimeout(uint millisecondsTimeOutInterval) =>
+        millisecondsTimeOutInterval == uint.MaxValue ? Timeout.Infinite : (int)Math.Min(millisecondsTimeOutInterval, int.MaxValue);
+
+    private static int NormalizeTimeout(int millisecondsTimeOutInterval)
+    {
+        if (millisecondsTimeOutInterval < Timeout.Infinite)
+        {
+            throw new ArgumentOutOfRangeException(nameof(millisecondsTimeOutInterval), millisecondsTimeOutInterval, "The timeout must be -1 (infinite) or a non-negative value.");
+        }
+
+        return millisecondsTimeOutInterval;
+    }
+
+    private static int NormalizeTimeout(long millisecondsTimeOutInterval)
+    {
+        if (millisecondsTimeOutInterval < Timeout.Infinite || millisecondsTimeOutInterval > int.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(nameof(millisecondsTimeOutInterval), millisecondsTimeOutInterval, "The timeout must be between -1 and Int32.MaxValue milliseconds.");
+        }
+
+        return (int)millisecondsTimeOutInterval;
+    }
+
+    private static int NormalizeTimeout(TimeSpan timeout)
+    {
+        long total = (long)timeout.TotalMilliseconds;
+        if (total < Timeout.Infinite || total > int.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(nameof(timeout), timeout, "The timeout must be between -1 and Int32.MaxValue milliseconds.");
+        }
+
+        return (int)total;
+    }
 
     private static void RunFlowed(ExecutionContext? context, Action work)
     {

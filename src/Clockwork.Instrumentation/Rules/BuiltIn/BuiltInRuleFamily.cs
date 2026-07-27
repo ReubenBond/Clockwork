@@ -191,10 +191,63 @@ public enum BuiltInRuleFamily
     /// <c>WaitAsync</c> returns a task completed when a permit is released; <c>Release</c> enforces the
     /// maximum count (<see cref="System.Threading.SemaphoreFullException"/>) and serves waiters in a
     /// deterministic, replayable order; cancellation is honoured on the logical thread. Zero timeouts are
+    /// deterministic, replayable order; cancellation is honoured on the logical thread. Zero timeouts are
     /// faithful non-blocking tries; finite positive timeouts use deterministic simulated deadlines.
-    /// <c>AvailableWaitHandle</c> depends on the Phase 7B wait-handle surface and is
-    /// classified <c>Rejected</c>: the rewritten call site fails precisely under simulation until then.
-    /// Outside a simulation every shim delegates to the real <see cref="System.Threading.SemaphoreSlim"/>.
+    /// <c>AvailableWaitHandle</c> is completed by the Phase 7B controlled wait-handle bridge: it returns a
+    /// controlled <see cref="System.Threading.ManualResetEvent"/> whose signaled state tracks the permit
+    /// count and disposal. Outside a simulation every shim delegates to the real
+    /// <see cref="System.Threading.SemaphoreSlim"/>.
     /// </summary>
     Semaphore,
+
+    /// <summary>
+    /// <see cref="System.Threading.Interlocked"/> atomic surface: the full .NET 10 overload set of
+    /// <c>Increment</c>/<c>Decrement</c>/<c>Add</c>/<c>And</c>/<c>Or</c>/<c>Exchange</c>/
+    /// <c>CompareExchange</c> (every primitive, native-int, floating-point, reference, and generic
+    /// reference overload), <c>Read</c>, and the memory barriers. Classified <c>Controlled</c> (Phase 7B):
+    /// each call site is redirected to a shim with the identical <c>ref</c>-first signature. Clockwork's
+    /// cooperative single-logical-thread scheduler makes every interlocked read-modify-write an indivisible
+    /// step - it is never split and never interleaved mid-operation - so the shim delegates to the real
+    /// primitive, preserving exact atomic return, overflow, and reference-write semantics inside and
+    /// outside a simulation. The documented exploration policy adds no mid-operation scheduling point (the
+    /// natural points remain the surrounding await/yield boundaries), and the single delegation site is
+    /// where a future Phase 9 race-access hook attaches without ever splitting an atomic operation.
+    /// </summary>
+    Interlocked,
+
+    /// <summary>
+    /// <see cref="System.Threading.Volatile"/> acquire/release surface: the full .NET 10 overload set of
+    /// <c>Read</c>/<c>Write</c> (every primitive, native-int, floating-point, and generic reference
+    /// overload) plus <c>ReadBarrier</c>/<c>WriteBarrier</c>. Classified <c>Controlled</c> (Phase 7B): each
+    /// call site is redirected to a shim with the identical <c>ref</c>-first signature that delegates to the
+    /// real primitive, preserving the exact value read/written and the acquire (read) / release (write)
+    /// fence intent. The single delegation site is where a future Phase 9 race-access hook attaches.
+    /// </summary>
+    Volatile,
+
+    /// <summary>
+    /// <see cref="System.Threading.SpinWait"/> busy-spin surface, retargeted by <c>SubstituteType</c> onto
+    /// the controlled equivalent (the struct mirrors <c>Count</c>, <c>NextSpinWillYield</c>, <c>Reset</c>,
+    /// both <c>SpinOnce</c> overloads, and the three static <c>SpinUntil</c> overloads). Classified
+    /// <c>Controlled</c> (Phase 7B): a controlled spin yields cooperatively to the deterministic scheduler
+    /// instead of burning CPU, <c>SpinUntil</c> pumps the loop until its predicate holds, and its finite
+    /// overload uses a virtual-time deadline so a spin timeout consumes modelled - never real - time.
+    /// Outside a simulation the controlled struct delegates to a real wrapped <see cref="System.Threading.SpinWait"/>.
+    /// </summary>
+    SpinWait,
+
+    /// <summary>
+    /// The controlled event / wait-handle surface (Phase 7B): <see cref="System.Threading.AutoResetEvent"/>,
+    /// <see cref="System.Threading.ManualResetEvent"/>, <see cref="System.Threading.EventWaitHandle"/>, and
+    /// the shared <see cref="System.Threading.WaitHandle"/> operations (<c>WaitOne</c>, <c>WaitAny</c>,
+    /// <c>WaitAll</c>, <c>SignalAndWait</c>). Classified <c>Controlled</c> (Phase 7B): each event's signaled
+    /// state and deterministic FIFO waiter set are modelled on the cooperative logical thread. A
+    /// <c>WaitOne</c> with no signal pumps the loop until <c>Set</c> (a never-satisfiable wait surfaces as
+    /// the loop-model deadlock diagnostic); an auto-reset event wakes and consumes exactly one eligible
+    /// waiter while a manual-reset event releases all and stays signaled; finite timeouts use virtual time;
+    /// <c>WaitAny</c>/<c>WaitAll</c> register across multiple handles with no lost signals. Named/cross-process
+    /// event APIs cannot be modelled in a single simulated process and are rejected precisely. Outside a
+    /// simulation every shim delegates to the real BCL primitive.
+    /// </summary>
+    WaitHandle,
 }
