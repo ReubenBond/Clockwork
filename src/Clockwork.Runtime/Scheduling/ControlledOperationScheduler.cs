@@ -54,6 +54,7 @@ public sealed class ControlledOperationScheduler : IDisposable
     private readonly IControlledOperationListener? _listener;
 
     private long _nextOperationId;
+    private ControlledOperationId _lastSelected = ControlledOperationId.None;
     private ControlledOperation? _current;
     private bool _controlThreadBusy;
     private bool _disposed;
@@ -167,10 +168,19 @@ public sealed class ControlledOperationScheduler : IDisposable
     }
 
     /// <summary>
-    /// Selects exactly one <see cref="ControlledOperationState.Runnable"/> operation (deterministically,
-    /// the one with the lowest <see cref="ControlledOperation.Id"/>), grants it the permission baton,
-    /// and blocks the controlling thread until that operation hands control back by pausing, yielding,
-    /// completing, or faulting. Terminal operations are cleaned up before returning.
+    /// Selects exactly one <see cref="ControlledOperationState.Runnable"/> operation deterministically,
+    /// grants it the permission baton, and blocks the controlling thread until that operation hands
+    /// control back by pausing, yielding, completing, or faulting. Terminal operations are cleaned up
+    /// before returning.
+    /// <para>
+    /// Selection is a stable round-robin by <see cref="ControlledOperation.Id"/>: the runnable
+    /// operation with the smallest id greater than the last-selected one, wrapping to the smallest
+    /// runnable id when none is greater. When no operation ever yields (the compatibility case) this
+    /// is identical to strict registration order - each operation runs to completion before the next
+    /// starts - so legacy deterministic ordering is preserved; when operations yield it gives every
+    /// operation a turn instead of starving all but the lowest id. Fairness/priority strategies beyond
+    /// this fixed rotation are deferred to Phase 3B.
+    /// </para>
     /// </summary>
     /// <returns><see langword="true"/> if an operation ran; <see langword="false"/> if none was runnable.</returns>
     public bool RunStep()
@@ -443,15 +453,32 @@ public sealed class ControlledOperationScheduler : IDisposable
 
     private ControlledOperation? SelectRunnable()
     {
+        // Deterministic round-robin: the runnable operation with the smallest id strictly greater
+        // than the last-selected one, or - if none is greater - the smallest runnable id (wrap).
+        // _operations is a SortedDictionary, so iteration is ascending by id.
+        ControlledOperation? firstOverall = null;
+        ControlledOperation? firstAfterLast = null;
         foreach (var operation in _operations.Values)
         {
-            if (operation.State == ControlledOperationState.Runnable)
+            if (operation.State != ControlledOperationState.Runnable)
             {
-                return operation;
+                continue;
+            }
+
+            firstOverall ??= operation;
+            if (firstAfterLast is null && operation.Id > _lastSelected)
+            {
+                firstAfterLast = operation;
             }
         }
 
-        return null;
+        var chosen = firstAfterLast ?? firstOverall;
+        if (chosen is not null)
+        {
+            _lastSelected = chosen.Id;
+        }
+
+        return chosen;
     }
 
     private void EnsureThreadStarted(ControlledOperation operation)
