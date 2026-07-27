@@ -33,6 +33,12 @@ public sealed class ControlledThreadPoolRuleGoldenTests
                 public static bool UnsafeQueueItem(IThreadPoolWorkItem w) => ThreadPool.UnsafeQueueUserWorkItem(w, false);
                 public static bool UnsafeQueueGeneric(int s) => ThreadPool.UnsafeQueueUserWorkItem(x => { }, s, false);
                 public static unsafe bool Native(NativeOverlapped* p) => ThreadPool.UnsafeQueueNativeOverlapped(p);
+                public static RegisteredWaitHandle RegisterWait(WaitHandle h) =>
+                    ThreadPool.RegisterWaitForSingleObject(h, (_, _) => { }, null, 1000, true);
+                public static RegisteredWaitHandle RegisterWaitTimeSpan(WaitHandle h) =>
+                    ThreadPool.RegisterWaitForSingleObject(h, (_, _) => { }, null, System.TimeSpan.Zero, true);
+                public static RegisteredWaitHandle UnsafeRegisterWait(WaitHandle h) =>
+                    ThreadPool.UnsafeRegisterWaitForSingleObject(h, (_, _) => { }, null, 1000, true);
             }
         }
         """;
@@ -111,5 +117,29 @@ public sealed class ControlledThreadPoolRuleGoldenTests
         ImmutableArray<ManifestTransformation> transformations = result.Manifest.Transformations;
         Assert.Contains(transformations, t =>
             t.RuleId == "clockwork.threadpool.unsafequeuenativeoverlapped" && t.Policy == SimulationApiPolicy.Rejected);
+    }
+
+    [Fact]
+    public void RegisteredWaitOverloadsAreRejectedAtTheCallSite()
+    {
+        using var context = RewriteTestContext.Create();
+        var result = RewriteFixture(context, "Fx.PoolRegisterWait");
+
+        using ModuleDefinition module = context.LoadModule(
+            Path.Combine(context.Directory, "Fx.PoolRegisterWait.rewritten.dll"));
+
+        foreach (var name in new[] { "RegisterWait", "RegisterWaitTimeSpan", "UnsafeRegisterWait" })
+        {
+            MethodDefinition method = CecilInspect.GetMethod(module, "Fx.PoolUser", name);
+            Assert.True(CecilInspect.CallsAnyContaining(method, "ControlledThreadPool::RejectRegisteredWait"));
+        }
+
+        ImmutableArray<ManifestTransformation> transformations = result.Manifest.Transformations;
+        Assert.Contains(transformations, t =>
+            t.RuleId == "clockwork.threadpool.registerwait.int32" && t.Policy == SimulationApiPolicy.Rejected);
+        Assert.Contains(transformations, t =>
+            t.RuleId == "clockwork.threadpool.registerwait.timespan" && t.Policy == SimulationApiPolicy.Rejected);
+        Assert.Contains(transformations, t =>
+            t.RuleId == "clockwork.threadpool.unsaferegisterwait.int32" && t.Policy == SimulationApiPolicy.Rejected);
     }
 }

@@ -84,6 +84,14 @@ public sealed class ThreadPoolConformanceTests : IDisposable
                 ambient.Value = 9;
                 return await tcs.Task;
             }
+
+            // RegisterWaitForSingleObject binds a callback to a WaitHandle, rejected until Phase 7.
+            public static bool RegisterWaitIsRejected()
+            {
+                using var mre = new ManualResetEvent(false);
+                ThreadPool.RegisterWaitForSingleObject(mre, (_, _) => { }, null, 1000, true);
+                return true;
+            }
         } }
         """;
 
@@ -147,6 +155,28 @@ public sealed class ThreadPoolConformanceTests : IDisposable
     {
         var task = (Task<int>)Method("QueueRunsCallback").Invoke(null, null)!;
         Assert.Equal(42, await task);
+    }
+
+    [Fact]
+    public void RegisterWaitForSingleObjectIsRejectedUntilPhase7()
+    {
+        using var host = new SimulationHost(Start);
+        var ex = Assert.ThrowsAny<Exception>(() => host.Invoke(Method("RegisterWaitIsRejected")));
+        var unsupported = Unwrap(ex);
+        Assert.Equal(
+            "Clockwork.Runtime.Threading.ControlledThreadPoolUnsupportedException",
+            unsupported.GetType().FullName);
+        Assert.Contains("Phase 7", unsupported.Message, StringComparison.Ordinal);
+    }
+
+    private static Exception Unwrap(Exception ex)
+    {
+        while (ex is TargetInvocationException or AggregateException && ex.InnerException is not null)
+        {
+            ex = ex.InnerException;
+        }
+
+        return ex;
     }
 
     private MethodInfo Method(string name) => _probe.Value.Method(name);

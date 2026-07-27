@@ -142,6 +142,21 @@ public static class ControlledThreadPool
             "native overlapped I/O cannot be modelled by the deterministic scheduler; the controlled " +
             "thread pool has no OS I/O completion port.");
 
+    /// <summary>
+    /// Rejection injected before a registered-wait call site
+    /// (<c>RegisterWaitForSingleObject</c> / <c>UnsafeRegisterWaitForSingleObject</c>). These bind a
+    /// callback to a <see cref="WaitHandle"/>, a synchronization primitive that the controlled scheduler
+    /// gains in Phase 7; until then the surface is rejected precisely rather than silently running on a
+    /// real thread-pool wait thread.
+    /// </summary>
+    /// <param name="apiName">The unsupported API, supplied by the rewriter.</param>
+    public static void RejectRegisteredWait(string apiName) =>
+        throw new ControlledThreadPoolUnsupportedException(
+            apiName,
+            "registered waits bind a callback to a WaitHandle; controlled wait handles arrive in Phase 7. " +
+            "Until then this surface is rejected so a real thread-pool wait thread cannot escape the " +
+            "deterministic scheduler.");
+
     private static void RunFlowed(ExecutionContext? context, Action work)
     {
         if (context is null)

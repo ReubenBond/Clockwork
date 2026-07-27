@@ -154,6 +154,16 @@ public sealed class ControlledThreadPoolTests
     }
 
     [Fact]
+    public void RejectRegisteredWaitThrows()
+    {
+        var ex = Assert.Throws<ControlledThreadPoolUnsupportedException>(
+            () => ControlledThreadPool.RejectRegisteredWait(
+                "System.Threading.ThreadPool.RegisterWaitForSingleObject"));
+        Assert.Contains("RegisterWaitForSingleObject", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("Phase 7", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void OutsideSimulationQueueDelegatesToRealThreadPool()
     {
         using var completed = new ManualResetEventSlim(false);

@@ -139,6 +139,14 @@ public static class BuiltInRuleSets
     private const string TStateDecl = "TState";
     private const string NativeOverlappedPtr = "System.Threading.NativeOverlapped*";
 
+    // Cecil full names for the registered-wait surface (Phase 6B slice 5). These bind a callback to a
+    // WaitHandle (a Phase 7 synchronization primitive), so they are rejected at the call site until the
+    // controlled wait-handle infrastructure lands in Phase 7. Each of RegisterWaitForSingleObject and
+    // UnsafeRegisterWaitForSingleObject has four timeout overloads (UInt32/Int32/Int64/TimeSpan).
+    private const string UInt32 = "System.UInt32";
+    private const string WaitHandle = "System.Threading.WaitHandle";
+    private const string WaitOrTimerCallback = "System.Threading.WaitOrTimerCallback";
+
     // Cecil full names for the compiler-generated async machinery (BCL) and their controlled substitutes.
     // Nested awaiter types use Cecil's '/' separator; generic arities carry the backtick.
     private const string CompilerNs = "System.Runtime.CompilerServices.";
@@ -486,6 +494,20 @@ public static class BuiltInRuleSets
             MemberSignature.Method(ThreadPoolType, "UnsafeQueueNativeOverlapped", NativeOverlappedPtr),
             Shim(ThreadPoolShim, "RejectNativeOverlapped", String))));
 
+        // ---- Registered waits (Phase 6B slice 5): RegisterWaitForSingleObject / UnsafeRegisterWaitForSingleObject
+        // bind a callback to a WaitHandle, a Phase 7 synchronization primitive that the controlled scheduler
+        // cannot yet model. Reject every overload precisely at the call site (InjectRejection keeps the value-
+        // returning call in place for stack balance; the injected throw runs first). Each method has four
+        // timeout overloads (UInt32/Int32/Int64/TimeSpan). Lifted to controlled waits in Phase 7. ----
+        RegisterWaitRejection(builder, "clockwork.threadpool.registerwait.uint32", "RegisterWaitForSingleObject", UInt32);
+        RegisterWaitRejection(builder, "clockwork.threadpool.registerwait.int32", "RegisterWaitForSingleObject", Int32);
+        RegisterWaitRejection(builder, "clockwork.threadpool.registerwait.int64", "RegisterWaitForSingleObject", Int64);
+        RegisterWaitRejection(builder, "clockwork.threadpool.registerwait.timespan", "RegisterWaitForSingleObject", TimeSpan);
+        RegisterWaitRejection(builder, "clockwork.threadpool.unsaferegisterwait.uint32", "UnsafeRegisterWaitForSingleObject", UInt32);
+        RegisterWaitRejection(builder, "clockwork.threadpool.unsaferegisterwait.int32", "UnsafeRegisterWaitForSingleObject", Int32);
+        RegisterWaitRejection(builder, "clockwork.threadpool.unsaferegisterwait.int64", "UnsafeRegisterWaitForSingleObject", Int64);
+        RegisterWaitRejection(builder, "clockwork.threadpool.unsaferegisterwait.timespan", "UnsafeRegisterWaitForSingleObject", TimeSpan);
+
         return builder.ToImmutable();
     }
 
@@ -497,6 +519,21 @@ public static class BuiltInRuleSets
         RewriteReplacement replacement)
     {
         builder.Add(new BuiltInRuleEntry(family, RewriteRule.RedirectCall(id, target, replacement, SimulationApiPolicy.Rejected)));
+    }
+
+    // Rejects a registered-wait overload at the call site. The BCL method returns RegisteredWaitHandle, so
+    // InjectRejection is used (it prepends a throwing Reject(string) before the original call, keeping the
+    // value-returning invocation in place for stack balance) rather than a return-value shim.
+    private static void RegisterWaitRejection(
+        ImmutableArray<BuiltInRuleEntry>.Builder builder,
+        string id,
+        string method,
+        string timeoutType)
+    {
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.ThreadPool, RewriteRule.InjectRejection(
+            id,
+            MemberSignature.Method(ThreadPoolType, method, WaitHandle, WaitOrTimerCallback, ObjectType, timeoutType, Boolean),
+            Shim(ThreadPoolShim, "RejectRegisteredWait", String))));
     }
 
     private static void Sub(
