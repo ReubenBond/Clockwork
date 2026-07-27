@@ -90,9 +90,9 @@ public enum BuiltInRuleFamily
     /// <see cref="System.Threading.Tasks.TaskFactory"/> / <see cref="System.Threading.Tasks.TaskFactory{TResult}"/>
     /// scheduling: <c>StartNew</c> offloads work onto a task scheduler (the thread pool by default).
     /// Classified <c>Controlled</c> (Phase 6B) - the shim queues the delegate body as a fresh controlled
-    /// operation on the coordinator (honouring state, cancellation, options with controlled meaning, and
-    /// results) instead of escaping onto a physical thread. The complete .NET 10 overload set is classified;
-    /// custom schedulers and unsupported option semantics are rejected, and every form runs the real BCL API
+    /// operation on the coordinator (honouring state, cancellation, and results) instead of escaping onto
+    /// a physical thread. The complete .NET 10 overload set is classified; custom schedulers and every
+    /// non-<c>None</c> option are rejected, and every form runs the real BCL API
     /// unchanged outside simulation.
     /// </summary>
     TaskFactory,

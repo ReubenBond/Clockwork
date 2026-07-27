@@ -104,8 +104,8 @@ classifies and rewrites the same 24 .NET 10 `StartNew` signatures.
 | `TaskFactory.StartNew<TResult>(Func<object,TResult>, object)` (+ token / options / full scheduler) | ✅ Controlled | `clockwork.tasks.factory.startnew.func.state*` |
 | `TaskFactory<TResult>.StartNew(Func<TResult>)` (+ token / options / full scheduler) | ✅ Controlled | `clockwork.tasks.factory.generic.startnew.func*` |
 | `TaskFactory<TResult>.StartNew(Func<object,TResult>, object)` (+ token / options / full scheduler) | ✅ Controlled | `clockwork.tasks.factory.generic.startnew.func.state*` |
-| Full-scheduler form with `TaskScheduler.Default` | ✅ Controlled | state, cancellation, supported options, result, and `Task.AsyncState` are preserved |
-| Full-scheduler form with a custom scheduler; unsupported creation options | ⛔ Rejected (tested) | unsupported semantics are never silently ignored or allowed to escape the logical strand |
+| Full-scheduler form with `TaskScheduler.Default` and `TaskCreationOptions.None` | ✅ Controlled | state, cancellation, result, and `Task.AsyncState` are preserved |
+| Full-scheduler form with a custom scheduler; any non-`None` creation options | ⛔ Rejected (tested) | unsupported observable semantics are never silently ignored or allowed to escape the logical strand |
 | `get_ContinuationOptions` / `get_CancellationToken` / `get_CreationOptions` / `get_Scheduler` | n/a | pure read-only property getters — no scheduling, no interception needed |
 
 ---

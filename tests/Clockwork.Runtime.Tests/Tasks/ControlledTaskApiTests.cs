@@ -397,14 +397,14 @@ public sealed class ControlledTaskApiTests
                 },
                 17L,
                 CancellationToken.None,
-                TaskCreationOptions.DenyChildAttach,
+                TaskCreationOptions.None,
                 TaskScheduler.Default);
             var result = ControlledTaskFactory.StartNew(
                 Task.Factory,
                 state => (Value: (int)state!, Strand: ControlledSynchronizationFlow.CurrentId),
                 42,
                 CancellationToken.None,
-                TaskCreationOptions.HideScheduler,
+                TaskCreationOptions.None,
                 TaskScheduler.Default);
 
             coordinator.Loop.RunUntil(() => action.IsCompleted && result.IsCompleted, "test");
@@ -467,7 +467,47 @@ public sealed class ControlledTaskApiTests
                     TaskCreationOptions.LongRunning,
                     TaskScheduler.Default);
             }));
+            Assert.Throws<ControlledTaskUnsupportedException>((Action)(() =>
+            {
+                _ = ControlledTaskFactory.StartNew(
+                    Task.Factory,
+                    () => { },
+                    CancellationToken.None,
+                    TaskCreationOptions.DenyChildAttach,
+                    TaskScheduler.Default);
+            }));
             schedulers.Complete();
+        });
+    }
+
+    [Fact]
+    public void TaskFactoryPreCancellationIsImmediateAndUnmatchedCancellationFaults()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+            var ran = false;
+            Task canceled = ControlledTaskFactory.StartNew(
+                Task.Factory,
+                () => ran = true,
+                cts.Token,
+                TaskCreationOptions.None,
+                TaskScheduler.Default);
+            Task faulted = ControlledTaskFactory.StartNew(
+                Task.Factory,
+                () => throw new OperationCanceledException(),
+                CancellationToken.None,
+                TaskCreationOptions.None,
+                TaskScheduler.Default);
+
+            Assert.True(canceled.IsCanceled);
+            Assert.False(ran);
+            coordinator.Loop.RunUntil(() => faulted.IsCompleted, "test");
+            Assert.Equal(TaskStatus.Faulted, faulted.Status);
+            Assert.IsType<OperationCanceledException>(faulted.Exception!.InnerException);
         });
     }
 

@@ -196,6 +196,11 @@ public static class ControlledTaskFactory
         ArgumentNullException.ThrowIfNull(scheduler);
         RejectUnsupportedOptions(creationOptions);
         RejectUnsupportedScheduler(scheduler);
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return Task.FromCanceled(cancellationToken);
+        }
+
         var tcs = new TaskCompletionSource(asyncState);
         ControlledTaskRuntime.QueueWork(
             () => RunAction(action, tcs, cancellationToken),
@@ -540,6 +545,11 @@ public static class ControlledTaskFactory
         ArgumentNullException.ThrowIfNull(scheduler);
         RejectUnsupportedOptions(creationOptions);
         RejectUnsupportedScheduler(scheduler);
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return Task.FromCanceled<TResult>(cancellationToken);
+        }
+
         var tcs = new TaskCompletionSource<TResult>(asyncState);
         ControlledTaskRuntime.QueueWork(
             () => RunFunc(function, tcs, cancellationToken),
@@ -561,8 +571,9 @@ public static class ControlledTaskFactory
             tcs.TrySetResult();
         }
         catch (OperationCanceledException oce)
+            when (cancellationToken.IsCancellationRequested && oce.CancellationToken == cancellationToken)
         {
-            tcs.TrySetCanceled(oce.CancellationToken);
+            tcs.TrySetCanceled(cancellationToken);
         }
         catch (Exception ex)
         {
@@ -583,8 +594,9 @@ public static class ControlledTaskFactory
             tcs.TrySetResult(function());
         }
         catch (OperationCanceledException oce)
+            when (cancellationToken.IsCancellationRequested && oce.CancellationToken == cancellationToken)
         {
-            tcs.TrySetCanceled(oce.CancellationToken);
+            tcs.TrySetCanceled(cancellationToken);
         }
         catch (Exception ex)
         {
@@ -594,17 +606,13 @@ public static class ControlledTaskFactory
 
     private static void RejectUnsupportedOptions(TaskCreationOptions creationOptions)
     {
-        const TaskCreationOptions supported =
-            TaskCreationOptions.DenyChildAttach |
-            TaskCreationOptions.HideScheduler;
-        TaskCreationOptions unsupported = creationOptions & ~supported;
-        if (unsupported != TaskCreationOptions.None)
+        if (creationOptions != TaskCreationOptions.None)
         {
             throw new ControlledTaskUnsupportedException(
                 "System.Threading.Tasks.TaskFactory.StartNew",
-                $"the creation option combination '{unsupported}' is not supported inside a simulation: the " +
-                "cooperative scheduler cannot faithfully preserve parent attachment, fairness, long-running, " +
-                "or asynchronous-continuation scheduling semantics.");
+                $"the creation option combination '{creationOptions}' is not supported inside a simulation: " +
+                "the cooperative scheduler cannot faithfully preserve the returned task's observable creation " +
+                "options or their scheduling, parent, and continuation semantics.");
         }
     }
 
