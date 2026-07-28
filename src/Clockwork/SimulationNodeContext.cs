@@ -25,19 +25,19 @@ public enum SimulationNodeState
 
 /// <summary>
 /// <para>
-/// Encapsulates all per-node simulation state, including the node's task queue,
+/// Encapsulates all per-node simulation state, including the node's scheduler lane,
 /// task scheduler, synchronization context, time provider, and random number generator.
 /// </para>
 /// <para>
 /// Each simulated node has its own context, allowing fine-grained control
 /// over individual node execution (pause, resume, step) while sharing a unified
-/// <see cref="SimulationClock"/> for time synchronization.
+/// <see cref="SimulationSchedulerLane"/> for time synchronization.
 /// </para>
 /// </summary>
 [DebuggerDisplay("{DebuggerDisplay,nq}")]
 public sealed partial class SimulationNodeContext
 {
-    private readonly SimulationTaskQueue? _externalTaskQueue;
+    private readonly SimulationSchedulerLane? _externalSchedulerLane;
     private readonly ILogger _logger;
 
     /// <summary>
@@ -47,24 +47,20 @@ public sealed partial class SimulationNodeContext
     /// <param name="clock">The shared simulation clock for time coordination.</param>
     /// <param name="guard">The shared single-threaded guard for detecting concurrent access.</param>
     /// <param name="random">The deterministic random number generator for this node.</param>
-    /// <param name="externalTaskQueue">Optional external task queue for scheduling operations that must run
+    /// <param name="externalSchedulerLane">Optional external scheduler lane for operations that must run
     /// even when this node is suspended (e.g., auto-resume from SuspendFor). If not provided,
     /// SuspendFor will throw InvalidOperationException.</param>
     /// <param name="logger">Optional logger for suspend/resume operations.</param>
-    /// <param name="ambientContext">
-    /// Optional ambient-context configuration (see <see cref="SimulationAmbientContextConfiguration"/>)
-    /// passed through to this node's <see cref="TaskQueue"/>. Omit for nodes that should not
-    /// participate in ambient <see cref="SimulationExecutionContext"/> integration (e.g. hand-written
-    /// <see cref="SimulationCluster{TNode}"/> subclasses that predate it) - this preserves prior
-    /// behavior exactly.
-    /// </param>
-    public SimulationNodeContext(
+    /// <param name="runtime">The runtime whose scheduler owns this node's lane.</param>
+    /// <param name="node">The node identity attached to work scheduled by this context.</param>
+    internal SimulationNodeContext(
         SimulationClock clock,
         SingleThreadedGuard guard,
         SimulationRandom random,
-        SimulationTaskQueue? externalTaskQueue = null,
-        ILogger? logger = null,
-        SimulationAmbientContextConfiguration? ambientContext = null)
+        SimulationSchedulerLane? externalSchedulerLane,
+        ILogger? logger,
+        SimulationRuntimeIdentity? runtime,
+        SimulationNodeIdentity? node)
     {
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(guard);
@@ -72,11 +68,13 @@ public sealed partial class SimulationNodeContext
 
         Clock = clock;
         Random = random;
-        _externalTaskQueue = externalTaskQueue;
+        _externalSchedulerLane = externalSchedulerLane;
         _logger = logger ?? NullLogger.Instance;
-        TaskQueue = new SimulationTaskQueue(clock, guard, ambientContext);
-        TaskScheduler = new SimulationTaskScheduler(TaskQueue);
-        TimeProvider = new SimulationTimeProvider(TaskQueue, clock);
+        ArgumentNullException.ThrowIfNull(runtime);
+
+        SchedulerLane = new SimulationSchedulerLane(runtime.Scheduler, guard, node);
+        TaskScheduler = new SimulationTaskScheduler(SchedulerLane);
+        TimeProvider = new SimulationTimeProvider(SchedulerLane, clock);
     }
 
     /// <summary>
@@ -90,26 +88,26 @@ public sealed partial class SimulationNodeContext
     public SimulationRandom Random { get; }
 
     /// <summary>
-    /// Gets the task queue for this node.
-    /// Tasks scheduled on this queue are only executed when this node is stepped.
+    /// Gets the scheduler lane for this node.
+    /// Work scheduled on this lane is eligible only while this node is active.
     /// </summary>
-    public SimulationTaskQueue TaskQueue { get; }
+    public SimulationSchedulerLane SchedulerLane { get; }
 
     /// <summary>
     /// Gets the task scheduler for this node.
-    /// Used for scheduling TPL tasks on this node's queue.
+    /// Used for scheduling TPL tasks on this node's lane.
     /// </summary>
     public SimulationTaskScheduler TaskScheduler { get; }
 
     /// <summary>
     /// Gets the synchronization context for this node.
-    /// Used for async/await continuations on this node's queue.
+    /// Used for async/await continuations on this node's lane.
     /// </summary>
-    public SimulationSynchronizationContext SynchronizationContext => TaskQueue.SynchronizationContext;
+    public SimulationSynchronizationContext SynchronizationContext => SchedulerLane.SynchronizationContext;
 
     /// <summary>
     /// Gets the time provider for this node.
-    /// Timers created through this provider are scheduled on this node's queue.
+    /// Timers created through this provider are scheduled on this node's lane.
     /// </summary>
     public SimulationTimeProvider TimeProvider { get; }
 
@@ -133,8 +131,8 @@ public sealed partial class SimulationNodeContext
             if (State == SimulationNodeState.Suspended)
                 return false;
 
-            // Check if the queue has any items due at or before the current time
-            var items = TaskQueue.ScheduledItems;
+            // Check if the lane has any items due at or before the current time
+            var items = SchedulerLane.ScheduledItems;
             if (items.Count == 0)
                 return false;
 
@@ -146,13 +144,13 @@ public sealed partial class SimulationNodeContext
     }
 
     /// <summary>
-    /// Gets the due time of the next waiting (not yet ready) task on this node's queue,
+    /// Gets the due time of the next waiting (not yet ready) task on this node's lane,
     /// or null if no tasks are waiting.
     /// </summary>
-    public DateTimeOffset? NextWaitingDueTime => TaskQueue.NextWaitingDueTime;
+    public DateTimeOffset? NextWaitingDueTime => SchedulerLane.NextWaitingDueTime;
 
     /// <summary>
-    /// Executes one ready task from this node's queue.
+    /// Executes one ready task from this node's lane.
     /// </summary>
     /// <returns>True if a task was executed; false if no tasks are ready or the node is suspended.</returns>
     public bool Step()
@@ -160,11 +158,11 @@ public sealed partial class SimulationNodeContext
         if (State == SimulationNodeState.Suspended)
             return false;
 
-        return TaskQueue.RunOnce();
+        return SchedulerLane.RunOnce();
     }
 
     /// <summary>
-    /// Executes all ready tasks from this node's queue.
+    /// Executes all ready tasks from this node's lane.
     /// </summary>
     /// <returns>The number of tasks executed. Returns 0 if the node is suspended.</returns>
     public int RunUntilIdle()
@@ -172,7 +170,7 @@ public sealed partial class SimulationNodeContext
         if (State == SimulationNodeState.Suspended)
             return 0;
 
-        return TaskQueue.RunUntilIdle();
+        return SchedulerLane.RunUntilIdle();
     }
 
     /// <summary>
@@ -182,6 +180,7 @@ public sealed partial class SimulationNodeContext
     public void Suspend()
     {
         State = SimulationNodeState.Suspended;
+        SchedulerLane.SetEnabled(enabled: false);
         Log.NodeSuspended(_logger);
     }
 
@@ -192,35 +191,36 @@ public sealed partial class SimulationNodeContext
     public void Resume()
     {
         State = SimulationNodeState.Running;
+        SchedulerLane.SetEnabled(enabled: true);
         Log.NodeResumed(_logger);
     }
 
     /// <summary>
     /// Suspends this node for the specified duration, then automatically resumes it.
     /// The resume occurs when simulated time advances past the duration.
-    /// Requires an external task queue to be provided at construction time.
+    /// Requires an external scheduler lane to be provided at construction time.
     /// </summary>
     /// <param name="duration">How long to suspend the node (in simulated time).</param>
-    /// <exception cref="InvalidOperationException">Thrown if no external task queue was provided.</exception>
+    /// <exception cref="InvalidOperationException">Thrown if no external scheduler lane was provided.</exception>
     public void SuspendFor(TimeSpan duration)
     {
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(duration, TimeSpan.Zero);
 
-        if (_externalTaskQueue is null)
+        if (_externalSchedulerLane is null)
         {
             throw new InvalidOperationException(
-                "SuspendFor requires an external task queue to be provided at construction time.");
+                "SuspendFor requires an external scheduler lane to be provided at construction time.");
         }
 
-        State = SimulationNodeState.Suspended;
+        Suspend();
         Log.NodeSuspendedFor(_logger, duration);
 
         // Schedule auto-resume on the external queue (not this node's queue,
         // since it won't run while suspended)
-        _externalTaskQueue.EnqueueAfter(Resume, duration);
+        _externalSchedulerLane.EnqueueAfter(Resume, duration);
     }
 
-    private string DebuggerDisplay => $"SimulationNodeContext({State}, Tasks={TaskQueue.ScheduledItems.Count})";
+    private string DebuggerDisplay => $"SimulationNodeContext({State}, Tasks={SchedulerLane.ScheduledItems.Count})";
 
     private static partial class Log
     {

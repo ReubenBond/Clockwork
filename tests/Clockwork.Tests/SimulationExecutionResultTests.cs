@@ -16,7 +16,7 @@ public sealed class SimulationExecutionResultTests
         await using var cluster = new RecordingCluster(seed: 1);
         var node = cluster.AddNode("node-1");
         var executed = false;
-        node.Context.TaskQueue.EnqueueAfter(() => executed = true, TimeSpan.FromSeconds(5));
+        node.Context.SchedulerLane.EnqueueAfter(() => executed = true, TimeSpan.FromSeconds(5));
 
         var result = cluster.RunUntil(() => executed);
 
@@ -68,7 +68,7 @@ public sealed class SimulationExecutionResultTests
         await using var cluster = new RecordingCluster(seed: 1);
         var node = cluster.AddNode("node-1");
         node.Suspend();
-        node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => { }));
+        node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => { }));
 
         var result = cluster.RunUntilIdle();
 
@@ -100,8 +100,8 @@ public sealed class SimulationExecutionResultTests
 
         // Both items become due at the same simulated instant with independent per-queue sequence
         // numbers (0 each) - the queue identity is the only remaining, deterministic tiebreaker.
-        nodeB.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => { }));
-        nodeA.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => { }));
+        nodeB.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => { }));
+        nodeA.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => { }));
 
         var result = cluster.RunUntilIdle();
 
@@ -115,7 +115,7 @@ public sealed class SimulationExecutionResultTests
     {
         await using var cluster = new RecordingCluster(seed: 1) { MaxSimulatedTimeAdvance = TimeSpan.FromSeconds(1) };
         var node = cluster.AddNode("node-1");
-        node.Context.TaskQueue.EnqueueAfter(() => { }, TimeSpan.FromSeconds(10));
+        node.Context.SchedulerLane.EnqueueAfter(() => { }, TimeSpan.FromSeconds(10));
 
         var result = cluster.RunUntil(() => false, maxIterations: 100);
 
@@ -135,7 +135,7 @@ public sealed class SimulationExecutionResultTests
         // without doing any work. Five distinct due times comfortably exceed the threshold of 2.
         for (var i = 1; i <= 5; i++)
         {
-            node.Context.TaskQueue.EnqueueAfter(() => { }, TimeSpan.FromSeconds(i));
+            node.Context.SchedulerLane.EnqueueAfter(() => { }, TimeSpan.FromSeconds(i));
         }
 
         var result = cluster.RunUntil(() => false, maxIterations: 100);
@@ -151,7 +151,7 @@ public sealed class SimulationExecutionResultTests
     {
         await using var cluster = new RecordingCluster(seed: 1);
         var node = cluster.AddNode("node-1");
-        node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => { }));
+        node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => { }));
 
         var result = cluster.RunUntil(() => false, maxIterations: 1);
 
@@ -167,7 +167,7 @@ public sealed class SimulationExecutionResultTests
         using var cts = new CancellationTokenSource();
         await using var cluster = new RecordingCluster(seed: 1, cancellationToken: cts.Token);
         var node = cluster.AddNode("node-1");
-        node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => { }));
+        node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => { }));
         await cts.CancelAsync();
 
         var result = cluster.RunUntilIdle();
@@ -198,7 +198,7 @@ public sealed class SimulationExecutionResultTests
         await using var cluster = new RecordingCluster(seed: 1);
         var node = cluster.AddNode("node-1");
         var fired = false;
-        node.Context.TaskQueue.EnqueueAfter(() => fired = true, TimeSpan.FromSeconds(2));
+        node.Context.SchedulerLane.EnqueueAfter(() => fired = true, TimeSpan.FromSeconds(2));
 
         var result = cluster.RunFor(TimeSpan.FromSeconds(5));
 
@@ -217,11 +217,11 @@ public sealed class SimulationExecutionResultTests
         await using var cluster = new RecordingCluster(seed: 1);
         var node = cluster.AddNode("node-1");
         var events = new List<string>();
-        node.Context.TaskQueue.EnqueueAfter(
+        node.Context.SchedulerLane.EnqueueAfter(
             () =>
             {
                 events.Add("timer");
-                node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => events.Add("continuation")));
+                node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => events.Add("continuation")));
             },
             TimeSpan.FromSeconds(5));
 
@@ -230,6 +230,22 @@ public sealed class SimulationExecutionResultTests
         Assert.Equal(["timer", "continuation"], events);
         Assert.Equal(cluster.StartDateTime + TimeSpan.FromSeconds(5), result.EndTime);
         Assert.Equal(SimulationExecutionReason.Idle, result.Reason);
+    }
+
+    [Fact]
+    public async Task RunForDoesNotExecuteWorkBeyondTheTarget()
+    {
+        await using var cluster = new RecordingCluster(seed: 1);
+        var node = cluster.AddNode("node-1");
+        var events = new List<string>();
+        node.Context.SchedulerLane.EnqueueAfter(() => events.Add("within"), TimeSpan.FromSeconds(2));
+        node.Context.SchedulerLane.EnqueueAfter(() => events.Add("beyond"), TimeSpan.FromSeconds(6));
+
+        SimulationExecutionResult result = cluster.RunFor(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(["within"], events);
+        Assert.Equal(cluster.StartDateTime + TimeSpan.FromSeconds(5), result.EndTime);
+        Assert.Equal(1, result.PendingWork.WaitingCount);
     }
 
     [Fact]
@@ -279,7 +295,7 @@ public sealed class SimulationExecutionResultTests
     {
         await using var cluster = new RecordingCluster(seed: 1) { MaxConsecutiveTimeAdvances = 0 };
         var node = cluster.AddNode("node-1");
-        node.Context.TaskQueue.EnqueueAfter(() => { }, TimeSpan.FromSeconds(1));
+        node.Context.SchedulerLane.EnqueueAfter(() => { }, TimeSpan.FromSeconds(1));
 
         var result = cluster.RunUntil(() => false, maxIterations: 100);
 
@@ -303,7 +319,7 @@ public sealed class SimulationExecutionResultTests
             await using var cluster = new RecordingCluster(seed: 99);
             var node = cluster.AddNode("node-1");
             node.Suspend();
-            node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => { }));
+            node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => { }));
             return cluster.RunUntilIdle();
         }
     }
@@ -336,7 +352,7 @@ public sealed class SimulationExecutionResultTests
         {
             await using var cluster = new RecordingCluster(seed: 1);
             var node = cluster.AddNode("node-1");
-            node.Context.TaskQueue.EnqueueAfter(() => { }, TimeSpan.FromSeconds(1.5));
+            node.Context.SchedulerLane.EnqueueAfter(() => { }, TimeSpan.FromSeconds(1.5));
             return cluster.RunUntilIdle();
         }
     }
@@ -352,7 +368,7 @@ public sealed class SimulationExecutionResultTests
 
         public TestNode AddNode(string address)
         {
-            var context = new SimulationNodeContext(Clock, Guard, ForkRandom(), TaskQueue);
+            var context = CreateNodeContext(address);
             var node = new TestNode(address, context);
             RegisterNode(node);
             return node;

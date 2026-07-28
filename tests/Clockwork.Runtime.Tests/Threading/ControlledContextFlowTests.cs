@@ -13,7 +13,7 @@ public sealed class ControlledContextFlowTests
     [Fact]
     public void ExecutionContextCaptureAndRunFlowUserAsyncLocalsWithoutAliasingTheControlledStrand()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -44,7 +44,7 @@ public sealed class ControlledContextFlowTests
     [Fact]
     public void ExecutionContextSuppressAndRestoreFlowMatchBclSemantics()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -65,7 +65,7 @@ public sealed class ControlledContextFlowTests
     [Fact]
     public void ExecutionContextRestorePreservesTheActiveSimulationAndControlledStrand()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -90,7 +90,7 @@ public sealed class ControlledContextFlowTests
         ExecutionContext outsideCopy = outside.CreateCopy();
         outsideAmbient.Value = 0;
 
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             outsideAmbient.Value = 9;
@@ -124,7 +124,7 @@ public sealed class ControlledContextFlowTests
     [Fact]
     public void NewSafeOperationsFlowUserContextButReceiveDistinctControlledStrands()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -135,7 +135,7 @@ public sealed class ControlledContextFlowTests
             ControlledTask.Run(() => values.Add((ambient.Value, ControlledSynchronizationFlow.CurrentId)));
             ambient.Value = 9;
 
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
 
             Assert.Equal(2, values.Count);
             Assert.All(values, entry =>
@@ -150,7 +150,7 @@ public sealed class ControlledContextFlowTests
     [Fact]
     public void ScheduledContinuationsHonorSafeAndUnsafeExecutionContextFlow()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -170,7 +170,7 @@ public sealed class ControlledContextFlowTests
                 flowExecutionContext: false);
             ambient.Value = 9;
 
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
 
             Assert.Equal(5, safe);
             Assert.Equal(0, unsafeValue);
@@ -180,7 +180,7 @@ public sealed class ControlledContextFlowTests
     [Fact]
     public void SynchronizationContextIsLogicalAndPostAndSendNeverInvokeCustomDispatch()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -214,7 +214,7 @@ public sealed class ControlledContextFlowTests
                 Assert.Equal(1, context.Started);
                 Assert.Equal(1, context.Completed);
 
-                coordinator.Loop.RunUntilIdle();
+                coordinator.Scheduler.RunUntilIdle();
                 Assert.True(postRan);
                 Assert.Null(context.ObservedPostContext);
             }
@@ -228,11 +228,11 @@ public sealed class ControlledContextFlowTests
     [Fact]
     public void SynchronizationContextRawWaitIsRejectedBeforeBlocking()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            var ex = Assert.Throws<ControlledSynchronizationContextUnsupportedException>(
+            var ex = Assert.Throws<ControlledApiException>(
                 () => ControlledSynchronizationContext.Wait(new SynchronizationContext(), [IntPtr.Zero], waitAll: false, millisecondsTimeout: 0));
             Assert.Equal("System.Threading.SynchronizationContext.Wait", ex.ApiName);
         });
@@ -241,7 +241,7 @@ public sealed class ControlledContextFlowTests
     [Fact]
     public void SynchronizationContextIsStrandScopedAndDoesNotFlowWithExecutionContext()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var first = new SynchronizationContext();
@@ -257,7 +257,7 @@ public sealed class ControlledContextFlowTests
 
             SynchronizationContext? childContext = first;
             ControlledThreadPool.QueueUserWorkItem(_ => childContext = ControlledSynchronizationContext.Current());
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
 
             Assert.Null(childContext);
             ControlledSynchronizationContext.SetSynchronizationContext(first);

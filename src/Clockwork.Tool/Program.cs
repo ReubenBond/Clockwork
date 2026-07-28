@@ -86,7 +86,7 @@ internal static class Program
 
     private static ExitCode Fail(TextWriter error, string message, ExitCode code)
     {
-        error.WriteLine($"clockwork: {message}");
+        error.WriteLine($"dotnet-clockwork: {message}");
         return code;
     }
 
@@ -94,16 +94,16 @@ internal static class Program
 
     private static void WriteUsage(TextWriter output)
     {
-        output.WriteLine("clockwork - deterministic IL instrumentation tool");
+        output.WriteLine("dotnet-clockwork - deterministic IL instrumentation tool");
         output.WriteLine();
         output.WriteLine("Usage:");
-        output.WriteLine("  clockwork instrument --source <dir> --output <dir> [options]");
-        output.WriteLine("  clockwork inspect <assembly|dir>... [options]");
-        output.WriteLine("  clockwork record --assembly <path> --scenario-type <type> --artifact <path> --seed <int> [options]");
-        output.WriteLine("  clockwork replay <artifact> --assembly <path> --scenario-type <type> [options]");
-        output.WriteLine("  clockwork explore --assembly <path> --scenario-type <type> --output <dir> --seed <int> [options]");
-        output.WriteLine("  clockwork minimize <artifact> --assembly <path> --scenario-type <type> [options]");
-        output.WriteLine("  clockwork trace show <artifact> [--json]");
+        output.WriteLine("  dotnet clockwork instrument --source <dir> --output <dir> [options]");
+        output.WriteLine("  dotnet clockwork inspect <assembly|dir>... [options]");
+        output.WriteLine("  dotnet clockwork record --assembly <path> --scenario-type <type> --artifact <path> --seed <int> [options]");
+        output.WriteLine("  dotnet clockwork replay <artifact> --assembly <path> --scenario-type <type> [options]");
+        output.WriteLine("  dotnet clockwork explore --assembly <path> --scenario-type <type> --output <dir> --seed <int> [options]");
+        output.WriteLine("  dotnet clockwork minimize <artifact> --assembly <path> --scenario-type <type> [options]");
+        output.WriteLine("  dotnet clockwork trace show <artifact> [--json]");
         output.WriteLine();
         output.WriteLine("instrument options:");
         output.WriteLine("  --source <dir>              application output/publish directory to read (required)");

@@ -318,5 +318,5 @@ public sealed class SimulationSynchronizationContextTests
         Assert.True(executed);
     }
 
-    private static SimulationTaskQueue CreateQueue() => new(new SimulationClock(DateTimeOffset.UnixEpoch), new SingleThreadedGuard());
+    private static SimulationSchedulerLane CreateQueue() => SimulationTestHarness.NewLane();
 }

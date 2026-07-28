@@ -153,7 +153,7 @@ public sealed class ReplayCliCommandTests : IDisposable
 
     public sealed class SuccessScenario : IReplayScenario
     {
-        public void Configure(ControlledOperationScheduler scheduler)
+        public void Configure(SimulationScheduler scheduler)
         {
             scheduler.Schedule("one", scheduler.Yield);
             scheduler.Schedule("two", static () => { });
@@ -162,13 +162,13 @@ public sealed class ReplayCliCommandTests : IDisposable
 
     public sealed class FaultScenario : IReplayScenario
     {
-        public void Configure(ControlledOperationScheduler scheduler) =>
+        public void Configure(SimulationScheduler scheduler) =>
             scheduler.Schedule("fault", static () => throw new KnownCliFailureException());
     }
 
     public sealed class RaceScenario : IReplayScenario
     {
-        public void Configure(ControlledOperationScheduler scheduler)
+        public void Configure(SimulationScheduler scheduler)
         {
             var target = new object();
             scheduler.Schedule(
@@ -184,14 +184,14 @@ public sealed class ReplayCliCommandTests : IDisposable
 
     public sealed class LongFaultScenario : IReplayScenario
     {
-        public void Configure(ControlledOperationScheduler scheduler)
+        public void Configure(SimulationScheduler scheduler)
         {
             scheduler.Schedule("background-one", () => YieldMany(scheduler));
             scheduler.Schedule("background-two", () => YieldMany(scheduler));
             scheduler.Schedule("fault", static () => throw new KnownCliFailureException());
         }
 
-        private static void YieldMany(ControlledOperationScheduler scheduler)
+        private static void YieldMany(SimulationScheduler scheduler)
         {
             for (var index = 0; index < 5; index++)
             {

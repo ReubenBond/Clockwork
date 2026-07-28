@@ -109,13 +109,14 @@ public sealed class TaskRunConformanceTests : IDisposable
 
         long[] first = Run();
         long[] second = Run();
-        Assert.Equal(Clockwork.Runtime.Threading.ControlledSynchronizationFlow.None, first[1]);
+        Assert.NotEqual(Clockwork.Runtime.Threading.ControlledSynchronizationFlow.None, first[1]);
         Assert.Equal(123, first[8]);
         Assert.Equal(first[8], second[8]);
         for (int i = 0; i < 3; i++)
         {
             Assert.Equal(first[0], first[2 + i * 2]);
             Assert.NotEqual(Clockwork.Runtime.Threading.ControlledSynchronizationFlow.None, first[3 + i * 2]);
+            Assert.NotEqual(first[1], first[3 + i * 2]);
         }
     }
 

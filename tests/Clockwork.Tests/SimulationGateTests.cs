@@ -250,10 +250,10 @@ public sealed class SimulationGateTests
         Assert.Equal("startup", new SimulationGate(queue, name: "startup").Name);
     }
 
-    private static SimulationTaskQueue CreateQueue() => new(new SimulationClock(DateTimeOffset.UnixEpoch), new SingleThreadedGuard());
+    private static SimulationSchedulerLane CreateQueue() => SimulationTestHarness.NewLane();
 
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-    private static WeakReference CreateReleasedGateReference(SimulationTaskQueue queue, CancellationToken cancellationToken)
+    private static WeakReference CreateReleasedGateReference(SimulationSchedulerLane queue, CancellationToken cancellationToken)
     {
         var gate = new SimulationGate(queue);
         var task = gate.WaitAsync(cancellationToken);

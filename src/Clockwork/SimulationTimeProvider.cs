@@ -4,11 +4,11 @@ namespace Clockwork;
 
 /// <summary>
 /// <para>
-/// A time provider for simulation testing that integrates with <see cref="SimulationTaskQueue"/>
+/// A time provider for simulation testing that integrates with <see cref="SimulationSchedulerLane"/>
 /// for deterministic timer execution.
 /// </para>
 /// <para>
-/// Timer callbacks are scheduled through the queue instead of being executed immediately.
+/// Timer callbacks are scheduled through the lane instead of being executed immediately.
 /// This enables fully deterministic simulation testing where task execution order is controlled.
 /// </para>
 /// <para>
@@ -18,20 +18,20 @@ namespace Clockwork;
 /// </summary>
 public sealed class SimulationTimeProvider : TimeProvider
 {
-    private readonly SimulationTaskQueue _taskQueue;
+    private readonly SimulationSchedulerLane _schedulerLane;
     private readonly SimulationClock _clock;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="SimulationTimeProvider"/> class with a task queue and clock.
+    /// Initializes a new instance of the <see cref="SimulationTimeProvider"/> class with a scheduler lane and clock.
     /// </summary>
-    /// <param name="taskQueue">The task queue for scheduling timer callbacks.</param>
+    /// <param name="schedulerLane">The scheduler lane for timer callbacks.</param>
     /// <param name="clock">The simulation clock for time queries.</param>
-    public SimulationTimeProvider(SimulationTaskQueue taskQueue, SimulationClock clock)
+    public SimulationTimeProvider(SimulationSchedulerLane schedulerLane, SimulationClock clock)
     {
-        ArgumentNullException.ThrowIfNull(taskQueue);
+        ArgumentNullException.ThrowIfNull(schedulerLane);
         ArgumentNullException.ThrowIfNull(clock);
 
-        _taskQueue = taskQueue;
+        _schedulerLane = schedulerLane;
         _clock = clock;
     }
 
@@ -55,7 +55,7 @@ public sealed class SimulationTimeProvider : TimeProvider
     {
         ArgumentNullException.ThrowIfNull(callback);
 
-        var timer = new SimulationTimer(_taskQueue, callback, state);
+        var timer = new SimulationTimer(_schedulerLane, callback, state);
         _ = timer.Change(dueTime, period);
         return timer;
     }

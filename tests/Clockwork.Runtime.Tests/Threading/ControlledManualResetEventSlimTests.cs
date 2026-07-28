@@ -10,7 +10,7 @@ public sealed class ControlledManualResetEventSlimTests
     [Fact]
     public void ConstructorsPreserveSignalAndSpinMetadata()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             ManualResetEventSlim unset = ControlledManualResetEventSlim.Create();
@@ -21,7 +21,7 @@ public sealed class ControlledManualResetEventSlimTests
             Assert.True(ControlledManualResetEventSlim.IsSet(set));
             Assert.Equal(2047, ControlledManualResetEventSlim.SpinCount(configured));
             Assert.False(ControlledManualResetEventSlim.Wait(configured, 0));
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
@@ -30,7 +30,7 @@ public sealed class ControlledManualResetEventSlimTests
     [InlineData(2048)]
     public void ConstructorRejectsInvalidSpinCount(int spinCount)
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var exception = Assert.Throws<ArgumentOutOfRangeException>(
@@ -42,7 +42,7 @@ public sealed class ControlledManualResetEventSlimTests
     [Fact]
     public void SetResetAndIsSetFollowManualResetSemantics()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             ManualResetEventSlim evt = ControlledManualResetEventSlim.Create(false);
@@ -61,7 +61,7 @@ public sealed class ControlledManualResetEventSlimTests
     [Fact]
     public void AllWaitOverloadsUseTheControlledSignal()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             ManualResetEventSlim evt = ControlledManualResetEventSlim.Create(true);
@@ -78,7 +78,7 @@ public sealed class ControlledManualResetEventSlimTests
     [Fact]
     public void ZeroAndFiniteWaitsUseVirtualTimeWithoutBusySpinning()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             ManualResetEventSlim evt = ControlledManualResetEventSlim.Create(false, 2047);
@@ -86,14 +86,14 @@ public sealed class ControlledManualResetEventSlimTests
             Assert.False(ControlledManualResetEventSlim.Wait(evt, 0));
             Assert.False(ControlledManualResetEventSlim.Wait(evt, TimeSpan.FromMilliseconds(25)));
 
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
     [Fact]
     public void CancellationWinsBeforeSignalAndInvalidIntegerTimeout()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             ManualResetEventSlim evt = ControlledManualResetEventSlim.Create(true);
@@ -108,7 +108,7 @@ public sealed class ControlledManualResetEventSlimTests
     [Fact]
     public void InvalidTimeSpanIsValidatedBeforeCancellation()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             ManualResetEventSlim evt = ControlledManualResetEventSlim.Create(false);
@@ -124,7 +124,7 @@ public sealed class ControlledManualResetEventSlimTests
     [Fact]
     public void SignalBeforeDeadlineWinsAndReleasesAllWaiters()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             ManualResetEventSlim evt = ControlledManualResetEventSlim.Create(false);
@@ -142,14 +142,14 @@ public sealed class ControlledManualResetEventSlimTests
 
             Assert.Equal([true, true], outcomes);
             Assert.True(ControlledManualResetEventSlim.IsSet(evt));
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
     [Fact]
     public void TimeoutAndCancellationRaceResolveOneWinnerAndCleanDeadline()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             ManualResetEventSlim evt = ControlledManualResetEventSlim.Create(false);
@@ -174,14 +174,14 @@ public sealed class ControlledManualResetEventSlimTests
             ControlledThread.Join(canceler);
 
             Assert.IsAssignableFrom<OperationCanceledException>(caught);
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
     [Fact]
     public void WaitHandleBridgeIsCachedTracksSignalAndIsDisposedWithEvent()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             ManualResetEventSlim evt = ControlledManualResetEventSlim.Create(false);
@@ -204,7 +204,7 @@ public sealed class ControlledManualResetEventSlimTests
 
             ControlledManualResetEventSlim.Set(evt);
             Assert.True(ControlledWaitHandle.WaitOne(bridge, 0));
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
             Assert.Equal(1, callbacks);
 
             ControlledManualResetEventSlim.Reset(evt);
@@ -219,7 +219,7 @@ public sealed class ControlledManualResetEventSlimTests
     [Fact]
     public void DisposeFaultsBlockedWaiterAndPreservesReadableMetadata()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             ManualResetEventSlim evt = ControlledManualResetEventSlim.Create(false);
@@ -243,7 +243,7 @@ public sealed class ControlledManualResetEventSlimTests
             Assert.IsType<ObjectDisposedException>(caught);
             Assert.False(ControlledManualResetEventSlim.IsSet(evt));
             _ = ControlledManualResetEventSlim.SpinCount(evt);
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 

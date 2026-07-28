@@ -109,10 +109,11 @@ public sealed class SimulationSchedulerTests
         Assert.True(executed);
     }
 
-    private static (SimulationTaskQueue Queue, SimulationClock Clock, SimulationTaskScheduler Scheduler) CreateComponents()
+    private static (SimulationSchedulerLane Queue, SimulationClock Clock, SimulationTaskScheduler Scheduler) CreateComponents()
     {
-        var clock = new SimulationClock(DateTimeOffset.UnixEpoch);
-        var queue = new SimulationTaskQueue(clock, new SingleThreadedGuard());
+        var scheduler = SimulationTestHarness.NewScheduler();
+        var clock = new SimulationClock(scheduler);
+        var queue = new SimulationSchedulerLane(scheduler, SimulationTestHarness.NewGuard(scheduler));
         return (queue, clock, new SimulationTaskScheduler(queue));
     }
 }

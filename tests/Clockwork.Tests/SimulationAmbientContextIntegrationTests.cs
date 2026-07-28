@@ -6,7 +6,7 @@ namespace Clockwork.Tests;
 /// <para>
 /// Covers the runtime policy ambient-context integration wired into <see cref="SimulationCluster{TNode}"/>,
 /// <see cref="SimulationNodeContext"/>, and <see cref="SimulationBuilder"/>/<see cref="SimulationCluster"/>:
-/// callbacks executed through an ambient-integrated <see cref="SimulationTaskQueue"/> observe the
+/// callbacks executed through an ambient-integrated <see cref="SimulationSchedulerLane"/> observe the
 /// correct <see cref="SimulationExecutionContext"/> (runtime + node identity), two nodes never
 /// observe each other's identity, and the ambient context is fully torn down again once the
 /// driving call returns.
@@ -29,7 +29,7 @@ public sealed class SimulationAmbientContextIntegrationTests
         await using var cluster = builder.Build();
 
         SimulationExecutionSnapshot? captured = null;
-        node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => captured = SimulationExecutionContext.Current));
+        node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => captured = SimulationExecutionContext.Current));
 
         cluster.RunUntilIdle();
 
@@ -47,7 +47,7 @@ public sealed class SimulationAmbientContextIntegrationTests
         await using var cluster = builder.Build();
 
         SimulationExecutionSnapshot? captured = null;
-        cluster.TaskQueue.Enqueue(new ScheduledActionItem(() => captured = SimulationExecutionContext.Current));
+        cluster.SchedulerLane.Enqueue(new ScheduledActionItem(() => captured = SimulationExecutionContext.Current));
 
         cluster.RunUntilIdle();
 
@@ -71,8 +71,8 @@ public sealed class SimulationAmbientContextIntegrationTests
         // accidentally inherit stale ambient state left over from the other.
         for (var i = 0; i < 5; i++)
         {
-            nodeA.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => observedAddressesInsideA.Add(SimulationExecutionContext.Current?.Node?.Address)));
-            nodeB.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => observedAddressesInsideB.Add(SimulationExecutionContext.Current?.Node?.Address)));
+            nodeA.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => observedAddressesInsideA.Add(SimulationExecutionContext.Current?.Node?.Address)));
+            nodeB.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => observedAddressesInsideB.Add(SimulationExecutionContext.Current?.Node?.Address)));
         }
 
         cluster.RunUntilIdle();
@@ -90,7 +90,7 @@ public sealed class SimulationAmbientContextIntegrationTests
         var node = builder.AddNode("node-1");
         await using var cluster = builder.Build();
 
-        node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => { }));
+        node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => { }));
 
         Assert.False(SimulationExecutionContext.IsActive);
         cluster.RunUntilIdle();
@@ -105,14 +105,14 @@ public sealed class SimulationAmbientContextIntegrationTests
         await using var cluster = builder.Build();
 
         var executed = false;
-        node.Context.TaskQueue.EnqueueAfter(() => executed = true, TimeSpan.FromSeconds(1));
+        node.Context.SchedulerLane.EnqueueAfter(() => executed = true, TimeSpan.FromSeconds(1));
 
         Assert.Equal(SimulationExecutionReason.ConditionMet, cluster.RunUntil(() => executed).Reason);
         Assert.False(SimulationExecutionContext.IsActive);
     }
 
     [Fact]
-    public async Task OldHandWrittenSubclassGetsClusterLevelAmbientContextButNotNodeLevel()
+    public async Task HandWrittenSubclassGetsClusterAndNodeAmbientContext()
     {
         // TestCluster/TestNode mirror the legacy hand-written subclass pattern (see
         // SimulationClusterTests.TestCluster): they build their own SimulationNodeContext directly
@@ -122,10 +122,10 @@ public sealed class SimulationAmbientContextIntegrationTests
         var node = cluster.AddNode("legacy-node-1");
 
         SimulationExecutionSnapshot? capturedOnClusterQueue = null;
-        cluster.TaskQueue.Enqueue(new ScheduledActionItem(() => capturedOnClusterQueue = SimulationExecutionContext.Current));
+        cluster.SchedulerLane.Enqueue(new ScheduledActionItem(() => capturedOnClusterQueue = SimulationExecutionContext.Current));
 
         var observedActiveInsideNodeCallback = true; // Overwritten below; starts true so a missed callback fails loudly.
-        node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => observedActiveInsideNodeCallback = SimulationExecutionContext.IsActive));
+        node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => observedActiveInsideNodeCallback = SimulationExecutionContext.IsActive));
 
         cluster.RunUntilIdle();
         node.Context.RunUntilIdle();
@@ -136,16 +136,13 @@ public sealed class SimulationAmbientContextIntegrationTests
         Assert.NotNull(capturedOnClusterQueue);
         Assert.Equal(cluster.RuntimeIdentity.Id, capturedOnClusterQueue!.Runtime.Id);
 
-        // Node-level queue: a hand-written SimulationNode subclass that builds its own
-        // SimulationNodeContext without an ambientContext argument gets no ambient scope at all on
-        // that node's queue - preserving prior behavior exactly for existing production subclasses.
-        Assert.False(observedActiveInsideNodeCallback);
+        Assert.True(observedActiveInsideNodeCallback);
     }
 
     [Fact]
     public async Task NewBuilderCreatedNodeGetsFullAmbientIntegrationUnlikeTheLegacySubclassPattern()
     {
-        // Direct contrast with the previous test: a SimulationBuilder-created node's TaskQueue *is*
+        // Direct contrast with the previous test: a SimulationBuilder-created node's SchedulerLane is
         // ambient-integrated, because the built cluster explicitly passes CreateNodeAmbientContext(...)
         // when constructing each node's SimulationNodeContext.
         var builder = new SimulationBuilder().WithSeed(7);
@@ -153,7 +150,7 @@ public sealed class SimulationAmbientContextIntegrationTests
         await using var cluster = builder.Build();
 
         var observedActiveInsideNodeCallback = false;
-        node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => observedActiveInsideNodeCallback = SimulationExecutionContext.IsActive));
+        node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => observedActiveInsideNodeCallback = SimulationExecutionContext.IsActive));
 
         cluster.RunUntilIdle();
 
@@ -170,7 +167,7 @@ public sealed class SimulationAmbientContextIntegrationTests
         public LegacyStyleTestNode AddNode(string address)
         {
             // Deliberately mirrors the legacy pattern: no ambientContext argument at all.
-            var context = new SimulationNodeContext(Clock, Guard, ForkRandom(), TaskQueue);
+            var context = CreateNodeContext(address);
             var node = new LegacyStyleTestNode(address, context);
             RegisterNode(node);
             return node;

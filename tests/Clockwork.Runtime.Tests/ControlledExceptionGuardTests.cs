@@ -18,24 +18,24 @@ public sealed class ControlledExceptionGuardTests
     [Fact]
     public void RethrowsTheInternalControlSignal()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
-        var signal = new ControlledOperationAbortSignal(new ControlledOperationId(42));
+        var coordinator = new SimulationSchedulerTestHost();
+        var signal = new SimulationOperationAbortSignal(new SimulationOperationId(42));
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             // The guard must re-surface the exact same signal instance, preserving its identity/stack.
-            var rethrown = Assert.Throws<ControlledOperationAbortSignal>(
+            var rethrown = Assert.Throws<SimulationOperationAbortSignal>(
                 () => ControlledExceptionGuard.ThrowIfControlSignal(signal));
 
             Assert.Same(signal, rethrown);
-            Assert.Equal(new ControlledOperationId(42), rethrown.OperationId);
+            Assert.Equal(new SimulationOperationId(42), rethrown.OperationId);
         });
     }
 
     [Fact]
     public void LetsOrdinaryExceptionsPassThrough()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             // A normal application exception a broad user catch is meant to handle must NOT be re-thrown by
@@ -49,7 +49,7 @@ public sealed class ControlledExceptionGuardTests
     [Fact]
     public void IgnoresNonExceptionAndNullOperands()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             // The injected IL dups whatever is on the handler's evaluation stack; the guard must tolerate a

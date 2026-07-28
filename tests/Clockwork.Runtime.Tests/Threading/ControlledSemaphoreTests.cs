@@ -11,7 +11,7 @@ public sealed class ControlledSemaphoreTests
     [Fact]
     public void WaitOneConsumesPermitsAndReleaseReturnsPreviousCount()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Semaphore semaphore = ControlledSemaphore.Create(initialCount: 2, maximumCount: 3);
@@ -32,7 +32,7 @@ public sealed class ControlledSemaphoreTests
     [Fact]
     public void InvalidCountsAndReleaseCountPreserveArgumentNames()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Assert.Equal("initialCount", Assert.Throws<ArgumentOutOfRangeException>(
@@ -51,7 +51,7 @@ public sealed class ControlledSemaphoreTests
     [Fact]
     public void FiniteAndZeroWaitsObserveModelledCount()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Semaphore semaphore = ControlledSemaphore.Create(0, 1);
@@ -66,7 +66,7 @@ public sealed class ControlledSemaphoreTests
     [Fact]
     public void ContendersAcquireReleasedPermitsInFifoOrder()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Semaphore semaphore = ControlledSemaphore.Create(0, 1);
@@ -100,7 +100,7 @@ public sealed class ControlledSemaphoreTests
     [Fact]
     public void WaitAnySelectsLowestEligibleIndexAndConsumesSemaphorePermit()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Semaphore semaphore = ControlledSemaphore.Create(1, 1);
@@ -115,7 +115,7 @@ public sealed class ControlledSemaphoreTests
     [Fact]
     public void WaitAllAtomicallyConsumesSemaphorePermitsAndEventSignals()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Semaphore semaphore = ControlledSemaphore.Create(0, 1);
@@ -135,7 +135,7 @@ public sealed class ControlledSemaphoreTests
     [Fact]
     public void RegisteredWaitConsumesPermitAndHonorsExecuteOnlyOnce()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Semaphore semaphore = ControlledSemaphore.Create(0, 2);
@@ -153,12 +153,12 @@ public sealed class ControlledSemaphoreTests
                 executeOnlyOnce: true);
 
             ControlledSemaphore.Release(semaphore);
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
             Assert.Equal(1, callbacks);
             Assert.False(ControlledWaitHandle.WaitOne(semaphore, 0));
 
             ControlledSemaphore.Release(semaphore);
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
             Assert.Equal(1, callbacks);
             Assert.True(ControlledWaitHandle.WaitOne(semaphore, 0));
         });
@@ -167,7 +167,7 @@ public sealed class ControlledSemaphoreTests
     [Fact]
     public void ReleaseOverflowThrowsSemaphoreFullException()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Semaphore semaphore = ControlledSemaphore.Create(1, 1);
@@ -178,7 +178,7 @@ public sealed class ControlledSemaphoreTests
     [Fact]
     public void DisposeMakesWaitAndReleaseThrow()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Semaphore semaphore = ControlledSemaphore.Create(0, 1);
@@ -192,7 +192,7 @@ public sealed class ControlledSemaphoreTests
     [Fact]
     public void NullNamedConstructorsCreateUnnamedSemaphores()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Semaphore first = ControlledSemaphore.CreateNamed(1, 1, name: null);
@@ -212,17 +212,17 @@ public sealed class ControlledSemaphoreTests
     [Fact]
     public void NamedAndOpenExistingFormsAreRejectedBeforeKernelUse()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            Assert.Throws<ControlledWaitHandleUnsupportedException>(() => ControlledSemaphore.CreateNamed(0, 1, "clockwork-semaphore"));
-            Assert.Throws<ControlledWaitHandleUnsupportedException>(() => ControlledSemaphore.CreateNamed(0, 1, "clockwork-semaphore", out _));
-            Assert.Throws<ControlledWaitHandleUnsupportedException>(() => ControlledSemaphore.CreateNamed(0, 1, "clockwork-semaphore", default));
-            Assert.Throws<ControlledWaitHandleUnsupportedException>(() => ControlledSemaphore.CreateNamed(0, 1, "clockwork-semaphore", default, out _));
-            Assert.Throws<ControlledWaitHandleUnsupportedException>(() => ControlledSemaphore.OpenExisting("clockwork-semaphore"));
-            Assert.Throws<ControlledWaitHandleUnsupportedException>(() => ControlledSemaphore.OpenExisting("clockwork-semaphore", default));
-            Assert.Throws<ControlledWaitHandleUnsupportedException>(() => ControlledSemaphore.TryOpenExisting("clockwork-semaphore", out _));
-            Assert.Throws<ControlledWaitHandleUnsupportedException>(() => ControlledSemaphore.TryOpenExisting("clockwork-semaphore", default, out _));
+            Assert.Throws<ControlledApiException>(() => ControlledSemaphore.CreateNamed(0, 1, "clockwork-semaphore"));
+            Assert.Throws<ControlledApiException>(() => ControlledSemaphore.CreateNamed(0, 1, "clockwork-semaphore", out _));
+            Assert.Throws<ControlledApiException>(() => ControlledSemaphore.CreateNamed(0, 1, "clockwork-semaphore", default));
+            Assert.Throws<ControlledApiException>(() => ControlledSemaphore.CreateNamed(0, 1, "clockwork-semaphore", default, out _));
+            Assert.Throws<ControlledApiException>(() => ControlledSemaphore.OpenExisting("clockwork-semaphore"));
+            Assert.Throws<ControlledApiException>(() => ControlledSemaphore.OpenExisting("clockwork-semaphore", default));
+            Assert.Throws<ControlledApiException>(() => ControlledSemaphore.TryOpenExisting("clockwork-semaphore", out _));
+            Assert.Throws<ControlledApiException>(() => ControlledSemaphore.TryOpenExisting("clockwork-semaphore", default, out _));
         });
     }
 

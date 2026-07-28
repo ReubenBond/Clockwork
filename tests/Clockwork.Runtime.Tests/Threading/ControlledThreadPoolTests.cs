@@ -27,7 +27,7 @@ public sealed class ControlledThreadPoolTests
     [Fact]
     public void QueueUserWorkItemQueuesCallbackAndRunsWhenPumped()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -37,7 +37,7 @@ public sealed class ControlledThreadPoolTests
             Assert.True(accepted);
             Assert.False(ran); // queued, not run inline.
 
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
             Assert.True(ran);
         });
     }
@@ -45,13 +45,13 @@ public sealed class ControlledThreadPoolTests
     [Fact]
     public void QueueUserWorkItemPassesState()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             object? seen = null;
             ControlledThreadPool.QueueUserWorkItem(s => seen = s, "payload");
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
             Assert.Equal("payload", seen);
         });
     }
@@ -59,13 +59,13 @@ public sealed class ControlledThreadPoolTests
     [Fact]
     public void GenericQueueUserWorkItemPassesTypedState()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var seen = 0;
             ControlledThreadPool.QueueUserWorkItem(s => seen = s, 42, preferLocal: true);
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
             Assert.Equal(42, seen);
         });
     }
@@ -73,7 +73,7 @@ public sealed class ControlledThreadPoolTests
     [Fact]
     public void UnsafeQueueUserWorkItemRunsWorkItem()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -81,7 +81,7 @@ public sealed class ControlledThreadPoolTests
             ControlledThreadPool.UnsafeQueueUserWorkItem(item, preferLocal: false);
             Assert.False(item.Executed);
 
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
             Assert.True(item.Executed);
         });
     }
@@ -89,13 +89,13 @@ public sealed class ControlledThreadPoolTests
     [Fact]
     public void UnsafeGenericQueueUserWorkItemPassesTypedState()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var seen = 0;
             ControlledThreadPool.UnsafeQueueUserWorkItem(s => seen = s, 7, preferLocal: false);
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
             Assert.Equal(7, seen);
         });
     }
@@ -103,7 +103,7 @@ public sealed class ControlledThreadPoolTests
     [Fact]
     public void SafeQueueFlowsCapturedExecutionContext()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -115,7 +115,7 @@ public sealed class ControlledThreadPoolTests
 
             // Mutating the ambient value after enqueue must not affect the flowed snapshot.
             ambient.Value = 9;
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
 
             Assert.Equal(5, seen);
         });
@@ -124,7 +124,7 @@ public sealed class ControlledThreadPoolTests
     [Fact]
     public void UnsafeQueueDoesNotFlowCapturedExecutionContext()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -135,7 +135,7 @@ public sealed class ControlledThreadPoolTests
             ControlledThreadPool.UnsafeQueueUserWorkItem(_ => seen = ambient.Value, state: null);
 
             ambient.Value = 9;
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
 
             Assert.Equal(0, seen);
         });
@@ -144,11 +144,11 @@ public sealed class ControlledThreadPoolTests
     [Fact]
     public void RejectNativeOverlappedThrows()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            var ex = Assert.Throws<ControlledThreadPoolUnsupportedException>(
+            var ex = Assert.Throws<ControlledApiException>(
                 () => ControlledThreadPool.RejectNativeOverlapped(
                     "System.Threading.ThreadPool.UnsafeQueueNativeOverlapped"));
             Assert.Contains("UnsafeQueueNativeOverlapped", ex.Message, StringComparison.Ordinal);
@@ -158,7 +158,7 @@ public sealed class ControlledThreadPoolTests
     [Fact]
     public void RegisteredWaitFiresOnceOnSignalWithTimedOutFalse()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -168,27 +168,27 @@ public sealed class ControlledThreadPoolTests
             ControlledRegisteredWaitHandle reg = ControlledThreadPool.RegisterWaitForSingleObject(
                 evt, (_, timedOut) => fires.Add(timedOut), state: null, Timeout.Infinite, executeOnlyOnce: true);
 
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
             Assert.Empty(fires); // Armed but blocked: no signal yet.
 
             ControlledEventWaitHandle.Set(evt);
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
             Assert.Equal([false], fires); // Signalled => timedOut false.
 
             // executeOnlyOnce: a second signal must not fire the callback again.
             ControlledEventWaitHandle.Set(evt);
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
             Assert.Equal([false], fires);
 
             Assert.True(reg.Unregister(null));
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
     [Fact]
     public void RegisteredWaitFiresOnTimeoutWithTimedOutTrue()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -201,14 +201,14 @@ public sealed class ControlledThreadPoolTests
             // The virtual-time deadline elapses with no signal => the callback fires with timedOut true.
             DrainWithTime(coordinator);
             Assert.Equal([true], fires);
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
     [Fact]
     public void RegisteredWaitUIntTimeoutUsesOnlyUIntMaxAsTheInfiniteSentinel()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             AutoResetEvent evt = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: false);
@@ -234,7 +234,7 @@ public sealed class ControlledThreadPoolTests
     [Fact]
     public void RepeatingRegisteredWaitFiresEachSignalUntilUnregister()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -244,31 +244,31 @@ public sealed class ControlledThreadPoolTests
             ControlledRegisteredWaitHandle reg = ControlledThreadPool.RegisterWaitForSingleObject(
                 evt, (_, _) => count++, state: null, Timeout.Infinite, executeOnlyOnce: false);
 
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
 
             ControlledEventWaitHandle.Set(evt);
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
             Assert.Equal(1, count);
 
             ControlledEventWaitHandle.Set(evt);
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
             Assert.Equal(2, count); // Re-armed and fired again.
 
             Assert.True(reg.Unregister(null));
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
 
             // After Unregister a further signal is not delivered.
             ControlledEventWaitHandle.Set(evt);
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
             Assert.Equal(2, count);
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
     [Fact]
     public void RepeatingRegisteredWaitRearmsBeforeBlockingCallbackSoAutoResetSignalsAreNotLost()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -300,18 +300,18 @@ public sealed class ControlledThreadPoolTests
                 executeOnlyOnce: false);
 
             ControlledEventWaitHandle.Set(evt);
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
 
             Assert.Equal(3, count);
             Assert.True(registration.Unregister(null));
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
         });
     }
 
     [Fact]
     public void RegisteredWaitCallbackRunsAsAFreshControlledStrand()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -330,7 +330,7 @@ public sealed class ControlledThreadPoolTests
             try
             {
                 ControlledEventWaitHandle.Set(evt);
-                coordinator.Loop.RunUntilIdle();
+                coordinator.Scheduler.RunUntilIdle();
             }
             finally
             {
@@ -344,7 +344,7 @@ public sealed class ControlledThreadPoolTests
     [Fact]
     public void UnregisterSignalsCompletionHandleWhenProvided()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -354,21 +354,21 @@ public sealed class ControlledThreadPoolTests
             ControlledRegisteredWaitHandle reg = ControlledThreadPool.RegisterWaitForSingleObject(
                 evt, (_, _) => { }, state: null, Timeout.Infinite, executeOnlyOnce: false);
 
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
 
             Assert.True(reg.Unregister(done));
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
 
             // The completion handle is signalled once the registration has stopped firing.
             Assert.True(ControlledWaitHandle.WaitOne(done, 0));
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
     [Fact]
     public void SafeRegisterFlowsCapturedExecutionContext()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -382,7 +382,7 @@ public sealed class ControlledThreadPoolTests
 
             ambient.Value = 9; // Post-registration mutation must not affect the flowed snapshot.
             ControlledEventWaitHandle.Set(evt);
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
 
             Assert.Equal(5, seen);
         });
@@ -391,7 +391,7 @@ public sealed class ControlledThreadPoolTests
     [Fact]
     public void UnsafeRegisterDoesNotFlowCapturedExecutionContext()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -407,7 +407,7 @@ public sealed class ControlledThreadPoolTests
 
             ambient.Value = 9;
             ControlledEventWaitHandle.Set(evt);
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
 
             Assert.Equal(0, seen);
         });
@@ -416,7 +416,7 @@ public sealed class ControlledThreadPoolTests
     [Fact]
     public void RegisterWaitPassesState()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -427,7 +427,7 @@ public sealed class ControlledThreadPoolTests
                 evt, (s, _) => seen = s, state: "payload", Timeout.Infinite, executeOnlyOnce: true);
 
             ControlledEventWaitHandle.Set(evt);
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
 
             Assert.Equal("payload", seen);
         });
@@ -474,18 +474,18 @@ public sealed class ControlledThreadPoolTests
 
     // Pumps the loop and folds virtual-time deadlines in, mirroring a host drive loop: run ready work to
     // idle, then advance to the next pending deadline (firing timeouts) and pump again, until quiescent.
-    private static void DrainWithTime(ControlledTaskLoopCoordinator coordinator)
+    private static void DrainWithTime(SimulationSchedulerTestHost coordinator)
     {
         while (true)
         {
-            coordinator.Loop.RunUntilIdle();
-            TimeSpan? due = coordinator.Loop.NextDeadlineDue();
+            coordinator.Scheduler.RunUntilIdle();
+            TimeSpan? due = coordinator.Scheduler.NextTimerDue;
             if (due is null)
             {
                 return;
             }
 
-            coordinator.Loop.AdvanceTimeTo(due.Value);
+            coordinator.Scheduler.AdvanceVirtualTimeTo(due.Value);
         }
     }
 
@@ -497,7 +497,7 @@ public sealed class ControlledThreadPoolTests
     [InlineData((int)QueueVariant.UnsafeQueueWorkItem, 0)]
     public void QueueVariantsMatchBclExecutionContextFlowAtExecutionTime(int variantValue, int expected)
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -541,18 +541,18 @@ public sealed class ControlledThreadPoolTests
 
             Assert.True(accepted);
             Assert.Equal(-1, seen);
-            Assert.Equal(1, coordinator.Loop.ReadyCount);
-            Assert.False(coordinator.Loop.IsIdle);
+            Assert.Equal(1, coordinator.Scheduler.RunnableOperationCount);
+            Assert.False(coordinator.Scheduler.IsIdle);
 
             ambient.Value = 9;
-            Assert.Equal(1, coordinator.Loop.RunUntilIdle());
+            Assert.Equal(1, coordinator.Scheduler.RunUntilIdle());
 
             Assert.Equal(expected, seen);
             Assert.Equal(9, ambient.Value);
-            Assert.Equal(0, coordinator.Loop.ReadyCount);
-            Assert.Equal(0, coordinator.Loop.WaitingCount);
-            Assert.Null(coordinator.Loop.NextDeadlineDue());
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.Equal(0, coordinator.Scheduler.RunnableOperationCount);
+            Assert.Equal(0, coordinator.Scheduler.WaitingOperationCount);
+            Assert.Null(coordinator.Scheduler.NextTimerDue);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 

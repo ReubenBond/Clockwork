@@ -8,6 +8,7 @@ using Clockwork.Instrumentation.Imaging;
 using Clockwork.Instrumentation.Rewriting;
 using Clockwork.Instrumentation.Rules.BuiltIn;
 using Clockwork.Instrumentation.Signing;
+using Mono.Cecil;
 
 namespace Clockwork.Instrumentation.Orchestration;
 
@@ -116,7 +117,7 @@ public static class InstrumentationRunner
 
         ImmutableArray<string> replacementPaths =
             ResolveReplacementAssemblies(sourceDirectory, request.RuleSet, configuration);
-        HashSet<string> replacementNames = ResolveReplacementNames(request.RuleSet, configuration);
+        HashSet<string> replacementNames = ResolveReplacementClosureNames(sourceDirectory, replacementPaths);
         bool containsControlledTaskRules = BuiltInRuleSets.ContainsControlledTaskRules(request.RuleSet);
         var options = new RewriteOptions
         {
@@ -147,7 +148,7 @@ public static class InstrumentationRunner
 
         if (configuration.Mode == InstrumentationMode.RaceExploration)
         {
-            const string runtimeAsset = "Clockwork.Runtime.dll";
+            const string runtimeAsset = "Clockwork.dll";
             File.Copy(
                 typeof(Runtime.Racing.RaceInstrumentation).Assembly.Location,
                 Path.Combine(stagingDirectory, runtimeAsset),
@@ -318,30 +319,49 @@ public static class InstrumentationRunner
                 paths.Add(candidate);
             }
 
-            if (configuration.Mode == InstrumentationMode.RaceExploration)
-            {
-                paths.Add(typeof(Runtime.Racing.RaceInstrumentation).Assembly.Location);
-            }
+        }
+
+        if (configuration.Mode == InstrumentationMode.RaceExploration)
+        {
+            paths.Add(typeof(Runtime.Racing.RaceInstrumentation).Assembly.Location);
         }
 
         return [.. paths];
     }
 
-    private static HashSet<string> ResolveReplacementNames(
-        Rules.RewriteRuleSet ruleSet,
-        InstrumentationConfiguration configuration)
+    private static HashSet<string> ResolveReplacementClosureNames(
+        string sourceDirectory,
+        ImmutableArray<string> replacementPaths)
     {
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (string name in ruleSet.Rules
-            .Select(r => r.Replacement.AssemblyName)
-            .Where(n => !string.IsNullOrEmpty(n)))
+        var inspectedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var pending = new Stack<string>(replacementPaths);
+        while (pending.TryPop(out string? path))
         {
-            names.Add(name);
-        }
+            path = Path.GetFullPath(path);
+            if (!inspectedPaths.Add(path))
+            {
+                continue;
+            }
 
-        if (configuration.Mode == InstrumentationMode.RaceExploration)
-        {
-            names.Add("Clockwork.Runtime");
+            using AssemblyDefinition assembly = AssemblyDefinition.ReadAssembly(
+                path,
+                new ReaderParameters { ReadSymbols = false, InMemory = true });
+            names.Add(assembly.Name.Name);
+            foreach (AssemblyNameReference reference in assembly.MainModule.AssemblyReferences)
+            {
+                names.Add(reference.Name);
+                string candidate = Path.Combine(sourceDirectory, reference.Name + ".dll");
+                if (!File.Exists(candidate))
+                {
+                    candidate = Path.Combine(Path.GetDirectoryName(path)!, reference.Name + ".dll");
+                }
+
+                if (File.Exists(candidate))
+                {
+                    pending.Push(candidate);
+                }
+            }
         }
 
         return names;

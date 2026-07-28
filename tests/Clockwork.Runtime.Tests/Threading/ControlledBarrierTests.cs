@@ -11,7 +11,7 @@ public sealed class ControlledBarrierTests
     [Fact]
     public void ConstructorsPropertiesAndAllSignalOverloadsFollowPhaseSemantics()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var phases = new List<(long Phase, int Remaining)>();
@@ -36,7 +36,7 @@ public sealed class ControlledBarrierTests
     [Fact]
     public void AddAndRemoveParticipantsAdjustTheCurrentPhase()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var barrier = new ControlledBarrier(0);
@@ -63,7 +63,7 @@ public sealed class ControlledBarrierTests
     [Fact]
     public void RemoveParticipantsDoesNotMutateCountsWhenArrivedParticipantsWouldBeRemoved()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var barrier = new ControlledBarrier(2);
@@ -85,7 +85,7 @@ public sealed class ControlledBarrierTests
     [Fact]
     public void WaitersObservePhaseCompletionTimeoutCancellationAndPostPhaseFailure()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var barrier = new ControlledBarrier(2);
@@ -110,9 +110,9 @@ public sealed class ControlledBarrierTests
     }
 
     [Fact]
-    public void SameStrandCannotSignalTheSamePhaseTwiceAndCancellationRetractsArrival()
+    public void ScheduledOperationCanCompletePhaseAndCancellationRetractsArrival()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var barrier = new ControlledBarrier(2);
@@ -122,8 +122,8 @@ public sealed class ControlledBarrierTests
                 "ControlledBarrierTests.SameStrand",
                 flowExecutionContext: true);
 
-            Assert.False(barrier.SignalAndWait(10));
-            Assert.IsType<InvalidOperationException>(nestedSignal);
+            Assert.True(barrier.SignalAndWait(10));
+            Assert.Null(nestedSignal);
             Assert.Equal(2, barrier.ParticipantsRemaining);
 
             using var cancellation = new CancellationTokenSource();
@@ -153,7 +153,7 @@ public sealed class ControlledBarrierTests
     [Fact]
     public void ValidationDisposalAndInactiveGuardsMatchControlledSurface()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Assert.Equal("participantCount", Assert.Throws<ArgumentOutOfRangeException>(

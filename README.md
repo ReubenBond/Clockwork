@@ -6,7 +6,7 @@ Clockwork is a deterministic simulation testing framework for distributed system
 
 - A shared `SimulationClock` and `SimulationTimeProvider`
 - Deterministic `TaskScheduler` and `SynchronizationContext` implementations
-- Per-node task queues with suspend, resume, and single-step controls
+- Per-node scheduler lanes with suspend, resume, and single-step controls
 - Seeded random streams for reproducible scenarios
 - In-memory network partitions, isolation, loss, delay, and jitter
 - Extensible cluster and chaos-injection base classes
@@ -14,7 +14,7 @@ Clockwork is a deterministic simulation testing framework for distributed system
 - Versioned canonical replay artifacts with exact compatibility and divergence checks
 - Bounded seeded schedule exploration and deterministic failure-trace minimization
 - Stable operation/resource wait graphs, deadlock cycles, race pairs, and timer diagnostics
-- `clockwork record`, `replay`, `explore`, `minimize`, and `trace show` commands
+- `dotnet clockwork record`, `replay`, `explore`, `minimize`, and `trace show` commands
 - Fixed and adaptive `RunUntil`/`RunUntilIdle` execution budgets
 - Stable, cross-process-safe seed derivation from strings (`SimulationSeed`)
 - Reusable rendezvous primitives (`SimulationGate`, `SimulationLatch`, `SimulationBarrier`)
@@ -30,7 +30,7 @@ are in [`docs/compatibility.md`](docs/compatibility.md).
 
 | Area | Current support | Durable limitations |
 |---|---|---|
-| Simulation kernel | Virtual clock, seeded randomness, simulated network, cooperative task queues, node lifecycle, diagnostics, rendezvous primitives, and controlled scheduling. | Application hosting and transport models are consumer-owned; Clockwork ships no dedicated hosting or HTTP package. |
+| Simulation kernel | Virtual clock, seeded randomness, simulated network, cooperative scheduler lanes, node lifecycle, diagnostics, rendezvous primitives, and controlled scheduling. | Application hosting and transport models are consumer-owned; Clockwork ships no dedicated hosting or HTTP package. |
 | Build and CLI instrumentation | Opt-in, out-of-place Cecil rewriting through `Clockwork.Instrumentation.Build` and `Clockwork.Tool`; direct-call analyzers; deterministic manifests and incremental inputs. | Instrument before R2R, single-file bundling, trimming, or NativeAOT. Authenticode is not re-applied; strong-name re-signing requires a supplied key. |
 | Deterministic BCL rules | `clockwork.bcl.deterministic` controls the exact time, identity, and random signatures in the generated inventory. | APIs outside the inventory retain no determinism claim. Cryptographic entropy is rejected unless the explicit deterministic-insecure test policy is enabled. |
 | Controlled concurrency | `clockwork.tasks.controlled` controls async builders/awaiters, task combinators and waits, `Task.Run`, all .NET 10 `TaskFactory`/`TaskFactory<T>.StartNew` overloads, `Thread`, `ThreadPool`, `Parallel`, `Monitor`, `System.Threading.Lock`, and `SemaphoreSlim`. Debug and Release lowering are conformance-tested. | Synchronous `ValueTask` blocking, custom task schedulers, unsupported task-creation options, native-overlapped thread-pool work, and OS-specific thread controls are rejected. |
@@ -57,14 +57,14 @@ Race exploration is a build-time opt-in separate from ordinary controlled rewrit
 <ClockworkInstrumentationMode>RaceExploration</ClockworkInstrumentationMode>
 ```
 
-The CLI equivalent is `clockwork instrument ... --mode RaceExploration`; JSON configuration uses
+The CLI equivalent is `dotnet clockwork instrument ... --mode RaceExploration`; JSON configuration uses
 `"mode": "RaceExploration"`. The selected mode is recorded in per-assembly and closure manifests and
 participates in rewrite signatures and incremental cache keys. `Controlled` remains the default and
 does not add memory, branch, array, indirect, or collection scheduling calls.
 
-Injected points yield only while running as a `ControlledOperation`. They use the scheduler's selected
+Injected points yield only while running as a `SimulationOperation`. They use the scheduler's selected
 strategy and decision/replay log, preserving the exactly-one-running baton invariant. A run exposes
-`ControlledOperationScheduler.RaceExplorationResult`, `FirstRace`, and
+`SimulationScheduler.RaceExplorationResult`, `FirstRace`, and
 `CaptureRaceSchedulingPoints()`. A race is a distinct `RaceDetected` outcome with both operations,
 access kinds, logical location, source/IL sites, synchronization context, and the schedule trace.
 
@@ -129,7 +129,7 @@ public sealed class TestCluster : SimulationCluster<TestNode>
 
     public TestNode AddNode(string address)
     {
-        var context = new SimulationNodeContext(Clock, Guard, ForkRandom(), TaskQueue);
+        var context = new SimulationNodeContext(Clock, Guard, ForkRandom(), SchedulerLane);
         var node = new TestNode(address, context);
         RegisterNode(node);
         return node;
@@ -154,7 +154,7 @@ var node2 = builder.AddNode("node-2");             // SimulationNodeHandle<objec
 await using var cluster = builder.Build();
 
 var handled = false;
-node1.Context.TaskQueue.EnqueueAfter(() => handled = true, TimeSpan.FromSeconds(30));
+node1.Context.SchedulerLane.EnqueueAfter(() => handled = true, TimeSpan.FromSeconds(30));
 cluster.RunUntil(() => handled, AdaptiveExecutionBudget.Default);
 
 cluster.Network.CreateBidirectionalPartition(node1.NetworkAddress, node2.NetworkAddress);
@@ -213,7 +213,7 @@ var node1 = cluster.AddNode("node-1");
 var node2 = cluster.AddNode("node-2");
 
 var completed = false;
-node1.Context.TaskQueue.EnqueueAfter(
+node1.Context.SchedulerLane.EnqueueAfter(
     () => completed = true,
     TimeSpan.FromSeconds(30));
 
@@ -323,21 +323,21 @@ any machine, any .NET version, and any process - including across separate machi
 
 `SimulationGate`, `SimulationLatch`, and `SimulationBarrier` replace hand-rolled
 `TaskCompletionSource` (or lists of them) for letting simulated work wait for a signal. All three
-dispatch waiter completions through a `SimulationTaskQueue` - never inline, never via a real-time
+dispatch waiter completions through a `SimulationSchedulerLane` - never inline, never via a real-time
 wait or thread-pool callback - so release order is deterministic:
 
 ```csharp
 // Gate: level-triggered, reopenable. Waiters block while closed, pass through while open.
-var gate = new SimulationGate(cluster.TaskQueue);
+var gate = new SimulationGate(cluster.SchedulerLane);
 var waitTask = gate.WaitAsync(cancellationToken);
 gate.Open(); // releases every current waiter; can be Close()d and Open()ed again
 
 // Latch: one-shot countdown, modeled on CountdownEvent. Cannot be reset once signaled.
-var latch = new SimulationLatch(cluster.TaskQueue, initialCount: 3);
+var latch = new SimulationLatch(cluster.SchedulerLane, initialCount: 3);
 latch.Signal(); // decrement; releases all waiters when the count reaches zero
 
 // Barrier: cyclic rendezvous, modeled on System.Threading.Barrier. Resets automatically each round.
-var barrier = new SimulationBarrier(cluster.TaskQueue, participantCount: 3);
+var barrier = new SimulationBarrier(cluster.SchedulerLane, participantCount: 3);
 await barrier.ArriveAndWaitAsync(cancellationToken); // released only once every participant has arrived
 ```
 
@@ -389,7 +389,8 @@ NativeAOT, signed assemblies, and profiler conflicts).
 The built-in simulation rule set **`clockwork.bcl.deterministic`** (version `2.0.0`),
 makes ordinary source that calls the direct **static** time / identity / random BCL surface
 deterministic - with no dependency injection, no `TimeProvider` threading, and no manual shim
-wiring. Enabling it rewrites those call sites to Cecil-free runtime shims in `Clockwork.Runtime`.
+wiring. Enabling it rewrites those call sites to runtime shims in the `Clockwork` assembly
+(namespace `Clockwork.Runtime.Shims`).
 The complete, exhaustive list of controlled and rejected signatures is generated into
 [`docs/rule-inventory.md`](docs/rule-inventory.md) and verified against the shipped rules by a
 test, so the documentation cannot drift from the code.
@@ -405,7 +406,7 @@ test, so the documentation cannot drift from the code.
 
 ```
 # CLI
-clockwork instrument --source <directory> --output <dir> --builtin clockwork.bcl.deterministic
+dotnet clockwork instrument --source <directory> --output <dir> --builtin clockwork.bcl.deterministic
 #   --builtin all                 enable every shipped rule set
 #   --builtin-include Clock Random restrict to specific families
 #   --builtin-exclude Crypto      drop a family
@@ -420,8 +421,9 @@ active Clockwork simulation; invoking one without an active simulation throws
 - **With a registered runtime environment** - dispatches to the current
   node's simulated clock and the correct independent seed domain (Application/Identity only;
   the scheduler, network, and Buggify seed streams are never perturbed).
-- **With no registered environment** - throws
-  `SimulationServiceMissingException` rather than read real wall-clock time or OS entropy.
+- **Runtime completeness** - the deterministic environment and task coordinator are installed
+  atomically before a runtime can become ambient. There is no active-but-unconfigured state and no
+  process-wide service registry.
 
 Production binaries remain uninstrumented and therefore retain ordinary BCL behavior. The renamed
 runtime inventory uses `ControlledDateTime`, `ControlledDateTimeOffset`, `ControlledStopwatch`,
@@ -464,7 +466,7 @@ logical thread instead of the physical thread pool — again with no dependency 
 wiring. It is selected independently of the BCL rule set:
 
 ```
-clockwork instrument --source <directory> --output <dir> --builtin clockwork.tasks.controlled
+dotnet clockwork instrument --source <directory> --output <dir> --builtin clockwork.tasks.controlled
 #   --builtin all   enable every shipped rule set (BCL + controlled tasks)
 ```
 
@@ -487,11 +489,10 @@ blocking generic `Task<T>.Result` accessor, the `TaskExtensions.Unwrap` extensio
 deadlock the scheduler, then delegate to the real API for its exact `AggregateException` semantics.
 
 **Simulation-only contract.** As with the BCL rule set, instrumented Controlled entry points require
-an active Clockwork simulation. Continuations and waits route through the coordinator; when an active
-simulation has no registered task coordinator, the shim throws
-`ControlledTaskServiceMissingException` rather than escaping to the thread pool. There is no
-inactive pass-through. `Task.Run`, every .NET 10 `TaskFactory.StartNew` state/options/scheduler form,
-`Thread`, `ThreadPool`, and `Parallel` are controlled.
+an active Clockwork simulation. Continuations and waits route through the coordinator carried by the
+complete ambient runtime, so they cannot fall back to the thread pool. There is no inactive
+pass-through. `Task.Run`, every .NET 10 `TaskFactory.StartNew` state/options/scheduler form, `Thread`,
+`ThreadPool`, and `Parallel` are controlled.
 
 **Modern synchronization.** The same opt-in rule set now controls
 `ReaderWriterLockSlim` (logical-strand read, upgradeable-read, and write ownership/recursion),

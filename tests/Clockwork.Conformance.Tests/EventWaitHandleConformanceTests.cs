@@ -120,7 +120,7 @@ public sealed class EventWaitHandleConformanceTests : IDisposable
                 }
                 catch (Exception ex)
                 {
-                    return Task.FromResult(ex.GetType().Name.Contains("WaitHandle"));
+                    return Task.FromResult(ex.GetType().FullName == "Clockwork.Runtime.ControlledApiException");
                 }
             }
 

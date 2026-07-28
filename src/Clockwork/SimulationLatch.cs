@@ -12,7 +12,7 @@ namespace Clockwork;
 /// reset or re-armed - once signaled to zero, it stays signaled.
 /// </para>
 /// <para>
-/// Completions are dispatched through the supplied <see cref="SimulationTaskQueue"/>, never
+/// Completions are dispatched through the supplied <see cref="SimulationSchedulerLane"/>, never
 /// inline and never via a real-time wait or thread-pool callback, so release order is
 /// deterministic and matches the order in which callers started waiting.
 /// </para>
@@ -20,7 +20,7 @@ namespace Clockwork;
 [DebuggerDisplay("{DebuggerDisplay,nq}")]
 public sealed class SimulationLatch
 {
-    private readonly SimulationTaskQueue _queue;
+    private readonly SimulationSchedulerLane _queue;
     private readonly object _sync = new();
     private readonly List<SimulationRendezvousSupport.Waiter> _waiters = [];
     private int _remainingCount;
@@ -34,7 +34,7 @@ public sealed class SimulationLatch
     /// opens. Must be non-negative; zero creates an already-signaled latch.
     /// </param>
     /// <param name="name">An optional name for diagnostics (for example, in a debugger).</param>
-    public SimulationLatch(SimulationTaskQueue queue, int initialCount, string? name = null)
+    public SimulationLatch(SimulationSchedulerLane queue, int initialCount, string? name = null)
     {
         ArgumentNullException.ThrowIfNull(queue);
         ArgumentOutOfRangeException.ThrowIfNegative(initialCount);

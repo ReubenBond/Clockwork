@@ -4,15 +4,15 @@ using System.Runtime.ExceptionServices;
 namespace Clockwork;
 
 /// <summary>
-/// A synchronization context that routes all continuations through a <see cref="SimulationTaskQueue"/>.
+/// A synchronization context that routes all continuations through a <see cref="SimulationSchedulerLane"/>.
 /// </summary>
-public sealed class SimulationSynchronizationContext(SimulationTaskQueue taskQueue) : SynchronizationContext
+public sealed class SimulationSynchronizationContext(SimulationSchedulerLane schedulerLane) : SynchronizationContext
 {
     /// <inheritdoc />
     public override void Post(SendOrPostCallback d, object? state)
     {
         ArgumentNullException.ThrowIfNull(d);
-        taskQueue.Enqueue(new ScheduledSyncContextItem(d, state));
+        schedulerLane.Enqueue(new ScheduledSyncContextItem(d, state));
     }
 
     /// <summary>
@@ -23,7 +23,7 @@ public sealed class SimulationSynchronizationContext(SimulationTaskQueue taskQue
     /// <para>
     /// 1. The calling thread is already running <em>on</em> this context's owning simulated
     /// operation - either because <see cref="SynchronizationContext.Current"/> is this context
-    /// (or another instance backed by the same <see cref="SimulationTaskQueue"/>), or because
+    /// (or another instance backed by the same <see cref="SimulationSchedulerLane"/>), or because
     /// <see cref="TaskScheduler.Current"/> is a <see cref="SimulationTaskScheduler"/> backed by the
     /// same queue. In that case <paramref name="d"/> runs immediately, inline, on the calling
     /// thread - it is already safe because nothing else can be running concurrently with it.
@@ -32,7 +32,7 @@ public sealed class SimulationSynchronizationContext(SimulationTaskQueue taskQue
     /// 2. The calling thread is not on the owning operation, but no other thread currently holds
     /// the queue's single-threaded guard. The callback is scheduled onto the queue (preserving
     /// deterministic FIFO ordering relative to anything already pending) and this call then
-    /// synchronously pumps the queue - via repeated <see cref="SimulationTaskQueue.RunOnce"/> calls
+    /// synchronously pumps the queue - via repeated <see cref="SimulationSchedulerLane.RunOnce"/> calls
     /// on the calling thread - until the callback has executed, at which point <see cref="Send"/>
     /// returns. This can never deadlock: the calling thread does its own pumping rather than
     /// waiting for another thread to make progress, and every item already in the queue has a
@@ -108,7 +108,7 @@ public sealed class SimulationSynchronizationContext(SimulationTaskQueue taskQue
 
         try
         {
-            taskQueue.Enqueue(new ScheduledSyncContextItem(WrappedCallback, state));
+            schedulerLane.Enqueue(new ScheduledSyncContextItem(WrappedCallback, state));
         }
         catch (InvalidOperationException ex)
         {
@@ -129,7 +129,7 @@ public sealed class SimulationSynchronizationContext(SimulationTaskQueue taskQue
             bool ran;
             try
             {
-                ran = taskQueue.RunOnce();
+                ran = schedulerLane.RunOnce();
             }
             catch (Exception ex)
             {
@@ -165,12 +165,12 @@ public sealed class SimulationSynchronizationContext(SimulationTaskQueue taskQue
     }
 
     /// <inheritdoc />
-    public override SynchronizationContext CreateCopy() => new SimulationSynchronizationContext(taskQueue);
+    public override SynchronizationContext CreateCopy() => new SimulationSynchronizationContext(schedulerLane);
 
     /// <summary>
-    /// Gets the underlying task queue for this synchronization context.
+    /// Gets the underlying scheduler lane for this synchronization context.
     /// </summary>
-    public object UnderlyingScheduler => taskQueue;
+    public object UnderlyingScheduler => schedulerLane;
 
     /// <summary>
     /// Checks if this synchronization context shares the same scheduler as another context.

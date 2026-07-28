@@ -8,8 +8,8 @@ namespace Clockwork.Instrumentation.Rules.BuiltIn;
 /// instrumentation package so MSBuild and CLI users can turn on deterministic BCL behaviour without
 /// hand-authoring JSON signatures. The only rule set today is
 /// <see cref="DeterministicBclId"/> - the built-in deterministic BCL shim set - which
-/// redirects the direct static time / identity / random surface to the Cecil-free runtime shims in
-/// the <c>Clockwork.Runtime</c> assembly (namespace <c>Clockwork.Runtime.Shims</c>).
+/// redirects the direct static time / identity / random surface to the runtime shims in the
+/// <c>Clockwork</c> assembly (namespace <c>Clockwork.Runtime.Shims</c>).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -42,7 +42,7 @@ public static class BuiltInRuleSets
     public const string ControlledTasksVersion = "3.0.0";
 
     /// <summary>The simple name of the assembly declaring every built-in shim.</summary>
-    public const string ShimAssemblyName = "Clockwork.Runtime";
+    public const string ShimAssemblyName = "Clockwork";
 
     private const string DateTimeShim = "Clockwork.Runtime.Shims.ControlledDateTime";
     private const string DateTimeOffsetShim = "Clockwork.Runtime.Shims.ControlledDateTimeOffset";
@@ -727,6 +727,9 @@ public static class BuiltInRuleSets
         // the OS-specific priority/apartment/interrupt surface is rejected precisely under simulation. Each
         // controlled thread is a real thread object whose body is queued as a fresh controlled operation, so
         // the logical identity surface (Name, ManagedThreadId, IsBackground) keeps working unchanged. ----
+        TaskRule(builder, BuiltInRuleFamily.Thread, "clockwork.environment.currentmanagedthreadid",
+            MemberSignature.Method(EnvironmentType, "get_CurrentManagedThreadId"),
+            Shim(EnvironmentShim, "GetCurrentManagedThreadId"));
         builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Thread, RewriteRule.RedirectNewObj(
             "clockwork.thread.ctor.threadstart",
             MemberSignature.Constructor(ThreadType, ThreadStart), Shim(ThreadShim, "Create", ThreadStart))));

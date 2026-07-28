@@ -13,7 +13,7 @@ namespace Clockwork;
 /// <para>
 /// Replaces the common pattern of hand-rolling a <see cref="TaskCompletionSource"/> (or a list of
 /// them) to let simulated work wait for a signal. Completions are always dispatched through the
-/// supplied <see cref="SimulationTaskQueue"/> - never executed inline from <see cref="Open"/> and
+/// supplied <see cref="SimulationSchedulerLane"/> - never executed inline from <see cref="Open"/> and
 /// never via a real-time wait or thread-pool callback - so waiter continuations run at a
 /// deterministic point in the simulation's schedule, in the order the waiters registered.
 /// </para>
@@ -21,7 +21,7 @@ namespace Clockwork;
 [DebuggerDisplay("{DebuggerDisplay,nq}")]
 public sealed class SimulationGate
 {
-    private readonly SimulationTaskQueue _queue;
+    private readonly SimulationSchedulerLane _queue;
     private readonly object _sync = new();
     private readonly List<SimulationRendezvousSupport.Waiter> _waiters = [];
     private bool _isOpen;
@@ -32,7 +32,7 @@ public sealed class SimulationGate
     /// <param name="queue">The queue used to dispatch waiter completions deterministically.</param>
     /// <param name="isOpen">Whether the gate starts open. Defaults to <see langword="false"/> (closed).</param>
     /// <param name="name">An optional name for diagnostics (for example, in a debugger).</param>
-    public SimulationGate(SimulationTaskQueue queue, bool isOpen = false, string? name = null)
+    public SimulationGate(SimulationSchedulerLane queue, bool isOpen = false, string? name = null)
     {
         ArgumentNullException.ThrowIfNull(queue);
         _queue = queue;

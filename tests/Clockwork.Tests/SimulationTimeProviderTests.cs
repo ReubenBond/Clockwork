@@ -200,7 +200,7 @@ public sealed class SimulationTimeProviderTests
     }
 
     private static void AssertSinglePendingTimer(
-        SimulationTaskQueue queue,
+        SimulationSchedulerLane queue,
         DateTimeOffset expectedDueTime,
         TimeSpan expectedPeriod)
     {
@@ -210,10 +210,11 @@ public sealed class SimulationTimeProviderTests
         Assert.Equal(expectedPeriod, pending.Period);
     }
 
-    private static (SimulationClock Clock, SimulationTaskQueue Queue, SimulationTimeProvider Provider) CreateComponents()
+    private static (SimulationClock Clock, SimulationSchedulerLane Queue, SimulationTimeProvider Provider) CreateComponents()
     {
-        var clock = new SimulationClock(DateTimeOffset.UnixEpoch);
-        var queue = new SimulationTaskQueue(clock, new SingleThreadedGuard());
+        var scheduler = SimulationTestHarness.NewScheduler();
+        var clock = new SimulationClock(scheduler);
+        var queue = new SimulationSchedulerLane(scheduler, SimulationTestHarness.NewGuard(scheduler));
         return (clock, queue, new SimulationTimeProvider(queue, clock));
     }
 }

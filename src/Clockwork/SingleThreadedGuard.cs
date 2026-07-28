@@ -13,7 +13,7 @@ namespace Clockwork;
 /// <para>
 /// By default the guard's notion of "who is inside" is the physical
 /// <see cref="Environment.CurrentManagedThreadId"/>. When the simulation is driven by the
-/// controlled-operation kernel (see <c>ControlledOperationScheduler</c>), one logical simulation
+/// simulation scheduler (see <c>SimulationScheduler</c>), one logical simulation
 /// thread is carried by several physical threads over its lifetime - the controlling thread plus a
 /// dedicated thread per operation - even though the permission baton guarantees only one of them
 /// ever executes at a time. Supplying a <paramref name="logicalOwnerProvider"/> lets the guard key

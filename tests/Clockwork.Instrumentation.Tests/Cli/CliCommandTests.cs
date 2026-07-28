@@ -328,7 +328,7 @@ public sealed class CliCommandTests : IDisposable
             outputKind: Microsoft.CodeAnalysis.OutputKind.ConsoleApplication);
         File.Copy(
             typeof(SimulationNotActiveException).Assembly.Location,
-            Path.Combine(_source, "Clockwork.Runtime.dll"),
+            Path.Combine(_source, "Clockwork.dll"),
             overwrite: true);
         ProcessAppRunner.WriteRuntimeConfig(Path.Combine(_source, "app.dll"));
     }

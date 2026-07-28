@@ -12,7 +12,7 @@ namespace Clockwork.Instrumentation.Tests.Golden;
 /// <summary>
 /// End-to-end golden tests for the shipped controlled-task rule set
 /// (<see cref="BuiltInRuleSets.ControlledTasksId"/>): they rewrite real <see cref="System.Threading.Tasks.Task"/>
-/// call sites in a compiled fixture against the real <c>Clockwork.Runtime</c> shim assembly and assert
+/// call sites in a compiled fixture against the real <c>Clockwork</c> assembly and assert
 /// on the rewritten IL and manifest. This proves the static/instance signatures in
 /// <c>BuiltInRuleSets.BuildControlledTasks</c> line up with the actual <c>ControlledTask</c> members, so
 /// the inventory is not merely declarative.

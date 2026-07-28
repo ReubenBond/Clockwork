@@ -2,15 +2,15 @@ namespace Clockwork;
 
 /// <summary>
 /// A timer implementation for the simulation time provider.
-/// This implements the timer abstractions using SimulationTaskQueue for scheduling.
+/// This implements the timer abstractions using a scheduler lane.
 /// </summary>
-public sealed class SimulationTimer(SimulationTaskQueue taskQueue, TimerCallback callback, object? state) : ITimer
+public sealed class SimulationTimer(SimulationSchedulerLane schedulerLane, TimerCallback callback, object? state) : ITimer
 {
     private const uint MaxSupportedTimeout = 0xfffffffe;
 
     private readonly TimerCallback? _callback = callback;
     private readonly object? _state = state;
-    private SimulationTaskQueue? _taskQueue = taskQueue;
+    private SimulationSchedulerLane? _schedulerLane = schedulerLane;
     private ScheduledTimerItem? _scheduledTimer;
     private long _generation;
 
@@ -35,7 +35,7 @@ public sealed class SimulationTimer(SimulationTaskQueue taskQueue, TimerCallback
         if (periodMs != -1 && (ulong)periodMs > MaxSupportedTimeout)
             throw new ArgumentOutOfRangeException(nameof(period));
 
-        var queue = _taskQueue;
+        var queue = _schedulerLane;
         if (queue is null)
         {
             // timer has been disposed
@@ -69,7 +69,7 @@ public sealed class SimulationTimer(SimulationTaskQueue taskQueue, TimerCallback
         return true;
     }
 
-    private void ScheduleNextFiring(SimulationTaskQueue queue, TimeSpan delay)
+    private void ScheduleNextFiring(SimulationSchedulerLane queue, TimeSpan delay)
     {
         _scheduledTimer = queue.EnqueueAfter(
             new ScheduledTimerItem(this, _generation),
@@ -88,7 +88,7 @@ public sealed class SimulationTimer(SimulationTaskQueue taskQueue, TimerCallback
 
         // A callback can reentrantly change or dispose the timer. Only the generation which
         // actually fired may perform its automatic periodic reschedule.
-        var queue = _taskQueue;
+        var queue = _schedulerLane;
         if (_generation == generation && queue is not null && Period > TimeSpan.Zero)
         {
             ScheduleNextFiring(queue, Period);
@@ -101,7 +101,7 @@ public sealed class SimulationTimer(SimulationTaskQueue taskQueue, TimerCallback
         _generation++;
         _scheduledTimer?.Dispose();
         _scheduledTimer = null;
-        _taskQueue = null;
+        _schedulerLane = null;
         GC.SuppressFinalize(this);
     }
 
@@ -114,25 +114,25 @@ public sealed class SimulationTimer(SimulationTaskQueue taskQueue, TimerCallback
     }
 
     /// <summary>
-    /// Gets information about all pending timers from the task queue.
+    /// Gets information about all pending timers from the scheduler lane.
     /// </summary>
-    /// <param name="taskQueue">The task queue to query.</param>
+    /// <param name="schedulerLane">The scheduler lane to query.</param>
     /// <returns>A list of timer info for all pending timers.</returns>
-    public static IReadOnlyList<(DateTimeOffset DueTime, TimeSpan Period)> GetTimers(SimulationTaskQueue taskQueue)
+    public static IReadOnlyList<(DateTimeOffset DueTime, TimeSpan Period)> GetTimers(SimulationSchedulerLane schedulerLane)
     {
-        ArgumentNullException.ThrowIfNull(taskQueue);
-        return taskQueue.GetItemsOfType<ScheduledTimerItem, (DateTimeOffset, TimeSpan)>(timer => (timer.DueTime, timer.Timer.Period));
+        ArgumentNullException.ThrowIfNull(schedulerLane);
+        return schedulerLane.GetItemsOfType<ScheduledTimerItem, (DateTimeOffset, TimeSpan)>(timer => (timer.DueTime, timer.Timer.Period));
     }
 
     /// <summary>
-    /// Gets the count of pending timers from the task queue.
+    /// Gets the count of pending timers from the scheduler lane.
     /// </summary>
-    /// <param name="taskQueue">The task queue to query.</param>
+    /// <param name="schedulerLane">The scheduler lane to query.</param>
     /// <returns>The count of pending timers.</returns>
-    public static int GetPendingTimerCount(SimulationTaskQueue taskQueue)
+    public static int GetPendingTimerCount(SimulationSchedulerLane schedulerLane)
     {
-        ArgumentNullException.ThrowIfNull(taskQueue);
-        return taskQueue.GetWaitingCount<ScheduledTimerItem>();
+        ArgumentNullException.ThrowIfNull(schedulerLane);
+        return schedulerLane.GetWaitingCount<ScheduledTimerItem>();
     }
 
     private sealed class ScheduledTimerItem(SimulationTimer timer, long generation) : ScheduledItem

@@ -32,7 +32,7 @@ public sealed class SimulationClusterTraceSnapshotTests
         // A small, deterministic script mixing node suspension with delayed work, so the
         // resulting trace has multiple distinguishable event kinds.
         var messagesDelivered = 0;
-        node.Context.TaskQueue.EnqueueAfter(() => messagesDelivered++, TimeSpan.FromSeconds(2));
+        node.Context.SchedulerLane.EnqueueAfter(() => messagesDelivered++, TimeSpan.FromSeconds(2));
         node.SuspendFor(TimeSpan.FromSeconds(1));
 
         // RunFor advances time (emitting TimeAdvancing) and drains work until idle
@@ -61,7 +61,7 @@ public sealed class SimulationClusterTraceSnapshotTests
 
         public TracingNode AddNode(string address)
         {
-            var context = new SimulationNodeContext(Clock, Guard, ForkRandom(), TaskQueue);
+            var context = CreateNodeContext(address);
             var node = new TracingNode(address, context);
             RegisterNode(node);
             return node;

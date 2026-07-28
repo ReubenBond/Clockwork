@@ -14,7 +14,7 @@ public sealed class ControlledTimerIntegrationTests
         SimulationCluster simulation = builder.Build();
         ControlledTimer? timer = null;
 
-        node.Context.TaskQueue.EnqueueAfter(
+        node.Context.SchedulerLane.EnqueueAfter(
             () => timer = new ControlledTimer(
                 _ => throw new InvalidOperationException("A teardown-canceled timer fired."),
                 null,
@@ -26,8 +26,8 @@ public sealed class ControlledTimerIntegrationTests
 
         SimulationScheduledItemDiagnostic deadline = Assert.Single(
             result.PendingWork.Items,
-            static item => item.QueueIdentity == "controlled-task-loop");
-        Assert.Equal("PausedUntilTime", deadline.ItemType);
+            static item => item.QueueIdentity == "simulation-scheduler");
+        Assert.Equal("CallbackTimer", deadline.ItemType);
         Assert.Equal(1, result.PendingWork.WaitingCount);
 
         await simulation.DisposeAsync();

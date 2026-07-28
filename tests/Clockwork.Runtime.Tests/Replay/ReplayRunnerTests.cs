@@ -48,9 +48,9 @@ public sealed class ReplayRunnerTests
     [Fact]
     public void RecordAndReplayCanceledOperation()
     {
-        static void Scenario(ControlledOperationScheduler scheduler)
+        static void Scenario(SimulationScheduler scheduler)
         {
-            ControlledOperation operation = scheduler.Schedule("cancel", static () => { });
+            SimulationOperation operation = scheduler.Schedule("cancel", static () => { });
             scheduler.Cancel(operation);
         }
 
@@ -66,18 +66,18 @@ public sealed class ReplayRunnerTests
     [Fact]
     public void RecordAndReplayVirtualTimeout()
     {
-        static void Scenario(ControlledOperationScheduler scheduler)
+        static void Scenario(SimulationScheduler scheduler)
         {
-            ControlledResource resource = scheduler.CreateResource(ControlledResourceKind.Timer, "timeout");
+            SimulationResource resource = scheduler.CreateResource(SimulationResourceKind.Timer, "timeout");
             scheduler.Schedule(
                 "waiter",
                 () =>
                 {
-                    ControlledWaitOutcome outcome = scheduler.WaitOnResource(
+                    SimulationWaitOutcome outcome = scheduler.WaitOnResource(
                         resource,
                         TimeSpan.FromSeconds(5),
-                        ControlledOperationPauseReason.ResourceWait("timeout"));
-                    Assert.Equal(ControlledWaitOutcome.TimedOut, outcome);
+                        SimulationPauseReason.ResourceWait("timeout"));
+                    Assert.Equal(SimulationWaitOutcome.TimedOut, outcome);
                 });
         }
 
@@ -89,24 +89,24 @@ public sealed class ReplayRunnerTests
         Assert.Contains(
             recorded.Artifact.Decisions,
             static decision => decision.SourceId == "resource-wait-resolution" &&
-                decision.SelectedResult == nameof(ControlledWaitOutcome.TimedOut));
+                decision.SelectedResult == nameof(SimulationWaitOutcome.TimedOut));
         Assert.True(replayed.Reproduced);
     }
 
     [Fact]
     public void RecordAndReplayDeadlockAtTerminalBoundary()
     {
-        static void Scenario(ControlledOperationScheduler scheduler)
+        static void Scenario(SimulationScheduler scheduler)
         {
-            ControlledResource first = scheduler.CreateResource(ControlledResourceKind.Monitor, "first");
-            ControlledResource second = scheduler.CreateResource(ControlledResourceKind.Monitor, "second");
+            SimulationResource first = scheduler.CreateResource(SimulationResourceKind.Monitor, "first");
+            SimulationResource second = scheduler.CreateResource(SimulationResourceKind.Monitor, "second");
             scheduler.Schedule(
                 "one",
                 () =>
                 {
                     scheduler.MarkResourceOwner(first, scheduler.CurrentOperation);
                     scheduler.Yield();
-                    scheduler.WaitOnResource(second, ControlledOperationPauseReason.ResourceWait("second"));
+                    scheduler.WaitOnResource(second, SimulationPauseReason.ResourceWait("second"));
                 });
             scheduler.Schedule(
                 "two",
@@ -114,7 +114,7 @@ public sealed class ReplayRunnerTests
                 {
                     scheduler.MarkResourceOwner(second, scheduler.CurrentOperation);
                     scheduler.Yield();
-                    scheduler.WaitOnResource(first, ControlledOperationPauseReason.ResourceWait("first"));
+                    scheduler.WaitOnResource(first, SimulationPauseReason.ResourceWait("first"));
                 });
         }
 
@@ -239,12 +239,12 @@ public sealed class ReplayRunnerTests
 
     private static ReplayExecutionResult Record(
         ReplayRecordingOptions configuration,
-        Action<ControlledOperationScheduler> scenario) =>
+        Action<SimulationScheduler> scenario) =>
         ReplayRunner.Record(configuration, scenario, TestContext.Current.CancellationToken);
 
     private static ReplayExecutionResult Replay(
         ReplayArtifact artifact,
-        Action<ControlledOperationScheduler> scenario) =>
+        Action<SimulationScheduler> scenario) =>
         ReplayRunner.Replay(
             artifact,
             ReplayCompatibilityRequirements.Current(),
@@ -253,7 +253,7 @@ public sealed class ReplayRunnerTests
             cancellationToken: TestContext.Current.CancellationToken);
 
     private static void ScheduleYieldingPair(
-        ControlledOperationScheduler scheduler,
+        SimulationScheduler scheduler,
         List<string> order)
     {
         scheduler.Schedule(
@@ -275,10 +275,10 @@ public sealed class ReplayRunnerTests
     }
 
     private static void ScheduleResourceContest(
-        ControlledOperationScheduler scheduler,
+        SimulationScheduler scheduler,
         List<int> winners)
     {
-        ControlledResource resource = scheduler.CreateResource(ControlledResourceKind.Semaphore, "contest");
+        SimulationResource resource = scheduler.CreateResource(SimulationResourceKind.Semaphore, "contest");
         for (var id = 1; id <= 3; id++)
         {
             int captured = id;
@@ -288,7 +288,7 @@ public sealed class ReplayRunnerTests
                 {
                     scheduler.WaitOnResource(
                         resource,
-                        ControlledOperationPauseReason.ResourceWait("contest"));
+                        SimulationPauseReason.ResourceWait("contest"));
                     winners.Add(captured);
                 });
         }

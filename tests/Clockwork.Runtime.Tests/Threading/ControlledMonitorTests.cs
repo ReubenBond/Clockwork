@@ -16,7 +16,7 @@ public sealed class ControlledMonitorTests
     [Fact]
     public void EnterExitTracksOwnershipAndReentrancy()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -39,7 +39,7 @@ public sealed class ControlledMonitorTests
     [Fact]
     public void ExitWithoutOwnershipThrows()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -50,7 +50,7 @@ public sealed class ControlledMonitorTests
     [Fact]
     public void EnterNullThrowsArgumentNull()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(
             coordinator,
             () => Assert.Throws<ArgumentNullException>(() => ControlledMonitor.Enter(null!)));
@@ -59,7 +59,7 @@ public sealed class ControlledMonitorTests
     [Fact]
     public void EnterWithLockTakenTrueThrows()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -75,7 +75,7 @@ public sealed class ControlledMonitorTests
     [Fact]
     public void EnterRefBoolSetsLockTaken()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -91,7 +91,7 @@ public sealed class ControlledMonitorTests
     [Fact]
     public void TryEnterInvalidTimeoutThrows()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(
             coordinator,
             () => Assert.Throws<ArgumentOutOfRangeException>(
@@ -101,7 +101,7 @@ public sealed class ControlledMonitorTests
     [Fact]
     public void TryEnterContendedReturnsFalse()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -123,7 +123,7 @@ public sealed class ControlledMonitorTests
     [Fact]
     public void ContendedEnterAcquiresAfterOwnerReleases()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -151,7 +151,7 @@ public sealed class ControlledMonitorTests
     [Fact]
     public void WaitReleasesAndReacquiresAfterPulse()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -185,7 +185,7 @@ public sealed class ControlledMonitorTests
     [Fact]
     public void PulseAllWakesEveryWaiter()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -224,7 +224,7 @@ public sealed class ControlledMonitorTests
     [Fact]
     public void PulseWithoutOwnershipThrows()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -235,7 +235,7 @@ public sealed class ControlledMonitorTests
     [Fact]
     public void WaitWithoutOwnershipThrows()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -246,7 +246,7 @@ public sealed class ControlledMonitorTests
     [Fact]
     public void UnpulsedWaitSurfacesAsDeadlock()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -278,11 +278,11 @@ public sealed class ControlledMonitorTests
     [Fact]
     public void LockContentionCountIsRejectedInsideSimulation()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            var ex = Assert.Throws<ControlledTaskUnsupportedException>(
+            var ex = Assert.Throws<ControlledApiException>(
                 () => ControlledMonitor.LockContentionCount());
             Assert.Equal("System.Threading.Monitor.LockContentionCount", ex.ApiName);
         });
@@ -309,7 +309,7 @@ public sealed class ControlledMonitorTests
     [Fact]
     public void TryEnterFiniteTimesOutWhenNeverReleased()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -328,14 +328,14 @@ public sealed class ControlledMonitorTests
             // The root still owns the lock; the timed-out acquire took nothing.
             Assert.True(ControlledMonitor.IsEntered(gate));
             ControlledMonitor.Exit(gate);
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
     [Fact]
     public void TryEnterFiniteRefBoolTimesOut()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -360,7 +360,7 @@ public sealed class ControlledMonitorTests
     [Fact]
     public void WaitFiniteTimesOutAndReacquiresMonitor()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -382,14 +382,14 @@ public sealed class ControlledMonitorTests
 
             Assert.False(signalled); // Timed out - no pulse ever arrived.
             Assert.True(ownedAfter); // Monitor was reacquired before the timed-out Wait returned.
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
     [Fact]
     public void WaitFinitePulsedBeforeDeadlineReturnsTrue()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -415,14 +415,14 @@ public sealed class ControlledMonitorTests
             ControlledThread.Join(signaller);
 
             Assert.True(signalled); // Pulse at 100 (< 500) beat the timeout.
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
     [Fact]
     public void WaitFinitePulsedAfterDeadlineReturnsFalse()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -450,14 +450,14 @@ public sealed class ControlledMonitorTests
             ControlledThread.Join(signaller);
 
             Assert.False(signalled); // Timed out at 100 before the pulse at 500.
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
     [Fact]
     public void WaitFiniteRestoresRecursionCountOnTimeout()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -480,7 +480,7 @@ public sealed class ControlledMonitorTests
 
             Assert.True(reentrantlyOwned);
             Assert.False(ControlledMonitor.IsEntered(mon));
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
@@ -492,7 +492,7 @@ public sealed class ControlledMonitorTests
         // waiter times out - a deterministic, replayable tie-break rather than a real-time race.
         for (var seed = 1; seed <= 5; seed++)
         {
-            var coordinator = new ControlledTaskLoopCoordinator();
+            var coordinator = new SimulationSchedulerTestHost(seed);
             var signalled = true;
 
             TaskTestHarness.RunInSimulation(
@@ -517,8 +517,7 @@ public sealed class ControlledMonitorTests
                     ControlledThread.Start(signaller);
                     ControlledThread.Join(waiter);
                     ControlledThread.Join(signaller);
-                },
-                runtime: TaskTestHarness.NewRuntime(seed));
+                });
 
             Assert.False(signalled);
         }
@@ -531,7 +530,7 @@ public sealed class ControlledMonitorTests
         // idle every time (no parked waiter or pending deadline leaks across iterations).
         for (var i = 0; i < 200; i++)
         {
-            var coordinator = new ControlledTaskLoopCoordinator();
+            var coordinator = new SimulationSchedulerTestHost();
             var acquired = true;
 
             TaskTestHarness.RunInSimulation(coordinator, () =>
@@ -545,14 +544,14 @@ public sealed class ControlledMonitorTests
             });
 
             Assert.False(acquired);
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.True(coordinator.Scheduler.IsIdle);
         }
     }
 
     [Fact]
     public void SafeThreadPoolCallbackDoesNotInheritMonitorOwnership()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -574,18 +573,18 @@ public sealed class ControlledMonitorTests
                 state: null);
 
             Assert.True(accepted);
-            Assert.Equal(1, coordinator.Loop.ReadyCount);
-            coordinator.Loop.RunUntilIdle();
+            Assert.Equal(1, coordinator.Scheduler.RunnableOperationCount);
+            coordinator.Scheduler.RunUntilIdle();
 
             Assert.True(ControlledMonitor.IsEntered(gate));
             ControlledMonitor.Exit(gate);
             Assert.False(ControlledMonitor.IsEntered(gate));
             Assert.False(nestedWasOwner);
             Assert.False(nestedAcquired);
-            Assert.Equal(0, coordinator.Loop.ReadyCount);
-            Assert.Equal(0, coordinator.Loop.WaitingCount);
-            Assert.Null(coordinator.Loop.NextDeadlineDue());
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.Equal(0, coordinator.Scheduler.RunnableOperationCount);
+            Assert.Equal(0, coordinator.Scheduler.WaitingOperationCount);
+            Assert.Null(coordinator.Scheduler.NextTimerDue);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
@@ -595,7 +594,7 @@ public sealed class ControlledMonitorTests
     [InlineData((int)QueuedTaskVariant.ContinueWith)]
     public void QueuedTaskWorkDoesNotInheritMonitorOwnership(int variantValue)
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -632,7 +631,7 @@ public sealed class ControlledMonitorTests
                 antecedent.SetResult();
             }
 
-            coordinator.Loop.RunUntil(() => task.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test");
 
             Assert.Equal(TaskStatus.RanToCompletion, task.Status);
             Assert.True(ControlledMonitor.IsEntered(gate));
@@ -640,10 +639,10 @@ public sealed class ControlledMonitorTests
             Assert.False(ControlledMonitor.IsEntered(gate));
             Assert.False(nestedWasOwner);
             Assert.False(nestedAcquired);
-            Assert.Equal(0, coordinator.Loop.ReadyCount);
-            Assert.Equal(0, coordinator.Loop.WaitingCount);
-            Assert.Null(coordinator.Loop.NextDeadlineDue());
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.Equal(0, coordinator.Scheduler.RunnableOperationCount);
+            Assert.Equal(0, coordinator.Scheduler.WaitingOperationCount);
+            Assert.Null(coordinator.Scheduler.NextTimerDue);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
@@ -665,7 +664,7 @@ public sealed class ControlledMonitorTests
     [InlineData((int)NestedQueueVariant.ContinueWith)]
     public void NestedQueuedOperationsUseDistinctMonitorOwners(int variantValue)
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -696,7 +695,7 @@ public sealed class ControlledMonitorTests
                     innerOwnedAfterTry = ControlledMonitor.IsEntered(gate);
                 });
 
-                coordinator.Loop.RunUntil(
+                coordinator.Scheduler.DrainUntil(
                     () => innerOperation.IsCompleted,
                     "nested queued Monitor ownership probe");
 
@@ -706,7 +705,7 @@ public sealed class ControlledMonitorTests
             });
 
             Assert.False(outerOperation.IsCompleted);
-            coordinator.Loop.RunUntil(
+            coordinator.Scheduler.DrainUntil(
                 () => outerOperation.IsCompleted,
                 "outer queued Monitor ownership probe");
 
@@ -720,11 +719,11 @@ public sealed class ControlledMonitorTests
             Assert.True(outerOwnedAfterInner);
             Assert.False(outerOwnedAfterExit);
             Assert.False(ControlledMonitor.IsEntered(gate));
-            Assert.Equal(0, coordinator.Loop.ReadyCount);
-            Assert.Equal(0, coordinator.Loop.WaitingCount);
-            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
-            Assert.Null(coordinator.Loop.NextDeadlineDue());
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.Equal(0, coordinator.Scheduler.RunnableOperationCount);
+            Assert.Equal(0, coordinator.Scheduler.WaitingOperationCount);
+            Assert.Equal(TimeSpan.Zero, coordinator.Scheduler.VirtualTime);
+            Assert.Null(coordinator.Scheduler.NextTimerDue);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 

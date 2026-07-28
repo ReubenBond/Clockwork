@@ -142,9 +142,7 @@ public sealed class SimulationNetworkTests
 
         public override bool IsInitialized => true;
 
-        public override SimulationNodeContext Context { get; } = new(
-            new SimulationClock(DateTimeOffset.UnixEpoch),
-            new SingleThreadedGuard(),
-            new SimulationRandom(0));
+        public override SimulationNodeContext Context { get; } =
+            SimulationTestHarness.NewNodeComponents(address).Context;
     }
 }

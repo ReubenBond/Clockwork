@@ -15,13 +15,18 @@ namespace Clockwork;
 /// <param name="MaxConsecutiveTimeAdvances">The maximum number of consecutive time advances without executed work.</param>
 /// <param name="ObserveTeardownCancellation">Whether to check the teardown cancellation token each iteration.</param>
 /// <param name="InitialConsecutiveTimeAdvances">The consecutive time-advance count carried into this execution.</param>
+/// <param name="EndTime">
+/// An optional absolute ceiling for simulated time. Work due at this instant is drained, but the
+/// clock never advances beyond it.
+/// </param>
 internal readonly record struct SimulationDriveLoopOptions(
     Func<bool>? Condition,
     TimeSpan MaxSimulatedTimeAdvance,
     int MaxIterations,
     int MaxConsecutiveTimeAdvances,
     bool ObserveTeardownCancellation,
-    int InitialConsecutiveTimeAdvances = 0);
+    int InitialConsecutiveTimeAdvances = 0,
+    DateTimeOffset? EndTime = null);
 
 /// <summary>
 /// <para>
@@ -82,19 +87,35 @@ internal sealed class SimulationDriveLoop(
             }
 
             // No tasks ready to execute right now - need to advance time or stop.
+            var now = getUtcNow();
+            if (options.EndTime is { } endTime && now >= endTime)
+            {
+                return CompleteIdle(iteration);
+            }
+
             var nextDueTime = getNextWaitingDueTime();
             if (nextDueTime is null)
             {
+                if (options.EndTime is { } target)
+                {
+                    advanceClock(target - now);
+                    totalTimeAdvances++;
+                    return CompleteIdle(iteration);
+                }
+
                 // Nothing is waiting for a future time either. Distinguish "truly nothing left" from
                 // "there is work, but it cannot run" (e.g. a ready item on a suspended node's queue).
-                var pendingWork = capturePendingWorkSummary();
-                var idleReason = pendingWork.BlockedCount > 0
-                    ? SimulationExecutionReason.IdleWithPendingWork
-                    : SimulationExecutionReason.Idle;
-                return Complete(idleReason, iteration, pendingWork);
+                return CompleteIdle(iteration);
             }
 
-            var timeDelta = nextDueTime.Value - getUtcNow();
+            if (options.EndTime is { } ceiling && nextDueTime.Value > ceiling)
+            {
+                advanceClock(ceiling - now);
+                totalTimeAdvances++;
+                return CompleteIdle(iteration);
+            }
+
+            var timeDelta = nextDueTime.Value - now;
             if (timeDelta > options.MaxSimulatedTimeAdvance)
             {
                 return Complete(SimulationExecutionReason.MaxSimulatedTimeAdvanceExceeded, iteration, attemptedTimeAdvance: timeDelta);
@@ -115,6 +136,15 @@ internal sealed class SimulationDriveLoop(
         }
 
         return Complete(SimulationExecutionReason.MaxIterationsReached, options.MaxIterations);
+
+        SimulationExecutionResult CompleteIdle(int iteration)
+        {
+            var pendingWork = capturePendingWorkSummary();
+            var reason = pendingWork.BlockedCount > 0
+                ? SimulationExecutionReason.IdleWithPendingWork
+                : SimulationExecutionReason.Idle;
+            return Complete(reason, iteration, pendingWork);
+        }
 
         SimulationExecutionResult Complete(
             SimulationExecutionReason reason,

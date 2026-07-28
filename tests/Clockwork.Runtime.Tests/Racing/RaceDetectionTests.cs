@@ -15,7 +15,7 @@ public sealed class RaceDetectionTests
     [Fact]
     public void ReadReadAccessesAreClean()
     {
-        using ControlledOperationScheduler scheduler = RunPair(
+        using SimulationScheduler scheduler = RunPair(
             () => RaceInstrumentation.ReadStatic("Fx.State::Value", "A", 1, "A.cs", 10),
             () => RaceInstrumentation.ReadStatic("Fx.State::Value", "B", 2, "B.cs", 20));
 
@@ -29,7 +29,7 @@ public sealed class RaceDetectionTests
     [InlineData(RaceAccessKind.Write, RaceAccessKind.Write)]
     public void ConflictingStaticAccessesAreDetected(RaceAccessKind first, RaceAccessKind second)
     {
-        using ControlledOperationScheduler scheduler = RunPair(
+        using SimulationScheduler scheduler = RunPair(
             () => AccessStatic(first, "A"),
             () => AccessStatic(second, "B"));
 
@@ -47,7 +47,7 @@ public sealed class RaceDetectionTests
     {
         var first = new object();
         var second = new object();
-        using ControlledOperationScheduler scheduler = RunPair(
+        using SimulationScheduler scheduler = RunPair(
             () => RaceInstrumentation.WriteInstance(first, "Fx.State::Value", "A", 1, null, -1),
             () => RaceInstrumentation.WriteInstance(second, "Fx.State::Value", "B", 2, null, -1));
 
@@ -58,7 +58,7 @@ public sealed class RaceDetectionTests
     public void SameInstanceFieldIsDetected()
     {
         var target = new object();
-        using ControlledOperationScheduler scheduler = RunPair(
+        using SimulationScheduler scheduler = RunPair(
             () => RaceInstrumentation.WriteInstance(target, "Fx.State::Value", "A", 1, null, -1),
             () => RaceInstrumentation.ReadInstance(target, "Fx.State::Value", "B", 2, null, -1));
 
@@ -70,7 +70,7 @@ public sealed class RaceDetectionTests
     [Fact]
     public void ClosedGenericStaticFieldsUseDistinctLocations()
     {
-        using ControlledOperationScheduler scheduler = RunPair(
+        using SimulationScheduler scheduler = RunPair(
             () => RaceInstrumentation.WriteStaticField(
                 typeof(GenericStatic<int>).TypeHandle,
                 "GenericStatic`1::Value",
@@ -93,12 +93,12 @@ public sealed class RaceDetectionTests
     public void ArrayElementsAreTrackedIndependently()
     {
         int[] values = new int[2];
-        using ControlledOperationScheduler clean = RunPair(
+        using SimulationScheduler clean = RunPair(
             () => RaceInstrumentation.WriteArray(values, 0, "A", 1, null, -1),
             () => RaceInstrumentation.WriteArray(values, 1, "B", 2, null, -1));
         Assert.Null(clean.FirstRace);
 
-        using ControlledOperationScheduler raced = RunPair(
+        using SimulationScheduler raced = RunPair(
             () => RaceInstrumentation.WriteArray(values, 0, "A", 1, null, -1),
             () => RaceInstrumentation.ReadArray(values, 0, "B", 2, null, -1));
         RaceReport race = Assert.IsType<RaceReport>(raced.FirstRace);
@@ -110,13 +110,13 @@ public sealed class RaceDetectionTests
     public void MutableCollectionAccessesRaceButConcurrentCollectionPointsDoNot()
     {
         var mutable = new List<int>();
-        using ControlledOperationScheduler raced = RunPair(
+        using SimulationScheduler raced = RunPair(
             () => RaceInstrumentation.WriteCollection(mutable, "List::Add", "A", 1, null, -1),
             () => RaceInstrumentation.ReadCollection(mutable, "List::GetEnumerator", "B", 2, null, -1));
         Assert.Equal(RaceMemoryLocationKind.Collection, Assert.IsType<RaceReport>(raced.FirstRace).FirstAccess.Location.Kind);
 
         var concurrent = new System.Collections.Concurrent.ConcurrentQueue<int>();
-        using ControlledOperationScheduler clean = RunPair(
+        using SimulationScheduler clean = RunPair(
             () => RaceInstrumentation.InterleaveConcurrentCollection(concurrent, "ConcurrentQueue::Enqueue", "A", 1, null, -1),
             () => RaceInstrumentation.InterleaveConcurrentCollection(concurrent, "ConcurrentQueue::TryDequeue", "B", 2, null, -1));
         Assert.Null(clean.FirstRace);
@@ -126,7 +126,7 @@ public sealed class RaceDetectionTests
     public void SharedControlledLockSuppressesProtectedAccesses()
     {
         var synchronization = new object();
-        using ControlledOperationScheduler scheduler = RunPair(
+        using SimulationScheduler scheduler = RunPair(
             () => ProtectedWrite(synchronization),
             () => ProtectedWrite(synchronization));
 
@@ -138,7 +138,7 @@ public sealed class RaceDetectionTests
     {
         var firstLock = new object();
         var secondLock = new object();
-        using ControlledOperationScheduler scheduler = RunPair(
+        using SimulationScheduler scheduler = RunPair(
             () => ProtectedWrite(firstLock),
             () => ProtectedWrite(secondLock));
 
@@ -284,7 +284,7 @@ public sealed class RaceDetectionTests
     public void LockAndSignalOnSameObjectUseDifferentSynchronizationDomains()
     {
         Task synchronization = Task.CompletedTask;
-        using ControlledOperationScheduler scheduler = RunPair(
+        using SimulationScheduler scheduler = RunPair(
             () =>
             {
                 RaceSynchronization.Enter(synchronization);
@@ -353,11 +353,11 @@ public sealed class RaceDetectionTests
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();
         var resource = scheduler.CreateResource(
-            Clockwork.Runtime.Scheduling.Resources.ControlledResourceKind.ManualResetEvent,
+            Clockwork.Runtime.Scheduling.Resources.SimulationResourceKind.ManualResetEvent,
             "race-event");
         scheduler.Schedule("consumer", () =>
         {
-            scheduler.WaitOnResource(resource, ControlledOperationPauseReason.ResourceWait("race-event"));
+            scheduler.WaitOnResource(resource, SimulationPauseReason.ResourceWait("race-event"));
             RaceInstrumentation.ReadStatic("Fx.State::Value", "consumer", 2, null, -1);
         });
         Assert.True(scheduler.RunStep());
@@ -377,11 +377,11 @@ public sealed class RaceDetectionTests
         using var scheduler = SchedulerTestHarness.NewScheduler();
         scheduler.SchedulingStrategy = new Clockwork.Runtime.Scheduling.Strategies.PrioritySchedulingStrategy();
         var resource = scheduler.CreateResource(
-            Clockwork.Runtime.Scheduling.Resources.ControlledResourceKind.ManualResetEvent,
+            Clockwork.Runtime.Scheduling.Resources.SimulationResourceKind.ManualResetEvent,
             "clocked-event");
         scheduler.Schedule("consumer", () =>
         {
-            scheduler.WaitOnResource(resource, ControlledOperationPauseReason.ResourceWait("clocked-event"));
+            scheduler.WaitOnResource(resource, SimulationPauseReason.ResourceWait("clocked-event"));
             RaceInstrumentation.ReadStatic("Fx.State::Y", "consumer", 4, null, -1);
         });
         Assert.True(scheduler.RunStep());
@@ -421,7 +421,7 @@ public sealed class RaceDetectionTests
         Assert.Equal(first, replay);
     }
 
-    private static ControlledOperationScheduler RunPair(Action first, Action second)
+    private static SimulationScheduler RunPair(Action first, Action second)
     {
         var scheduler = SchedulerTestHarness.NewScheduler();
         scheduler.Schedule("first", first);

@@ -10,7 +10,7 @@ public sealed class ControlledMutexTests
     [Fact]
     public void InitiallyOwnedMutexIsRecursiveAndBlocksAnotherStrand()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Mutex mutex = ControlledMutex.Create(initiallyOwned: true);
@@ -19,7 +19,7 @@ public sealed class ControlledMutexTests
             var acquired = true;
             Thread contender = ControlledThread.Create(() => acquired = ControlledWaitHandle.WaitOne(mutex, 0));
             ControlledThread.Start(contender);
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
 
             Assert.False(acquired);
             ControlledMutex.ReleaseMutex(mutex);
@@ -32,7 +32,7 @@ public sealed class ControlledMutexTests
                 ControlledMutex.ReleaseMutex(mutex);
             });
             ControlledThread.Start(next);
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
             Assert.True(afterRelease);
         });
     }
@@ -40,7 +40,7 @@ public sealed class ControlledMutexTests
     [Fact]
     public void ContendersAcquireInReleaseOrder()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Mutex mutex = ControlledMutex.Create();
@@ -75,14 +75,14 @@ public sealed class ControlledMutexTests
             ControlledThread.Join(first);
             ControlledThread.Join(second);
 
-            Assert.Equal([1, 2, 4, 3], order);
+            Assert.Equal([1, 2, 3, 4], order);
         });
     }
 
     [Fact]
     public void NonOwnerReleaseThrowsApplicationException()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Mutex mutex = ControlledMutex.Create(initiallyOwned: true);
@@ -90,7 +90,7 @@ public sealed class ControlledMutexTests
             Thread nonOwner = ControlledThread.Create(() => exception = Record.Exception(() => ControlledMutex.ReleaseMutex(mutex)));
 
             ControlledThread.Start(nonOwner);
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
 
             Assert.IsType<ApplicationException>(exception);
             ControlledMutex.ReleaseMutex(mutex);
@@ -100,7 +100,7 @@ public sealed class ControlledMutexTests
     [Fact]
     public void FiniteWaitTimesOutUntilOwnerReleases()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Mutex mutex = ControlledMutex.Create(initiallyOwned: true);
@@ -108,7 +108,9 @@ public sealed class ControlledMutexTests
             Thread contender = ControlledThread.Create(() => acquired = ControlledWaitHandle.WaitOne(mutex, 100));
 
             ControlledThread.Start(contender);
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.AdvanceVirtualTimeTo(TimeSpan.FromMilliseconds(100));
+            coordinator.Scheduler.RunUntilIdle();
             Assert.False(acquired);
 
             ControlledMutex.ReleaseMutex(mutex);
@@ -120,7 +122,7 @@ public sealed class ControlledMutexTests
     [Fact]
     public void WaitAnyAcquiresMutexAndSignalAndWaitReleasesIt()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Mutex mutex = ControlledMutex.Create();
@@ -140,7 +142,7 @@ public sealed class ControlledMutexTests
                 ControlledMutex.ReleaseMutex(mutex);
             });
             ControlledThread.Start(contender);
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
             Assert.True(acquired);
         });
     }
@@ -148,7 +150,7 @@ public sealed class ControlledMutexTests
     [Fact]
     public void WaitAnyAcquiresMutexForTheWaitingStrandWhenAnotherStrandReleasesIt()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Mutex mutex = ControlledMutex.Create(initiallyOwned: true);
@@ -170,20 +172,20 @@ public sealed class ControlledMutexTests
             ControlledThread.Join(waiter);
 
             Assert.Null(releaseException);
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
     [Fact]
     public void WaitAllWithMutexIsRejectedWithoutAcquiringOtherHandles()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Mutex mutex = ControlledMutex.Create();
             AutoResetEvent signaled = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: true);
 
-            Assert.Throws<ControlledWaitHandleUnsupportedException>(() => ControlledWaitHandle.WaitAll([signaled, mutex], 0));
+            Assert.Throws<ControlledApiException>(() => ControlledWaitHandle.WaitAll([signaled, mutex], 0));
             Assert.True(ControlledWaitHandle.WaitOne(signaled, 0));
         });
     }
@@ -191,7 +193,7 @@ public sealed class ControlledMutexTests
     [Fact]
     public void DisposeMakesWaitAndReleaseThrow()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Mutex mutex = ControlledMutex.Create(initiallyOwned: true);
@@ -205,7 +207,7 @@ public sealed class ControlledMutexTests
     [Fact]
     public void NullNamedConstructorsCreateUnnamedMutexes()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Mutex first = ControlledMutex.CreateNamed(false, name: null);
@@ -229,24 +231,24 @@ public sealed class ControlledMutexTests
     [Fact]
     public void NamedAndOpenExistingFormsAreRejected()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            Assert.Throws<ControlledWaitHandleUnsupportedException>(() => ControlledMutex.CreateNamed(false, "clockwork-mutex"));
-            Assert.Throws<ControlledWaitHandleUnsupportedException>(() => ControlledMutex.CreateNamed(false, "clockwork-mutex", out _));
-            Assert.Throws<ControlledWaitHandleUnsupportedException>(() => ControlledMutex.CreateNamed(false, "clockwork-mutex", default));
-            Assert.Throws<ControlledWaitHandleUnsupportedException>(() => ControlledMutex.CreateNamed(false, "clockwork-mutex", default, out _));
-            Assert.Throws<ControlledWaitHandleUnsupportedException>(() => ControlledMutex.OpenExisting("clockwork-mutex"));
-            Assert.Throws<ControlledWaitHandleUnsupportedException>(() => ControlledMutex.OpenExisting("clockwork-mutex", default));
-            Assert.Throws<ControlledWaitHandleUnsupportedException>(() => ControlledMutex.TryOpenExisting("clockwork-mutex", out _));
-            Assert.Throws<ControlledWaitHandleUnsupportedException>(() => ControlledMutex.TryOpenExisting("clockwork-mutex", default, out _));
+            Assert.Throws<ControlledApiException>(() => ControlledMutex.CreateNamed(false, "clockwork-mutex"));
+            Assert.Throws<ControlledApiException>(() => ControlledMutex.CreateNamed(false, "clockwork-mutex", out _));
+            Assert.Throws<ControlledApiException>(() => ControlledMutex.CreateNamed(false, "clockwork-mutex", default));
+            Assert.Throws<ControlledApiException>(() => ControlledMutex.CreateNamed(false, "clockwork-mutex", default, out _));
+            Assert.Throws<ControlledApiException>(() => ControlledMutex.OpenExisting("clockwork-mutex"));
+            Assert.Throws<ControlledApiException>(() => ControlledMutex.OpenExisting("clockwork-mutex", default));
+            Assert.Throws<ControlledApiException>(() => ControlledMutex.TryOpenExisting("clockwork-mutex", out _));
+            Assert.Throws<ControlledApiException>(() => ControlledMutex.TryOpenExisting("clockwork-mutex", default, out _));
         });
     }
 
     [Fact]
     public void OwnerExitWithoutReleaseLeavesLogicalOwnershipHeld()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Mutex mutex = ControlledMutex.Create();

@@ -4,100 +4,40 @@ using Clockwork.Runtime.Tasks;
 namespace Clockwork.Runtime.Tests.Tasks;
 
 /// <summary>
-/// Covers the token-gated <see cref="SimulationTaskCoordination"/> registry and the
-/// <see cref="ControlledTaskRuntime"/> three-way dispatch contract (inactive, active+registered,
-/// active+missing), plus continuation and synchronous-wait routing through a registered coordinator.
+/// Covers coordinator access through a complete ambient runtime plus continuation and synchronous-wait
+/// routing through that coordinator.
 /// </summary>
 public sealed class ControlledTaskRuntimeTests
 {
     [Fact]
-    public void RegisterRequiresNonNullArguments()
-    {
-        var token = SimulationRuntimeActivation.CreateToken();
-        var runtime = TaskTestHarness.NewRuntime();
-        var coordinator = new ControlledTaskLoopCoordinator();
-
-        Assert.Throws<ArgumentNullException>(() => SimulationTaskCoordination.Register(null!, runtime, coordinator));
-        Assert.Throws<ArgumentNullException>(() => SimulationTaskCoordination.Register(token, null!, coordinator));
-        Assert.Throws<ArgumentNullException>(() => SimulationTaskCoordination.Register(token, runtime, null!));
-    }
-
-    [Fact]
-    public void RegisterThenTryGetResolvesAndDisposeUnregisters()
-    {
-        var token = SimulationRuntimeActivation.CreateToken();
-        var runtime = TaskTestHarness.NewRuntime();
-        var coordinator = new ControlledTaskLoopCoordinator();
-
-        var registration = SimulationTaskCoordination.Register(token, runtime, coordinator);
-        try
-        {
-            Assert.True(SimulationTaskCoordination.TryGet(runtime, out var resolved));
-            Assert.Same(coordinator, resolved);
-        }
-        finally
-        {
-            registration.Dispose();
-        }
-
-        Assert.False(SimulationTaskCoordination.TryGet(runtime, out var afterDispose));
-        Assert.Null(afterDispose);
-    }
-
-    [Fact]
-    public void RegisteringTwiceForTheSameRuntimeThrows()
-    {
-        var token = SimulationRuntimeActivation.CreateToken();
-        var runtime = TaskTestHarness.NewRuntime();
-        var coordinator = new ControlledTaskLoopCoordinator();
-
-        using (SimulationTaskCoordination.Register(token, runtime, coordinator))
-        {
-            Assert.Throws<InvalidOperationException>(
-                () => SimulationTaskCoordination.Register(token, runtime, coordinator));
-        }
-    }
-
-    [Fact]
-    public void RequireCoordinatorOutsideSimulationRequiresActiveSimulation()
+    public void RequireSchedulerOutsideSimulationRequiresActiveSimulation()
     {
         Assert.False(ControlledTaskRuntime.IsSimulationActive);
 
         Exception? exception = Record.Exception(
-            () => ControlledTaskRuntime.RequireCoordinator("test.api"));
+            () => ControlledTaskRuntime.RequireScheduler("test.api"));
 
         SimulationNotActiveExceptionAssert.Equal(exception, "test.api");
     }
 
     [Fact]
-    public void RequireCoordinatorReturnsNodeWhenActiveAndRegistered()
+    public void RequireSchedulerReturnsNodeWhenActiveAndRegistered()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            var (resolved, node) = ControlledTaskRuntime.RequireCoordinator("test.api");
-            Assert.Same(coordinator, resolved);
+            var (resolved, node) = ControlledTaskRuntime.RequireScheduler("test.api");
+            Assert.Same(coordinator.Scheduler, resolved);
             Assert.NotNull(node);
             Assert.Equal(TaskTestHarness.DefaultNodeAddress, node!.Address);
         });
     }
 
     [Fact]
-    public void RequireCoordinatorThrowsWhenActiveButNoCoordinatorRegistered()
-    {
-        TaskTestHarness.RunInSimulationWithoutCoordinator(() =>
-        {
-            var ex = Assert.Throws<ControlledTaskServiceMissingException>(
-                () => ControlledTaskRuntime.RequireCoordinator("System.Example.Api"));
-            Assert.Equal("System.Example.Api", ex.ApiName);
-        });
-    }
-
-    [Fact]
     public void ScheduleContinuationRoutesThroughCoordinatorWhenAntecedentReady()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         var ran = false;
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
@@ -107,7 +47,7 @@ public sealed class ControlledTaskRuntimeTests
 
             // The continuation must not run inline - it is queued on the coordinator's loop.
             Assert.False(ran);
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
             Assert.True(ran);
         });
     }
@@ -115,14 +55,14 @@ public sealed class ControlledTaskRuntimeTests
     [Fact]
     public void ScheduleYieldQueuesContinuationWithoutRunningInline()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         var ran = false;
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             ControlledTaskRuntime.ScheduleYield(() => ran = true, "test.yield", flowExecutionContext: false);
             Assert.False(ran);
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
             Assert.True(ran);
         });
     }
@@ -130,13 +70,13 @@ public sealed class ControlledTaskRuntimeTests
     [Fact]
     public void DrainUntilCompletedPumpsUntilTaskCompletes()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         var tcs = new System.Threading.Tasks.TaskCompletionSource();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             // Completing the task is itself scheduled work; the drain must run it.
-            coordinator.Loop.Schedule(() => tcs.SetResult());
+            coordinator.Scheduler.Schedule(() => tcs.SetResult());
             ControlledTaskRuntime.DrainUntilCompleted(tcs.Task, "test.wait");
             Assert.True(tcs.Task.IsCompleted);
         });
@@ -145,7 +85,7 @@ public sealed class ControlledTaskRuntimeTests
     [Fact]
     public void DrainUntilCompletedThrowsDeadlockWhenTaskNeverCompletes()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         var tcs = new System.Threading.Tasks.TaskCompletionSource();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
@@ -156,29 +96,25 @@ public sealed class ControlledTaskRuntimeTests
     }
 
     [Fact]
-    public void ParallelRuntimesResolveTheirOwnCoordinators()
+    public void ParallelRuntimesResolveTheirOwnSchedulers()
     {
-        var coordinatorA = new ControlledTaskLoopCoordinator();
-        var coordinatorB = new ControlledTaskLoopCoordinator();
-        var runtimeA = TaskTestHarness.NewRuntime(description: "A");
-        var runtimeB = TaskTestHarness.NewRuntime(description: "B");
+        var coordinatorA = new SimulationSchedulerTestHost(description: "A");
+        var coordinatorB = new SimulationSchedulerTestHost(description: "B");
 
         var resolvedA = TaskTestHarness.RunInSimulation(
             coordinatorA,
             () =>
             {
-                return ControlledTaskRuntime.RequireCoordinator("api").Coordinator;
-            },
-            runtime: runtimeA);
+                return ControlledTaskRuntime.RequireScheduler("api").Scheduler;
+            });
         var resolvedB = TaskTestHarness.RunInSimulation(
             coordinatorB,
             () =>
             {
-                return ControlledTaskRuntime.RequireCoordinator("api").Coordinator;
-            },
-            runtime: runtimeB);
+                return ControlledTaskRuntime.RequireScheduler("api").Scheduler;
+            });
 
-        Assert.Same(coordinatorA, resolvedA);
-        Assert.Same(coordinatorB, resolvedB);
+        Assert.Same(coordinatorA.Scheduler, resolvedA);
+        Assert.Same(coordinatorB.Scheduler, resolvedB);
     }
 }

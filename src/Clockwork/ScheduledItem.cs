@@ -10,7 +10,8 @@ namespace Clockwork;
 [DebuggerDisplay("{DebuggerDisplay,nq}")]
 public abstract class ScheduledItem : IDisposable
 {
-    private SimulationTaskQueue? _queue;
+    private SimulationSchedulerLane? _lane;
+    private IDisposable? _registration;
     private bool _disposed;
 
     /// <summary>
@@ -20,33 +21,54 @@ public abstract class ScheduledItem : IDisposable
 
     /// <summary>
     /// Gets the absolute time when this item is due.
-    /// Set internally by <see cref="SimulationTaskQueue"/> when the item is scheduled.
+    /// Set internally by <see cref="SimulationSchedulerLane"/> when the item is scheduled.
     /// </summary>
     public DateTimeOffset DueTime { get; private set; }
 
     /// <summary>
     /// Gets the sequence number for ordering items with the same due time.
-    /// Set internally by <see cref="SimulationTaskQueue"/> when the item is scheduled.
+    /// Set internally by <see cref="SimulationSchedulerLane"/> when the item is scheduled.
     /// </summary>
     public long SequenceNumber { get; private set; }
 
     /// <summary>
-    /// Called by <see cref="SimulationTaskQueue"/> when the item is added to the queue.
+    /// Called by <see cref="SimulationSchedulerLane"/> when the item is added to the queue.
     /// Sets the queue reference, due time, and sequence number.
     /// </summary>
-    /// <param name="queue">The queue this item belongs to.</param>
+    /// <param name="lane">The scheduler lane this item belongs to.</param>
     /// <param name="dueTime">The absolute time when this item is due.</param>
     /// <param name="sequenceNumber">The sequence number for ordering.</param>
-    internal void OnScheduled(SimulationTaskQueue queue, DateTimeOffset dueTime, long sequenceNumber)
+    internal void OnScheduled(SimulationSchedulerLane lane, DateTimeOffset dueTime, long sequenceNumber)
     {
-        if (_queue is not null)
+        if (_lane is not null)
         {
             throw new InvalidOperationException("Item has already been scheduled.");
         }
 
-        _queue = queue;
+        _lane = lane;
         DueTime = dueTime;
         SequenceNumber = sequenceNumber;
+    }
+
+    internal void SetCancellation(IDisposable registration) => _registration = registration;
+
+    internal void OnInvoking()
+    {
+        _lane = null;
+        _registration = null;
+    }
+
+    internal void OnRemoved()
+    {
+        _lane = null;
+        _registration = null;
+    }
+
+    internal void CancelRegistration()
+    {
+        IDisposable? registration = _registration;
+        OnRemoved();
+        registration?.Dispose();
     }
 
     /// <summary>
@@ -75,7 +97,7 @@ public abstract class ScheduledItem : IDisposable
         _disposed = true;
         if (disposing)
         {
-            _queue?.RemoveItem(this);
+            _lane?.RemoveItem(this);
         }
     }
 

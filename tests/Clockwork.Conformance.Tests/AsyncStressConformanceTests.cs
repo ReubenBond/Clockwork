@@ -5,9 +5,9 @@ namespace Clockwork.Conformance.Tests;
 
 /// <summary>
 /// Focused stress conformance for the controlled async machinery: many controlled async operations
-/// fan out and interleave through the coordinator loop. Two invariants are asserted deterministically
-/// (no timing, no sleeps): every continuation resumes on the <em>same physical thread</em> - proving
-/// work never escapes to the thread pool and exactly one logical operation runs at a time - and the
+/// fan out and interleave through the scheduler. Two invariants are asserted deterministically
+/// (no timing, no sleeps): every continuation observes the same controlled managed-thread identity -
+/// proving work never escapes the logical simulation thread - and the
 /// interleaving order is identical across independent runs under the same seed, proving the schedule is
 /// reproducible rather than a thread-pool race.
 /// </summary>
@@ -16,7 +16,7 @@ public sealed class AsyncStressConformanceTests : IDisposable
     private static readonly DateTimeOffset Start = new(2024, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
     // Workers is the fan-out; Rounds is the number of yield points per worker. Each resumption records
-    // its worker index (to capture the interleaving) and the managed thread it ran on.
+    // its worker index (to capture the interleaving) and its controlled managed-thread identity.
     private const int Workers = 8;
     private const int Rounds = 5;
     private const int Steps = Workers * Rounds;

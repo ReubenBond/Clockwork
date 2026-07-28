@@ -10,7 +10,7 @@ public sealed class ControlledReaderWriterLockSlimTests
     [Fact]
     public void CreateSetsPolicyAndInitialProperties()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var @default = ControlledReaderWriterLockSlim.Create();
@@ -33,7 +33,7 @@ public sealed class ControlledReaderWriterLockSlimTests
     [Fact]
     public void ConcurrentReadersOverlap()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var rw = ControlledReaderWriterLockSlim.Create();
@@ -57,7 +57,7 @@ public sealed class ControlledReaderWriterLockSlimTests
     [Fact]
     public void WriterWaitsForReaderAndBlocksLaterReaders()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var rw = ControlledReaderWriterLockSlim.Create();
@@ -81,7 +81,7 @@ public sealed class ControlledReaderWriterLockSlimTests
     [Fact]
     public void UpgradeableOwnerCanUpgradeAndDowngrade()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var rw = ControlledReaderWriterLockSlim.Create();
@@ -115,7 +115,7 @@ public sealed class ControlledReaderWriterLockSlimTests
     [Fact]
     public void NoRecursionUpgradeableOwnerCanEnterAndExitReadBeforeUpgrading()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             ReaderWriterLockSlim rw = ControlledReaderWriterLockSlim.Create();
@@ -137,7 +137,7 @@ public sealed class ControlledReaderWriterLockSlimTests
     [Fact]
     public void EligibleUpgradeableOwnerUpgradesAheadOfQueuedOrdinaryWriter()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             ReaderWriterLockSlim rw = ControlledReaderWriterLockSlim.Create();
@@ -175,7 +175,7 @@ public sealed class ControlledReaderWriterLockSlimTests
     [Fact]
     public void RecursionPoliciesAndCountsAreObserved()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var noRecursion = ControlledReaderWriterLockSlim.Create();
@@ -207,7 +207,7 @@ public sealed class ControlledReaderWriterLockSlimTests
     [Fact]
     public void SupportsRecursionUsesTheBclCrossModeMatrixAndCountsReaderOwners()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var rw = ControlledReaderWriterLockSlim.Create(LockRecursionPolicy.SupportsRecursion);
@@ -235,7 +235,7 @@ public sealed class ControlledReaderWriterLockSlimTests
     [Fact]
     public void WaitingCountsIncludeReadAndUpgradeableWaiters()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var rw = ControlledReaderWriterLockSlim.Create();
@@ -265,7 +265,7 @@ public sealed class ControlledReaderWriterLockSlimTests
     [Fact]
     public void QueuedWriterPreventsLaterReadersFromStarvingIt()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var rw = ControlledReaderWriterLockSlim.Create();
@@ -291,7 +291,7 @@ public sealed class ControlledReaderWriterLockSlimTests
     [Fact]
     public void TryEnterHonorsZeroAndFiniteTimeouts()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var rw = ControlledReaderWriterLockSlim.Create();
@@ -331,7 +331,7 @@ public sealed class ControlledReaderWriterLockSlimTests
     [Fact]
     public void InvalidTimeoutAndDisposalAreValidated()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var rw = ControlledReaderWriterLockSlim.Create();
@@ -348,7 +348,7 @@ public sealed class ControlledReaderWriterLockSlimTests
     [Fact]
     public void DisposeWhileHeldDoesNotDisposeAndObservationalPropertiesRemainAvailableAfterDispose()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var rw = ControlledReaderWriterLockSlim.Create(LockRecursionPolicy.SupportsRecursion);
@@ -376,7 +376,7 @@ public sealed class ControlledReaderWriterLockSlimTests
     [Fact]
     public void DisposeWithPendingWaitersDoesNotInvalidateTheLockOrItsWaiters()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var rw = ControlledReaderWriterLockSlim.Create();
@@ -396,7 +396,7 @@ public sealed class ControlledReaderWriterLockSlimTests
     [Fact]
     public void ExitRequiresMatchingOwnership()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var rw = ControlledReaderWriterLockSlim.Create();

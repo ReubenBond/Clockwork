@@ -17,7 +17,7 @@ public sealed class SimulationClusterAdaptiveTests
         const int stepsNeeded = 20;
         for (var i = 0; i < stepsNeeded; i++)
         {
-            node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => counter++));
+            node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => counter++));
         }
 
         // A single batch of 2 iterations cannot possibly satisfy a condition that needs 20 steps -
@@ -60,7 +60,7 @@ public sealed class SimulationClusterAdaptiveTests
         {
             cluster.MaxSimulatedTimeAdvance = TimeSpan.FromSeconds(1);
             var node = cluster.AddNode("node-1");
-            node.Context.TaskQueue.EnqueueAfter(() => { }, TimeSpan.FromSeconds(10));
+            node.Context.SchedulerLane.EnqueueAfter(() => { }, TimeSpan.FromSeconds(10));
         }
         else
         {
@@ -69,7 +69,7 @@ public sealed class SimulationClusterAdaptiveTests
             node.Suspend();
             for (var i = 1; i <= 5; i++)
             {
-                node.Context.TaskQueue.EnqueueAfter(() => { }, TimeSpan.FromSeconds(i));
+                node.Context.SchedulerLane.EnqueueAfter(() => { }, TimeSpan.FromSeconds(i));
             }
         }
 
@@ -92,7 +92,7 @@ public sealed class SimulationClusterAdaptiveTests
         // idle and every iteration is a real step. Escalation would run forever without a hard cap.
         void RunForever()
         {
-            node.Context.TaskQueue.Enqueue(new ScheduledActionItem(RunForever));
+            node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(RunForever));
         }
 
         RunForever();
@@ -132,7 +132,7 @@ public sealed class SimulationClusterAdaptiveTests
         const int stepsToDrain = 20;
         for (var i = 0; i < stepsToDrain; i++)
         {
-            node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => { }));
+            node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => { }));
         }
 
         var budget = new AdaptiveExecutionBudget(initialMaxIterations: 2, growthFactor: 2.0, maxTotalIterations: 1000);
@@ -149,7 +149,7 @@ public sealed class SimulationClusterAdaptiveTests
         using var cts = new CancellationTokenSource();
         await using var cluster = new AdaptiveTestCluster(seed: 1, cancellationToken: cts.Token);
         var node = cluster.AddNode("node-1");
-        node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => { }));
+        node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => { }));
         await cts.CancelAsync();
 
         var budget = new AdaptiveExecutionBudget(initialMaxIterations: 1000, growthFactor: 2.0, maxTotalIterations: 1_000_000);
@@ -167,13 +167,13 @@ public sealed class SimulationClusterAdaptiveTests
         const int steps = 6;
         for (var i = 0; i < steps; i++)
         {
-            node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => { }));
+            node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => { }));
         }
 
         // Two timers spaced one second apart force two separate time advances after the immediate
         // steps drain, split across escalating batches.
-        node.Context.TaskQueue.EnqueueAfter(() => { }, TimeSpan.FromSeconds(1));
-        node.Context.TaskQueue.EnqueueAfter(() => { }, TimeSpan.FromSeconds(2));
+        node.Context.SchedulerLane.EnqueueAfter(() => { }, TimeSpan.FromSeconds(1));
+        node.Context.SchedulerLane.EnqueueAfter(() => { }, TimeSpan.FromSeconds(2));
 
         var budget = new AdaptiveExecutionBudget(initialMaxIterations: 1, growthFactor: 2.0, maxTotalIterations: 1000);
         var result = cluster.RunUntilIdle(budget);
@@ -230,7 +230,7 @@ public sealed class SimulationClusterAdaptiveTests
         node.Suspend();
         for (var seconds = 1; seconds <= 3; seconds++)
         {
-            node.Context.TaskQueue.EnqueueAfter(() => { }, TimeSpan.FromSeconds(seconds));
+            node.Context.SchedulerLane.EnqueueAfter(() => { }, TimeSpan.FromSeconds(seconds));
         }
 
         return cluster;
@@ -245,7 +245,7 @@ public sealed class SimulationClusterAdaptiveTests
 
         public AdaptiveTestNode AddNode(string address)
         {
-            var context = new SimulationNodeContext(Clock, Guard, ForkRandom(), TaskQueue);
+            var context = CreateNodeContext(address);
             var node = new AdaptiveTestNode(address, context);
             RegisterNode(node);
             return node;

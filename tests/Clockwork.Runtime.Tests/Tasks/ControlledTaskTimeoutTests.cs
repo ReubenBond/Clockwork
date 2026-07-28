@@ -7,7 +7,7 @@ public sealed class ControlledTaskTimeoutTests
     [Fact]
     public void DelayZeroAndPreCanceledMatchBclPrecedence()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Assert.Same(Task.CompletedTask, ControlledTask.Delay(0));
@@ -22,67 +22,67 @@ public sealed class ControlledTaskTimeoutTests
     [Fact]
     public void DelayCancellationCancelsDeadlineWithoutPendingWork()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             using var cancellation = new CancellationTokenSource();
             Task delay = ControlledTask.Delay(TimeSpan.FromMinutes(1), cancellation.Token);
-            Assert.NotNull(coordinator.Loop.NextDeadlineDue());
+            Assert.NotNull(coordinator.Scheduler.NextTimerDue);
 
             cancellation.Cancel();
 
             Assert.True(delay.IsCanceled);
-            Assert.Null(coordinator.Loop.NextDeadlineDue());
+            Assert.Null(coordinator.Scheduler.NextTimerDue);
         });
     }
 
     [Fact]
     public void InfiniteDelayHasNoVirtualDeadline()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Task delay = ControlledTask.Delay(Timeout.Infinite, CancellationToken.None);
             Assert.False(delay.IsCompleted);
-            Assert.Null(coordinator.Loop.NextDeadlineDue());
+            Assert.Null(coordinator.Scheduler.NextTimerDue);
         });
     }
 
     [Fact]
     public void WaitAsyncPreservesSuccessfulResult()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var source = new TaskCompletionSource<int>();
             Task<int> wait = ControlledTask.WaitAsync(source.Task, TimeSpan.FromSeconds(5));
-            coordinator.Loop.Schedule(() => source.SetResult(42));
-            coordinator.Loop.RunUntil(() => wait.IsCompleted, "test.wait");
+            coordinator.Scheduler.Schedule(() => source.SetResult(42));
+            coordinator.Scheduler.DrainUntil(() => wait.IsCompleted, "test.wait");
 
             Assert.Equal(42, wait.Result);
-            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
-            Assert.Null(coordinator.Loop.NextDeadlineDue());
-            Assert.Equal(0, coordinator.Loop.WaitingCount);
+            Assert.Equal(TimeSpan.Zero, coordinator.Scheduler.VirtualTime);
+            Assert.Null(coordinator.Scheduler.NextTimerDue);
+            Assert.Equal(0, coordinator.Scheduler.WaitingOperationCount);
         });
     }
 
     [Fact]
     public void WaitAsyncPreservesFaultAndCancellation()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var faulted = new TaskCompletionSource();
             Task faultWait = ControlledTask.WaitAsync(faulted.Task, TimeSpan.FromSeconds(5));
-            coordinator.Loop.Schedule(() => faulted.SetException(new FormatException("bad")));
-            coordinator.Loop.RunUntil(() => faultWait.IsCompleted, "test.wait");
+            coordinator.Scheduler.Schedule(() => faulted.SetException(new FormatException("bad")));
+            coordinator.Scheduler.DrainUntil(() => faultWait.IsCompleted, "test.wait");
             Assert.IsType<FormatException>(faultWait.Exception!.InnerException);
 
             using var sourceCancellation = new CancellationTokenSource();
             var canceled = new TaskCompletionSource();
             Task cancelWait = ControlledTask.WaitAsync(canceled.Task, TimeSpan.FromSeconds(5));
-            coordinator.Loop.Schedule(() => canceled.SetCanceled(sourceCancellation.Token));
-            coordinator.Loop.RunUntil(() => cancelWait.IsCompleted, "test.wait");
+            coordinator.Scheduler.Schedule(() => canceled.SetCanceled(sourceCancellation.Token));
+            coordinator.Scheduler.DrainUntil(() => cancelWait.IsCompleted, "test.wait");
             Assert.True(cancelWait.IsCanceled);
         });
     }
@@ -90,25 +90,25 @@ public sealed class ControlledTaskTimeoutTests
     [Fact]
     public void WaitAsyncTimeoutFaultsAndRemovesReadinessWaiter()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var source = new TaskCompletionSource();
             Task wait = ControlledTask.WaitAsync(source.Task, TimeSpan.FromMilliseconds(25));
 
-            coordinator.Loop.RunUntil(() => wait.IsCompleted, "test.wait");
+            coordinator.Scheduler.DrainUntil(() => wait.IsCompleted, "test.wait");
 
             Assert.IsType<TimeoutException>(wait.Exception!.InnerException);
-            Assert.Equal(TimeSpan.FromMilliseconds(25), coordinator.Loop.VirtualNow);
-            Assert.Equal(0, coordinator.Loop.WaitingCount);
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.Equal(TimeSpan.FromMilliseconds(25), coordinator.Scheduler.VirtualTime);
+            Assert.Equal(0, coordinator.Scheduler.WaitingOperationCount);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
     [Fact]
     public void WaitAsyncCancellationBeatsFutureTimeout()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var source = new TaskCompletionSource();
@@ -122,15 +122,15 @@ public sealed class ControlledTaskTimeoutTests
             cancellation.Cancel();
 
             Assert.True(wait.IsCanceled);
-            Assert.Null(coordinator.Loop.NextDeadlineDue());
-            Assert.Equal(0, coordinator.Loop.WaitingCount);
+            Assert.Null(coordinator.Scheduler.NextTimerDue);
+            Assert.Equal(0, coordinator.Scheduler.WaitingOperationCount);
         });
     }
 
     [Fact]
     public void WaitAsyncCompletedAndZeroTimeoutFastPathsMatchBcl()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Task completed = Task.FromResult(1);
@@ -148,7 +148,7 @@ public sealed class ControlledTaskTimeoutTests
 #pragma warning disable xUnit1051 // The tokenless overload is the API under test.
     public void DelayRejectsInvalidMilliseconds(int milliseconds)
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(
             coordinator,
             () => Assert.Throws<ArgumentOutOfRangeException>(() => { _ = ControlledTask.Delay(milliseconds); }));
@@ -159,7 +159,7 @@ public sealed class ControlledTaskTimeoutTests
 #pragma warning disable xUnit1051 // The provider-only overloads are the APIs under test.
     public void ProviderOverloadsValidateTimeoutBeforeRejectingCustomProvider()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var provider = new UnsupportedTimeProvider();

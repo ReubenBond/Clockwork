@@ -24,7 +24,7 @@ public sealed class ControlledSemaphoreSlimTests
     [Fact]
     public void WaitDecrementsAndReleaseIncrements()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -45,7 +45,7 @@ public sealed class ControlledSemaphoreSlimTests
     [Fact]
     public void WaitWithZeroTimeoutFailsWhenEmpty()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -57,7 +57,7 @@ public sealed class ControlledSemaphoreSlimTests
     [Fact]
     public void ReleaseBeyondMaxCountThrows()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -69,7 +69,7 @@ public sealed class ControlledSemaphoreSlimTests
     [Fact]
     public void ReleaseInvalidCountThrows()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -81,7 +81,7 @@ public sealed class ControlledSemaphoreSlimTests
     [Fact]
     public void ContendedWaitProceedsAfterRelease()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -107,7 +107,7 @@ public sealed class ControlledSemaphoreSlimTests
     [Fact]
     public void WaitAsyncCompletesWhenPermitReleased()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -127,7 +127,7 @@ public sealed class ControlledSemaphoreSlimTests
     [Fact]
     public void WaitAsyncAlreadyAvailableCompletesSynchronously()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -142,7 +142,7 @@ public sealed class ControlledSemaphoreSlimTests
     [Fact]
     public void WaitCancellationThrows()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -176,7 +176,7 @@ public sealed class ControlledSemaphoreSlimTests
     [Fact]
     public void WaitAfterDisposeThrows()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -189,7 +189,7 @@ public sealed class ControlledSemaphoreSlimTests
     [Fact]
     public void AvailableWaitHandleTracksCountTransitions()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -214,7 +214,7 @@ public sealed class ControlledSemaphoreSlimTests
     [Fact]
     public void AvailableWaitHandleWakesAWaiterOnRelease()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -231,14 +231,14 @@ public sealed class ControlledSemaphoreSlimTests
             ControlledThread.Join(releaser);
 
             Assert.True(woke);
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
     [Fact]
     public void AvailableWaitHandleRejectedAfterDispose()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -279,7 +279,7 @@ public sealed class ControlledSemaphoreSlimTests
     [Fact]
     public void WaitFiniteTimesOutWhenNeverReleased()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -289,14 +289,14 @@ public sealed class ControlledSemaphoreSlimTests
             // deadline and the wait returns false. No physical thread ever blocks and no real time passes.
             Assert.False(ControlledSemaphoreSlim.Wait(sem, 100));
             Assert.Equal(0, ControlledSemaphoreSlim.CurrentCount(sem));
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
     [Fact]
     public void WaitFiniteReleasedBeforeDeadlineSucceeds()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -313,14 +313,14 @@ public sealed class ControlledSemaphoreSlimTests
             ControlledThread.Join(releaser);
 
             Assert.True(acquired); // Permit released at 100 (< 500) beat the timeout.
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
     [Fact]
     public void WaitFiniteReleasedAfterDeadlineTimesOut()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -338,14 +338,14 @@ public sealed class ControlledSemaphoreSlimTests
 
             Assert.False(acquired); // Timed out at 100 before the release at 500.
             Assert.Equal(1, ControlledSemaphoreSlim.CurrentCount(sem)); // The late release just raised the count.
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
     [Fact]
     public void WaitFiniteCancelledBeforeDeadlineThrows()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -373,14 +373,14 @@ public sealed class ControlledSemaphoreSlimTests
 
             // Cancellation at 100 (< 500) wins over the timeout and throws, exactly as the real semaphore.
             Assert.IsAssignableFrom<OperationCanceledException>(caught);
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
     [Fact]
     public void WaitFiniteTimesOutBeforeLateCancellation()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -410,14 +410,14 @@ public sealed class ControlledSemaphoreSlimTests
             // Timeout at 100 wins over the cancellation at 500: returns false with no exception.
             Assert.Null(caught);
             Assert.False(acquired);
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
     [Fact]
     public void WaitAsyncFiniteTimesOutWithFalse()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -427,18 +427,18 @@ public sealed class ControlledSemaphoreSlimTests
 
             // Drive the loop: with nothing else runnable, modelled time advances to the deadline, which
             // completes the task with false.
-            coordinator.Loop.RunUntil(() => task.IsCompleted, "test-drive");
+            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test-drive");
 
             Assert.True(task.IsCompletedSuccessfully);
             Assert.False(task.Result);
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
     [Fact]
     public void WaitAsyncFiniteReleasedBeforeDeadlineCompletesTrue()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -451,14 +451,14 @@ public sealed class ControlledSemaphoreSlimTests
 
             Assert.True(task.IsCompletedSuccessfully);
             Assert.True(task.Result);
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
     [Fact]
     public void WaitAsyncFiniteCancelledCompletesCanceled()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -470,14 +470,14 @@ public sealed class ControlledSemaphoreSlimTests
             cts.Cancel();
 
             Assert.True(task.IsCanceled);
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
     [Fact]
     public void CancellationDuringRegistrationCannotLeaveAStaleDeadline()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -491,9 +491,9 @@ public sealed class ControlledSemaphoreSlimTests
                 var task = ControlledSemaphoreSlim.WaitAsync(sem, 500, cancellation.Token);
 
                 Assert.True(task.IsCanceled);
-                Assert.Null(coordinator.Loop.NextDeadlineDue());
-                Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
-                Assert.Equal(0, coordinator.Loop.RunUntilIdle());
+                Assert.Null(coordinator.Scheduler.NextTimerDue);
+                Assert.Equal(TimeSpan.Zero, coordinator.Scheduler.VirtualTime);
+                Assert.Equal(0, coordinator.Scheduler.RunUntilIdle());
             }
             finally
             {
@@ -507,7 +507,7 @@ public sealed class ControlledSemaphoreSlimTests
     {
         for (var iteration = 0; iteration < 100; iteration++)
         {
-            var coordinator = new ControlledTaskLoopCoordinator();
+            var coordinator = new SimulationSchedulerTestHost();
             TaskTestHarness.RunInSimulation(coordinator, () =>
             {
                 var sem = ControlledSemaphoreSlim.Create(0);
@@ -557,8 +557,8 @@ public sealed class ControlledSemaphoreSlimTests
                     Assert.True(waiter.IsCanceled);
                 }
 
-                Assert.Null(coordinator.Loop.NextDeadlineDue());
-                Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+                Assert.Null(coordinator.Scheduler.NextTimerDue);
+                Assert.Equal(TimeSpan.Zero, coordinator.Scheduler.VirtualTime);
             });
         }
     }
@@ -570,7 +570,7 @@ public sealed class ControlledSemaphoreSlimTests
         // ends idle each time, so no waiter or deadline leaks across iterations.
         for (var seed = 1; seed <= 25; seed++)
         {
-            var coordinator = new ControlledTaskLoopCoordinator();
+            var coordinator = new SimulationSchedulerTestHost(seed);
             var acquired = true;
 
             TaskTestHarness.RunInSimulation(
@@ -579,11 +579,10 @@ public sealed class ControlledSemaphoreSlimTests
                 {
                     var sem = ControlledSemaphoreSlim.Create(0);
                     acquired = ControlledSemaphoreSlim.Wait(sem, 50);
-                },
-                runtime: TaskTestHarness.NewRuntime(seed));
+                });
 
             Assert.False(acquired);
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.True(coordinator.Scheduler.IsIdle);
         }
     }
 
@@ -628,13 +627,13 @@ public sealed class ControlledSemaphoreSlimTests
         int operationValue)
     {
         var operation = (ReceiverOperation)operationValue;
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             using var semaphore = new SemaphoreSlim(1, 1);
 
-            var exception = Assert.Throws<ControlledSemaphoreSlimUnsupportedException>(
+            var exception = Assert.Throws<ControlledApiException>(
                 () => InvokeReceiverOperation(semaphore, operation));
 
             Assert.Equal(ExpectedApiName(operation), exception.ApiName);
@@ -779,7 +778,7 @@ public sealed class ControlledSemaphoreSlimTests
         int operationValue)
     {
         var operation = (ReceiverOperation)operationValue;
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         using var semaphore = new SemaphoreSlim(1, 1);
         Exception? error = null;
 
@@ -787,14 +786,14 @@ public sealed class ControlledSemaphoreSlimTests
         {
             error = Record.Exception(() => InvokeReceiverOperation(semaphore, operation));
 
-            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
-            Assert.Equal(0, coordinator.Loop.ReadyCount);
-            Assert.Equal(0, coordinator.Loop.WaitingCount);
-            Assert.Null(coordinator.Loop.NextDeadlineDue());
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.Equal(TimeSpan.Zero, coordinator.Scheduler.VirtualTime);
+            Assert.Equal(0, coordinator.Scheduler.RunnableOperationCount);
+            Assert.Equal(0, coordinator.Scheduler.WaitingOperationCount);
+            Assert.Null(coordinator.Scheduler.NextTimerDue);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
 
-        var rejection = Assert.IsType<ControlledSemaphoreSlimUnsupportedException>(error);
+        var rejection = Assert.IsType<ControlledApiException>(error);
         Assert.Equal(ExpectedApiName(operation), rejection.ApiName);
         Assert.Contains(
             "not created through the controlled SemaphoreSlim surface",

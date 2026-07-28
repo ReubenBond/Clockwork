@@ -1,4 +1,5 @@
 using Clockwork.Instrumentation.Rules.BuiltIn;
+using Clockwork.Runtime;
 using Clockwork.Runtime.Threading;
 using Mono.Cecil;
 
@@ -174,9 +175,9 @@ public sealed class ModernSynchronizationConformanceTests : IDisposable
         StagedProbe probe = Stage(optimize);
         using var host = new SimulationHost(Start);
 
-        Assert.Throws<ControlledWaitHandleUnsupportedException>(() => host.Invoke(probe.Method("NamedMutex")));
-        Assert.Throws<ControlledWaitHandleUnsupportedException>(() => host.Invoke(probe.Method("NamedSemaphore")));
-        Assert.Throws<ControlledSynchronizationContextUnsupportedException>(
+        Assert.Throws<ControlledApiException>(() => host.Invoke(probe.Method("NamedMutex")));
+        Assert.Throws<ControlledApiException>(() => host.Invoke(probe.Method("NamedSemaphore")));
+        Assert.Throws<ControlledApiException>(
             () => host.Invoke(probe.Method("RawSynchronizationContextWait")));
     }
 

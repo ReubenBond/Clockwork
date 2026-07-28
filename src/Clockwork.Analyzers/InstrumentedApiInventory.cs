@@ -33,6 +33,7 @@ public static class InstrumentedApiInventory
         Api("System.Threading.Tasks.TaskExtensions", "Unwrap"),
         Api("System.Threading.Tasks.TaskFactory", "StartNew"),
         Api("System.Threading.Tasks.TaskFactory`1", "StartNew"),
+        Api("System.Environment", "CurrentManagedThreadId"),
         Api("System.Threading.Thread", ".ctor"),
         Api("System.Threading.Thread", "Start"),
         Api("System.Threading.Thread", "Join"),

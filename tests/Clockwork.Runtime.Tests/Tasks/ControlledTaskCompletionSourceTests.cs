@@ -15,7 +15,7 @@ public sealed class ControlledTaskCompletionSourceTests
     [Fact]
     public void SetResultCompletesTheTaskOnTheLogicalThread()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -32,7 +32,7 @@ public sealed class ControlledTaskCompletionSourceTests
     [Fact]
     public void NonGenericSetResultCompletesTheTask()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -45,7 +45,7 @@ public sealed class ControlledTaskCompletionSourceTests
     [Fact]
     public void SetExceptionFaultsTheTask()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -60,7 +60,7 @@ public sealed class ControlledTaskCompletionSourceTests
     [Fact]
     public void SetCanceledCancelsTheTask()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -73,7 +73,7 @@ public sealed class ControlledTaskCompletionSourceTests
     [Fact]
     public void TryVariantsReturnFalseOnSecondTransition()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -89,7 +89,7 @@ public sealed class ControlledTaskCompletionSourceTests
     [Fact]
     public void RunContinuationsAsynchronouslyIsNeutralizedInsideSimulation()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -121,7 +121,7 @@ public sealed class ControlledTaskCompletionSourceTests
     [Fact]
     public void AwaitedCompletionSourceResumesThroughTheCoordinator()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -140,8 +140,8 @@ public sealed class ControlledTaskCompletionSourceTests
 
             Assert.False(completed);
 
-            coordinator.Loop.Schedule(() => tcs.SetResult(99));
-            coordinator.Loop.RunUntil(() => completed, "test");
+            coordinator.Scheduler.Schedule(() => tcs.SetResult(99));
+            coordinator.Scheduler.DrainUntil(() => completed, "test");
 
             Assert.Equal(99, observed);
         });

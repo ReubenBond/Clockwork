@@ -12,7 +12,7 @@ namespace Clockwork.Instrumentation.Tests.Golden;
 /// <summary>
 /// End-to-end golden tests for the shipped controlled <see cref="System.Threading.ThreadPool"/> rule
 /// family: they rewrite real <c>ThreadPool.QueueUserWorkItem</c> / <c>UnsafeQueueUserWorkItem</c> call
-/// sites in a compiled fixture against the real <c>Clockwork.Runtime</c> shim assembly and assert on the
+/// sites in a compiled fixture against the real <c>Clockwork</c> assembly and assert on the
 /// rewritten IL and manifest. This proves the static signatures declared in <c>BuiltInRuleSets</c> line
 /// up with the actual <see cref="Clockwork.Runtime.Threading.ControlledThreadPool"/> members, and that
 /// the native-overlapped overload is rejected at the call site, while the registered-wait factories are

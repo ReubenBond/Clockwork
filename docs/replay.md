@@ -32,7 +32,7 @@ The CLI executes only a public `IReplayScenario` type in an explicitly supplied 
 ```csharp
 public sealed class TransferScenario : IReplayScenario
 {
-    public void Configure(ControlledOperationScheduler scheduler)
+    public void Configure(SimulationScheduler scheduler)
     {
         scheduler.Schedule("sender", scheduler.Yield);
         scheduler.Schedule("receiver", () => { });
@@ -46,29 +46,29 @@ or launch an arbitrary child process.
 ## Commands
 
 ```powershell
-clockwork record `
+dotnet clockwork record `
   --assembly .\tests.dll `
   --scenario-type Tests.TransferScenario `
   --artifact .\artifacts\transfer.cwr.json `
   --seed 123 --schedule-seed 7 --strategy seeded-random
 
-clockwork replay .\artifacts\transfer.cwr.json `
+dotnet clockwork replay .\artifacts\transfer.cwr.json `
   --assembly .\tests.dll `
   --scenario-type Tests.TransferScenario
 
-clockwork explore `
+dotnet clockwork explore `
   --assembly .\tests.dll `
   --scenario-type Tests.TransferScenario `
   --output .\artifacts `
   --seed 123 --schedule-seed 1 --count 100 --max-failures 1
 
-clockwork minimize .\artifacts\transfer.cwr.json `
+dotnet clockwork minimize .\artifacts\transfer.cwr.json `
   --assembly .\tests.dll `
   --scenario-type Tests.TransferScenario `
   --output .\artifacts\transfer.min.cwr.json
 
-clockwork trace show .\artifacts\transfer.min.cwr.json
-clockwork trace show .\artifacts\transfer.min.cwr.json --json
+dotnet clockwork trace show .\artifacts\transfer.min.cwr.json
+dotnet clockwork trace show .\artifacts\transfer.min.cwr.json --json
 ```
 
 Supply `--manifest <closure-manifest>` when the scenario uses an instrumented closure. Replay compares

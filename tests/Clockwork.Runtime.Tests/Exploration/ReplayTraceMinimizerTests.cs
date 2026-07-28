@@ -101,7 +101,7 @@ public sealed class ReplayTraceMinimizerTests
         throw new InvalidOperationException("The deterministic seed corpus did not produce a long fault trace.");
     }
 
-    private static void FaultScenario(ControlledOperationScheduler scheduler)
+    private static void FaultScenario(SimulationScheduler scheduler)
     {
         scheduler.Schedule(
             "background-one",

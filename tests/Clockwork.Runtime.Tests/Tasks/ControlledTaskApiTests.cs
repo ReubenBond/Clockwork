@@ -14,7 +14,7 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public void WhenAllCompletesAfterAllAntecedents()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -24,9 +24,9 @@ public sealed class ControlledTaskApiTests
 
             Assert.False(all.IsCompleted);
 
-            coordinator.Loop.Schedule(() => a.SetResult(1));
-            coordinator.Loop.Schedule(() => b.SetResult(2));
-            coordinator.Loop.RunUntil(() => all.IsCompleted, "test");
+            coordinator.Scheduler.Schedule(() => a.SetResult(1));
+            coordinator.Scheduler.Schedule(() => b.SetResult(2));
+            coordinator.Scheduler.DrainUntil(() => all.IsCompleted, "test");
 
             Assert.Equal([1, 2], all.Result);
         });
@@ -35,7 +35,7 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public void WhenAnyReportsTheDeterministicFirstCompleter()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -44,9 +44,9 @@ public sealed class ControlledTaskApiTests
             var any = ControlledTask.WhenAny(a.Task, b.Task);
 
             // b is completed first on the loop, so WhenAny must resolve to b, deterministically.
-            coordinator.Loop.Schedule(() => b.SetResult(2));
-            coordinator.Loop.Schedule(() => a.SetResult(1));
-            coordinator.Loop.RunUntil(() => any.IsCompleted, "test");
+            coordinator.Scheduler.Schedule(() => b.SetResult(2));
+            coordinator.Scheduler.Schedule(() => a.SetResult(1));
+            coordinator.Scheduler.DrainUntil(() => any.IsCompleted, "test");
 
             Assert.Same(b.Task, any.Result);
         });
@@ -55,12 +55,12 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public void WaitPumpsUntilCompletionWithoutBlocking()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var tcs = new TaskCompletionSource();
-            coordinator.Loop.Schedule(() => tcs.SetResult());
+            coordinator.Scheduler.Schedule(() => tcs.SetResult());
 
             ControlledTask.Wait(tcs.Task);
 
@@ -71,13 +71,13 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public void WaitThrowsAggregateExceptionOnFault()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var tcs = new TaskCompletionSource();
             var boom = new InvalidTimeZoneException("boom");
-            coordinator.Loop.Schedule(() => tcs.SetException(boom));
+            coordinator.Scheduler.Schedule(() => tcs.SetException(boom));
 
             var ex = Assert.Throws<AggregateException>(() => ControlledTask.Wait(tcs.Task));
             Assert.Same(boom, ex.InnerException);
@@ -87,12 +87,12 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public void ResultPumpsUntilCompletion()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var tcs = new TaskCompletionSource<int>();
-            coordinator.Loop.Schedule(() => tcs.SetResult(42));
+            coordinator.Scheduler.Schedule(() => tcs.SetResult(42));
 
             var value = ControlledTask.Result(tcs.Task);
 
@@ -103,7 +103,7 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public void WaitOnANeverCompletingTaskSurfacesDeadlock()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -115,14 +115,14 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public void WaitAllPumpsUntilAllComplete()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var a = new TaskCompletionSource();
             var b = new TaskCompletionSource();
-            coordinator.Loop.Schedule(() => a.SetResult());
-            coordinator.Loop.Schedule(() => b.SetResult());
+            coordinator.Scheduler.Schedule(() => a.SetResult());
+            coordinator.Scheduler.Schedule(() => b.SetResult());
 
             ControlledTask.WaitAll(a.Task, b.Task);
 
@@ -133,13 +133,13 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public void WaitAnyReturnsIndexOfFirstCompleted()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var a = new TaskCompletionSource();
             var b = new TaskCompletionSource();
-            coordinator.Loop.Schedule(() => b.SetResult());
+            coordinator.Scheduler.Schedule(() => b.SetResult());
 
             var index = ControlledTask.WaitAny(a.Task, b.Task);
 
@@ -150,7 +150,7 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public void ContinueWithRunsAfterAntecedentThroughTheLoop()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -158,12 +158,12 @@ public sealed class ControlledTaskApiTests
             var ranInline = false;
             var continuation = ControlledTask.ContinueWith(tcs.Task, t => ranInline = false);
 
-            coordinator.Loop.Schedule(() =>
+            coordinator.Scheduler.Schedule(() =>
             {
                 tcs.SetResult(5);
                 ranInline = continuation.IsCompleted;
             });
-            coordinator.Loop.RunUntil(() => continuation.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => continuation.IsCompleted, "test");
 
             Assert.False(ranInline);
             Assert.True(continuation.IsCompletedSuccessfully);
@@ -173,15 +173,15 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public void ContinueWithFuncProducesResult()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var tcs = new TaskCompletionSource<int>();
             var continuation = ControlledTask.ContinueWith(tcs.Task, t => ((Task<int>)t).Result * 2);
 
-            coordinator.Loop.Schedule(() => tcs.SetResult(21));
-            coordinator.Loop.RunUntil(() => continuation.IsCompleted, "test");
+            coordinator.Scheduler.Schedule(() => tcs.SetResult(21));
+            coordinator.Scheduler.DrainUntil(() => continuation.IsCompleted, "test");
 
             Assert.Equal(42, continuation.Result);
         });
@@ -190,7 +190,7 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public void ContinueWithRunsEvenWhenAntecedentFaults()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -198,8 +198,8 @@ public sealed class ControlledTaskApiTests
             var observedFault = false;
             var continuation = ControlledTask.ContinueWith(tcs.Task, t => observedFault = t.IsFaulted);
 
-            coordinator.Loop.Schedule(() => tcs.SetException(new InvalidTimeZoneException()));
-            coordinator.Loop.RunUntil(() => continuation.IsCompleted, "test");
+            coordinator.Scheduler.Schedule(() => tcs.SetException(new InvalidTimeZoneException()));
+            coordinator.Scheduler.DrainUntil(() => continuation.IsCompleted, "test");
 
             Assert.True(observedFault);
             Assert.True(continuation.IsCompletedSuccessfully);
@@ -223,22 +223,22 @@ public sealed class ControlledTaskApiTests
     [MemberData(nameof(DelayCalls))]
     public void EveryDelayOverloadCompletesOnVirtualTime(Func<Task> delay)
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Task task = delay();
             Assert.False(task.IsCompleted);
-            coordinator.Loop.RunUntil(() => task.IsCompleted, "test.delay");
+            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test.delay");
             Assert.True(task.IsCompletedSuccessfully);
-            Assert.Equal(TimeSpan.FromMilliseconds(100), coordinator.Loop.VirtualNow);
+            Assert.Equal(TimeSpan.FromMilliseconds(100), coordinator.Scheduler.VirtualTime);
         });
     }
 
     [Fact]
     public void RunQueuesBodyAsControlledWorkAndCompletes()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -249,7 +249,7 @@ public sealed class ControlledTaskApiTests
             Assert.False(ran);
             Assert.False(task.IsCompleted);
 
-            coordinator.Loop.RunUntil(() => task.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test");
 
             Assert.True(ran);
             Assert.True(task.IsCompletedSuccessfully);
@@ -259,12 +259,12 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public void RunOfFuncReturnsResultDeterministically()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var task = ControlledTask.Run(() => 42);
-            coordinator.Loop.RunUntil(() => task.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test");
             Assert.Equal(42, task.Result);
         });
     }
@@ -272,7 +272,7 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public void RunOfAsyncFuncUnwrapsInnerTask()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -280,11 +280,11 @@ public sealed class ControlledTaskApiTests
             var task = ControlledTask.Run(() => inner.Task);
 
             // The outer task must not complete until the unwrapped inner task completes.
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
             Assert.False(task.IsCompleted);
 
-            coordinator.Loop.Schedule(() => inner.SetResult(7));
-            coordinator.Loop.RunUntil(() => task.IsCompleted, "test");
+            coordinator.Scheduler.Schedule(() => inner.SetResult(7));
+            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test");
 
             Assert.Equal(7, task.Result);
         });
@@ -293,13 +293,13 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public void RunPropagatesTheBodyFault()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var boom = new InvalidTimeZoneException("boom");
             var task = ControlledTask.Run(() => throw boom);
-            coordinator.Loop.RunUntil(() => task.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test");
 
             Assert.Equal(TaskStatus.Faulted, task.Status);
             Assert.Same(boom, task.Exception!.InnerException);
@@ -309,7 +309,7 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public void RunWithAlreadyCanceledTokenCancelsAndDoesNotRunBody()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -317,7 +317,7 @@ public sealed class ControlledTaskApiTests
             cts.Cancel();
             var ran = false;
             var task = ControlledTask.Run(() => { ran = true; }, cts.Token);
-            coordinator.Loop.RunUntil(() => task.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test");
 
             Assert.False(ran);
             Assert.Equal(TaskStatus.Canceled, task.Status);
@@ -348,7 +348,7 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public void TaskFactoryStartNewQueuesBodyAsControlledWork()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -359,7 +359,7 @@ public sealed class ControlledTaskApiTests
             Assert.False(ran);
             Assert.False(task.IsCompleted);
 
-            coordinator.Loop.RunUntil(() => task.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test");
 
             Assert.True(ran);
             Assert.True(task.IsCompletedSuccessfully);
@@ -369,12 +369,12 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public void TaskFactoryStartNewOfFuncReturnsResult()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var task = ControlledTaskFactory.StartNew(Task.Factory, () => 99);
-            coordinator.Loop.RunUntil(() => task.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test");
             Assert.Equal(99, task.Result);
         });
     }
@@ -382,7 +382,7 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public void TaskFactoryStateAndFullSchedulerFormsRunOnControlledStrands()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -407,7 +407,7 @@ public sealed class ControlledTaskApiTests
                 TaskCreationOptions.None,
                 TaskScheduler.Default);
 
-            coordinator.Loop.RunUntil(() => action.IsCompleted && result.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => action.IsCompleted && result.IsCompleted, "test");
 
             Assert.Equal(17L, actionState);
             Assert.Equal(17L, action.AsyncState);
@@ -422,7 +422,7 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public void GenericTaskFactoryStateFormPreservesStateAndResult()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -435,7 +435,7 @@ public sealed class ControlledTaskApiTests
                 TaskCreationOptions.None,
                 TaskScheduler.Default);
 
-            coordinator.Loop.RunUntil(() => result.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => result.IsCompleted, "test");
             Assert.Equal(42, result.Result);
             Assert.Equal(21, result.AsyncState);
         });
@@ -444,12 +444,12 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public void TaskFactoryRejectsUnsupportedSchedulerAndOptions()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var schedulers = new ConcurrentExclusiveSchedulerPair();
-            Assert.Throws<ControlledTaskUnsupportedException>((Action)(() =>
+            Assert.Throws<ControlledApiException>((Action)(() =>
             {
                 _ = ControlledTaskFactory.StartNew(
                     Task.Factory,
@@ -458,7 +458,7 @@ public sealed class ControlledTaskApiTests
                     TaskCreationOptions.None,
                     schedulers.ExclusiveScheduler);
             }));
-            Assert.Throws<ControlledTaskUnsupportedException>((Action)(() =>
+            Assert.Throws<ControlledApiException>((Action)(() =>
             {
                 _ = ControlledTaskFactory.StartNew(
                     Task.Factory,
@@ -467,7 +467,7 @@ public sealed class ControlledTaskApiTests
                     TaskCreationOptions.LongRunning,
                     TaskScheduler.Default);
             }));
-            Assert.Throws<ControlledTaskUnsupportedException>((Action)(() =>
+            Assert.Throws<ControlledApiException>((Action)(() =>
             {
                 _ = ControlledTaskFactory.StartNew(
                     Task.Factory,
@@ -483,7 +483,7 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public void TaskFactoryPreCancellationIsImmediateAndUnmatchedCancellationFaults()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -505,7 +505,7 @@ public sealed class ControlledTaskApiTests
 
             Assert.True(canceled.IsCanceled);
             Assert.False(ran);
-            coordinator.Loop.RunUntil(() => faulted.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => faulted.IsCompleted, "test");
             Assert.Equal(TaskStatus.Faulted, faulted.Status);
             Assert.IsType<OperationCanceledException>(faulted.Exception!.InnerException);
         });
@@ -514,11 +514,11 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public void TaskFactoryStartNewRejectsAttachedToParent()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            var ex = Assert.Throws<ControlledTaskUnsupportedException>(() =>
+            var ex = Assert.Throws<ControlledApiException>(() =>
             {
                 // Exercise the options-only overload independently from the full scheduler form.
 #pragma warning disable xUnit1051
@@ -532,7 +532,7 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public void GenericContinueWithProjectsAntecedentResult()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -541,8 +541,8 @@ public sealed class ControlledTaskApiTests
 
             Assert.False(projected.IsCompleted);
 
-            coordinator.Loop.Schedule(() => source.SetResult(7));
-            coordinator.Loop.RunUntil(() => projected.IsCompleted, "test");
+            coordinator.Scheduler.Schedule(() => source.SetResult(7));
+            coordinator.Scheduler.DrainUntil(() => projected.IsCompleted, "test");
 
             Assert.Equal("7", projected.Result);
         });
@@ -551,7 +551,7 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public void GenericContinueWithActionObservesTypedAntecedent()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -559,8 +559,8 @@ public sealed class ControlledTaskApiTests
             var seen = 0;
             var continuation = ControlledTask.ContinueWith(source.Task, t => { seen = t.Result; });
 
-            coordinator.Loop.Schedule(() => source.SetResult(11));
-            coordinator.Loop.RunUntil(() => continuation.IsCompleted, "test");
+            coordinator.Scheduler.Schedule(() => source.SetResult(11));
+            coordinator.Scheduler.DrainUntil(() => continuation.IsCompleted, "test");
 
             Assert.Equal(11, seen);
             Assert.True(continuation.IsCompletedSuccessfully);
@@ -631,7 +631,7 @@ public sealed class ControlledTaskApiTests
     [InlineData((int)QueuedTaskBodyVariant.TaskFactoryStartNewFunction)]
     public void QueuedTaskBodiesCaptureEnqueueTimeExecutionContext(int variantValue)
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -673,7 +673,7 @@ public sealed class ControlledTaskApiTests
             Assert.Equal(-1, seen);
             ambient.Value = 9;
 
-            coordinator.Loop.RunUntil(() => task.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test");
 
             Assert.Equal(5, seen);
             Assert.Equal(TaskStatus.RanToCompletion, task.Status);
@@ -683,10 +683,10 @@ public sealed class ControlledTaskApiTests
             }
 
             Assert.Equal(9, ambient.Value);
-            Assert.Equal(0, coordinator.Loop.ReadyCount);
-            Assert.Equal(0, coordinator.Loop.WaitingCount);
-            Assert.Null(coordinator.Loop.NextDeadlineDue());
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.Equal(0, coordinator.Scheduler.RunnableOperationCount);
+            Assert.Equal(0, coordinator.Scheduler.WaitingOperationCount);
+            Assert.Null(coordinator.Scheduler.NextTimerDue);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
@@ -697,7 +697,7 @@ public sealed class ControlledTaskApiTests
     [InlineData((int)ContinuationVariant.GenericAntecedentResult)]
     public void ContinueWithCapturesRegistrationExecutionContext(int variantValue)
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -760,7 +760,7 @@ public sealed class ControlledTaskApiTests
                 antecedent.SetResult();
             }
 
-            coordinator.Loop.RunUntil(() => continuation.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => continuation.IsCompleted, "test");
 
             Assert.Equal(5, seen);
             Assert.Equal(TaskStatus.RanToCompletion, continuation.Status);
@@ -773,10 +773,10 @@ public sealed class ControlledTaskApiTests
             }
 
             Assert.Equal(9, ambient.Value);
-            Assert.Equal(0, coordinator.Loop.ReadyCount);
-            Assert.Equal(0, coordinator.Loop.WaitingCount);
-            Assert.Null(coordinator.Loop.NextDeadlineDue());
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.Equal(0, coordinator.Scheduler.RunnableOperationCount);
+            Assert.Equal(0, coordinator.Scheduler.WaitingOperationCount);
+            Assert.Null(coordinator.Scheduler.NextTimerDue);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
@@ -809,7 +809,7 @@ public sealed class ControlledTaskApiTests
         int delegateShapeValue,
         int oceCaseValue)
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -869,7 +869,7 @@ public sealed class ControlledTaskApiTests
 #pragma warning restore xUnit1051
 
             Assert.False(task.IsCompleted);
-            coordinator.Loop.RunUntil(() => task.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test");
 
             bool shouldCancel = oceCase == StartNewOceCase.MatchingRequested;
             Assert.Equal(shouldCancel, associatedSource.IsCancellationRequested);
@@ -894,7 +894,7 @@ public sealed class ControlledTaskApiTests
         int shapeValue,
         int oceCaseValue)
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -945,8 +945,8 @@ public sealed class ControlledTaskApiTests
             }
 
             Assert.False(continuation.IsCompleted);
-            coordinator.Loop.Schedule(completeAntecedent);
-            coordinator.Loop.RunUntil(() => continuation.IsCompleted, "test");
+            coordinator.Scheduler.Schedule(completeAntecedent);
+            coordinator.Scheduler.DrainUntil(() => continuation.IsCompleted, "test");
 
             Assert.Equal(oceCase == TokenlessOceCase.Requested, thrownSource.IsCancellationRequested);
             AssertOceTaskCompletion(continuation, thrown, shouldCancel: false);
@@ -956,7 +956,7 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public void RunOfTaskPreservesCanceledInnerTaskToken()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -967,7 +967,7 @@ public sealed class ControlledTaskApiTests
 #pragma warning restore xUnit1051
 
             Task outer = ControlledTask.Run(() => inner);
-            coordinator.Loop.RunUntil(() => outer.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => outer.IsCompleted, "test");
 
             Assert.Equal(TaskStatus.Canceled, inner.Status);
             Assert.Equal(TaskStatus.Canceled, outer.Status);
@@ -982,7 +982,7 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public void RunOfGenericTaskPreservesCanceledInnerTaskToken()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -993,7 +993,7 @@ public sealed class ControlledTaskApiTests
 #pragma warning restore xUnit1051
 
             Task<int> outer = ControlledTask.Run(() => inner);
-            coordinator.Loop.RunUntil(() => outer.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => outer.IsCompleted, "test");
 
             Assert.Equal(TaskStatus.Canceled, inner.Status);
             Assert.Equal(TaskStatus.Canceled, outer.Status);
@@ -1008,7 +1008,7 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public void WaitAllNullElementMatchesBclExceptionShape()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -1024,7 +1024,7 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public void WaitAnyNullElementMatchesBclExceptionShape()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -1064,12 +1064,12 @@ public sealed class ControlledTaskApiTests
         Assert.Equal(thrown.CancellationToken, awaitedFault.CancellationToken);
     }
 
-    private static void AssertLoopIsClean(ControlledTaskLoopCoordinator coordinator)
+    private static void AssertLoopIsClean(SimulationSchedulerTestHost coordinator)
     {
-        Assert.Equal(0, coordinator.Loop.ReadyCount);
-        Assert.Equal(0, coordinator.Loop.WaitingCount);
-        Assert.Null(coordinator.Loop.NextDeadlineDue());
-        Assert.True(coordinator.Loop.IsIdle);
+        Assert.Equal(0, coordinator.Scheduler.RunnableOperationCount);
+        Assert.Equal(0, coordinator.Scheduler.WaitingOperationCount);
+        Assert.Null(coordinator.Scheduler.NextTimerDue);
+        Assert.True(coordinator.Scheduler.IsIdle);
     }
 
     private enum StartNewOceDelegateShape
@@ -1114,7 +1114,7 @@ public sealed class ControlledTaskApiTests
         int delegateShapeValue,
         int oceCaseValue)
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -1174,12 +1174,12 @@ public sealed class ControlledTaskApiTests
 #pragma warning restore xUnit1051
 
             Assert.False(task.IsCompleted);
-            coordinator.Loop.RunUntil(() => task.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test");
 
             bool shouldCancel = oceCase == StartNewOceCase.MatchingRequested;
             Assert.Equal(shouldCancel, associatedSource.IsCancellationRequested);
             AssertOceTaskCompletion(task, thrown, shouldCancel);
-            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+            Assert.Equal(TimeSpan.Zero, coordinator.Scheduler.VirtualTime);
             AssertLoopIsClean(coordinator);
         });
     }
@@ -1201,7 +1201,7 @@ public sealed class ControlledTaskApiTests
         int shapeValue,
         int oceCaseValue)
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -1252,12 +1252,12 @@ public sealed class ControlledTaskApiTests
             }
 
             Assert.False(continuation.IsCompleted);
-            coordinator.Loop.Schedule(completeAntecedent);
-            coordinator.Loop.RunUntil(() => continuation.IsCompleted, "test");
+            coordinator.Scheduler.Schedule(completeAntecedent);
+            coordinator.Scheduler.DrainUntil(() => continuation.IsCompleted, "test");
 
             Assert.Equal(oceCase == TokenlessOceCase.Requested, thrownSource.IsCancellationRequested);
             AssertOceTaskCompletion(continuation, thrown, shouldCancel: false);
-            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+            Assert.Equal(TimeSpan.Zero, coordinator.Scheduler.VirtualTime);
             AssertLoopIsClean(coordinator);
         });
     }
@@ -1271,7 +1271,7 @@ public sealed class ControlledTaskApiTests
         bool waitAll,
         bool nullFirst)
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -1293,7 +1293,7 @@ public sealed class ControlledTaskApiTests
             });
 
             Assert.False(pending.Task.IsCompleted);
-            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
+            Assert.Equal(TimeSpan.Zero, coordinator.Scheduler.VirtualTime);
             AssertLoopIsClean(coordinator);
             var argument = Assert.IsType<ArgumentException>(error);
             Assert.Equal("tasks", argument.ParamName);

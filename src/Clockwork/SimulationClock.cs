@@ -1,70 +1,37 @@
 using System.Diagnostics;
 using System.Globalization;
+using Clockwork.Runtime.Scheduling;
 
 namespace Clockwork;
 
-/// <summary>
-/// <para>
-/// Shared time source for all simulation components.
-/// Provides a single source of truth for the current simulated time,
-/// allowing multiple <see cref="SimulationTaskQueue"/> instances to share
-/// a unified view of time while maintaining separate task queues.
-/// </para>
-/// <para>
-/// This class uses a real lock instead of the SingleThreadedGuard because
-/// it needs to be accessed from cross-thread contexts (e.g., when
-/// SynchronizationContext.Post is called from thread pool threads due to
-/// CancellationToken callbacks or other async work escaping the simulation).
-/// </para>
-/// </summary>
-/// <remarks>
-/// Creates a new simulation clock with the specified start date/time and initial time offset.
-/// </remarks>
-/// <param name="startDateTime">The starting date/time for the simulation.</param>
-/// <param name="initialTime">The initial time offset. Default is <see cref="TimeSpan.Zero"/>.</param>
+/// <summary>Read-only clock facade over a simulation scheduler's single virtual timeline.</summary>
 [DebuggerDisplay("{DebuggerDisplay,nq}")]
-public sealed class SimulationClock(DateTimeOffset startDateTime, TimeSpan initialTime = default)
+public sealed class SimulationClock
 {
-    private readonly Lock _lock = new();
-    private TimeSpan _currentTime = initialTime;
+    private readonly SimulationScheduler _scheduler;
 
-    /// <summary>
-    /// Gets the starting date/time for the simulation.
-    /// </summary>
-    public DateTimeOffset StartDateTime { get; } = startDateTime;
-
-    /// <summary>
-    /// Gets the current simulated time as an offset from the start.
-    /// </summary>
-    public TimeSpan CurrentTime
+    internal SimulationClock(SimulationScheduler scheduler)
     {
-        get
-        {
-            lock (_lock)
-            {
-                return _currentTime;
-            }
-        }
+        ArgumentNullException.ThrowIfNull(scheduler);
+        _scheduler = scheduler;
     }
 
-    /// <summary>
-    /// Gets the current simulated date/time (StartDateTime + CurrentTime).
-    /// </summary>
-    public DateTimeOffset UtcNow => StartDateTime + CurrentTime;
+    /// <summary>Gets the simulation's fixed virtual-time origin.</summary>
+    public DateTimeOffset StartDateTime => _scheduler.StartDateTime;
 
-    /// <summary>
-    /// Advances the current time by the specified amount.
-    /// </summary>
-    /// <param name="delta">The amount to advance. Must be non-negative.</param>
-    /// <exception cref="ArgumentOutOfRangeException">Thrown if <paramref name="delta"/> is negative.</exception>
-    public void Advance(TimeSpan delta)
+    /// <summary>Gets elapsed virtual time since <see cref="StartDateTime"/>.</summary>
+    public TimeSpan CurrentTime => _scheduler.VirtualTime;
+
+    /// <summary>Gets the current virtual UTC instant.</summary>
+    public DateTimeOffset UtcNow => _scheduler.UtcNow;
+
+    internal void Advance(TimeSpan delta)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(delta, TimeSpan.Zero);
-        lock (_lock)
-        {
-            _currentTime += delta;
-        }
+        _scheduler.AdvanceVirtualTimeTo(CurrentTime + delta);
     }
 
-    private string DebuggerDisplay => string.Create(CultureInfo.InvariantCulture, $"SimulationClock({CurrentTime:hh\\:mm\\:ss\\.fff})");
+    private string DebuggerDisplay => string.Create(
+        CultureInfo.InvariantCulture,
+        $"SimulationClock({CurrentTime:hh\\:mm\\:ss\\.fff})");
 }

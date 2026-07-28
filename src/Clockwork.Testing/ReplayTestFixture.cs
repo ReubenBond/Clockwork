@@ -118,7 +118,7 @@ public sealed record ReplayTestResult
 
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"clockwork replay \"{ArtifactPath}\" --assembly \"{assemblyPath}\" --scenario-type \"{scenarioType}\"");
+            $"dotnet clockwork replay \"{ArtifactPath}\" --assembly \"{assemblyPath}\" --scenario-type \"{scenarioType}\"");
     }
 }
 
@@ -160,12 +160,12 @@ public sealed class ReplayTestFixture
         _configuration.TestMethodName);
 
     /// <summary>Records or environment-replays a fresh controlled scenario.</summary>
-    public ReplayTestResult Run(Action<ControlledOperationScheduler> scenario) =>
+    public ReplayTestResult Run(Action<SimulationScheduler> scenario) =>
         Run(scenario, CancellationToken.None);
 
     /// <summary>Records or environment-replays a fresh controlled scenario with explicit cancellation.</summary>
     public ReplayTestResult Run(
-        Action<ControlledOperationScheduler> scenario,
+        Action<SimulationScheduler> scenario,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(scenario);

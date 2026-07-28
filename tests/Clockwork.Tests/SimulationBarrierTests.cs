@@ -186,7 +186,7 @@ public sealed class SimulationBarrierTests
         GC.KeepAlive(cts);
     }
 
-    private static SimulationTaskQueue CreateQueue() => new(new SimulationClock(DateTimeOffset.UnixEpoch), new SingleThreadedGuard());
+    private static SimulationSchedulerLane CreateQueue() => SimulationTestHarness.NewLane();
 
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
     private static WeakReference CreateCanceledBarrierReference(CancellationTokenSource cts)

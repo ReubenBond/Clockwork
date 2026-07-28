@@ -12,7 +12,7 @@ namespace Clockwork;
 public abstract class SimulationNode
 {
     /// <summary>
-    /// Gets the simulation context for this node, containing the task queue,
+    /// Gets the simulation context for this node, containing the scheduler lane,
     /// scheduler, time provider, and random number generator.
     /// </summary>
     public abstract SimulationNodeContext Context { get; }

@@ -8,7 +8,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Clockwork\Clockwork.csproj" />
-    <ProjectReference Include="..\Clockwork.Runtime\Clockwork.Runtime.csproj" />
   </ItemGroup>
 
 </Project>

@@ -16,7 +16,7 @@ public sealed class SimulationNodeContextTests
     {
         var context = CreateContext();
         var executed = false;
-        context.TaskQueue.Enqueue(new ScheduledActionItem(() => executed = true));
+        context.SchedulerLane.Enqueue(new ScheduledActionItem(() => executed = true));
 
         context.Suspend();
 
@@ -30,7 +30,7 @@ public sealed class SimulationNodeContextTests
     {
         var context = CreateContext();
         var executed = false;
-        context.TaskQueue.Enqueue(new ScheduledActionItem(() => executed = true));
+        context.SchedulerLane.Enqueue(new ScheduledActionItem(() => executed = true));
         context.Suspend();
 
         context.Resume();
@@ -44,8 +44,8 @@ public sealed class SimulationNodeContextTests
     public void RunUntilIdleReturnsZeroWhileSuspendedEvenWithReadyWork()
     {
         var context = CreateContext();
-        context.TaskQueue.Enqueue(new ScheduledActionItem(() => { }));
-        context.TaskQueue.Enqueue(new ScheduledActionItem(() => { }));
+        context.SchedulerLane.Enqueue(new ScheduledActionItem(() => { }));
+        context.SchedulerLane.Enqueue(new ScheduledActionItem(() => { }));
         context.Suspend();
 
         Assert.Equal(0, context.RunUntilIdle());
@@ -58,7 +58,7 @@ public sealed class SimulationNodeContextTests
 
         Assert.False(context.HasReadyTasks);
 
-        context.TaskQueue.EnqueueAfter(() => { }, TimeSpan.FromSeconds(5));
+        context.SchedulerLane.EnqueueAfter(() => { }, TimeSpan.FromSeconds(5));
         Assert.False(context.HasReadyTasks);
 
         clock.Advance(TimeSpan.FromSeconds(5));
@@ -71,9 +71,7 @@ public sealed class SimulationNodeContextTests
     [Fact]
     public void SuspendForWithoutAnExternalQueueThrows()
     {
-        var clock = new SimulationClock(DateTimeOffset.UnixEpoch);
-        var guard = new SingleThreadedGuard();
-        var context = new SimulationNodeContext(clock, guard, new SimulationRandom(1));
+        var context = SimulationTestHarness.NewNodeComponents().Context;
 
         Assert.Throws<InvalidOperationException>(() => context.SuspendFor(TimeSpan.FromSeconds(1)));
     }
@@ -81,10 +79,8 @@ public sealed class SimulationNodeContextTests
     [Fact]
     public void SuspendForAutomaticallyResumesAfterTheDurationElapses()
     {
-        var clock = new SimulationClock(DateTimeOffset.UnixEpoch);
-        var guard = new SingleThreadedGuard();
-        var externalQueue = new SimulationTaskQueue(clock, guard);
-        var context = new SimulationNodeContext(clock, guard, new SimulationRandom(1), externalQueue);
+        var externalQueue = SimulationTestHarness.NewLane();
+        var (clock, _, context) = SimulationTestHarness.NewNodeComponents(externalLane: externalQueue);
 
         context.SuspendFor(TimeSpan.FromSeconds(5));
         Assert.True(context.IsSuspended);
@@ -100,20 +96,15 @@ public sealed class SimulationNodeContextTests
     [Fact]
     public void SuspendForWithNonPositiveDurationThrows()
     {
-        var clock = new SimulationClock(DateTimeOffset.UnixEpoch);
-        var guard = new SingleThreadedGuard();
-        var externalQueue = new SimulationTaskQueue(clock, guard);
-        var context = new SimulationNodeContext(clock, guard, new SimulationRandom(1), externalQueue);
+        var externalQueue = SimulationTestHarness.NewLane();
+        var context = SimulationTestHarness.NewNodeComponents(externalLane: externalQueue).Context;
 
         Assert.Throws<ArgumentOutOfRangeException>(() => context.SuspendFor(TimeSpan.Zero));
     }
 
     private static (SimulationClock Clock, SingleThreadedGuard Guard, SimulationNodeContext Context) CreateComponents()
     {
-        var clock = new SimulationClock(DateTimeOffset.UnixEpoch);
-        var guard = new SingleThreadedGuard();
-        var context = new SimulationNodeContext(clock, guard, new SimulationRandom(1));
-        return (clock, guard, context);
+        return SimulationTestHarness.NewNodeComponents();
     }
 
     private static SimulationNodeContext CreateContext() => CreateComponents().Context;

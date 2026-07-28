@@ -57,6 +57,7 @@ public abstract partial class SimulationCluster<TNode>
     {
         ArgumentNullException.ThrowIfNull(condition);
         ArgumentNullException.ThrowIfNull(budget);
+        using var control = _scheduler.EnterControlScope();
         using var _ = Guard.Enter();
         return RunAdaptiveCore(
             budget,
@@ -90,6 +91,7 @@ public abstract partial class SimulationCluster<TNode>
     public SimulationExecutionResult RunUntilIdle(AdaptiveExecutionBudget budget, TimeSpan? maxTimeAdvance = null)
     {
         ArgumentNullException.ThrowIfNull(budget);
+        using var control = _scheduler.EnterControlScope();
         using var _ = Guard.Enter();
         return RunAdaptiveCore(
             budget,

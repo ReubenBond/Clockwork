@@ -38,7 +38,7 @@
     <None Include="..\..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
-  <!-- Pack the task assembly and every runtime dependency (engine, runtime, Mono.Cecil) into
+  <!-- Pack the task assembly and every runtime dependency (engine, Clockwork, Mono.Cecil) into
        tasks/net10.0/ so the targets can load them with a single UsingTask AssemblyFile. -->
   <Target Name="PackClockworkTaskAssemblies" BeforeTargets="_GetPackageFiles" DependsOnTargets="Build">
     <ItemGroup>

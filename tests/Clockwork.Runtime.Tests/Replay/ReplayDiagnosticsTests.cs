@@ -49,17 +49,17 @@ public sealed class ReplayDiagnosticsTests
         Assert.All(execution.Artifact.Diagnostics.Operations, static operation => Assert.Null(operation.Description));
     }
 
-    private static void DeadlockScenario(ControlledOperationScheduler scheduler)
+    private static void DeadlockScenario(SimulationScheduler scheduler)
     {
-        ControlledResource first = scheduler.CreateResource(ControlledResourceKind.Monitor, "first");
-        ControlledResource second = scheduler.CreateResource(ControlledResourceKind.Monitor, "second");
+        SimulationResource first = scheduler.CreateResource(SimulationResourceKind.Monitor, "first");
+        SimulationResource second = scheduler.CreateResource(SimulationResourceKind.Monitor, "second");
         scheduler.Schedule(
             "one",
             () =>
             {
                 scheduler.MarkResourceOwner(first, scheduler.CurrentOperation);
                 scheduler.Yield();
-                scheduler.WaitOnResource(second, ControlledOperationPauseReason.ResourceWait("second"));
+                scheduler.WaitOnResource(second, SimulationPauseReason.ResourceWait("second"));
             });
         scheduler.Schedule(
             "two",
@@ -67,7 +67,7 @@ public sealed class ReplayDiagnosticsTests
             {
                 scheduler.MarkResourceOwner(second, scheduler.CurrentOperation);
                 scheduler.Yield();
-                scheduler.WaitOnResource(first, ControlledOperationPauseReason.ResourceWait("first"));
+                scheduler.WaitOnResource(first, SimulationPauseReason.ResourceWait("first"));
             });
     }
 }

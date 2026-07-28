@@ -9,7 +9,7 @@ namespace Clockwork.Conformance.Tests;
 /// differ materially), rewritten with the controlled-task rule set so the compiler-generated builder and
 /// awaiter types are retargeted onto Clockwork's controlled equivalents, and then executed inside a live
 /// <see cref="SimulationHost"/>. Because the cluster advances on a single logical
-/// thread and only ever pumps the controlled task loop, a probe that awaits an initially-incomplete task
+/// thread and only ever pumps the simulation scheduler, a probe that awaits an initially-incomplete task
 /// can only make progress through the deterministic loop - proving the state machine is controlled rather
 /// than escaping to the thread pool.
 /// </summary>

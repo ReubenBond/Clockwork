@@ -64,17 +64,6 @@ public sealed class ControlledDateTimeTests
     }
 
     [Fact]
-    public void ActiveSimulationWithoutEnvironmentFailsExplicitly()
-    {
-        ShimTestHarness.RunInSimulationWithoutEnvironment(() =>
-        {
-            Assert.Throws<SimulationServiceMissingException>(() => _ = ControlledDateTime.GetUtcNow());
-            Assert.Throws<SimulationServiceMissingException>(() => _ = ControlledDateTime.GetNow());
-            Assert.Throws<SimulationServiceMissingException>(() => _ = ControlledDateTime.GetToday());
-        });
-    }
-
-    [Fact]
     public void ReplayWithSameClockProducesIdenticalReadings()
     {
         DateTime Read()

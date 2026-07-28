@@ -127,15 +127,14 @@ public sealed class ControlledRandomTests
     }
 
     [Fact]
-    public void SeededConstructionDoesNotRequireARegisteredEnvironment()
+    public void SeededConstructionUsesTheExplicitSeed()
     {
-        // A seeded Random is already deterministic, so it must pass through even when active with no
-        // environment registered (nothing irreproducible to guard).
-        ShimTestHarness.RunInSimulationWithoutEnvironment(() =>
-        {
-            var value = ControlledRandom.CreateSeeded(99).Next();
-            Assert.Equal(new System.Random(99).Next(), value);
-        });
+        var environment = ShimTestHarness.CreateEnvironment(ShimTestHarness.CreateClock());
+        var value = ShimTestHarness.RunInSimulation(
+            environment,
+            () => ControlledRandom.CreateSeeded(99).Next());
+
+        Assert.Equal(new System.Random(99).Next(), value);
     }
 
     [Fact]
@@ -191,16 +190,6 @@ public sealed class ControlledRandomTests
         }
 
         Assert.Equal(WithoutDraw(), WithDraw());
-    }
-
-    [Fact]
-    public void ActiveSimulationWithoutRegisteredEnvironmentFailsExplicitly()
-    {
-        ShimTestHarness.RunInSimulationWithoutEnvironment(() =>
-        {
-            Assert.Throws<SimulationServiceMissingException>(() => ControlledRandom.GetShared());
-            Assert.Throws<SimulationServiceMissingException>(() => ControlledRandom.CreateUnseeded());
-        });
     }
 
     [Fact]

@@ -9,15 +9,15 @@ public sealed class ControlledCancellationTokenSourceTests
     [Fact]
     public void TimedConstructorCancelsAtVirtualDeadline()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             using CancellationTokenSource source =
                 ControlledCancellationTokenSource.Create(TimeSpan.FromMilliseconds(25));
             Assert.False(source.IsCancellationRequested);
 
-            coordinator.Loop.AdvanceTimeTo(TimeSpan.FromMilliseconds(25));
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.AdvanceVirtualTimeTo(TimeSpan.FromMilliseconds(25));
+            coordinator.Scheduler.RunUntilIdle();
 
             Assert.True(source.IsCancellationRequested);
         });
@@ -26,29 +26,29 @@ public sealed class ControlledCancellationTokenSourceTests
     [Fact]
     public void ZeroConstructorIsCanceledSynchronously()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             using CancellationTokenSource source = ControlledCancellationTokenSource.Create(0);
             Assert.True(source.IsCancellationRequested);
-            Assert.Null(coordinator.Loop.NextDeadlineDue());
+            Assert.Null(coordinator.Scheduler.NextTimerDue);
         });
     }
 
     [Fact]
     public void CancelAfterZeroIsQueuedAndCanBeResetBeforeItRuns()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             using var source = new CancellationTokenSource();
             ControlledCancellationTokenSource.CancelAfter(source, 0);
             ControlledCancellationTokenSource.CancelAfter(source, 10);
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
             Assert.False(source.IsCancellationRequested);
 
-            coordinator.Loop.AdvanceTimeTo(TimeSpan.FromMilliseconds(10));
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.AdvanceVirtualTimeTo(TimeSpan.FromMilliseconds(10));
+            coordinator.Scheduler.RunUntilIdle();
             Assert.True(source.IsCancellationRequested);
         });
     }
@@ -56,17 +56,17 @@ public sealed class ControlledCancellationTokenSourceTests
     [Fact]
     public void CancelAfterResetAndDisableRemoveStaleDeadlines()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             using var source = new CancellationTokenSource();
             ControlledCancellationTokenSource.CancelAfter(source, 10);
             ControlledCancellationTokenSource.CancelAfter(source, 20);
-            Assert.Equal(TimeSpan.FromMilliseconds(20), coordinator.Loop.NextDeadlineDue());
+            Assert.Equal(TimeSpan.FromMilliseconds(20), coordinator.Scheduler.NextTimerDue);
 
             ControlledCancellationTokenSource.CancelAfter(source, Timeout.Infinite);
-            Assert.Null(coordinator.Loop.NextDeadlineDue());
-            coordinator.Loop.AdvanceTimeTo(TimeSpan.FromMilliseconds(100));
+            Assert.Null(coordinator.Scheduler.NextTimerDue);
+            coordinator.Scheduler.AdvanceVirtualTimeTo(TimeSpan.FromMilliseconds(100));
             Assert.False(source.IsCancellationRequested);
         });
     }
@@ -74,7 +74,7 @@ public sealed class ControlledCancellationTokenSourceTests
     [Fact]
     public void ManualCancelDisablesTimerAndRunsCallbacksSynchronously()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             using var source = new CancellationTokenSource();
@@ -86,14 +86,14 @@ public sealed class ControlledCancellationTokenSourceTests
             ControlledCancellationTokenSource.Cancel(source);
 
             Assert.True(callbackRan);
-            Assert.Null(coordinator.Loop.NextDeadlineDue());
+            Assert.Null(coordinator.Scheduler.NextTimerDue);
         });
     }
 
     [Fact]
     public void DisposeSuppressesPendingTimerCancellation()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var source = new CancellationTokenSource();
@@ -101,8 +101,8 @@ public sealed class ControlledCancellationTokenSourceTests
             ControlledCancellationTokenSource.CancelAfter(source, 10);
             ControlledCancellationTokenSource.Dispose(source);
 
-            Assert.Null(coordinator.Loop.NextDeadlineDue());
-            coordinator.Loop.AdvanceTimeTo(TimeSpan.FromMilliseconds(10));
+            Assert.Null(coordinator.Scheduler.NextTimerDue);
+            coordinator.Scheduler.AdvanceVirtualTimeTo(TimeSpan.FromMilliseconds(10));
             Assert.False(token.IsCancellationRequested);
         });
     }
@@ -110,7 +110,7 @@ public sealed class ControlledCancellationTokenSourceTests
     [Fact]
     public void CancelAfterOnDisposedSourceThrows()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var source = new CancellationTokenSource();
@@ -123,14 +123,14 @@ public sealed class ControlledCancellationTokenSourceTests
     [Fact]
     public void CancelAsyncRunsOnControlledQueue()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             using var source = new CancellationTokenSource();
             Task cancellation = ControlledCancellationTokenSource.CancelAsync(source);
             Assert.False(cancellation.IsCompleted);
 
-            coordinator.Loop.RunUntil(() => cancellation.IsCompleted, "test.cancel");
+            coordinator.Scheduler.DrainUntil(() => cancellation.IsCompleted, "test.cancel");
 
             Assert.True(cancellation.IsCompletedSuccessfully);
             Assert.True(source.IsCancellationRequested);
@@ -140,7 +140,7 @@ public sealed class ControlledCancellationTokenSourceTests
     [Fact]
     public void LinkedCancellationDisablesPendingCancelAfterDeadline()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             using var parent = new CancellationTokenSource();
@@ -151,14 +151,14 @@ public sealed class ControlledCancellationTokenSourceTests
             parent.Cancel();
 
             Assert.True(linked.IsCancellationRequested);
-            Assert.Null(coordinator.Loop.NextDeadlineDue());
+            Assert.Null(coordinator.Scheduler.NextTimerDue);
         });
     }
 
     [Fact]
     public void ProviderConstructorValidatesDelayBeforeRejectingCustomProvider()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(
             coordinator,
             () => Assert.Throws<ArgumentOutOfRangeException>(

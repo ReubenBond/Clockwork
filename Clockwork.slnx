@@ -1,7 +1,6 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Clockwork/Clockwork.csproj" />
-    <Project Path="src/Clockwork.Runtime/Clockwork.Runtime.csproj" />
     <Project Path="src/Clockwork.Instrumentation/Clockwork.Instrumentation.csproj" />
     <Project Path="src/Clockwork.Instrumentation.Build/Clockwork.Instrumentation.Build.csproj" />
     <Project Path="src/Clockwork.Tool/Clockwork.Tool.csproj" />

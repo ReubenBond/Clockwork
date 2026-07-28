@@ -6,7 +6,8 @@ public sealed class SimulationClockTests
     public void UtcNowStartsAtTheConfiguredStartDateTime()
     {
         var start = DateTimeOffset.UnixEpoch + TimeSpan.FromDays(1);
-        var clock = new SimulationClock(start);
+        using var scheduler = SimulationTestHarness.NewScheduler(start);
+        var clock = new SimulationClock(scheduler);
 
         Assert.Equal(start, clock.UtcNow);
         Assert.Equal(TimeSpan.Zero, clock.CurrentTime);
@@ -15,7 +16,8 @@ public sealed class SimulationClockTests
     [Fact]
     public void AdvanceMovesUtcNowForwardByTheDelta()
     {
-        var clock = new SimulationClock(DateTimeOffset.UnixEpoch);
+        using var scheduler = SimulationTestHarness.NewScheduler();
+        var clock = new SimulationClock(scheduler);
 
         clock.Advance(TimeSpan.FromSeconds(5));
         clock.Advance(TimeSpan.FromSeconds(2));
@@ -27,7 +29,8 @@ public sealed class SimulationClockTests
     [Fact]
     public void AdvanceWithNegativeDeltaThrows()
     {
-        var clock = new SimulationClock(DateTimeOffset.UnixEpoch);
+        using var scheduler = SimulationTestHarness.NewScheduler();
+        var clock = new SimulationClock(scheduler);
 
         Assert.Throws<ArgumentOutOfRangeException>(() => clock.Advance(TimeSpan.FromSeconds(-1)));
     }
@@ -35,7 +38,9 @@ public sealed class SimulationClockTests
     [Fact]
     public void AdvanceWithZeroDeltaDoesNotChangeCurrentTime()
     {
-        var clock = new SimulationClock(DateTimeOffset.UnixEpoch, TimeSpan.FromSeconds(3));
+        using var scheduler = SimulationTestHarness.NewScheduler();
+        scheduler.AdvanceVirtualTimeTo(TimeSpan.FromSeconds(3));
+        var clock = new SimulationClock(scheduler);
 
         clock.Advance(TimeSpan.Zero);
 
@@ -47,10 +52,11 @@ public sealed class SimulationClockTests
     {
         // The clock is the single source of truth shared across a node's queue and the
         // cluster-level queue - advancing it must unblock ready work on every queue at once.
-        var clock = new SimulationClock(DateTimeOffset.UnixEpoch);
-        var guard = new SingleThreadedGuard();
-        var queueA = new SimulationTaskQueue(clock, guard);
-        var queueB = new SimulationTaskQueue(clock, guard);
+        using var scheduler = SimulationTestHarness.NewScheduler();
+        var clock = new SimulationClock(scheduler);
+        var guard = SimulationTestHarness.NewGuard(scheduler);
+        var queueA = new SimulationSchedulerLane(scheduler, guard);
+        var queueB = new SimulationSchedulerLane(scheduler, guard);
 
         var aExecuted = false;
         var bExecuted = false;

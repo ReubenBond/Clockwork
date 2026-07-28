@@ -28,7 +28,7 @@ internal sealed class BuiltInProcessFixture : IDisposable
                 {
                     string monitor;
                     try { _ = Monitor.LockContentionCount; monitor = "real"; }
-                    catch (Exception ex) when (ex.GetType().Name == "ControlledTaskUnsupportedException") { monitor = "rejected"; }
+                    catch (Exception ex) when (ex.GetType().Name == "ControlledApiException") { monitor = "rejected"; }
 
                     var dedicated = new Lock();
                     lock (dedicated) { }
@@ -79,7 +79,7 @@ internal sealed class BuiltInProcessFixture : IDisposable
                 var node = builder.AddNode("node");
                 var simulation = builder.Build();
                 string output = "";
-                node.Context.TaskQueue.EnqueueAfter(() => output = Probe.Run(), TimeSpan.Zero);
+                node.Context.SchedulerLane.EnqueueAfter(() => output = Probe.Run(), TimeSpan.Zero);
                 simulation.RunUntilIdle();
                 Console.WriteLine(output);
                 return 0;

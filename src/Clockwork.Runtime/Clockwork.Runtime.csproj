@@ -1,9 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-
-  <PropertyGroup>
-    <Description>Deterministic controlled-execution runtime with scheduling, resources, virtual deadlines, race detection, canonical replay artifacts, exact replay, bounded exploration, trace minimization, and diagnostics.</Description>
-    <RootNamespace>Clockwork.Runtime</RootNamespace>
-    <IsPackable>false</IsPackable>
-  </PropertyGroup>
-
-</Project>

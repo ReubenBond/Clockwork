@@ -7,8 +7,8 @@ using Clockwork.Runtime.Tasks.CompilerServices;
 namespace Clockwork.Tests;
 
 /// <summary>
-/// End-to-end host-wiring tests: a real <see cref="SimulationCluster{TNode}"/> registers a controlled
-/// task coordinator for its runtime, and its drive loop pumps controlled async continuations. These use
+/// End-to-end host-wiring tests: a real <see cref="SimulationCluster{TNode}"/> carries a controlled
+/// task coordinator in its runtime, and its drive loop pumps controlled async continuations. These use
 /// a hand-written async state machine (exactly the shape the C# compiler emits, with the controlled
 /// builder/awaiter substituted) to prove the controlled machinery runs on the cluster's single logical
 /// thread without the rewriter being involved.
@@ -16,7 +16,7 @@ namespace Clockwork.Tests;
 public sealed class ControlledAsyncHostWiringTests
 {
     [Fact]
-    public async Task CoordinatorIsRegisteredForTheClusterRuntime()
+    public async Task CoordinatorIsCarriedByTheClusterRuntime()
     {
         await using var cluster = new TestCluster(seed: 12345);
         _ = cluster.AddNode("node-1");
@@ -26,10 +26,12 @@ public sealed class ControlledAsyncHostWiringTests
 
         // The cluster queue installs ambient runtime context while an item runs, so the controlled
         // machinery must see an active simulation and resolve this cluster's coordinator.
-        cluster.TaskQueue.Enqueue(new ScheduledActionItem(() =>
+        cluster.SchedulerLane.Enqueue(new ScheduledActionItem(() =>
         {
             active = ControlledTaskRuntime.IsSimulationActive;
-            resolved = SimulationTaskCoordination.TryGet(cluster.RuntimeIdentity, out var coordinator) && coordinator is not null;
+            resolved = ReferenceEquals(
+                ControlledTaskRuntime.RequireScheduler("test.scheduler").Scheduler,
+                cluster.RuntimeIdentity.Scheduler);
         }));
 
         Assert.Equal(SimulationExecutionReason.ConditionMet, cluster.RunUntil(() => active).Reason);
@@ -49,14 +51,14 @@ public sealed class ControlledAsyncHostWiringTests
         // Start a controlled async state machine on the cluster queue (ambient runtime active). It awaits
         // an incomplete task; the continuation must be registered on the runtime coordinator and later
         // driven by the cluster loop - never inline, never on the thread pool.
-        cluster.TaskQueue.Enqueue(new ScheduledActionItem(() =>
+        cluster.SchedulerLane.Enqueue(new ScheduledActionItem(() =>
         {
             machineTask = RunAwaitingMachine(gate.Task);
             Assert.False(machineTask.IsCompleted);
         }));
 
         // Complete the awaited task on a later queue item, on the same logical thread.
-        cluster.TaskQueue.EnqueueAfter(() => gate.SetResult(21), TimeSpan.FromSeconds(1));
+        cluster.SchedulerLane.EnqueueAfter(() => gate.SetResult(21), TimeSpan.FromSeconds(1));
 
         Assert.Equal(
             SimulationExecutionReason.ConditionMet,
@@ -127,7 +129,7 @@ public sealed class ControlledAsyncHostWiringTests
 
         public TestNode AddNode(string address)
         {
-            var context = new SimulationNodeContext(Clock, Guard, ForkRandom(), TaskQueue);
+            var context = CreateNodeContext(address);
             var node = new TestNode(address, context);
             RegisterNode(node);
             return node;

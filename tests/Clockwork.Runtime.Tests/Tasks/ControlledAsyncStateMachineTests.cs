@@ -20,7 +20,7 @@ public sealed class ControlledAsyncStateMachineTests
     [Fact]
     public void AwaitedIncompleteTasksResumeDeterministicallyThroughTheLoop()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -32,9 +32,9 @@ public sealed class ControlledAsyncStateMachineTests
             // Suspended at the first await: nothing has completed the antecedents yet.
             Assert.False(result.IsCompleted);
 
-            coordinator.Loop.Schedule(() => a.SetResult(3));
-            coordinator.Loop.Schedule(() => b.SetResult(4));
-            coordinator.Loop.RunUntil(() => result.IsCompleted, "test");
+            coordinator.Scheduler.Schedule(() => a.SetResult(3));
+            coordinator.Scheduler.Schedule(() => b.SetResult(4));
+            coordinator.Scheduler.DrainUntil(() => result.IsCompleted, "test");
 
             Assert.Equal(TaskStatus.RanToCompletion, result.Status);
             Assert.Equal(7, result.Result);
@@ -44,7 +44,7 @@ public sealed class ControlledAsyncStateMachineTests
     [Fact]
     public void SynchronouslyCompletedAntecedentsNeverSuspend()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -53,14 +53,14 @@ public sealed class ControlledAsyncStateMachineTests
             // Both awaits saw IsCompleted == true, so the method ran to completion inside Start.
             Assert.True(result.IsCompleted);
             Assert.Equal(15, result.Result);
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
     [Fact]
     public void FaultedAntecedentPropagatesTheOriginalException()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -69,8 +69,8 @@ public sealed class ControlledAsyncStateMachineTests
             var result = AddAsync(a.Task, b.Task);
 
             var boom = new InvalidTimeZoneException("boom");
-            coordinator.Loop.Schedule(() => a.SetException(boom));
-            coordinator.Loop.RunUntil(() => result.IsCompleted, "test");
+            coordinator.Scheduler.Schedule(() => a.SetException(boom));
+            coordinator.Scheduler.DrainUntil(() => result.IsCompleted, "test");
 
             Assert.Equal(TaskStatus.Faulted, result.Status);
             Assert.Same(boom, result.Exception!.InnerException);
@@ -80,7 +80,7 @@ public sealed class ControlledAsyncStateMachineTests
     [Fact]
     public void CancelledAntecedentCancelsTheResultingTask()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -88,8 +88,8 @@ public sealed class ControlledAsyncStateMachineTests
             var b = new TaskCompletionSource<int>();
             var result = AddAsync(a.Task, b.Task);
 
-            coordinator.Loop.Schedule(() => a.SetCanceled());
-            coordinator.Loop.RunUntil(() => result.IsCompleted, "test");
+            coordinator.Scheduler.Schedule(() => a.SetCanceled());
+            coordinator.Scheduler.DrainUntil(() => result.IsCompleted, "test");
 
             Assert.Equal(TaskStatus.Canceled, result.Status);
         });
@@ -98,7 +98,7 @@ public sealed class ControlledAsyncStateMachineTests
     [Fact]
     public void ContinuationNeverRunsInlineOnAntecedentCompletion()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -106,7 +106,7 @@ public sealed class ControlledAsyncStateMachineTests
             var result = AddAsync(a.Task, Task.FromResult(1));
 
             var resumedInline = false;
-            coordinator.Loop.Schedule(() =>
+            coordinator.Scheduler.Schedule(() =>
             {
                 a.SetResult(41);
 
@@ -115,7 +115,7 @@ public sealed class ControlledAsyncStateMachineTests
                 resumedInline = result.IsCompleted;
             });
 
-            coordinator.Loop.RunUntil(() => result.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => result.IsCompleted, "test");
 
             Assert.False(resumedInline);
             Assert.Equal(42, result.Result);
@@ -125,7 +125,7 @@ public sealed class ControlledAsyncStateMachineTests
     [Fact]
     public void ConfigureAwaitFalseStaysControlled()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -136,8 +136,8 @@ public sealed class ControlledAsyncStateMachineTests
 
             // The only way this resumes is through the coordinator's loop. If ConfigureAwait(false) had
             // escaped to the thread pool, pumping the loop alone would never complete it.
-            coordinator.Loop.Schedule(() => a.SetResult(99));
-            coordinator.Loop.RunUntil(() => result.IsCompleted, "test");
+            coordinator.Scheduler.Schedule(() => a.SetResult(99));
+            coordinator.Scheduler.DrainUntil(() => result.IsCompleted, "test");
 
             Assert.Equal(100, result.Result);
         });
@@ -146,7 +146,7 @@ public sealed class ControlledAsyncStateMachineTests
     [Fact]
     public void YieldSuspendsThenResumesThroughTheLoop()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -154,9 +154,9 @@ public sealed class ControlledAsyncStateMachineTests
 
             // Yield always suspends, so the result is not complete until the loop runs the continuation.
             Assert.False(result.IsCompleted);
-            Assert.Equal(1, coordinator.Loop.ReadyCount);
+            Assert.Equal(1, coordinator.Scheduler.RunnableOperationCount);
 
-            coordinator.Loop.RunUntil(() => result.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => result.IsCompleted, "test");
             Assert.Equal(7, result.Result);
         });
     }

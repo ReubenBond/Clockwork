@@ -10,7 +10,7 @@ public sealed class ControlledSpinLockTests
     [Fact]
     public void DefaultAndConstructedLocksExposeSpinLockPropertiesAndCopySemantics()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             ControlledSpinLock @default = default;
@@ -41,7 +41,7 @@ public sealed class ControlledSpinLockTests
     [Fact]
     public void ImmediateEnterAndExitMutateTheReferencedStruct()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var gate = new ControlledSpinLock(enableThreadOwnerTracking: true);
@@ -65,7 +65,7 @@ public sealed class ControlledSpinLockTests
     [Fact]
     public void RefLockTakenValidationAndTimeoutValidationMatchContracts()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var gate = new ControlledSpinLock(enableThreadOwnerTracking: false);
@@ -104,7 +104,7 @@ public sealed class ControlledSpinLockTests
     [Fact]
     public void ContendedEnterCooperativelyPumpsUntilAnotherStrandReleases()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var gate = new ControlledSpinLock(enableThreadOwnerTracking: false);
@@ -128,7 +128,7 @@ public sealed class ControlledSpinLockTests
     [Fact]
     public void FiniteTimeoutLeavesLockTakenFalse()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var gate = new ControlledSpinLock(enableThreadOwnerTracking: false);
@@ -153,7 +153,7 @@ public sealed class ControlledSpinLockTests
     [Fact]
     public void OwnerTrackingRejectsRecursionAndNonOwnerExit()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var gate = new ControlledSpinLock(enableThreadOwnerTracking: true);

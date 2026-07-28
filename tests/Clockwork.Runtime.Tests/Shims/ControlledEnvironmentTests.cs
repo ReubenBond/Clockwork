@@ -1,9 +1,22 @@
+using Clockwork.Runtime.Scheduling;
 using Clockwork.Runtime.Shims;
 
 namespace Clockwork.Runtime.Tests.Shims;
 
 public sealed class ControlledEnvironmentTests
 {
+    [Fact]
+    public void CurrentManagedThreadIdUsesTheSimulationLogicalThread()
+    {
+        var environment = ShimTestHarness.CreateEnvironment(ShimTestHarness.CreateClock());
+
+        var id = ShimTestHarness.RunInSimulation(
+            environment,
+            ControlledEnvironment.GetCurrentManagedThreadId);
+
+        Assert.Equal(SimulationScheduler.SimulationLogicalThreadOwnerId, id);
+    }
+
     [Fact]
     public void TickCount64IsVirtualMillisecondsSinceOrigin()
     {

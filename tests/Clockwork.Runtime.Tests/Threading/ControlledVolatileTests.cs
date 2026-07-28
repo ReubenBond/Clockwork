@@ -16,7 +16,7 @@ public sealed class ControlledVolatileTests
     [Fact]
     public void ReadReturnsWrittenValueForEveryPrimitive()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             bool b = true; Assert.True(ControlledVolatile.Read(ref b));
@@ -38,7 +38,7 @@ public sealed class ControlledVolatileTests
     [Fact]
     public void WriteStoresValueForEveryPrimitive()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             bool b = false; ControlledVolatile.Write(ref b, true); Assert.True(b);
@@ -52,7 +52,7 @@ public sealed class ControlledVolatileTests
     [Fact]
     public void GenericReadWriteOperateOnReferences()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var value = new object();
@@ -65,7 +65,7 @@ public sealed class ControlledVolatileTests
     [Fact]
     public void BarriersAreNoThrow()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             ControlledVolatile.ReadBarrier();

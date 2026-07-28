@@ -190,7 +190,7 @@ internal static class ReplayCommands
         if (reader.Positional.Count != 2 ||
             !string.Equals(reader.Positional[0], "show", StringComparison.Ordinal))
         {
-            throw new UsageException("trace usage: clockwork trace show <artifact> [--json]");
+            throw new UsageException("trace usage: dotnet clockwork trace show <artifact> [--json]");
         }
 
         bool json = reader.GetFlag("json");

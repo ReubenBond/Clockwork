@@ -10,10 +10,10 @@ namespace Clockwork.Runtime.Tests.Shims;
 /// </summary>
 public sealed class ControlledRandomNumberGeneratorTests
 {
-    private static SimulationRuntimeEnvironment RejectEnvironment() =>
+    private static ShimTestHarness.TestEnvironment RejectEnvironment() =>
         ShimTestHarness.CreateEnvironment(ShimTestHarness.CreateClock());
 
-    private static SimulationRuntimeEnvironment InsecureEnvironment() =>
+    private static ShimTestHarness.TestEnvironment InsecureEnvironment() =>
         ShimTestHarness.CreateEnvironment(
             ShimTestHarness.CreateClock(),
             cryptoPolicy: SimulationCryptoRandomnessPolicy.DeterministicInsecureForTesting);

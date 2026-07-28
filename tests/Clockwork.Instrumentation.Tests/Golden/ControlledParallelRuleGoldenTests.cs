@@ -12,7 +12,7 @@ namespace Clockwork.Instrumentation.Tests.Golden;
 /// <summary>
 /// End-to-end golden tests for the shipped controlled <see cref="System.Threading.Tasks.Parallel"/> rule
 /// family: they rewrite real <c>Parallel.Invoke</c> / <c>For</c> / <c>ForEach</c> call sites in a compiled
-/// fixture against the real <c>Clockwork.Runtime</c> shim assembly and assert on the rewritten IL and
+/// fixture against the real <c>Clockwork</c> assembly and assert on the rewritten IL and
 /// manifest. This proves the static signatures declared in <c>BuiltInRuleSets</c> line up with the actual
 /// <see cref="Clockwork.Runtime.Threading.ControlledParallel"/> members, and that the break/stop
 /// (<c>ParallelLoopState</c>) overloads are rejected at the call site.

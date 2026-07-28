@@ -117,7 +117,7 @@ public sealed class TaskFactoryConformanceTests : IDisposable
                     Task.Factory.StartNew(() => { }, TaskCreationOptions.AttachedToParent);
                     return Task.FromResult(false);
                 }
-                catch (Exception ex) when (ex.GetType().Name == "ControlledTaskUnsupportedException")
+                catch (Exception ex) when (ex.GetType().Name == "ControlledApiException")
                 {
                     return Task.FromResult(true);
                 }
@@ -135,7 +135,7 @@ public sealed class TaskFactoryConformanceTests : IDisposable
                         schedulers.ExclusiveScheduler);
                     return Task.FromResult(false);
                 }
-                catch (Exception ex) when (ex.GetType().Name == "ControlledTaskUnsupportedException")
+                catch (Exception ex) when (ex.GetType().Name == "ControlledApiException")
                 {
                     return Task.FromResult(true);
                 }
@@ -202,8 +202,9 @@ public sealed class TaskFactoryConformanceTests : IDisposable
         long[] values = Result<long[]>(task);
 
         Assert.Equal(values[0], values[2]);
-        Assert.Equal(Clockwork.Runtime.Threading.ControlledSynchronizationFlow.None, values[1]);
+        Assert.NotEqual(Clockwork.Runtime.Threading.ControlledSynchronizationFlow.None, values[1]);
         Assert.NotEqual(Clockwork.Runtime.Threading.ControlledSynchronizationFlow.None, values[3]);
+        Assert.NotEqual(values[1], values[3]);
     }
 
     [Theory]

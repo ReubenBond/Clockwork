@@ -1,3 +1,4 @@
+using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Shims;
 
 namespace Clockwork.Tests;
@@ -28,7 +29,7 @@ public sealed class ControlledBclHostWiringTests
         await using var cluster = builder.Build();
 
         DateTime captured = default;
-        node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => captured = ControlledDateTime.GetUtcNow()));
+        node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => captured = ControlledDateTime.GetUtcNow()));
         cluster.RunUntilIdle();
 
         Assert.Equal(Start.UtcDateTime, captured);
@@ -44,7 +45,7 @@ public sealed class ControlledBclHostWiringTests
 
         long timestamp = -1;
         long tickCount64 = -1;
-        node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() =>
+        node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() =>
         {
             timestamp = ControlledStopwatch.GetTimestamp();
             tickCount64 = ControlledEnvironment.GetTickCount64();
@@ -67,8 +68,8 @@ public sealed class ControlledBclHostWiringTests
 
         int firstA = 0;
         int firstB = 0;
-        a.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => firstA = ControlledRandom.GetShared().Next()));
-        b.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => firstB = ControlledRandom.GetShared().Next()));
+        a.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => firstA = ControlledRandom.GetShared().Next()));
+        b.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => firstB = ControlledRandom.GetShared().Next()));
         cluster.RunUntilIdle();
 
         // Distinct nodes draw from independent application-domain streams, so a draw on one node does
@@ -87,7 +88,7 @@ public sealed class ControlledBclHostWiringTests
 
             Guid guid = default;
             int random = 0;
-            node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() =>
+            node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() =>
             {
                 guid = ControlledGuid.NewGuid();
                 random = ControlledRandom.GetShared().Next();
@@ -114,7 +115,7 @@ public sealed class ControlledBclHostWiringTests
             await using var cluster = builder.Build();
 
             Guid guid = default;
-            node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => guid = ControlledGuid.NewGuid()));
+            node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => guid = ControlledGuid.NewGuid()));
             cluster.RunUntilIdle();
             return guid;
         }
@@ -123,18 +124,17 @@ public sealed class ControlledBclHostWiringTests
     }
 
     [Fact]
-    public async Task ClusterRegistersAndUnregistersRuntimeEnvironment()
+    public async Task ClusterCarriesItsRuntimeEnvironment()
     {
         var builder = new SimulationBuilder().WithSeed(1).WithStartDateTime(Start);
         _ = builder.AddNode("node-1");
         var cluster = builder.Build();
 
-        Assert.True(SimulationRuntimeServices.TryGet(cluster.RuntimeIdentity, out var env));
-        Assert.Same(cluster.RuntimeEnvironment, env);
+        Assert.Same(cluster.RuntimeEnvironment, cluster.RuntimeIdentity.Environment);
 
         await cluster.DisposeAsync();
 
-        Assert.False(SimulationRuntimeServices.TryGet(cluster.RuntimeIdentity, out _));
+        Assert.False(SimulationExecutionContext.IsActive);
     }
 
     [Fact]

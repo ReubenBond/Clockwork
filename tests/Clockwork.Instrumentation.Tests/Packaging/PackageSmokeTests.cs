@@ -110,7 +110,7 @@ public sealed class PackageSmokeTests
 
         Assert.True(build.ExitCode == 0, $"Build failed:\n{build.StandardOutput}\n{build.StandardError}");
         Assert.Contains("\"mode\": \"RaceExploration\"", File.ReadAllText(consumer.ManifestPath));
-        Assert.True(File.Exists(Path.Combine(consumer.StagingDirectory, "Clockwork.Runtime.dll")));
+        Assert.True(File.Exists(Path.Combine(consumer.StagingDirectory, "Clockwork.dll")));
         AppRunResult staged = ProcessAppRunner.Run(consumer.StagedAppPath);
         Assert.Equal(0, staged.ExitCode);
         Assert.Contains("ticks=999", staged.Output);
@@ -352,7 +352,7 @@ public sealed class PackageSmokeTests
         public AppRunResult RunTool(IReadOnlyList<string> arguments)
         {
             string executable = Path.Combine(
-                _toolPath, RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "clockwork.exe" : "clockwork");
+                _toolPath, RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "dotnet-clockwork.exe" : "dotnet-clockwork");
             return ProcessAppRunner.Execute(executable, arguments, _toolPath, timeout: TimeSpan.FromSeconds(120));
         }
 
@@ -434,7 +434,7 @@ public sealed class PackageSmokeTests
             string builtIn = useBuiltInRules ? "true" : "false";
             string runtimeReference = useBuiltInRules
                 ? $"""
-                      <Reference Include="Clockwork.Runtime">
+                      <Reference Include="Clockwork">
                         <HintPath>{typeof(SimulationNotActiveException).Assembly.Location}</HintPath>
                         <Private>true</Private>
                       </Reference>

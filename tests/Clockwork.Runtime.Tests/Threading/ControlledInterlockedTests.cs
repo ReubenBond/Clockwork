@@ -17,7 +17,7 @@ public sealed class ControlledInterlockedTests
     [Fact]
     public void IncrementDecrementReturnUpdatedValue()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             int i32 = 0;
@@ -43,7 +43,7 @@ public sealed class ControlledInterlockedTests
     [Fact]
     public void AddReturnsSumAndStoresIt()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             int i32 = 10;
@@ -64,7 +64,7 @@ public sealed class ControlledInterlockedTests
     [Fact]
     public void AndOrApplyBitwiseAndReturnOriginal()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             int and = 0b1111;
@@ -84,7 +84,7 @@ public sealed class ControlledInterlockedTests
     [Fact]
     public void ExchangeReturnsOriginalAndStoresNew()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             int i32 = 5;
@@ -105,7 +105,7 @@ public sealed class ControlledInterlockedTests
     [Fact]
     public void CompareExchangeSwapsOnlyWhenComparandMatches()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             int i32 = 7;
@@ -125,7 +125,7 @@ public sealed class ControlledInterlockedTests
     [Fact]
     public void GenericExchangeAndCompareExchangeOperateOnReferences()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var a = new object();
@@ -143,7 +143,7 @@ public sealed class ControlledInterlockedTests
     [Fact]
     public void ReadReturnsCurrentValue()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             long i64 = 123;

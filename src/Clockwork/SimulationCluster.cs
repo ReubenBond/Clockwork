@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Random;
+using Clockwork.Runtime.Scheduling;
 using Clockwork.Runtime.Shims;
 using Microsoft.Extensions.Logging;
 
@@ -24,13 +25,8 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     private readonly SimulationTimeProvider _timeProvider;
     private readonly CancellationTokenSource _teardownCts;
     private readonly SimulationDriveLoop _driveLoop;
-    private readonly SimulationActivationToken _activationToken;
-    private readonly SimulationRuntimeEnvironment _runtimeEnvironment;
-    private readonly IDisposable _runtimeRegistration;
-    private readonly Clockwork.Runtime.Tasks.ControlledTaskLoopCoordinator _taskCoordinator;
-    private readonly IDisposable _taskCoordinatorRegistration;
-    private RoundRobinCursorKind _roundRobinCursor;
-    private string? _roundRobinNodeAddressExclusive;
+    private readonly SimulationScheduler _scheduler;
+    private readonly int _simulationThreadId;
     private bool _disposed;
 
     /// <summary>
@@ -57,6 +53,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         _teardownCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _simulationThreadId = Environment.CurrentManagedThreadId;
         TeardownCancellationToken = _teardownCts.Token;
         Seed = seed;
         StartDateTime = startDateTime ?? DateTimeOffset.UtcNow;
@@ -65,21 +62,28 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
 
         Random = new SimulationRandom(seed);
 
-        // Runtime plumbing: an activation token minted once per cluster instance (this is the
-        // simulation host, so it is entitled to one - see SimulationActivationToken) plus the
-        // runtime identity and seed authority that flow through every ambient scope this cluster
-        // installs.
-        _activationToken = SimulationRuntimeActivation.CreateToken();
-        RuntimeIdentity = new SimulationRuntimeIdentity(Guid.NewGuid(), seed, GetType().Name);
         SeedAuthority = new SimulationSeedAuthority(seed);
 
-        // Create shared clock and cluster-level queue
-        Clock = new SimulationClock(StartDateTime);
-        TaskQueue = new SimulationTaskQueue(Clock, Guard, CreateClusterAmbientContext());
-        TaskScheduler = new SimulationTaskScheduler(TaskQueue);
+        // The scheduler is the runtime's single authority for work and virtual time.
+        RuntimeIdentity = new SimulationRuntimeIdentity(Guid.NewGuid(), seed, GetType().Name);
+        _scheduler = new SimulationScheduler(
+            RuntimeIdentity,
+            SeedAuthority,
+            StartDateTime,
+            SimulationTimeZone,
+            CryptoRandomnessPolicy.ToRuntimePolicy());
+        Clock = new SimulationClock(_scheduler);
+        Guard = new SingleThreadedGuard(
+            () => _scheduler.IsSimulationThread || Environment.CurrentManagedThreadId == _simulationThreadId
+                ? SimulationScheduler.SimulationLogicalThreadOwnerId
+                : Environment.CurrentManagedThreadId);
+
+        // Create shared cluster-level scheduling surfaces.
+        SchedulerLane = new SimulationSchedulerLane(_scheduler, Guard);
+        TaskScheduler = new SimulationTaskScheduler(SchedulerLane);
 
         // Create time provider using cluster queue (for GetUtcNow queries)
-        _timeProvider = new SimulationTimeProvider(TaskQueue, Clock);
+        _timeProvider = new SimulationTimeProvider(SchedulerLane, Clock);
 
         // The single engine that drives RunUntil/RunUntilIdle/RunFor.
         _driveLoop = new SimulationDriveLoop(
@@ -90,37 +94,6 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
             CapturePendingWorkSummary,
             TeardownCancellationToken);
 
-        // Deterministic BCL shim wiring: back the process-wide runtime environment with this
-        // cluster's virtual clock and seed authority, drawing only from the Application/Identity
-        // seed domains so it never perturbs the scheduler, network, or Buggify streams. The
-        // registration is capability-gated by this cluster's activation token and keyed by the
-        // runtime identity, so parallel clusters never collide; it is torn down in DisposeAsync.
-        // The default crypto policy rejects OS-entropy calls during simulation (no silent
-        // substitution); a UTC local zone keeps DateTime.Now/Today deterministic by default.
-        _runtimeEnvironment = new SimulationRuntimeEnvironment(
-            SeedAuthority,
-            () => _timeProvider.GetUtcNow(),
-            SimulationTimeZone,
-            StartDateTime,
-            CryptoRandomnessPolicy.ToRuntimePolicy());
-        _runtimeRegistration = SimulationRuntimeServices.Register(
-            _activationToken,
-            RuntimeIdentity,
-            _runtimeEnvironment);
-
-        // Controlled async/task wiring: register a deterministic task coordinator for this
-        // runtime so the controlled compiler machinery (async builders, awaiters, Task/ValueTask shims)
-        // resolves a real coordinator instead of failing with "missing runtime service" whenever
-        // rewritten code runs inside this cluster. A single ControlledTaskLoop per runtime is the whole
-        // async scheduler: continuations from every node share it (see ControlledTaskLoopCoordinator).
-        // The cluster's drive loop pumps this loop in RunOneTaskRoundRobin, so fire-and-forget controlled
-        // continuations advance alongside queued work; synchronous controlled waits pump it directly.
-        // Keyed by the same runtime identity and torn down in DisposeAsync, exactly like the environment.
-        _taskCoordinator = new Clockwork.Runtime.Tasks.ControlledTaskLoopCoordinator();
-        _taskCoordinatorRegistration = Clockwork.Runtime.Tasks.SimulationTaskCoordination.Register(
-            _activationToken,
-            RuntimeIdentity,
-            _taskCoordinator);
     }
 
     /// <summary>
@@ -169,7 +142,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     /// Gets the deterministic runtime environment the BCL shims dispatch to while this cluster's
     /// ambient runtime is active. Backed by this cluster's virtual clock and seed authority.
     /// </summary>
-    public ISimulationRuntimeEnvironment RuntimeEnvironment => _runtimeEnvironment;
+    public ISimulationRuntimeEnvironment RuntimeEnvironment => RuntimeIdentity.Environment;
 
     /// <summary>
     /// Gets a cancellation token used to signal when the simulation is being torn down.
@@ -221,10 +194,10 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     public IReadOnlyList<TNode> ActiveNodes => [.. _nodes.Values.Where(n => !n.IsSuspended)];
 
     /// <summary>
-    /// Gets the cluster-level task queue for scheduling general simulation work.
-    /// For node-specific work, use the node's context to get the node's queue.
+    /// Gets the cluster-level scheduler lane for general simulation work.
+    /// For node-specific work, use the node context's scheduler lane.
     /// </summary>
-    public SimulationTaskQueue TaskQueue { get; }
+    public SimulationSchedulerLane SchedulerLane { get; }
 
     /// <summary>
     /// Gets the cluster-level task scheduler for scheduling general simulation work.
@@ -236,13 +209,13 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     /// Gets the cluster-level synchronization context.
     /// Install this on the test thread to capture async continuations in the simulation.
     /// </summary>
-    public SimulationSynchronizationContext SynchronizationContext => TaskQueue.SynchronizationContext;
+    public SimulationSynchronizationContext SynchronizationContext => SchedulerLane.SynchronizationContext;
 
     /// <summary>
     /// Gets the single-threaded guard used to detect accidental concurrent access.
     /// This guard should be shared with all simulation components to ensure single-threaded execution.
     /// </summary>
-    public SingleThreadedGuard Guard { get; } = new();
+    public SingleThreadedGuard Guard { get; }
 
     /// <summary>
     /// Gets the simulation context for a specific node.
@@ -274,7 +247,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     /// <summary>
     /// Unregisters a node from the simulation.
     /// The node is removed from the routing table so it won't receive new messages.
-    /// Note: This does NOT clear the node's task queue - the node may still have
+    /// Note: This does NOT clear the node's scheduler lane - the node may still have
     /// pending work that needs to complete (e.g., during disposal).
     /// </summary>
     protected void UnregisterNode(TNode node)
@@ -319,34 +292,19 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
 #pragma warning restore CA5394 // Do not use insecure randomness
     }
 
-    /// <summary>
-    /// <para>
-    /// Creates the ambient-context configuration for a node-scoped queue: this cluster's
-    /// activation token and runtime identity, narrowed to the given node's identity. Pass the
-    /// result to a per-node <see cref="SimulationTaskQueue"/>/<see cref="SimulationNodeContext"/>
-    /// so that work executed on that queue ambiently reports both the cluster's runtime and this
-    /// specific node - see <see cref="Clockwork.Runtime.Execution.SimulationExecutionContext"/>.
-    /// </para>
-    /// <para>
-    /// Purely additive plumbing: nodes that never call this (e.g. hand-written
-    /// <see cref="SimulationNodeContext"/> construction outside a builder-created simulation)
-    /// simply get no ambient integration, exactly as before this existed.
-    /// </para>
-    /// </summary>
-    /// <param name="nodeAddress">The node's stable network address.</param>
-    /// <returns>An ambient-context configuration scoped to this cluster and the given node.</returns>
-    protected SimulationAmbientContextConfiguration CreateNodeAmbientContext(string nodeAddress)
+    /// <summary>Creates a node context bound to this cluster's scheduler and shared services.</summary>
+    protected SimulationNodeContext CreateNodeContext(string networkAddress, ILogger? logger = null)
     {
-        ArgumentException.ThrowIfNullOrEmpty(nodeAddress);
-        return new SimulationAmbientContextConfiguration(_activationToken, RuntimeIdentity, new SimulationNodeIdentity(nodeAddress));
+        ArgumentException.ThrowIfNullOrEmpty(networkAddress);
+        return new SimulationNodeContext(
+            Clock,
+            Guard,
+            ForkRandom(),
+            SchedulerLane,
+            logger,
+            RuntimeIdentity,
+            new SimulationNodeIdentity(networkAddress));
     }
-
-    /// <summary>
-    /// Creates the ambient-context configuration for the cluster-level (non-node-scoped) queue:
-    /// this cluster's activation token and runtime identity, with no node narrowing.
-    /// </summary>
-    private SimulationAmbientContextConfiguration CreateClusterAmbientContext() =>
-        new(_activationToken, RuntimeIdentity, Node: null);
 
     /// <summary>
     /// Runs the simulation until the specified condition is met.
@@ -361,111 +319,23 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     }
 
     /// <summary>
-    /// Attempts to execute one ready task using persistent round-robin order across the cluster queue,
-    /// ordinally sorted node queues, and the controlled task loop.
-    /// Returns true if a task was executed.
+    /// Attempts to execute one eligible operation on the unified scheduler.
     /// </summary>
     protected bool RunOneTaskRoundRobin()
     {
+        using var control = _scheduler.EnterControlScope();
         using var _ = Guard.Enter();
-        var nodes = Nodes;
-        var sourceCount = nodes.Count + 2;
-        var startIndex = GetRoundRobinStartIndex(nodes);
-
-        for (var offset = 0; offset < sourceCount; offset++)
-        {
-            var sourceIndex = (startIndex + offset) % sourceCount;
-            if (sourceIndex == 0)
-            {
-                if (TaskQueue.RunOnce())
-                {
-                    _roundRobinCursor = RoundRobinCursorKind.Node;
-                    _roundRobinNodeAddressExclusive = null;
-                    return true;
-                }
-
-                continue;
-            }
-
-            if (sourceIndex <= nodes.Count)
-            {
-                var node = nodes[sourceIndex - 1];
-                var context = node.Context;
-                if (context.State == SimulationNodeState.Running && context.Step())
-                {
-                    _roundRobinCursor = RoundRobinCursorKind.Node;
-                    _roundRobinNodeAddressExclusive = node.NetworkAddress;
-                    return true;
-                }
-
-                continue;
-            }
-
-            if (_taskCoordinator.Loop.IsIdle)
-            {
-                continue;
-            }
-
-            using (SimulationExecutionContext.EnterRuntime(_activationToken, RuntimeIdentity))
-            {
-                if (_taskCoordinator.Loop.RunOnce())
-                {
-                    _roundRobinCursor = RoundRobinCursorKind.Cluster;
-                    _roundRobinNodeAddressExclusive = null;
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    private int GetRoundRobinStartIndex(IReadOnlyList<TNode> nodes)
-    {
-        if (_roundRobinCursor == RoundRobinCursorKind.Cluster)
-        {
-            return 0;
-        }
-
-        if (_roundRobinNodeAddressExclusive is null)
-        {
-            return 1;
-        }
-
-        for (var index = 0; index < nodes.Count; index++)
-        {
-            if (StringComparer.Ordinal.Compare(nodes[index].NetworkAddress, _roundRobinNodeAddressExclusive) > 0)
-            {
-                return index + 1;
-            }
-        }
-
-        return nodes.Count + 1;
+        return _scheduler.RunStep();
     }
 
     /// <summary>
-    /// Gets the earliest due time across all queues (node contexts + cluster queue) and the controlled
-    /// loop's virtual-time deadlines (finite <c>Monitor</c>/<c>SemaphoreSlim</c> waits), so a finite wait
-    /// is driven to its simulated deadline by the same advance-to-next-due machinery as every timer.
+    /// Gets the earliest deadline from the scheduler's unified timer queue.
     /// </summary>
     protected DateTimeOffset? GetNextWaitingDueTime()
     {
         using var _ = Guard.Enter();
-        var earliest = Nodes.Select(n => n.Context.NextWaitingDueTime).Concat([TaskQueue.NextWaitingDueTime]).Min();
-
-        // Fold in the controlled loop's next virtual-time deadline (measured from StartDateTime). Null-safe:
-        // with no pending deadline this is a no-op, so existing advance behaviour is completely unchanged.
-        var loopDue = _taskCoordinator.Loop.NextDeadlineDue();
-        if (loopDue is not null)
-        {
-            var loopAbsolute = StartDateTime + loopDue.Value;
-            if (earliest is null || loopAbsolute < earliest.Value)
-            {
-                earliest = loopAbsolute;
-            }
-        }
-
-        return earliest;
+        var schedulerDue = _scheduler.NextTimerDue;
+        return schedulerDue is null ? null : StartDateTime + schedulerDue.Value;
     }
 
     /// <summary>
@@ -477,7 +347,6 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     private void AdvanceClock(TimeSpan delta)
     {
         Clock.Advance(delta);
-        _taskCoordinator.Loop.AdvanceTimeTo(_timeProvider.GetUtcNow() - StartDateTime);
     }
 
     /// <summary>
@@ -497,6 +366,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     public void RunToCompletion(Func<Task> taskFactory, int maxIterations = 1_000_000)
     {
         ArgumentNullException.ThrowIfNull(taskFactory);
+        using var control = _scheduler.EnterControlScope();
         using var lockScope = Guard.Enter();
 
         Task task = StartTask(taskFactory);
@@ -512,6 +382,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(taskFactory);
         ArgumentNullException.ThrowIfNull(budget);
+        using var control = _scheduler.EnterControlScope();
         using var lockScope = Guard.Enter();
 
         Task task = StartTask(taskFactory);
@@ -526,6 +397,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     public T RunToCompletion<T>(Func<Task<T>> taskFactory, int maxIterations = 1_000_000)
     {
         ArgumentNullException.ThrowIfNull(taskFactory);
+        using var control = _scheduler.EnterControlScope();
         using var lockScope = Guard.Enter();
 
         Task<T> task = StartTask(taskFactory);
@@ -541,6 +413,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(taskFactory);
         ArgumentNullException.ThrowIfNull(budget);
+        using var control = _scheduler.EnterControlScope();
         using var lockScope = Guard.Enter();
 
         Task<T> task = StartTask(taskFactory);
@@ -595,6 +468,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(duration, TimeSpan.Zero);
 
+        using var control = _scheduler.EnterControlScope();
         using var lockScope = Guard.Enter();
         var startTime = TimeProvider.GetUtcNow();
 
@@ -616,23 +490,12 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
         OnTimeAdvancing(duration);
 
         var targetTime = Clock.UtcNow + duration;
-        var first = RunUntilIdle(maxTimeAdvance: duration, maxIterations);
-
-        var forcedTimeAdvance = 0;
-        if (Clock.UtcNow < targetTime)
-        {
-            Clock.Advance(targetTime - Clock.UtcNow);
-            forcedTimeAdvance = 1;
-        }
-
-        var remainingIterations = maxIterations - first.Iterations;
-        if (remainingIterations <= 0)
-        {
-            return CombineExecutionResults(startTime, first, second: null, forcedTimeAdvance);
-        }
-
-        var second = RunUntilIdle(maxTimeAdvance: null, remainingIterations);
-        return CombineExecutionResults(startTime, first, second, forcedTimeAdvance);
+        return ExecuteDriveLoop(
+            condition: null,
+            maxSimulatedTimeAdvance: duration,
+            maxIterations,
+            observeTeardownCancellation: true,
+            absoluteEndTime: targetTime);
     }
 
     /// <summary>Called when a RunUntil condition is met.</summary>
@@ -669,8 +532,10 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
         TimeSpan maxSimulatedTimeAdvance,
         int maxIterations,
         bool observeTeardownCancellation,
-        int initialConsecutiveTimeAdvances = 0)
+        int initialConsecutiveTimeAdvances = 0,
+        DateTimeOffset? absoluteEndTime = null)
     {
+        using var control = _scheduler.EnterControlScope();
         using var _ = Guard.Enter();
         var options = new SimulationDriveLoopOptions(
             condition,
@@ -678,7 +543,8 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
             maxIterations,
             MaxConsecutiveTimeAdvances,
             observeTeardownCancellation,
-            initialConsecutiveTimeAdvances);
+            initialConsecutiveTimeAdvances,
+            absoluteEndTime);
         var result = _driveLoop.Execute(options);
         DispatchExecutionHooks(result, isConditionBased: condition is not null);
         return result;
@@ -753,12 +619,6 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
             final.AttemptedTimeAdvance);
     }
 
-    private enum RoundRobinCursorKind
-    {
-        Cluster,
-        Node,
-    }
-
     /// <summary>
     /// Captures a snapshot of runnable, waiting, and blocked work across the cluster queue and
     /// every node queue (including suspended nodes), with per-item diagnostics in stable order.
@@ -772,25 +632,23 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
         var waitingCount = 0;
         var blockedCount = 0;
 
-        CollectQueueDiagnostics("cluster", TaskQueue, isSuspended: false);
+        CollectQueueDiagnostics("cluster", SchedulerLane, isSuspended: false);
         foreach (var node in Nodes)
         {
-            CollectQueueDiagnostics(node.NetworkAddress, node.Context.TaskQueue, node.Context.State == SimulationNodeState.Suspended);
+            CollectQueueDiagnostics(node.NetworkAddress, node.Context.SchedulerLane, node.Context.State == SimulationNodeState.Suspended);
         }
 
-        foreach (Clockwork.Runtime.Tasks.ControlledTaskDeadlineInfo deadline in
-            _taskCoordinator.Loop.CapturePendingDeadlines())
+        foreach (var timer in _scheduler.CapturePendingTimers())
         {
-            DateTimeOffset dueTime = StartDateTime + deadline.DueTime;
-            bool isReady = dueTime <= now;
+            var dueTime = StartDateTime + timer.DueTime;
             diagnostics.Add(new SimulationScheduledItemDiagnostic(
-                "controlled-task-loop",
-                "PausedUntilTime",
+                "simulation-scheduler",
+                timer.Kind,
                 dueTime,
-                deadline.Sequence,
-                isReady,
+                timer.Sequence,
+                dueTime <= now,
                 IsBlocked: false));
-            if (isReady)
+            if (dueTime <= now)
             {
                 runnableCount++;
             }
@@ -808,7 +666,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
 
         return new SimulationPendingWorkSummary(runnableCount, waitingCount, blockedCount, orderedDiagnostics);
 
-        void CollectQueueDiagnostics(string queueIdentity, SimulationTaskQueue queue, bool isSuspended)
+        void CollectQueueDiagnostics(string queueIdentity, SimulationSchedulerLane queue, bool isSuspended)
         {
             foreach (var item in queue.ScheduledItems)
             {
@@ -877,7 +735,6 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
             RunToCompletion(async () =>
             {
                 SafeCancel(_teardownCts);
-                _taskCoordinator.Loop.CancelPendingDeadlines();
                 await DisposeAsyncCore();
             });
         }
@@ -886,23 +743,9 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
             AddDisposalFailure(ref failures, exception);
         }
 
-        // Tear down the deterministic runtime environment registration so a later simulation with a
-        // fresh runtime identity starts clean and this cluster's environment stops serving shims.
         try
         {
-            _runtimeRegistration.Dispose();
-        }
-        catch (Exception exception)
-        {
-            AddDisposalFailure(ref failures, exception);
-        }
-
-        // Unregister the controlled task coordinator so a later runtime starts with no coordinator and
-        // the missing-service path is exercised correctly until it registers its own.
-        try
-        {
-            _taskCoordinator.Dispose();
-            _taskCoordinatorRegistration.Dispose();
+            _scheduler.Dispose();
         }
         catch (Exception exception)
         {

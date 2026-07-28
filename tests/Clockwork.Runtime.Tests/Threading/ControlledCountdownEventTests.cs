@@ -11,7 +11,7 @@ public sealed class ControlledCountdownEventTests
     [Fact]
     public void CountsAddSignalResetAndAllWaitOverloadsFollowCountdownSemantics()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var countdown = new ControlledCountdownEvent(2);
@@ -48,7 +48,7 @@ public sealed class ControlledCountdownEventTests
     [Fact]
     public void WaitsUseVirtualTimeoutCancellationAndSignalRaces()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var countdown = new ControlledCountdownEvent(1);
@@ -64,14 +64,14 @@ public sealed class ControlledCountdownEventTests
             Assert.True(countdown.Signal());
             ControlledThread.Join(waiter);
             Assert.True(result);
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
     [Fact]
     public void WaitHandleBridgeIsCachedTracksStateAndComposesWithRegisteredWaits()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var countdown = new ControlledCountdownEvent(1);
@@ -93,7 +93,7 @@ public sealed class ControlledCountdownEventTests
 
             countdown.Signal();
             Assert.True(ControlledWaitHandle.WaitOne(bridge, 0));
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
             Assert.Equal(1, callbacks);
 
             countdown.Reset(1);
@@ -107,7 +107,7 @@ public sealed class ControlledCountdownEventTests
     [Fact]
     public void ValidationDisposalAndInactiveGuardsMatchControlledSurface()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Assert.Equal("initialCount", Assert.Throws<ArgumentOutOfRangeException>(

@@ -6,7 +6,7 @@
 //
 // See THIRD-PARTY-NOTICES.md for the adaptation record. Clockwork-specific changes: the guard is resolved
 // through the shared RewriteSession's replacement resolver (rather than Coyote's typeof-based import) so it
-// targets the Cecil-free Clockwork.Runtime shim; the injected guard rethrows Clockwork's internal
+// targets the Clockwork runtime shim; the injected guard rethrows Clockwork's internal
 // ControlledOperationAbortSignal instead of Coyote's ExecutionCanceled/ThreadInterrupted exceptions; the
 // async-state-machine detection recognises Clockwork's substituted controlled builder types as well as the
 // BCL builders; and the pass records a manifest transformation for every hardened handler.
@@ -164,7 +164,7 @@ internal sealed class ExceptionHardeningRewritingPass : RewritePass
         Session.AddDiagnostic(RewriteDiagnostic.Error(
             RewriteDiagnosticIds.UnresolvedReplacement,
             $"{error} Exception hardening is enabled but its guard '{_guardReplacement.ToCanonicalString()}' " +
-            "could not be resolved; supply the Clockwork.Runtime shim assembly."));
+            "could not be resolved; supply the Clockwork assembly."));
         Session.AddUnresolvedReference(_guardReplacement.ToCanonicalString());
         return false;
     }

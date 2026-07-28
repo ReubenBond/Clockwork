@@ -51,7 +51,7 @@ internal sealed class SimulationHost : IDisposable
 
         object? result = null;
         Exception? error = null;
-        node.Context.TaskQueue.EnqueueAfter(
+        node.Context.SchedulerLane.EnqueueAfter(
             () =>
             {
                 try
@@ -88,7 +88,7 @@ internal sealed class SimulationHost : IDisposable
 
         object? result = null;
         Exception? error = null;
-        node.Context.TaskQueue.EnqueueAfter(
+        node.Context.SchedulerLane.EnqueueAfter(
             () =>
             {
                 try
@@ -105,7 +105,7 @@ internal sealed class SimulationHost : IDisposable
         foreach (Action work in afterWork)
         {
             Action captured = work;
-            node.Context.TaskQueue.EnqueueAfter(captured, TimeSpan.Zero);
+            node.Context.SchedulerLane.EnqueueAfter(captured, TimeSpan.Zero);
         }
 
         _cluster.RunUntilIdle();

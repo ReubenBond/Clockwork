@@ -1,4 +1,3 @@
-using System.Reflection;
 using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Random;
 using Clockwork.Runtime.Shims;
@@ -58,8 +57,7 @@ public sealed class SimulationBuilderTests
         Assert.Same(factoryFailure, exception);
         Assert.Equal(["first"], events);
         Assert.NotNull(runtime);
-        Assert.False(SimulationRuntimeServices.TryGet(runtime, out _));
-        Assert.False(SimulationTaskCoordination.TryGet(runtime, out _));
+        Assert.False(SimulationExecutionContext.IsActive);
 
         var reuseException = Assert.Throws<InvalidOperationException>(() => builder.Build());
         Assert.Contains("cannot be reused", reuseException.Message, StringComparison.Ordinal);
@@ -88,8 +86,7 @@ public sealed class SimulationBuilderTests
             exception.InnerExceptions.Select(static error => error.Message));
         Assert.Equal(["first", "second"], events);
         Assert.NotNull(runtime);
-        Assert.False(SimulationRuntimeServices.TryGet(runtime, out _));
-        Assert.False(SimulationTaskCoordination.TryGet(runtime, out _));
+        Assert.False(SimulationExecutionContext.IsActive);
     }
 
     [Fact]
@@ -188,7 +185,7 @@ public sealed class SimulationBuilderTests
         await using var cluster = builder.Build();
 
         var executed = false;
-        node.Context.TaskQueue.EnqueueAfter(() => executed = true, TimeSpan.FromSeconds(5));
+        node.Context.SchedulerLane.EnqueueAfter(() => executed = true, TimeSpan.FromSeconds(5));
 
         Assert.Equal(SimulationExecutionReason.ConditionMet, cluster.RunUntil(() => executed).Reason);
         Assert.Equal(cluster.StartDateTime + TimeSpan.FromSeconds(5), cluster.TimeProvider.GetUtcNow());
@@ -202,7 +199,7 @@ public sealed class SimulationBuilderTests
         await using var cluster = builder.Build();
 
         Assert.Equal(0, counter.State);
-        counter.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => { }));
+        counter.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => { }));
         cluster.RunUntilIdle();
         Assert.Equal(0, counter.State);
     }
@@ -391,8 +388,7 @@ public sealed class SimulationBuilderTests
         Assert.False(laterHandle.IsInitialized);
         Assert.Empty(cluster.Nodes);
         Assert.True(teardownToken.IsCancellationRequested);
-        Assert.False(SimulationRuntimeServices.TryGet(runtime, out _));
-        Assert.False(SimulationTaskCoordination.TryGet(runtime, out _));
+        Assert.False(SimulationExecutionContext.IsActive);
 
         await cluster.DisposeAsync();
         Assert.Equal(
@@ -475,7 +471,7 @@ public sealed class SimulationBuilderTests
         await using var cluster = new LegacyStyleCluster(seed: 7);
         var node = cluster.AddNode("node-1");
         var executed = false;
-        node.Context.TaskQueue.EnqueueAfter(() => executed = true, TimeSpan.FromSeconds(1));
+        node.Context.SchedulerLane.EnqueueAfter(() => executed = true, TimeSpan.FromSeconds(1));
 
         Assert.Equal(SimulationExecutionReason.ConditionMet, cluster.RunUntil(() => executed).Reason);
     }
@@ -581,7 +577,7 @@ public sealed class SimulationBuilderTests
 
         public LegacyStyleNode AddNode(string address)
         {
-            var context = new SimulationNodeContext(Clock, Guard, ForkRandom(), TaskQueue);
+            var context = CreateNodeContext(address);
             var node = new LegacyStyleNode(address, context);
             RegisterNode(node);
             return node;
@@ -599,15 +595,8 @@ public sealed class SimulationBuilderTests
         public override bool IsInitialized => true;
     }
 
-    private static SimulationRuntimeIdentity GetRuntimeIdentity(SimulationNodeContext context)
-    {
-        var field = typeof(SimulationTaskQueue).GetField(
-            "_ambientContext",
-            BindingFlags.Instance | BindingFlags.NonPublic);
-        var ambientContext = Assert.IsType<SimulationAmbientContextConfiguration>(
-            field?.GetValue(context.TaskQueue));
-        return ambientContext.Runtime;
-    }
+    private static SimulationRuntimeIdentity GetRuntimeIdentity(SimulationNodeContext context) =>
+        context.SchedulerLane.Scheduler.Runtime;
 
     private static DeliveryStatus[] GetDeliveryOutcomes(SimulationNetwork network, double dropRate)
     {

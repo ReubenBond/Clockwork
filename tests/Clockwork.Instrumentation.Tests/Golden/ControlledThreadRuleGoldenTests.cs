@@ -12,7 +12,7 @@ namespace Clockwork.Instrumentation.Tests.Golden;
 /// <summary>
 /// End-to-end golden tests for the shipped controlled <see cref="System.Threading.Thread"/> rule family:
 /// they rewrite real <c>Thread</c> call sites in a compiled fixture against the real
-/// <c>Clockwork.Runtime</c> shim assembly and assert on the rewritten IL and manifest. This proves the
+/// <c>Clockwork</c> assembly and assert on the rewritten IL and manifest. This proves the
 /// static/instance signatures declared in <c>BuiltInRuleSets</c> line up with the actual
 /// <see cref="Clockwork.Runtime.Threading.ControlledThread"/> members - constructors become
 /// <c>Create</c>, instance <c>Start</c>/<c>Join</c> become static shims taking the receiver, the static

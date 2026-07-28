@@ -11,8 +11,8 @@ public sealed class SimulationClusterSchedulerFairnessTests
         var node = cluster.AddNode("node-a");
         var executionOrder = new List<string>();
 
-        EnqueueRepeatedly(cluster.TaskQueue, "cluster", 4);
-        EnqueueRepeatedly(node.Context.TaskQueue, "node-a", 4);
+        EnqueueRepeatedly(cluster.SchedulerLane, "cluster", 4);
+        EnqueueRepeatedly(node.Context.SchedulerLane, "node-a", 4);
 
         RunSteps(cluster, 8);
 
@@ -20,7 +20,7 @@ public sealed class SimulationClusterSchedulerFairnessTests
             ["cluster", "node-a", "cluster", "node-a", "cluster", "node-a", "cluster", "node-a"],
             executionOrder);
 
-        void EnqueueRepeatedly(SimulationTaskQueue queue, string source, int remaining)
+        void EnqueueRepeatedly(SimulationSchedulerLane queue, string source, int remaining)
         {
             queue.Enqueue(new ScheduledActionItem(() =>
             {
@@ -52,7 +52,7 @@ public sealed class SimulationClusterSchedulerFairnessTests
 
         void EnqueueRepeatedly(FairnessTestNode node, int remaining)
         {
-            node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() =>
+            node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() =>
             {
                 executionOrder.Add(node.NetworkAddress);
                 if (remaining > 1)
@@ -81,7 +81,7 @@ public sealed class SimulationClusterSchedulerFairnessTests
 
         void EnqueueNode(int remaining)
         {
-            node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() =>
+            node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() =>
             {
                 executionOrder.Add("node-a");
                 if (remaining > 1)
@@ -105,21 +105,21 @@ public sealed class SimulationClusterSchedulerFairnessTests
     }
 
     [Fact]
-    public async Task SchedulingOrderIsClusterThenOrdinalNodesThenControlledLoop()
+    public async Task InitialSchedulingOrderFollowsUnifiedRegistrationOrder()
     {
         await using var cluster = new FairnessTestCluster();
         var nodeB = cluster.AddNode("node-b");
         var nodeA = cluster.AddNode("node-a");
         var executionOrder = new List<string>();
 
-        cluster.TaskQueue.Enqueue(new ScheduledActionItem(() => executionOrder.Add("cluster")));
-        nodeB.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => executionOrder.Add("node-b")));
-        nodeA.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => executionOrder.Add("node-a")));
+        cluster.SchedulerLane.Enqueue(new ScheduledActionItem(() => executionOrder.Add("cluster")));
+        nodeB.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => executionOrder.Add("node-b")));
+        nodeA.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => executionOrder.Add("node-a")));
         cluster.ScheduleControlled(() => executionOrder.Add("controlled"));
 
         RunSteps(cluster, 4);
 
-        Assert.Equal(["cluster", "node-a", "node-b", "controlled"], executionOrder);
+        Assert.Equal(["cluster", "node-b", "node-a", "controlled"], executionOrder);
     }
 
     [Fact]
@@ -130,9 +130,9 @@ public sealed class SimulationClusterSchedulerFairnessTests
         var nodeB = cluster.AddNode("node-b");
         var executionOrder = new List<string>();
 
-        cluster.TaskQueue.Enqueue(new ScheduledActionItem(() => executionOrder.Add("cluster")));
-        nodeA.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => executionOrder.Add("node-a")));
-        nodeB.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => executionOrder.Add("node-b")));
+        cluster.SchedulerLane.Enqueue(new ScheduledActionItem(() => executionOrder.Add("cluster")));
+        nodeA.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => executionOrder.Add("node-a")));
+        nodeB.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => executionOrder.Add("node-b")));
         cluster.ScheduleControlled(() => executionOrder.Add("controlled"));
 
         Assert.True(cluster.RunOneStep());
@@ -141,12 +141,12 @@ public sealed class SimulationClusterSchedulerFairnessTests
 
         cluster.RemoveNode(nodeB);
         var nodeC = cluster.AddNode("node-c");
-        nodeC.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => executionOrder.Add("node-c")));
+        nodeC.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => executionOrder.Add("node-c")));
         nodeA.Resume();
 
         RunSteps(cluster, 3);
 
-        Assert.Equal(["cluster", "node-b", "node-c", "controlled", "node-a"], executionOrder);
+        Assert.Equal(["cluster", "node-b", "controlled", "node-c", "node-a"], executionOrder);
     }
 
     private static void RunSteps(FairnessTestCluster cluster, int count)
@@ -166,7 +166,7 @@ public sealed class SimulationClusterSchedulerFairnessTests
 
         public FairnessTestNode AddNode(string address)
         {
-            var context = new SimulationNodeContext(Clock, Guard, ForkRandom(), TaskQueue);
+            var context = CreateNodeContext(address);
             var node = new FairnessTestNode(address, context);
             RegisterNode(node);
             return node;
@@ -178,8 +178,7 @@ public sealed class SimulationClusterSchedulerFairnessTests
 
         public void ScheduleControlled(Action action)
         {
-            Assert.True(SimulationTaskCoordination.TryGet(RuntimeIdentity, out var coordinator));
-            coordinator!.Schedule(node: null, action);
+            RuntimeIdentity.Scheduler.Schedule(node: null, action);
         }
 
         protected override ValueTask DisposeAsyncCore() => ValueTask.CompletedTask;

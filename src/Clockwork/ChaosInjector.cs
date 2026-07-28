@@ -170,7 +170,7 @@ public abstract class ChaosInjector<TNode, TCluster>(TCluster cluster)
         for (var i = 0; i < steps; i++)
         {
             // Execute pending tasks
-            Cluster.TaskQueue.RunUntilIdle();
+            Cluster.SchedulerLane.RunUntilIdle();
 
             // Maybe inject a fault
             if (MaybeInjectFault())

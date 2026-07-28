@@ -12,7 +12,7 @@ namespace Clockwork.Instrumentation.Tests.Golden;
 /// <summary>
 /// End-to-end golden tests for the shipped uncontrolled-invocation rule family: they
 /// rewrite real <see cref="System.Diagnostics.Process"/> and <see cref="System.Environment"/> call sites in
-/// a compiled fixture against the real <c>Clockwork.Runtime</c> shim assembly and assert that each site is
+/// a compiled fixture against the real <c>Clockwork</c> assembly and assert that each site is
 /// rejected - a throwing <see cref="Clockwork.Runtime.UncontrolledInvocationGuard.Reject(string)"/> is
 /// injected before the original call, which the manifest records as a <see cref="SimulationApiPolicy.Rejected"/>
 /// transformation naming the exact API. This proves a rewritten assembly cannot launch, kill, wait on, or

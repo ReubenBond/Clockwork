@@ -11,11 +11,11 @@ namespace Clockwork.Instrumentation.Tests.Rules;
 /// <summary>
 /// Verifies the built-in deterministic BCL rule set: its inventory is coherent (unique ids, expected
 /// families, every controlled signature mapped), every replacement actually resolves in the shipped
-/// <c>Clockwork.Runtime</c> shim assembly, and the family selection / strict-guard plumbing behaves.
+/// <c>Clockwork</c> assembly, and the family selection / strict-guard plumbing behaves.
 /// </summary>
 public sealed class BuiltInRuleSetsTests
 {
-    private static string ShimAssemblyPath => Path.Combine(AppContext.BaseDirectory, "Clockwork.Runtime.dll");
+    private static string ShimAssemblyPath => Path.Combine(AppContext.BaseDirectory, "Clockwork.dll");
 
     [Fact]
     public void InventoryHasUniqueIdsAndTargetsTheShimAssembly()

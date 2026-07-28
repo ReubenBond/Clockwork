@@ -139,7 +139,7 @@ public sealed class InstrumentationRunnerTests : IDisposable
             """);
         File.Copy(
             typeof(Clockwork.Runtime.ControlledExceptionGuard).Assembly.Location,
-            Path.Combine(_source, "Clockwork.Runtime.dll"));
+            Path.Combine(_source, "Clockwork.dll"));
         File.WriteAllText(Path.Combine(_source, "app.runtimeconfig.json"), "{}");
 
         InstrumentationResult result = Run(
@@ -154,11 +154,43 @@ public sealed class InstrumentationRunnerTests : IDisposable
     }
 
     [Fact]
+    public void CopiesReplacementAssemblyDependenciesWithoutRewritingThem()
+    {
+        string keyPath = WriteKey();
+        string dependency = Compile(
+            "shim-dependency",
+            "namespace ShimDependency; public static class ValueProvider { public static int Value => 1; }",
+            keyPath);
+        Compile(
+            "shim",
+            "namespace Shim; public static class Replacement { public static int Value => ShimDependency.ValueProvider.Value; }",
+            references: [dependency]);
+        BuildMinimalApp();
+
+        var ruleSet = new RewriteRuleSet(
+            "clockwork.test.replacement-closure",
+            "1.0",
+            [
+                RewriteRule.SubstituteType(
+                    "clockwork.test.replacement",
+                    "Missing.Target",
+                    RewriteReplacement.Type("shim", "Shim.Replacement")),
+            ]);
+
+        InstrumentationResult result = Run(new InstrumentationConfiguration(), ruleSet);
+
+        Assert.True(result.Succeeded, string.Join("\n", result.Errors));
+        Assert.Contains("shim.dll", result.CopiedAssets);
+        Assert.Contains("shim-dependency.dll", result.CopiedAssets);
+        Assert.DoesNotContain(result.Assemblies, assembly => assembly.RelativePath == "shim-dependency.dll");
+    }
+
+    [Fact]
     public void RaceModeStagesTheExactRuntimeUsedByTheRewriter()
     {
         BuildMinimalApp();
         FixtureCompiler.Compile(
-            "Clockwork.Runtime",
+            "Clockwork",
             "namespace Clockwork.Runtime { public static class LegacyRuntime { } }",
             _source,
             FixtureSymbols.None,
@@ -171,7 +203,7 @@ public sealed class InstrumentationRunnerTests : IDisposable
         Assert.True(result.Succeeded, string.Join("\n", result.Errors));
         Assert.Equal(
             File.ReadAllBytes(typeof(RaceInstrumentation).Assembly.Location),
-            File.ReadAllBytes(Path.Combine(_staging, "Clockwork.Runtime.dll")));
+            File.ReadAllBytes(Path.Combine(_staging, "Clockwork.dll")));
     }
 
     [Theory]

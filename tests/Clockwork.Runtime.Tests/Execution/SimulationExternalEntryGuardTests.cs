@@ -10,7 +10,8 @@ namespace Clockwork.Runtime.Tests.Execution;
 /// </summary>
 public sealed class SimulationExternalEntryGuardTests
 {
-    private static SimulationRuntimeIdentity NewRuntime(string description) => new(Guid.NewGuid(), 1, description);
+    private static SimulationRuntimeIdentity NewRuntime(string description) =>
+        RuntimeTestHarness.NewRuntime(description: description);
 
     [Fact]
     public void ValidateEntryDoesNotThrowWhenNoAmbientContextIsPresent()
@@ -24,10 +25,9 @@ public sealed class SimulationExternalEntryGuardTests
     [Fact]
     public void ValidateEntryDoesNotThrowWhenAmbientContextMatchesTheExpectedRuntime()
     {
-        var token = SimulationRuntimeActivation.CreateToken();
         var runtime = NewRuntime("same");
 
-        using (SimulationExecutionContext.EnterRuntime(token, runtime))
+        using (SimulationExecutionContext.EnterRuntime(runtime))
         {
             // Ordinary re-entrancy (e.g. a nested pump) into the *same* runtime must not throw.
             SimulationExternalEntryGuard.ValidateEntry(runtime, "unit-test-boundary");
@@ -37,11 +37,10 @@ public sealed class SimulationExternalEntryGuardTests
     [Fact]
     public void ValidateEntryThrowsWhenAmbientContextBelongsToADifferentRuntime()
     {
-        var token = SimulationRuntimeActivation.CreateToken();
         var ambientRuntime = NewRuntime("ambient");
         var expectedRuntime = NewRuntime("expected");
 
-        using (SimulationExecutionContext.EnterRuntime(token, ambientRuntime))
+        using (SimulationExecutionContext.EnterRuntime(ambientRuntime))
         {
             var exception = Assert.Throws<SimulationExternalEntryException>(
                 () => SimulationExternalEntryGuard.ValidateEntry(expectedRuntime, "unit-test-boundary"));
@@ -67,12 +66,11 @@ public sealed class SimulationExternalEntryGuardTests
     [Fact]
     public void ExternalEntryExceptionMentionsARecentMatchingSuppressionEvent()
     {
-        var token = SimulationRuntimeActivation.CreateToken();
         var ambientRuntime = NewRuntime("ambient-with-suppression");
         var expectedRuntime = NewRuntime("expected");
         var reason = $"guard-diagnostics-test {Guid.NewGuid()}";
 
-        using (SimulationExecutionContext.EnterRuntime(token, ambientRuntime))
+        using (SimulationExecutionContext.EnterRuntime(ambientRuntime))
         {
             // Record a suppression event for this exact ambient runtime, then immediately trigger
             // an external-entry mismatch: the guard's message should note the suppression as a

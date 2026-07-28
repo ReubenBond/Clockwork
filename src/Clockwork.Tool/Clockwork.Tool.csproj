@@ -4,11 +4,11 @@
     <Description>The Clockwork command-line tool for deterministic IL instrumentation, explicit scenario recording, exact replay, bounded schedule exploration, trace minimization, and diagnostics. Requires the .NET 10 runtime.</Description>
     <RootNamespace>Clockwork.Tool</RootNamespace>
     <OutputType>Exe</OutputType>
-    <AssemblyName>clockwork</AssemblyName>
+    <AssemblyName>dotnet-clockwork</AssemblyName>
 
     <IsPackable>true</IsPackable>
     <PackAsTool>true</PackAsTool>
-    <ToolCommandName>clockwork</ToolCommandName>
+    <ToolCommandName>dotnet-clockwork</ToolCommandName>
     <PackageId>Clockwork.Tool</PackageId>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -18,7 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Clockwork.Instrumentation\Clockwork.Instrumentation.csproj" />
-    <ProjectReference Include="..\Clockwork.Runtime\Clockwork.Runtime.csproj" />
+    <ProjectReference Include="..\Clockwork\Clockwork.csproj" />
   </ItemGroup>
 
   <ItemGroup>

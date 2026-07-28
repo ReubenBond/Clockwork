@@ -1,0 +1,25 @@
+using Clockwork.Runtime.Execution;
+using Clockwork.Runtime.Random;
+using Clockwork.Runtime.Scheduling;
+using Clockwork.Runtime.Shims;
+
+namespace Clockwork.Runtime.Tests;
+
+// Owns a scheduler for tests that need an active simulation runtime.
+internal sealed class SimulationSchedulerTestHost : IDisposable
+{
+    public SimulationSchedulerTestHost(int seed = 12345, string? description = null)
+    {
+        var runtime = new SimulationRuntimeIdentity(Guid.NewGuid(), seed, description);
+        Scheduler = new SimulationScheduler(
+            runtime,
+            new SimulationSeedAuthority(seed),
+            DateTimeOffset.UnixEpoch,
+            TimeZoneInfo.Utc,
+            SimulationCryptoRandomnessPolicy.Reject);
+    }
+
+    public SimulationScheduler Scheduler { get; }
+
+    public void Dispose() => Scheduler.Dispose();
+}

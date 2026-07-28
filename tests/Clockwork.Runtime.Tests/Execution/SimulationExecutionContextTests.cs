@@ -12,7 +12,7 @@ public sealed class SimulationExecutionContextTests
     private static readonly SimulationLogicalExecutionIdSource LogicalExecutionIds = new();
 
     private static SimulationRuntimeIdentity NewRuntime(int seed = 1, string? description = null) =>
-        new(Guid.NewGuid(), seed, description);
+        RuntimeTestHarness.NewRuntime(seed, description);
 
     [Fact]
     public void IsActiveIsFalseOutsideAnySimulation()
@@ -36,10 +36,9 @@ public sealed class SimulationExecutionContextTests
     [Fact]
     public void EnterRuntimeMakesIsActiveTrueAndCurrentReflectsTheRuntime()
     {
-        var token = SimulationRuntimeActivation.CreateToken();
         var runtime = NewRuntime();
 
-        using (SimulationExecutionContext.EnterRuntime(token, runtime))
+        using (SimulationExecutionContext.EnterRuntime(runtime))
         {
             Assert.True(SimulationExecutionContext.IsActive);
             var current = SimulationExecutionContext.Current;
@@ -56,16 +55,9 @@ public sealed class SimulationExecutionContextTests
     }
 
     [Fact]
-    public void EnterRuntimeThrowsForNullToken()
-    {
-        Assert.Throws<ArgumentNullException>(() => SimulationExecutionContext.EnterRuntime(null!, NewRuntime()));
-    }
-
-    [Fact]
     public void EnterRuntimeThrowsForNullRuntime()
     {
-        var token = SimulationRuntimeActivation.CreateToken();
-        Assert.Throws<ArgumentNullException>(() => SimulationExecutionContext.EnterRuntime(token, null!));
+        Assert.Throws<ArgumentNullException>(() => SimulationExecutionContext.EnterRuntime(null!));
     }
 
     [Fact]
@@ -83,12 +75,11 @@ public sealed class SimulationExecutionContextTests
     [Fact]
     public void NestedScopesComposeRuntimeNodeAndLogicalExecutionCorrectly()
     {
-        var token = SimulationRuntimeActivation.CreateToken();
         var runtime = NewRuntime();
         var node = new SimulationNodeIdentity("node-1");
         var logicalExecutionId = LogicalExecutionIds.Next();
 
-        using (SimulationExecutionContext.EnterRuntime(token, runtime))
+        using (SimulationExecutionContext.EnterRuntime(runtime))
         {
             Assert.Null(SimulationExecutionContext.Current!.Node);
 
@@ -121,16 +112,15 @@ public sealed class SimulationExecutionContextTests
     [Fact]
     public void DisposalRestoresThePreviousFrameEvenWhenTheGuardedCodeThrows()
     {
-        var token = SimulationRuntimeActivation.CreateToken();
         var outerRuntime = NewRuntime(seed: 1, description: "outer");
         var innerRuntime = NewRuntime(seed: 2, description: "inner");
 
-        using (SimulationExecutionContext.EnterRuntime(token, outerRuntime))
+        using (SimulationExecutionContext.EnterRuntime(outerRuntime))
         {
             var caught = false;
             try
             {
-                using (SimulationExecutionContext.EnterRuntime(token, innerRuntime))
+                using (SimulationExecutionContext.EnterRuntime(innerRuntime))
                 {
                     Assert.Same(innerRuntime, SimulationExecutionContext.Current!.Runtime);
                     throw new InvalidOperationException("boom");
@@ -154,10 +144,9 @@ public sealed class SimulationExecutionContextTests
     [Fact]
     public async Task AmbientContextFlowsAcrossAwaitPointsWithoutExplicitPropagation()
     {
-        var token = SimulationRuntimeActivation.CreateToken();
         var runtime = NewRuntime();
 
-        using (SimulationExecutionContext.EnterRuntime(token, runtime))
+        using (SimulationExecutionContext.EnterRuntime(runtime))
         {
             await Task.Delay(1, TestContext.Current.CancellationToken);
             await Task.Yield();
@@ -171,13 +160,12 @@ public sealed class SimulationExecutionContextTests
     [Fact]
     public async Task ParallelLogicalCallContextsDoNotObserveEachOthersAmbientRuntime()
     {
-        var token = SimulationRuntimeActivation.CreateToken();
         var runtimeA = NewRuntime(seed: 1, description: "A");
         var runtimeB = NewRuntime(seed: 2, description: "B");
 
         async Task<bool> RunUnderRuntime(SimulationRuntimeIdentity runtime)
         {
-            using (SimulationExecutionContext.EnterRuntime(token, runtime))
+            using (SimulationExecutionContext.EnterRuntime(runtime))
             {
                 // Yield repeatedly so the two tasks interleave on the thread pool; each should
                 // still observe only its own ambient runtime the entire time.
@@ -206,10 +194,9 @@ public sealed class SimulationExecutionContextTests
     [Fact]
     public void SuppressFlowPreventsANewUnflowedThreadFromObservingAmbientContext()
     {
-        var token = SimulationRuntimeActivation.CreateToken();
         var runtime = NewRuntime();
 
-        using (SimulationExecutionContext.EnterRuntime(token, runtime))
+        using (SimulationExecutionContext.EnterRuntime(runtime))
         {
             bool observedInsideSuppressedWork;
 
@@ -249,11 +236,10 @@ public sealed class SimulationExecutionContextTests
     [Fact]
     public void SuppressFlowRecordsADiagnosticEntryDescribingWhy()
     {
-        var token = SimulationRuntimeActivation.CreateToken();
         var runtime = NewRuntime();
         var reason = $"unit test suppression reason {Guid.NewGuid()}";
 
-        using (SimulationExecutionContext.EnterRuntime(token, runtime))
+        using (SimulationExecutionContext.EnterRuntime(runtime))
         using (SimulationExecutionContext.SuppressFlow(reason))
         {
         }

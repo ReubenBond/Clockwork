@@ -15,7 +15,7 @@ public sealed class ControlledLockTests
     [Fact]
     public void EnterScopeAcquiresAndDisposeReleases()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -32,7 +32,7 @@ public sealed class ControlledLockTests
     [Fact]
     public void EnterExitTrackReentrancy()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -50,7 +50,7 @@ public sealed class ControlledLockTests
     [Fact]
     public void TryEnterContendedReturnsFalse()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -70,7 +70,7 @@ public sealed class ControlledLockTests
     [Fact]
     public void DisposeIsIdempotent()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -96,7 +96,7 @@ public sealed class ControlledLockTests
     [Fact]
     public void SafeThreadPoolCallbackDoesNotInheritLockOwnership()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -118,18 +118,18 @@ public sealed class ControlledLockTests
                 state: null);
 
             Assert.True(accepted);
-            Assert.Equal(1, coordinator.Loop.ReadyCount);
-            coordinator.Loop.RunUntilIdle();
+            Assert.Equal(1, coordinator.Scheduler.RunnableOperationCount);
+            coordinator.Scheduler.RunUntilIdle();
 
             Assert.True(gate.IsHeldByCurrentThread);
             gate.Exit();
             Assert.False(gate.IsHeldByCurrentThread);
             Assert.False(nestedWasOwner);
             Assert.False(nestedAcquired);
-            Assert.Equal(0, coordinator.Loop.ReadyCount);
-            Assert.Equal(0, coordinator.Loop.WaitingCount);
-            Assert.Null(coordinator.Loop.NextDeadlineDue());
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.Equal(0, coordinator.Scheduler.RunnableOperationCount);
+            Assert.Equal(0, coordinator.Scheduler.WaitingOperationCount);
+            Assert.Null(coordinator.Scheduler.NextTimerDue);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
@@ -139,7 +139,7 @@ public sealed class ControlledLockTests
     [InlineData((int)QueuedTaskVariant.ContinueWith)]
     public void QueuedTaskWorkDoesNotInheritLockOwnership(int variantValue)
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -176,7 +176,7 @@ public sealed class ControlledLockTests
                 antecedent.SetResult();
             }
 
-            coordinator.Loop.RunUntil(() => task.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test");
 
             Assert.Equal(TaskStatus.RanToCompletion, task.Status);
             Assert.True(gate.IsHeldByCurrentThread);
@@ -184,10 +184,10 @@ public sealed class ControlledLockTests
             Assert.False(gate.IsHeldByCurrentThread);
             Assert.False(nestedWasOwner);
             Assert.False(nestedAcquired);
-            Assert.Equal(0, coordinator.Loop.ReadyCount);
-            Assert.Equal(0, coordinator.Loop.WaitingCount);
-            Assert.Null(coordinator.Loop.NextDeadlineDue());
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.Equal(0, coordinator.Scheduler.RunnableOperationCount);
+            Assert.Equal(0, coordinator.Scheduler.WaitingOperationCount);
+            Assert.Null(coordinator.Scheduler.NextTimerDue);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 
@@ -209,7 +209,7 @@ public sealed class ControlledLockTests
     [InlineData((int)NestedQueueVariant.ContinueWith)]
     public void NestedQueuedOperationsUseDistinctLockOwners(int variantValue)
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -240,7 +240,7 @@ public sealed class ControlledLockTests
                     innerOwnedAfterTry = gate.IsHeldByCurrentThread;
                 });
 
-                coordinator.Loop.RunUntil(
+                coordinator.Scheduler.DrainUntil(
                     () => innerOperation.IsCompleted,
                     "nested queued Lock ownership probe");
 
@@ -250,7 +250,7 @@ public sealed class ControlledLockTests
             });
 
             Assert.False(outerOperation.IsCompleted);
-            coordinator.Loop.RunUntil(
+            coordinator.Scheduler.DrainUntil(
                 () => outerOperation.IsCompleted,
                 "outer queued Lock ownership probe");
 
@@ -264,11 +264,11 @@ public sealed class ControlledLockTests
             Assert.True(outerOwnedAfterInner);
             Assert.False(outerOwnedAfterExit);
             Assert.False(gate.IsHeldByCurrentThread);
-            Assert.Equal(0, coordinator.Loop.ReadyCount);
-            Assert.Equal(0, coordinator.Loop.WaitingCount);
-            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
-            Assert.Null(coordinator.Loop.NextDeadlineDue());
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.Equal(0, coordinator.Scheduler.RunnableOperationCount);
+            Assert.Equal(0, coordinator.Scheduler.WaitingOperationCount);
+            Assert.Equal(TimeSpan.Zero, coordinator.Scheduler.VirtualTime);
+            Assert.Null(coordinator.Scheduler.NextTimerDue);
+            Assert.True(coordinator.Scheduler.IsIdle);
         });
     }
 

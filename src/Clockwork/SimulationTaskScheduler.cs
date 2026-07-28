@@ -1,29 +1,29 @@
 namespace Clockwork;
 
 /// <summary>
-/// A deterministic task scheduler that queues tasks through a <see cref="SimulationTaskQueue"/>
+/// A deterministic task scheduler that queues tasks through a <see cref="SimulationSchedulerLane"/>
 /// and executes them only when explicitly stepped.
 /// </summary>
-public sealed class SimulationTaskScheduler(SimulationTaskQueue taskQueue) : TaskScheduler
+public sealed class SimulationTaskScheduler(SimulationSchedulerLane schedulerLane) : TaskScheduler
 {
     /// <inheritdoc />
-    protected override IEnumerable<Task>? GetScheduledTasks() => taskQueue.GetItemsOfType<ScheduledTaskItem, Task>(item => item.Task);
+    protected override IEnumerable<Task>? GetScheduledTasks() => schedulerLane.GetItemsOfType<ScheduledTaskItem, Task>(item => item.Task);
 
     /// <summary>
     /// Gets the scheduled tasks in the queue.
     /// </summary>
-    public IReadOnlyList<Task> Tasks => taskQueue.GetItemsOfType<ScheduledTaskItem, Task>(item => item.Task);
+    public IReadOnlyList<Task> Tasks => schedulerLane.GetItemsOfType<ScheduledTaskItem, Task>(item => item.Task);
 
     /// <inheritdoc />
-    protected override void QueueTask(Task task) => taskQueue.Enqueue(new ScheduledTaskItem(task, this));
+    protected override void QueueTask(Task task) => schedulerLane.Enqueue(new ScheduledTaskItem(task, this));
 
     /// <inheritdoc />
     protected override bool TryExecuteTaskInline(Task task, bool taskWasPreviouslyQueued) => false;
 
     /// <summary>
-    /// Gets the underlying task queue for this scheduler.
+    /// Gets the underlying scheduler lane for this task scheduler.
     /// </summary>
-    public object UnderlyingScheduler => taskQueue;
+    public object UnderlyingScheduler => schedulerLane;
 
     /// <summary>
     /// Checks if this scheduler shares the same underlying queue as a synchronization context.

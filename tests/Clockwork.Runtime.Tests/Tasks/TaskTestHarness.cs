@@ -1,11 +1,11 @@
 using Clockwork.Runtime.Execution;
+using Clockwork.Runtime.Random;
 using Clockwork.Runtime.Tasks;
 
 namespace Clockwork.Runtime.Tests.Tasks;
 
 /// <summary>
-/// Test helpers for driving the controlled task machinery: entering an active simulation with a
-/// registered <see cref="ISimulationTaskCoordinator"/> (a real loop-backed one by default) and a node,
+/// Test helpers for driving the controlled task machinery under a simulation scheduler and node,
 /// so <see cref="ControlledTaskRuntime"/> takes its controlled path.
 /// </summary>
 internal static class TaskTestHarness
@@ -16,21 +16,23 @@ internal static class TaskTestHarness
         new(Guid.NewGuid(), seed, description);
 
     /// <summary>
-    /// Runs <paramref name="body"/> inside an active simulation with <paramref name="coordinator"/>
-    /// registered and the default node entered.
+    /// Runs <paramref name="body"/> inside an active simulation with <paramref name="host"/>
+    /// installed and the default node entered.
     /// </summary>
     public static T RunInSimulation<T>(
-        ISimulationTaskCoordinator coordinator,
+        SimulationSchedulerTestHost host,
         Func<T> body,
         string? nodeAddress = DefaultNodeAddress,
         SimulationRuntimeIdentity? runtime = null)
     {
-        ArgumentNullException.ThrowIfNull(coordinator);
-        var token = SimulationRuntimeActivation.CreateToken();
-        var activeRuntime = runtime ?? NewRuntime();
+        ArgumentNullException.ThrowIfNull(host);
+        var activeRuntime = runtime ?? host.Scheduler.Runtime;
+        if (!ReferenceEquals(activeRuntime, host.Scheduler.Runtime))
+        {
+            throw new ArgumentException("The runtime must be owned by the supplied scheduler.", nameof(runtime));
+        }
 
-        using (SimulationTaskCoordination.Register(token, activeRuntime, coordinator))
-        using (SimulationExecutionContext.EnterRuntime(token, activeRuntime))
+        using (SimulationExecutionContext.EnterRuntime(activeRuntime))
         {
             if (nodeAddress is null)
             {
@@ -45,12 +47,12 @@ internal static class TaskTestHarness
     }
 
     public static void RunInSimulation(
-        ISimulationTaskCoordinator coordinator,
+        SimulationSchedulerTestHost host,
         Action body,
         string? nodeAddress = DefaultNodeAddress,
         SimulationRuntimeIdentity? runtime = null) =>
         RunInSimulation<object?>(
-            coordinator,
+            host,
             () =>
             {
                 body();
@@ -59,27 +61,4 @@ internal static class TaskTestHarness
             nodeAddress,
             runtime);
 
-    /// <summary>
-    /// Runs <paramref name="body"/> inside an active simulation with a node entered but <em>no</em>
-    /// coordinator registered, to exercise the missing-service failure path.
-    /// </summary>
-    public static void RunInSimulationWithoutCoordinator(Action body, string? nodeAddress = DefaultNodeAddress)
-    {
-        var token = SimulationRuntimeActivation.CreateToken();
-        var runtime = NewRuntime();
-
-        using (SimulationExecutionContext.EnterRuntime(token, runtime))
-        {
-            if (nodeAddress is null)
-            {
-                body();
-                return;
-            }
-
-            using (SimulationExecutionContext.EnterNode(new SimulationNodeIdentity(nodeAddress)))
-            {
-                body();
-            }
-        }
-    }
 }

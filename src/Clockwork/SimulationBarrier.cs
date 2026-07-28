@@ -16,7 +16,7 @@ namespace Clockwork;
 /// others.
 /// </para>
 /// <para>
-/// Completions are dispatched through the supplied <see cref="SimulationTaskQueue"/>, never
+/// Completions are dispatched through the supplied <see cref="SimulationSchedulerLane"/>, never
 /// inline and never via a real-time wait or thread-pool callback, so release order is
 /// deterministic and matches the order in which participants arrived.
 /// </para>
@@ -24,7 +24,7 @@ namespace Clockwork;
 [DebuggerDisplay("{DebuggerDisplay,nq}")]
 public sealed class SimulationBarrier
 {
-    private readonly SimulationTaskQueue _queue;
+    private readonly SimulationSchedulerLane _queue;
     private readonly object _sync = new();
     private readonly List<SimulationRendezvousSupport.Waiter> _waiters = [];
     private int _arrivedCount;
@@ -35,7 +35,7 @@ public sealed class SimulationBarrier
     /// <param name="queue">The queue used to dispatch waiter completions deterministically.</param>
     /// <param name="participantCount">The fixed number of participants required to release each round. Must be positive.</param>
     /// <param name="name">An optional name for diagnostics (for example, in a debugger).</param>
-    public SimulationBarrier(SimulationTaskQueue queue, int participantCount, string? name = null)
+    public SimulationBarrier(SimulationSchedulerLane queue, int participantCount, string? name = null)
     {
         ArgumentNullException.ThrowIfNull(queue);
         ArgumentOutOfRangeException.ThrowIfLessThan(participantCount, 1);

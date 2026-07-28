@@ -101,7 +101,7 @@ public sealed class ThreadConformanceTests : IDisposable
                     t.Priority = ThreadPriority.Highest;
                     return Task.FromResult(false);
                 }
-                catch (Exception ex) when (ex.GetType().Name == "ControlledThreadUnsupportedException")
+                catch (Exception ex) when (ex.GetType().Name == "ControlledApiException")
                 {
                     return Task.FromResult(true);
                 }

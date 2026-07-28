@@ -20,7 +20,7 @@ public sealed class ControlledParallelTests
     [Fact]
     public void ForRunsEveryIterationOnTheLogicalThread()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -36,7 +36,7 @@ public sealed class ControlledParallelTests
     [Fact]
     public void ForLongRunsEveryIteration()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -49,7 +49,7 @@ public sealed class ControlledParallelTests
     [Fact]
     public void InvokeRunsEveryAction()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -62,7 +62,7 @@ public sealed class ControlledParallelTests
     [Fact]
     public void ForEachProcessesEveryElement()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -78,7 +78,7 @@ public sealed class ControlledParallelTests
     [Fact]
     public void BodyFaultsAreAggregated()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -99,7 +99,7 @@ public sealed class ControlledParallelTests
     [Fact]
     public void CancelledOptionsTokenThrowsBeforeRunning()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -117,10 +117,10 @@ public sealed class ControlledParallelTests
     [Fact]
     public void RejectUnsupportedThrows()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            var ex = Assert.Throws<ControlledParallelUnsupportedException>(
+            var ex = Assert.Throws<ControlledApiException>(
                 () => ControlledParallel.RejectUnsupported("System.Threading.Tasks.Parallel.For"));
             Assert.Contains("Parallel.For", ex.Message, StringComparison.Ordinal);
         });
@@ -158,7 +158,7 @@ public sealed class ControlledParallelTests
     public void InvokeNullActionMatchesBclExceptionShape(int overloadValue)
     {
         var overload = (InvokeOverload)overloadValue;
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
@@ -192,16 +192,16 @@ public sealed class ControlledParallelTests
     public void InvokeNullActionLeavesEveryPublicLoopDiagnosticUnchanged(int overloadValue)
     {
         var overload = (InvokeOverload)overloadValue;
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var before = (
-                coordinator.Loop.VirtualNow,
-                coordinator.Loop.ReadyCount,
-                coordinator.Loop.WaitingCount,
-                NextDeadline: coordinator.Loop.NextDeadlineDue(),
-                coordinator.Loop.IsIdle);
+                coordinator.Scheduler.VirtualTime,
+                coordinator.Scheduler.RunnableOperationCount,
+                coordinator.Scheduler.WaitingOperationCount,
+                NextDeadline: coordinator.Scheduler.NextTimerDue,
+                coordinator.Scheduler.IsIdle);
             var sideEffectCount = 0;
             Action[] actions = [() => sideEffectCount++, null!];
 
@@ -218,16 +218,16 @@ public sealed class ControlledParallelTests
             });
 
             Assert.Equal(0, sideEffectCount);
-            Assert.Equal(before.VirtualNow, coordinator.Loop.VirtualNow);
-            Assert.Equal(before.ReadyCount, coordinator.Loop.ReadyCount);
-            Assert.Equal(before.WaitingCount, coordinator.Loop.WaitingCount);
-            Assert.Equal(before.NextDeadline, coordinator.Loop.NextDeadlineDue());
-            Assert.Equal(before.IsIdle, coordinator.Loop.IsIdle);
-            Assert.Equal(TimeSpan.Zero, coordinator.Loop.VirtualNow);
-            Assert.Equal(0, coordinator.Loop.ReadyCount);
-            Assert.Equal(0, coordinator.Loop.WaitingCount);
-            Assert.Null(coordinator.Loop.NextDeadlineDue());
-            Assert.True(coordinator.Loop.IsIdle);
+            Assert.Equal(before.VirtualTime, coordinator.Scheduler.VirtualTime);
+            Assert.Equal(before.RunnableOperationCount, coordinator.Scheduler.RunnableOperationCount);
+            Assert.Equal(before.WaitingOperationCount, coordinator.Scheduler.WaitingOperationCount);
+            Assert.Equal(before.NextDeadline, coordinator.Scheduler.NextTimerDue);
+            Assert.Equal(before.IsIdle, coordinator.Scheduler.IsIdle);
+            Assert.Equal(TimeSpan.Zero, coordinator.Scheduler.VirtualTime);
+            Assert.Equal(0, coordinator.Scheduler.RunnableOperationCount);
+            Assert.Equal(0, coordinator.Scheduler.WaitingOperationCount);
+            Assert.Null(coordinator.Scheduler.NextTimerDue);
+            Assert.True(coordinator.Scheduler.IsIdle);
 
             var argument = Assert.IsType<ArgumentException>(exception);
             Assert.Null(argument.ParamName);

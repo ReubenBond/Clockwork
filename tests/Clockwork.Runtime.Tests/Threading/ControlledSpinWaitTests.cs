@@ -17,7 +17,7 @@ public sealed class ControlledSpinWaitTests
     [Fact]
     public void SpinOnceAdvancesObservableCount()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var spin = new ControlledSpinWait();
@@ -33,7 +33,7 @@ public sealed class ControlledSpinWaitTests
     [Fact]
     public void SpinOnceWithThresholdAdvancesCount()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var spin = new ControlledSpinWait();
@@ -46,7 +46,7 @@ public sealed class ControlledSpinWaitTests
     [Fact]
     public void SpinOnceRejectsThresholdBelowMinusOne()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var spin = new ControlledSpinWait();
@@ -57,7 +57,7 @@ public sealed class ControlledSpinWaitTests
     [Fact]
     public void NextSpinWillYieldFlipsPastThreshold()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var spin = new ControlledSpinWait();
@@ -74,7 +74,7 @@ public sealed class ControlledSpinWaitTests
     [Fact]
     public void SpinUntilReturnsWhenPredicateAlreadyHolds()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             ControlledSpinWait.SpinUntil(() => true);
@@ -86,7 +86,7 @@ public sealed class ControlledSpinWaitTests
     [Fact]
     public void SpinUntilZeroTimeoutDoesNotBlock()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Assert.False(ControlledSpinWait.SpinUntil(() => false, 0));
@@ -96,7 +96,7 @@ public sealed class ControlledSpinWaitTests
     [Fact]
     public void SpinUntilFiniteTimeoutElapsesWhenPredicateNeverHolds()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Assert.False(ControlledSpinWait.SpinUntil(() => false, 25));
@@ -107,7 +107,7 @@ public sealed class ControlledSpinWaitTests
     [Fact]
     public void SpinUntilRejectsInvalidTimeout()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Assert.Throws<ArgumentOutOfRangeException>(() => ControlledSpinWait.SpinUntil(() => true, -2));

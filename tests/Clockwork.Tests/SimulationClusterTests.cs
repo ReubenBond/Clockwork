@@ -1,3 +1,4 @@
+using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks;
 using Clockwork.Runtime.Threading;
@@ -13,7 +14,7 @@ public sealed class SimulationClusterTests
         var node = cluster.AddNode("node-1");
         var executed = false;
 
-        node.Context.TaskQueue.EnqueueAfter(() => executed = true, TimeSpan.FromSeconds(5));
+        node.Context.SchedulerLane.EnqueueAfter(() => executed = true, TimeSpan.FromSeconds(5));
 
         Assert.Equal(SimulationExecutionReason.ConditionMet, cluster.RunUntil(() => executed).Reason);
         Assert.Equal(cluster.StartDateTime + TimeSpan.FromSeconds(5), cluster.TimeProvider.GetUtcNow());
@@ -66,7 +67,7 @@ public sealed class SimulationClusterTests
         var node = cluster.AddNode("node-1");
 
         // Schedule work far beyond the stuck-detection threshold; the condition never becomes true.
-        node.Context.TaskQueue.EnqueueAfter(() => { }, TimeSpan.FromSeconds(10));
+        node.Context.SchedulerLane.EnqueueAfter(() => { }, TimeSpan.FromSeconds(10));
 
         Assert.Equal(
             SimulationExecutionReason.MaxSimulatedTimeAdvanceExceeded,
@@ -82,7 +83,7 @@ public sealed class SimulationClusterTests
 
         for (var i = 0; i < 3; i++)
         {
-            node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => executedCount++));
+            node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => executedCount++));
         }
 
         Assert.Equal(3, cluster.RunUntilIdle().StepsExecuted);
@@ -150,8 +151,7 @@ public sealed class SimulationClusterTests
         Assert.Equal("cluster cleanup failed", failure.Message);
         Assert.Equal(1, cluster.DisposeCallCount);
         Assert.True(teardownToken.IsCancellationRequested);
-        Assert.False(SimulationRuntimeServices.TryGet(runtime, out _));
-        Assert.False(SimulationTaskCoordination.TryGet(runtime, out _));
+        Assert.False(SimulationExecutionContext.IsActive);
 
         await cluster.DisposeAsync();
         Assert.Equal(1, cluster.DisposeCallCount);
@@ -169,7 +169,7 @@ public sealed class SimulationClusterTests
 
         public TestNode AddNode(string address)
         {
-            var context = new SimulationNodeContext(Clock, Guard, ForkRandom(), TaskQueue);
+            var context = CreateNodeContext(address);
             var node = new TestNode(address, context);
             RegisterNode(node);
             return node;

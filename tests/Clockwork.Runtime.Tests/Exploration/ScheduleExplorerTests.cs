@@ -77,7 +77,7 @@ public sealed class ScheduleExplorerTests
 
     private static ScheduleExplorationResult Explore(
         ScheduleExplorationOptions options,
-        Action<ControlledOperationScheduler> scenario) =>
+        Action<SimulationScheduler> scenario) =>
         ScheduleExplorer.Explore(options, scenario, TestContext.Current.CancellationToken);
 
     private static ScheduleExplorationOptions ExploreOptions(
@@ -91,10 +91,10 @@ public sealed class ScheduleExplorerTests
             MaxFailures = maxFailures,
         };
 
-    private static void NoOpScenario(ControlledOperationScheduler scheduler) =>
+    private static void NoOpScenario(SimulationScheduler scheduler) =>
         scheduler.Schedule("complete", static () => { });
 
-    private static void RaceScenario(ControlledOperationScheduler scheduler)
+    private static void RaceScenario(SimulationScheduler scheduler)
     {
         var target = new object();
         scheduler.Schedule(
@@ -117,10 +117,10 @@ public sealed class ScheduleExplorerTests
                 sourceLine: -1));
     }
 
-    private static void ConditionalDeadlockScenario(ControlledOperationScheduler scheduler)
+    private static void ConditionalDeadlockScenario(SimulationScheduler scheduler)
     {
-        ControlledResource first = scheduler.CreateResource(ControlledResourceKind.Monitor, "first");
-        ControlledResource second = scheduler.CreateResource(ControlledResourceKind.Monitor, "second");
+        SimulationResource first = scheduler.CreateResource(SimulationResourceKind.Monitor, "first");
+        SimulationResource second = scheduler.CreateResource(SimulationResourceKind.Monitor, "second");
         scheduler.Schedule(
             "one",
             () =>
@@ -129,7 +129,7 @@ public sealed class ScheduleExplorerTests
                 scheduler.Yield();
                 if (second.Owner is not null)
                 {
-                    scheduler.WaitOnResource(second, ControlledOperationPauseReason.ResourceWait("second"));
+                    scheduler.WaitOnResource(second, SimulationPauseReason.ResourceWait("second"));
                 }
             });
         scheduler.Schedule(
@@ -140,7 +140,7 @@ public sealed class ScheduleExplorerTests
                 scheduler.Yield();
                 if (first.Owner is not null)
                 {
-                    scheduler.WaitOnResource(first, ControlledOperationPauseReason.ResourceWait("first"));
+                    scheduler.WaitOnResource(first, SimulationPauseReason.ResourceWait("first"));
                 }
             });
     }

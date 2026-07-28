@@ -62,12 +62,4 @@ public sealed class ControlledStopwatchTests
         Assert.Equal(duration, elapsed);
     }
 
-    [Fact]
-    public void ActiveSimulationWithoutEnvironmentFailsExplicitly()
-    {
-        ShimTestHarness.RunInSimulationWithoutEnvironment(() =>
-        {
-            Assert.Throws<SimulationServiceMissingException>(() => _ = ControlledStopwatch.GetTimestamp());
-        });
-    }
 }

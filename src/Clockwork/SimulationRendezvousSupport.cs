@@ -52,7 +52,7 @@ internal static class SimulationRendezvousSupport
     /// Disposes cancellation registrations and queues claimed releases in FIFO order.
     /// Must be called without the owning primitive's lock held.
     /// </summary>
-    public static void ScheduleReleases(SimulationTaskQueue queue, IReadOnlyList<Waiter> waiters)
+    public static void ScheduleReleases(SimulationSchedulerLane queue, IReadOnlyList<Waiter> waiters)
     {
         ArgumentNullException.ThrowIfNull(queue);
         ArgumentNullException.ThrowIfNull(waiters);
@@ -128,7 +128,7 @@ internal static class SimulationRendezvousSupport
             _completion.TrySetCanceled(_cancellationToken);
         }
 
-        public void ScheduleRelease(SimulationTaskQueue queue)
+        public void ScheduleRelease(SimulationSchedulerLane queue)
         {
             DisposeRegistration();
             queue.Enqueue(new ScheduledActionItem(() => _completion.TrySetResult()));

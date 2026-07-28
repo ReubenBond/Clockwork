@@ -184,5 +184,5 @@ public sealed class SimulationLatchTests
         }
     }
 
-    private static SimulationTaskQueue CreateQueue() => new(new SimulationClock(DateTimeOffset.UnixEpoch), new SingleThreadedGuard());
+    private static SimulationSchedulerLane CreateQueue() => SimulationTestHarness.NewLane();
 }

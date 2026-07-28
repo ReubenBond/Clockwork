@@ -11,14 +11,14 @@ public sealed class InstrumentationScaffoldTests
     }
 
     [Fact]
-    public void InstrumentationDependsOnRuntimeButNotOnBuildOrTool()
+    public void InstrumentationDependsOnClockworkButNotOnBuildOrTool()
     {
-        // Instrumentation sits above Runtime and below Instrumentation.Build/Tool - verify the
+        // Instrumentation sits above Clockwork and below Instrumentation.Build/Tool - verify the
         // dependency edge points the right way.
         var assembly = System.Reflection.Assembly.Load("Clockwork.Instrumentation");
         var referencedNames = assembly.GetReferencedAssemblies().Select(a => a.Name).ToArray();
 
-        Assert.Contains("Clockwork.Runtime", referencedNames);
+        Assert.Contains("Clockwork", referencedNames);
         Assert.DoesNotContain("Clockwork.Instrumentation.Build", referencedNames);
         Assert.DoesNotContain("Clockwork.Tool", referencedNames);
     }

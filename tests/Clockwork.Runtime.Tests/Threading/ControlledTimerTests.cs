@@ -16,7 +16,7 @@ public sealed class ControlledTimerTests
     [Fact]
     public void ConstructorOnlyTimerIsDisabledAndUsesItselfAsState()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         object? observed = null;
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
@@ -24,7 +24,7 @@ public sealed class ControlledTimerTests
             using var timer = new ControlledTimer(state => observed = state);
             Assert.Equal(0, ControlledTimer.ActiveCount);
             Assert.True(timer.Change(TimeSpan.Zero, Timeout.InfiniteTimeSpan));
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
             Assert.Same(timer, observed);
             Assert.Equal(0, ControlledTimer.ActiveCount);
         });
@@ -33,32 +33,32 @@ public sealed class ControlledTimerTests
     [Fact]
     public void OneShotAndPeriodicFiringsUseVirtualTime()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         var fired = new List<TimeSpan>();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             using var timer = new ControlledTimer(
-                _ => fired.Add(coordinator.Loop.VirtualNow),
+                _ => fired.Add(coordinator.Scheduler.VirtualTime),
                 null,
                 TimeSpan.FromMilliseconds(10),
                 TimeSpan.FromMilliseconds(20));
 
-            Assert.Equal(TimeSpan.FromMilliseconds(10), coordinator.Loop.NextDeadlineDue());
-            coordinator.Loop.AdvanceTimeTo(TimeSpan.FromMilliseconds(10));
-            coordinator.Loop.RunUntilIdle();
-            coordinator.Loop.AdvanceTimeTo(TimeSpan.FromMilliseconds(30));
-            coordinator.Loop.RunUntilIdle();
+            Assert.Equal(TimeSpan.FromMilliseconds(10), coordinator.Scheduler.NextTimerDue);
+            coordinator.Scheduler.AdvanceVirtualTimeTo(TimeSpan.FromMilliseconds(10));
+            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.AdvanceVirtualTimeTo(TimeSpan.FromMilliseconds(30));
+            coordinator.Scheduler.RunUntilIdle();
 
             Assert.Equal([TimeSpan.FromMilliseconds(10), TimeSpan.FromMilliseconds(30)], fired);
-            Assert.Equal(TimeSpan.FromMilliseconds(50), coordinator.Loop.NextDeadlineDue());
+            Assert.Equal(TimeSpan.FromMilliseconds(50), coordinator.Scheduler.NextTimerDue);
         });
     }
 
     [Fact]
     public void ReentrantChangeCancelsTheOldPeriodicGeneration()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         ControlledTimer? timer = null;
         var fired = new List<TimeSpan>();
 
@@ -67,7 +67,7 @@ public sealed class ControlledTimerTests
             timer = new ControlledTimer(
                 _ =>
                 {
-                    fired.Add(coordinator.Loop.VirtualNow);
+                    fired.Add(coordinator.Scheduler.VirtualTime);
                     if (fired.Count == 1)
                     {
                         Assert.True(timer!.Change(5, Timeout.Infinite));
@@ -77,15 +77,15 @@ public sealed class ControlledTimerTests
                 1,
                 2);
 
-            coordinator.Loop.AdvanceTimeTo(TimeSpan.FromMilliseconds(1));
-            coordinator.Loop.RunUntilIdle();
-            Assert.Equal(TimeSpan.FromMilliseconds(6), coordinator.Loop.NextDeadlineDue());
+            coordinator.Scheduler.AdvanceVirtualTimeTo(TimeSpan.FromMilliseconds(1));
+            coordinator.Scheduler.RunUntilIdle();
+            Assert.Equal(TimeSpan.FromMilliseconds(6), coordinator.Scheduler.NextTimerDue);
 
-            coordinator.Loop.AdvanceTimeTo(TimeSpan.FromMilliseconds(6));
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.AdvanceVirtualTimeTo(TimeSpan.FromMilliseconds(6));
+            coordinator.Scheduler.RunUntilIdle();
 
             Assert.Equal([TimeSpan.FromMilliseconds(1), TimeSpan.FromMilliseconds(6)], fired);
-            Assert.Null(coordinator.Loop.NextDeadlineDue());
+            Assert.Null(coordinator.Scheduler.NextTimerDue);
             timer!.Dispose();
         });
     }
@@ -93,14 +93,14 @@ public sealed class ControlledTimerTests
     [Fact]
     public void DisposeSuppressesAnAlreadyQueuedCallback()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         var fired = false;
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var timer = new ControlledTimer(_ => fired = true, null, 0, Timeout.Infinite);
             timer.Dispose();
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
         });
 
         Assert.False(fired);
@@ -109,7 +109,7 @@ public sealed class ControlledTimerTests
     [Fact]
     public void CallbackFlowsConstructionExecutionContextOnAFreshStrand()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         var local = new AsyncLocal<string?>();
         string? observed = null;
 
@@ -118,7 +118,7 @@ public sealed class ControlledTimerTests
             local.Value = "captured";
             using var timer = new ControlledTimer(_ => observed = local.Value, null, 0, Timeout.Infinite);
             local.Value = "changed";
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle();
         });
 
         Assert.Equal("captured", observed);
@@ -127,15 +127,15 @@ public sealed class ControlledTimerTests
     [Fact]
     public void SameDeadlineCallbacksRunInRegistrationOrder()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         var order = new List<int>();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             using var first = new ControlledTimer(_ => order.Add(1), null, 5, Timeout.Infinite);
             using var second = new ControlledTimer(_ => order.Add(2), null, 5, Timeout.Infinite);
-            coordinator.Loop.AdvanceTimeTo(TimeSpan.FromMilliseconds(5));
-            coordinator.Loop.RunUntilIdle();
+            coordinator.Scheduler.AdvanceVirtualTimeTo(TimeSpan.FromMilliseconds(5));
+            coordinator.Scheduler.RunUntilIdle();
         });
 
         Assert.Equal([1, 2], order);
@@ -146,7 +146,7 @@ public sealed class ControlledTimerTests
     [InlineData(int.MinValue)]
     public void SignedTimeoutValidationMatchesTheBcl(int invalid)
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Assert.Throws<ArgumentOutOfRangeException>(
@@ -159,7 +159,7 @@ public sealed class ControlledTimerTests
     [Fact]
     public void DisposeWaitHandleSignalsControlledEventAndRejectsKernelEscape()
     {
-        var coordinator = new ControlledTaskLoopCoordinator();
+        var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var timer = new ControlledTimer(_ => { });
@@ -170,7 +170,7 @@ public sealed class ControlledTimerTests
 
             using var uncontrolled = new ManualResetEvent(false);
             using var second = new ControlledTimer(_ => { });
-            Assert.Throws<ControlledWaitHandleUnsupportedException>(() => second.Dispose(uncontrolled));
+            Assert.Throws<ControlledApiException>(() => second.Dispose(uncontrolled));
         });
     }
 }

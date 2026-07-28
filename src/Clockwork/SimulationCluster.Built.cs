@@ -1,4 +1,5 @@
 using Clockwork.Runtime.Random;
+using Clockwork.Runtime.Execution;
 
 namespace Clockwork;
 
@@ -46,8 +47,10 @@ public sealed class SimulationCluster : SimulationCluster<SimulationNode>
                     Clock,
                     Guard,
                     nodeRandom,
-                    TaskQueue,
-                    ambientContext: CreateNodeAmbientContext(pending.Address));
+                    SchedulerLane,
+                    logger: null,
+                    RuntimeIdentity,
+                    new SimulationNodeIdentity(pending.Address));
                 var node = pending.Materialize(context);
                 if (node is null)
                 {

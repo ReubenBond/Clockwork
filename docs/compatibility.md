@@ -34,11 +34,11 @@ and timer-driven cancellation use the shared virtual-time deadline scheduler.
 
 #### Scheduling and resource model
 
-Controlled mode uses `ControlledOperationScheduler` and the logical-strand task coordinator to ensure
-that at most one logical operation executes system-under-test code at a time. Logical execution ids are
-independent of physical thread ids and flow through `SimulationExecutionContext` into decisions and
-diagnostics. The optional `SimulationTaskQueue` compatibility bridge wraps each ready user callback as a
-controlled operation without changing the default cooperative queue path.
+Controlled mode and cooperative mode share one `SimulationScheduler`. It owns operation selection,
+continuations, node lanes, virtual time, and timers, ensuring that at most one logical operation executes
+system-under-test code at a time. Logical execution ids are independent of physical thread ids and flow
+through `SimulationExecutionContext` into decisions and diagnostics. `SimulationSchedulerLane` is only a
+node-scoped scheduling and diagnostic facade; it does not own a separate queue or execution pump.
 
 The reusable resource model provides stable resource identities, ownership and capacity metadata,
 deterministic waiter queues, atomic pause/wakeup, virtual-time deadlines, synchronous cancellation,
@@ -236,7 +236,7 @@ binary is not supported.
 
 The built-in simulation rule set `clockwork.bcl.deterministic` (version `2.0.0`),
 redirects the direct **static** time / identity / random BCL surface to Cecil-free runtime
-shims in `Clockwork.Runtime` (namespace `Clockwork.Runtime.Shims`). The complete, exhaustive
+shims in the `Clockwork` assembly (namespace `Clockwork.Runtime.Shims`). The complete, exhaustive
 list of controlled and rejected signatures is generated into
 [`rule-inventory.md`](rule-inventory.md) and verified against the shipped rules by a test, so
 the published inventory can never drift from the code.
@@ -248,8 +248,9 @@ Controlled entry point requires an active Clockwork simulation; without one it t
 - **With a registered runtime environment** it dispatches to the node's
   simulated clock and the correct independent seed domain (Application/Identity only - never
   the scheduler, network, or Buggify domains).
-- **With no registered environment** it throws
-  `SimulationServiceMissingException` rather than read real wall-clock time or OS entropy.
+- **Runtime completeness** installs the deterministic environment and task coordinator atomically
+  before a runtime can become ambient. There is no active-but-unconfigured state and no process-wide
+  service registry.
 
 Uninstrumented production binaries retain ordinary BCL behavior. The runtime inventory names are
 `ControlledDateTime`, `ControlledDateTimeOffset`, `ControlledStopwatch`, `ControlledEnvironment`,
@@ -316,8 +317,8 @@ real API to reproduce its exact `AggregateException` semantics, so a synchronous
 
 The redirect obeys the same simulation-only invariant as the BCL rule set: instrumented Controlled
 builders, awaiters, and shims require an active Clockwork simulation. Continuations and waits route
-through the coordinator; if that active simulation has no registered task coordinator, the shim
-throws `ControlledTaskServiceMissingException` rather than silently escaping to the thread pool.
+through the coordinator carried by the complete ambient runtime and cannot silently escape to the
+thread pool.
 
 Synchronous blocking on `ValueTask`/`ValueTask<T>` remains unsupported: a value task may be
 consumed only once, so a blocking drain is unsafe and `await` is the supported controlled path.
@@ -346,9 +347,9 @@ and `Parallel.Invoke`/`For`/`ForEach`.
   single scheduling unit; it interleaves with other controlled work only at explicit yield points
   (`await`, `Task.Yield`, `Thread.Yield`, `Thread.Sleep`, `Join`, a blocking `Task` wait). This is
   faithful for the async-first concurrency Clockwork targets, but a purely synchronous CPU loop with
-  no yield point does **not** interleave the way real preemptive threads would. The physical-gate
-  `ControlledOperationScheduler` is not the live task-loop backend; fully preemptive synchronous
-  interleaving is not supported.
+  no yield point does **not** interleave the way real preemptive threads would. `SimulationScheduler`
+  is the live backend for both task continuations and controlled operations, but fully preemptive
+  synchronous interleaving is not supported.
 - **`Thread.Sleep` / `Thread.Join(timeout)` are virtual waits.** They yield the logical thread
   through the deterministic loop rather than consuming real wall-clock time. The same virtual-time
   scheduler now backs timers, delays, asynchronous timeouts, and timer-driven cancellation.
@@ -598,12 +599,12 @@ The implemented package boundaries under `src/` map to the modes above:
 
 | Project | Depends on | Current purpose |
 |---|---|---|
-| `Clockwork.Runtime` | *(none)* | Ambient simulation context, policy, controlled task/thread/synchronization shims, logical strands, and scheduling/resource infrastructure. |
-| `Clockwork.Instrumentation` | `Clockwork.Runtime` | Cecil rewrite engine, manifests, built-in rules, closure orchestration, and diagnostics. |
+| `Clockwork` | *(none)* | Simulation kernel, ambient context, policy, controlled task/thread/synchronization shims, logical strands, and unified scheduling/resource infrastructure. |
+| `Clockwork.Instrumentation` | `Clockwork` | Cecil rewrite engine, manifests, built-in rules, closure orchestration, and diagnostics. |
 | `Clockwork.Instrumentation.Build` | `Clockwork.Instrumentation` | Opt-in MSBuild task + targets that instrument the resolved output closure out-of-place. |
-| `Clockwork.Tool` | `Clockwork.Instrumentation` | `clockwork instrument` / `inspect` CLI over the shared orchestrator. |
+| `Clockwork.Tool` | `Clockwork.Instrumentation` | `dotnet clockwork instrument` / `inspect` CLI over the shared orchestrator. |
 | `Clockwork.Analyzers` | *(none)* | Roslyn diagnostics aligned with controlled/rejected direct BCL usage. |
-| `Clockwork.Testing` | `Clockwork.Runtime` | Reusable test helpers and scenario builders for consumers. |
+| `Clockwork.Testing` | `Clockwork` | Reusable test helpers and scenario builders for consumers. |
 
 `Clockwork.Testing` remains a separate helper package. Application hosting and transport models are
 consumer-owned and outside the Clockwork core; consumers compose them over `SimulationNetwork` and

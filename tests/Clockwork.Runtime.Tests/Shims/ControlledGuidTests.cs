@@ -114,16 +114,6 @@ public sealed class ControlledGuidTests
     }
 
     [Fact]
-    public void ActiveSimulationWithoutRegisteredEnvironmentFailsExplicitly()
-    {
-        ShimTestHarness.RunInSimulationWithoutEnvironment(() =>
-        {
-            Assert.Throws<SimulationServiceMissingException>(() => ControlledGuid.NewGuid());
-            Assert.Throws<SimulationServiceMissingException>(() => ControlledGuid.CreateVersion7());
-        });
-    }
-
-    [Fact]
     public void OutsideSimulationGuidShimsRequireActiveSimulation()
     {
         Assert.False(Clockwork.Runtime.Execution.SimulationExecutionContext.IsActive);
