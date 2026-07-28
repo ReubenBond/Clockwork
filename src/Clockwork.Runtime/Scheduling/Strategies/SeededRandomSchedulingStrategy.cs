@@ -73,6 +73,13 @@ public sealed class SeededRandomSchedulingStrategy : IControlledSchedulingStrate
         return context.Runnable[index];
     }
 
+    /// <summary>Chooses an index from a non-empty deterministic candidate list using this strategy's stream.</summary>
+    internal int ChooseIndex(int exclusiveMax)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(exclusiveMax);
+        return exclusiveMax == 1 ? 0 : NextIndex(exclusiveMax);
+    }
+
     private int NextIndex(int exclusiveMax)
     {
         // Lemire-style unbiased bounded reduction over a fresh 64-bit draw.
