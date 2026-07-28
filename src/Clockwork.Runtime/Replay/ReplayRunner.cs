@@ -248,6 +248,13 @@ public static class ReplayRunner
                 if (scheduler.RunStep())
                 {
                     steps++;
+                    if (scheduler.FirstRace is not null ||
+                        scheduler.CaptureStatus().Any(static status =>
+                            status.State == ControlledOperationState.Faulted))
+                    {
+                        break;
+                    }
+
                     continue;
                 }
 
