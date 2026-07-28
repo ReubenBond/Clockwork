@@ -1,5 +1,6 @@
 using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks;
+using Clockwork.Runtime.Threading;
 
 namespace Clockwork.Tests;
 
@@ -86,6 +87,38 @@ public sealed class SimulationClusterTests
 
         Assert.Equal(3, cluster.RunUntilIdle().StepsExecuted);
         Assert.Equal(3, executedCount);
+    }
+
+    [Fact]
+    public async Task RunToCompletionOverloadsExecuteTaskFactoriesWithinActiveSimulation()
+    {
+        await using var cluster = new TestCluster(seed: 12345);
+        var budget = new AdaptiveExecutionBudget(maxTotalIterations: 1_000);
+
+        cluster.RunToCompletion(() =>
+        {
+            _ = new ControlledLock();
+            return Task.CompletedTask;
+        });
+        cluster.RunToCompletion(
+            () =>
+            {
+                _ = new ControlledLock();
+                return Task.CompletedTask;
+            },
+            budget);
+        Assert.True(cluster.RunToCompletion(() =>
+        {
+            _ = new ControlledLock();
+            return Task.FromResult(true);
+        }));
+        Assert.True(cluster.RunToCompletion(
+            () =>
+            {
+                _ = new ControlledLock();
+                return Task.FromResult(true);
+            },
+            budget));
     }
 
     [Fact]

@@ -2,7 +2,9 @@ using Clockwork.Instrumentation.Configuration;
 using Clockwork.Instrumentation.Diagnostics;
 using Clockwork.Instrumentation.Rewriting;
 using Clockwork.Instrumentation.Rules;
+using Clockwork.Instrumentation.Rules.BuiltIn;
 using Clockwork.Instrumentation.Tests.Infrastructure;
+using Mono.Cecil;
 
 namespace Clockwork.Instrumentation.Tests.Golden;
 
@@ -227,6 +229,143 @@ public sealed class ReplacementContractGoldenTests
             error => error.Id == RewriteDiagnosticIds.ReplacementContractMismatch);
         Assert.Contains("RecursiveContainer`1/Element<!0>", diagnostic.Message, StringComparison.Ordinal);
         Assert.Contains("System.Collections.Generic.List`1", diagnostic.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RecursiveGenericOwnerShapesWorkWithMergedBuiltIns()
+    {
+        const string source = """
+            using System;
+            using System.Collections.Generic;
+            using System.Threading.Tasks;
+
+            namespace Fx
+            {
+                public static class MethodOwner
+                {
+                    public static Task<Task<List<T>>> Any<T>(
+                        Task<List<T>> first,
+                        Task<List<T>> second) =>
+                        Task.WhenAny(first, second);
+                }
+
+                public sealed class TypeOwner<T>
+                {
+                    public static List<T> Result(Task<List<T>> task) => task.Result;
+                }
+
+                public static class ClockProbe
+                {
+                    public static DateTime Now() => DateTime.UtcNow;
+                }
+            }
+            """;
+        using var context = RewriteTestContext.Create();
+        string fixturePath = context.CompileFixture("Fx.RecursiveBuiltIns", source);
+        string runtimePath = typeof(Clockwork.Runtime.Tasks.ControlledTask).Assembly.Location;
+        var configuration = new InstrumentationConfiguration
+        {
+            BuiltInRuleSetIds =
+            [
+                BuiltInRuleSets.DeterministicBclId,
+                BuiltInRuleSets.ControlledTasksId,
+            ],
+            BuiltInIncludeFamilies =
+            [
+                nameof(BuiltInRuleFamily.Clock),
+                nameof(BuiltInRuleFamily.TaskCombinators),
+                nameof(BuiltInRuleFamily.TaskSynchronization),
+            ],
+            TargetRuntime = new Version(10, 0),
+        };
+        RewriteRuleSet rules = RuleSetMerge.LoadAndMerge(configuration).RuleSet;
+        var options = new RewriteOptions
+        {
+            ReplacementAssemblyPaths = [runtimePath],
+            ReferenceSearchDirectories = [context.Directory, Path.GetDirectoryName(runtimePath)!],
+            TargetRuntime = new Version(10, 0),
+        };
+
+        RewriteResult result = context.Rewrite(fixturePath, rules, options);
+
+        result.EnsureSuccess();
+        Assert.Equal("clockwork.merged", rules.Id);
+        Assert.Contains(result.Manifest.Transformations, t => t.RuleId == "clockwork.tasks.whenany.generic.pair");
+        Assert.Contains(result.Manifest.Transformations, t => t.RuleId == "clockwork.tasks.result.generic");
+        Assert.Contains(result.Manifest.Transformations, t => t.RuleId == "clockwork.bcl.datetime.utcnow");
+        using ModuleDefinition module = context.LoadModule(
+            Path.Combine(context.Directory, "Fx.RecursiveBuiltIns.rewritten.dll"));
+        Assert.True(CecilInspect.CallsAnyContaining(
+            CecilInspect.GetMethod(module, "Fx.MethodOwner", "Any"),
+            "ControlledTask::WhenAny"));
+        Assert.True(CecilInspect.CallsAnyContaining(
+            CecilInspect.GetMethod(module, "Fx.TypeOwner`1", "Result"),
+            "ControlledTask::Result"));
+        Assert.True(CecilInspect.CallsAnyContaining(
+            CecilInspect.GetMethod(module, "Fx.ClockProbe", "Now"),
+            "ControlledDateTime::GetUtcNow"));
+    }
+
+    [Fact]
+    public void RecursiveSelfCallPreservesCallerGenericArgumentContext()
+    {
+        const string source = """
+            using System.Collections.Generic;
+
+            namespace Fx
+            {
+                public static class Recursive
+                {
+                    public static List<T> M<T>(List<T> value)
+                    {
+                        _ = M<List<T>>(new List<List<T>>());
+                        return value;
+                    }
+                }
+            }
+            """;
+        const string shimSource = """
+            using System.Collections.Generic;
+
+            namespace Fx
+            {
+                public static class RecursiveShim
+                {
+                    public static List<T> M<T>(List<T> value) => value;
+                }
+            }
+            """;
+        using var context = RewriteTestContext.Create();
+        string fixturePath = context.CompileFixture("Fx.RecursiveSelfCall", source);
+        string shimPath = FixtureCompiler.Compile(
+            "Fx.RecursiveShim",
+            shimSource,
+            context.Directory,
+            FixtureSymbols.PortableFile,
+            optimize: false);
+        var rules = new RewriteRuleSet(
+            "clockwork.recursive-self-call",
+            "1.0",
+            [
+                RewriteRule.RedirectCall(
+                    "recursive-self-call",
+                    new MemberSignature("Fx.Recursive", "M"),
+                    RewriteReplacement.Method("Fx.RecursiveShim", "Fx.RecursiveShim", "M")),
+            ]);
+        var options = new RewriteOptions
+        {
+            ReplacementAssemblyPaths = [shimPath],
+            ReferenceSearchDirectories = [context.Directory],
+        };
+
+        RewriteResult result = context.Rewrite(fixturePath, rules, options);
+
+        result.EnsureSuccess();
+        using ModuleDefinition module = context.LoadModule(
+            Path.Combine(context.Directory, "Fx.RecursiveSelfCall.rewritten.dll"));
+        MethodDefinition method = CecilInspect.GetMethod(module, "Fx.Recursive", "M");
+        Assert.True(CecilInspect.CallsAnyContaining(method, "RecursiveShim::M"));
+        Assert.False(CecilInspect.CallsAnyContaining(method, "Recursive::M"));
     }
 
     private static RewriteRuleSet RecursiveBoxRuleSet(string replacementMethod) =>

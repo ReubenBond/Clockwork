@@ -551,14 +551,24 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
 
     private Task StartTask(Func<Task> taskFactory)
     {
-        var outer = new Task<Task>(taskFactory);
+        Task<Task> outer;
+        using (ExecutionContext.SuppressFlow())
+        {
+            outer = new Task<Task>(taskFactory);
+        }
+
         outer.Start(TaskScheduler);
         return outer.Unwrap();
     }
 
     private Task<T> StartTask<T>(Func<Task<T>> taskFactory)
     {
-        var outer = new Task<Task<T>>(taskFactory);
+        Task<Task<T>> outer;
+        using (ExecutionContext.SuppressFlow())
+        {
+            outer = new Task<Task<T>>(taskFactory);
+        }
+
         outer.Start(TaskScheduler);
         return outer.Unwrap();
     }
