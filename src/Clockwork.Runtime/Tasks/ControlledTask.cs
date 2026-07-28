@@ -375,8 +375,9 @@ public static class ControlledTask
     {
         SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.Delay");
         ArgumentNullException.ThrowIfNull(timeProvider);
+        TimeSpan validated = ValidateTimerTimeSpan(delay, nameof(delay));
         ControlledTimeProvider.ValidateProvider(timeProvider, "System.Threading.Tasks.Task.Delay");
-        return DelayCore(ValidateTimerTimeSpan(delay, nameof(delay)), CancellationToken.None);
+        return DelayCore(validated, CancellationToken.None);
     }
 
     /// <summary>Returns a cancellable task completed after a virtual delay interpreted by a controlled provider.</summary>
@@ -384,8 +385,9 @@ public static class ControlledTask
     {
         SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.Delay");
         ArgumentNullException.ThrowIfNull(timeProvider);
+        TimeSpan validated = ValidateTimerTimeSpan(delay, nameof(delay));
         ControlledTimeProvider.ValidateProvider(timeProvider, "System.Threading.Tasks.Task.Delay");
-        return DelayCore(ValidateTimerTimeSpan(delay, nameof(delay)), cancellationToken);
+        return DelayCore(validated, cancellationToken);
     }
 
     /// <summary>Waits for a task or cancellation without escaping the controlled scheduler.</summary>
@@ -410,8 +412,9 @@ public static class ControlledTask
         SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WaitAsync");
         ArgumentNullException.ThrowIfNull(task);
         ArgumentNullException.ThrowIfNull(timeProvider);
+        TimeSpan validated = ValidateTimerTimeSpan(timeout, nameof(timeout));
         ControlledTimeProvider.ValidateProvider(timeProvider, "System.Threading.Tasks.Task.WaitAsync");
-        return WaitAsyncCore(task, ValidateTimerTimeSpan(timeout, nameof(timeout)), CancellationToken.None);
+        return WaitAsyncCore(task, validated, CancellationToken.None);
     }
 
     /// <summary>Waits for a task, virtual timeout, or cancellation.</summary>
@@ -432,8 +435,9 @@ public static class ControlledTask
         SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WaitAsync");
         ArgumentNullException.ThrowIfNull(task);
         ArgumentNullException.ThrowIfNull(timeProvider);
+        TimeSpan validated = ValidateTimerTimeSpan(timeout, nameof(timeout));
         ControlledTimeProvider.ValidateProvider(timeProvider, "System.Threading.Tasks.Task.WaitAsync");
-        return WaitAsyncCore(task, ValidateTimerTimeSpan(timeout, nameof(timeout)), cancellationToken);
+        return WaitAsyncCore(task, validated, cancellationToken);
     }
 
     /// <summary>Waits for a generic task or cancellation.</summary>
@@ -461,8 +465,9 @@ public static class ControlledTask
         SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task`1.WaitAsync");
         ArgumentNullException.ThrowIfNull(task);
         ArgumentNullException.ThrowIfNull(timeProvider);
+        TimeSpan validated = ValidateTimerTimeSpan(timeout, nameof(timeout));
         ControlledTimeProvider.ValidateProvider(timeProvider, "System.Threading.Tasks.Task`1.WaitAsync");
-        return WaitAsyncCore(task, ValidateTimerTimeSpan(timeout, nameof(timeout)), CancellationToken.None);
+        return WaitAsyncCore(task, validated, CancellationToken.None);
     }
 
     /// <summary>Waits for a generic task, virtual timeout, or cancellation.</summary>
@@ -486,8 +491,9 @@ public static class ControlledTask
         SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task`1.WaitAsync");
         ArgumentNullException.ThrowIfNull(task);
         ArgumentNullException.ThrowIfNull(timeProvider);
+        TimeSpan validated = ValidateTimerTimeSpan(timeout, nameof(timeout));
         ControlledTimeProvider.ValidateProvider(timeProvider, "System.Threading.Tasks.Task`1.WaitAsync");
-        return WaitAsyncCore(task, ValidateTimerTimeSpan(timeout, nameof(timeout)), cancellationToken);
+        return WaitAsyncCore(task, validated, cancellationToken);
     }
 
     /// <summary>

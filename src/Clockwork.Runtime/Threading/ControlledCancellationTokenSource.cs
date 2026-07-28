@@ -35,8 +35,9 @@ public static class ControlledCancellationTokenSource
     {
         SimulationExecutionSnapshot snapshot = RequireRuntime(".ctor");
         ArgumentNullException.ThrowIfNull(timeProvider);
+        TimeSpan validated = ValidateTimeSpan(delay, nameof(delay));
         ControlledTimeProvider.ValidateProvider(timeProvider, $"{Api}..ctor");
-        return CreateCore(snapshot, ValidateTimeSpan(delay, nameof(delay)));
+        return CreateCore(snapshot, validated);
     }
 
     /// <summary>Schedules or disables virtual timer-driven cancellation.</summary>

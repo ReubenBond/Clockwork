@@ -154,4 +154,22 @@ public sealed class ControlledTaskTimeoutTests
             () => Assert.Throws<ArgumentOutOfRangeException>(() => { _ = ControlledTask.Delay(milliseconds); }));
     }
 #pragma warning restore xUnit1051
+
+    [Fact]
+#pragma warning disable xUnit1051 // The provider-only overloads are the APIs under test.
+    public void ProviderOverloadsValidateTimeoutBeforeRejectingCustomProvider()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var provider = new UnsupportedTimeProvider();
+            Assert.Throws<ArgumentOutOfRangeException>(
+                () => { _ = ControlledTask.Delay(TimeSpan.FromMilliseconds(-2), provider); });
+            Assert.Throws<ArgumentOutOfRangeException>(
+                () => { _ = ControlledTask.WaitAsync(new TaskCompletionSource().Task, TimeSpan.FromMilliseconds(-2), provider); });
+        });
+    }
+#pragma warning restore xUnit1051
+
+    private sealed class UnsupportedTimeProvider : TimeProvider;
 }

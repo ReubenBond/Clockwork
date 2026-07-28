@@ -154,4 +154,18 @@ public sealed class ControlledCancellationTokenSourceTests
             Assert.Null(coordinator.Loop.NextDeadlineDue());
         });
     }
+
+    [Fact]
+    public void ProviderConstructorValidatesDelayBeforeRejectingCustomProvider()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(
+            coordinator,
+            () => Assert.Throws<ArgumentOutOfRangeException>(
+                () => ControlledCancellationTokenSource.Create(
+                    TimeSpan.FromMilliseconds(-2),
+                    new UnsupportedTimeProvider())));
+    }
+
+    private sealed class UnsupportedTimeProvider : TimeProvider;
 }
