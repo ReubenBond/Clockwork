@@ -362,35 +362,8 @@ internal sealed class MemberSubstitutionMapper
         return true;
     }
 
-    private static bool SameTypeShape(TypeReference left, TypeReference right)
-    {
-        if (left is GenericParameter leftParameter && right is GenericParameter rightParameter)
-        {
-            return leftParameter.Type == rightParameter.Type
-                && leftParameter.Position == rightParameter.Position;
-        }
-
-        bool leftSpecification = left is TypeSpecification;
-        bool rightSpecification = right is TypeSpecification;
-        return (left, right) switch
-        {
-            (ByReferenceType l, ByReferenceType r) => SameTypeShape(l.ElementType, r.ElementType),
-            (PointerType l, PointerType r) => SameTypeShape(l.ElementType, r.ElementType),
-            (ArrayType l, ArrayType r) =>
-                l.Rank == r.Rank && l.IsVector == r.IsVector && SameTypeShape(l.ElementType, r.ElementType),
-            (GenericInstanceType l, GenericInstanceType r) =>
-                l.ElementType.FullName == r.ElementType.FullName
-                && l.GenericArguments.Count == r.GenericArguments.Count
-                && l.GenericArguments.Zip(r.GenericArguments, SameTypeShape).All(static match => match),
-            (RequiredModifierType l, RequiredModifierType r) =>
-                SameTypeShape(l.ModifierType, r.ModifierType) && SameTypeShape(l.ElementType, r.ElementType),
-            (OptionalModifierType l, OptionalModifierType r) =>
-                SameTypeShape(l.ModifierType, r.ModifierType) && SameTypeShape(l.ElementType, r.ElementType),
-            (PinnedType l, PinnedType r) => SameTypeShape(l.ElementType, r.ElementType),
-            (SentinelType l, SentinelType r) => SameTypeShape(l.ElementType, r.ElementType),
-            _ => !leftSpecification && !rightSpecification && left.FullName == right.FullName,
-        };
-    }
+    private static bool SameTypeShape(TypeReference left, TypeReference right) =>
+        TypeReferenceStructure.AreEquivalent(left, null, right, null);
 
     private static MethodReference Rebase(MethodReference importedOpen, GenericInstanceType declaringType)
     {

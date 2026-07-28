@@ -192,50 +192,8 @@ internal sealed class CollectionAccessRewritingPass : RewritePass
         WriteMemberNames.Contains(name) ||
         name.StartsWith("set_", StringComparison.Ordinal);
 
-    private static TypeReference Inflate(TypeReference type, MethodReference owner)
-    {
-        if (type is GenericParameter parameter)
-        {
-            if (parameter.Type == GenericParameterType.Method &&
-                owner is GenericInstanceMethod genericMethod &&
-                parameter.Position < genericMethod.GenericArguments.Count)
-            {
-                return genericMethod.GenericArguments[parameter.Position];
-            }
-
-            if (parameter.Type == GenericParameterType.Type &&
-                owner.DeclaringType is GenericInstanceType genericType &&
-                parameter.Position < genericType.GenericArguments.Count)
-            {
-                return genericType.GenericArguments[parameter.Position];
-            }
-
-            return type;
-        }
-
-        if (type is ByReferenceType byReference)
-        {
-            return new ByReferenceType(Inflate(byReference.ElementType, owner));
-        }
-
-        if (type is ArrayType array)
-        {
-            return new ArrayType(Inflate(array.ElementType, owner), array.Rank);
-        }
-
-        if (type is GenericInstanceType instance)
-        {
-            var inflated = new GenericInstanceType(instance.ElementType);
-            foreach (TypeReference argument in instance.GenericArguments)
-            {
-                inflated.GenericArguments.Add(Inflate(argument, owner));
-            }
-
-            return inflated;
-        }
-
-        return type;
-    }
+    private static TypeReference Inflate(TypeReference type, MethodReference owner) =>
+        TypeReferenceStructure.Inflate(type, owner);
 
     private static MethodReference Import(ModuleDefinition module, string name)
     {

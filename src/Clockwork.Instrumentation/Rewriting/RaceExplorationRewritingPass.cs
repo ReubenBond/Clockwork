@@ -293,63 +293,8 @@ internal sealed class RaceExplorationRewritingPass : RewritePass
         _ => throw new InvalidOperationException($"Unsupported array store opcode '{instruction.OpCode}'."),
     };
 
-    private static TypeReference InflateFieldType(TypeReference type, FieldReference field)
-    {
-        if (type is GenericParameter parameter &&
-            parameter.Type == GenericParameterType.Type &&
-            field.DeclaringType is GenericInstanceType genericType &&
-            parameter.Position < genericType.GenericArguments.Count)
-        {
-            return genericType.GenericArguments[parameter.Position];
-        }
-
-        if (type is ByReferenceType byReference)
-        {
-            return new ByReferenceType(InflateFieldType(byReference.ElementType, field));
-        }
-
-        if (type is PointerType pointer)
-        {
-            return new PointerType(InflateFieldType(pointer.ElementType, field));
-        }
-
-        if (type is PinnedType pinned)
-        {
-            return new PinnedType(InflateFieldType(pinned.ElementType, field));
-        }
-
-        if (type is RequiredModifierType required)
-        {
-            return new RequiredModifierType(
-                InflateFieldType(required.ModifierType, field),
-                InflateFieldType(required.ElementType, field));
-        }
-
-        if (type is OptionalModifierType optional)
-        {
-            return new OptionalModifierType(
-                InflateFieldType(optional.ModifierType, field),
-                InflateFieldType(optional.ElementType, field));
-        }
-
-        if (type is ArrayType array)
-        {
-            return new ArrayType(InflateFieldType(array.ElementType, field), array.Rank);
-        }
-
-        if (type is GenericInstanceType instance)
-        {
-            var inflated = new GenericInstanceType(instance.ElementType);
-            foreach (TypeReference argument in instance.GenericArguments)
-            {
-                inflated.GenericArguments.Add(InflateFieldType(argument, field));
-            }
-
-            return inflated;
-        }
-
-        return type;
-    }
+    private static TypeReference InflateFieldType(TypeReference type, FieldReference field) =>
+        TypeReferenceStructure.Inflate(type, field);
 
     private void AppendMemberMetadata(List<Instruction> instructions, string member, Instruction site)
     {
