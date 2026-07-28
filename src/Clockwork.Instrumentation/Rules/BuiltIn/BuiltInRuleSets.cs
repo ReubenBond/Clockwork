@@ -35,7 +35,7 @@ public static class BuiltInRuleSets
     /// <summary>The version of the deterministic BCL rule set.</summary>
     public const string DeterministicBclVersion = "2.0.0";
 
-    /// <summary>The stable id of the controlled task / async machinery rule set (Phase 6A).</summary>
+    /// <summary>The stable id of the controlled task / async machinery rule set.</summary>
     public const string ControlledTasksId = "clockwork.tasks.controlled";
 
     /// <summary>The version of the controlled task rule set.</summary>
@@ -125,7 +125,7 @@ public static class BuiltInRuleSets
     private const string FuncOfObjectAndTypeResult = "System.Func`2<System.Object,!0>";
     private const string FuncOfObjectAndResultDecl = "System.Func`2<System.Object,TResult>";
 
-    // Cecil full names for the Task.Run scheduling surface (Phase 6B controlled). The generic overloads are
+    // Cecil full names for the Task.Run scheduling surface (controlled). The generic overloads are
     // GenericInstanceMethods at the call site (`!!0` target) resolved against their definitions (`TResult`
     // replacement); Func<Task>/Func<Task<TResult>> carry the unwrap overloads.
     private const string CancellationToken = "System.Threading.CancellationToken";
@@ -136,7 +136,7 @@ public static class BuiltInRuleSets
     private const string FuncOfTaskResult = "System.Func`1<System.Threading.Tasks.Task`1<!!0>>";
     private const string FuncOfTaskResultDecl = "System.Func`1<System.Threading.Tasks.Task`1<TResult>>";
 
-    // Cecil full names for the generic-antecedent Task<TResult>.ContinueWith surface (Phase 6B). The
+    // Cecil full names for the generic-antecedent Task<TResult>.ContinueWith surface. The
     // declaring type is the open Task`1; a call site renders the type's generic parameter as `!0` and
     // the method's own generic parameter (ContinueWith<TNewResult>) as `!!0`, whereas the controlled
     // shim's definition renders both by name (TResult from the declaring type, TNewResult from the
@@ -150,7 +150,7 @@ public static class BuiltInRuleSets
     // TaskCreationOptions selects the controlled StartNew overloads that carry an explicit options value.
     private const string TaskCreationOptions = "System.Threading.Tasks.TaskCreationOptions";
 
-    // Cecil full names for the controlled System.Threading.Thread surface (Phase 6B).
+    // Cecil full names for the controlled System.Threading.Thread surface.
     private const string ThreadType = "System.Threading.Thread";
     private const string TimerType = "System.Threading.Timer";
     private const string ControlledTimerType = "Clockwork.Runtime.Threading.ControlledTimer";
@@ -166,7 +166,7 @@ public static class BuiltInRuleSets
     private const string ThreadPriority = "System.Threading.ThreadPriority";
     private const string ApartmentState = "System.Threading.ApartmentState";
 
-    // Cecil full names for the controlled System.Threading.ThreadPool queueing surface (Phase 6B). The
+    // Cecil full names for the controlled System.Threading.ThreadPool queueing surface. The
     // generic QueueUserWorkItem<TState>(Action<TState>, TState, bool) overloads are GenericInstanceMethods
     // at the call site (`!!0` target) resolved against their definitions (`TState` replacement).
     private const string ThreadPoolType = "System.Threading.ThreadPool";
@@ -178,7 +178,7 @@ public static class BuiltInRuleSets
     private const string TStateDecl = "TState";
     private const string NativeOverlappedPtr = "System.Threading.NativeOverlapped*";
 
-    // Cecil full names for the controlled Phase 7B registered-wait surface. RegisteredWaitHandle is a sealed
+    // Cecil full names for the controlled wait-handle and atomic control registered-wait surface. RegisteredWaitHandle is a sealed
     // class returned by the eight ThreadPool.RegisterWaitForSingleObject / UnsafeRegisterWaitForSingleObject
     // factories; it is retargeted by whole-type substitution (like System.Threading.Lock) so every local /
     // field / parameter and the Unregister instance member remap onto the controlled type, while the static
@@ -186,14 +186,14 @@ public static class BuiltInRuleSets
     private const string RegisteredWaitHandleType = "System.Threading.RegisteredWaitHandle";
     private const string ControlledRegisteredWaitHandleType = "Clockwork.Runtime.Threading.ControlledRegisteredWaitHandle";
 
-    // Cecil full names shared by the registered-wait factory redirects (Phase 7B). Each of
+    // Cecil full names shared by the registered-wait factory redirects. Each of
     // RegisterWaitForSingleObject and UnsafeRegisterWaitForSingleObject has four timeout overloads
     // (UInt32/Int32/Int64/TimeSpan); the callback delegate is WaitOrTimerCallback.
     private const string UInt32 = "System.UInt32";
     private const string WaitHandle = "System.Threading.WaitHandle";
     private const string WaitOrTimerCallback = "System.Threading.WaitOrTimerCallback";
 
-    // Cecil full names for the controlled System.Threading.Tasks.Parallel surface (Phase 6B slice 6). The
+    // Cecil full names for the controlled System.Threading.Tasks.Parallel surface. The
     // generic ForEach<TSource> overloads are GenericInstanceMethods at the call site (`!!0` target) resolved
     // against their definitions (`TSource` replacement); the ParallelLoopState / TLocal / Partitioner
     // overloads are rejected at the call site.
@@ -211,7 +211,7 @@ public static class BuiltInRuleSets
     private const string ActionOfTSourceLoopStateVar = "System.Action`2<!!0,System.Threading.Tasks.ParallelLoopState>";
     private const string ActionOfTSourceLoopStateInt64Var = "System.Action`3<!!0,System.Threading.Tasks.ParallelLoopState,System.Int64>";
 
-    // Cecil full names for the uncontrolled-invocation surface (Phase 6B slice 7): process control and
+    // Cecil full names for the uncontrolled-invocation surface: process control and
     // abrupt host termination. These cannot be modelled by the deterministic scheduler, so every rewritten
     // call site is rejected (throws a diagnostic naming the exact API). Process.Start is static and returns
     // Process/Boolean; the instance Kill/WaitForExit members and Environment.Exit/FailFast are void or
@@ -226,7 +226,7 @@ public static class BuiltInRuleSets
     private const string ExceptionType = "System.Exception";
     private const string UncontrolledInvocationShim = "Clockwork.Runtime.UncontrolledInvocationGuard";
 
-    // Cecil full names for the controlled Phase 7A synchronization surface. Monitor is entirely static, so
+    // Cecil full names for the controlled monitor/lock/semaphore control synchronization surface. Monitor is entirely static, so
     // the shim signatures match the BCL targets exactly. `ref bool` renders as `System.Boolean&`.
     // System.Threading.Lock (and its nested Scope ref struct) is retargeted by type substitution, so the
     // C# `lock (Lock)` lowering (EnterScope/Scope.Dispose) is redirected wholesale. SemaphoreSlim is a
@@ -240,7 +240,7 @@ public static class BuiltInRuleSets
     private const string ControlledLockScopeType = "Clockwork.Runtime.Threading.ControlledLock/Scope";
     private const string SemaphoreSlimType = "System.Threading.SemaphoreSlim";
 
-    // Cecil full names for the controlled Phase 7B Interlocked atomic surface. Every overload takes its
+    // Cecil full names for the controlled wait-handle and atomic control Interlocked atomic surface. Every overload takes its
     // first argument by reference, which Cecil renders with a trailing '&'. The generic Exchange<T>/
     // CompareExchange<T> overloads are GenericInstanceMethods at the call site (`!!0`/`!!0&` target)
     // resolved against their shim definitions, whose generic parameter is named T (`T`/`T&` replacement).
@@ -272,7 +272,7 @@ public static class BuiltInRuleSets
     private const string GenericTDecl = "T";
     private const string GenericTRefDecl = "T&";
 
-    // Cecil full name for the controlled Phase 7B Volatile acquire/release surface. Reuses the primitive
+    // Cecil full name for the controlled wait-handle and atomic control Volatile acquire/release surface. Reuses the primitive
     // ref-type constants above; the generic Read<T>/Write<T> overloads use the `!!0`/`!!0&` target ->
     // `T`/`T&` replacement split.
     private const string VolatileType = "System.Threading.Volatile";
@@ -284,7 +284,7 @@ public static class BuiltInRuleSets
     private const string SpinWaitType = "System.Threading.SpinWait";
     private const string ControlledSpinWaitType = "Clockwork.Runtime.Threading.ControlledSpinWait";
 
-    // Cecil full names for the controlled Phase 7B event / wait-handle surface. AutoResetEvent,
+    // Cecil full names for the controlled wait-handle and atomic control event / wait-handle surface. AutoResetEvent,
     // ManualResetEvent and EventWaitHandle are concrete sealed classes: the real objects are retained as
     // identity handles and side state is held in a ConditionalWeakTable, so each `new` is redirected to a
     // Create factory and every instance member is a receiver-first static shim declared on WaitHandle
@@ -304,7 +304,7 @@ public static class BuiltInRuleSets
     private const string WaitHandleShim = "Clockwork.Runtime.Threading.ControlledWaitHandle";
     private const string EventWaitHandleShim = "Clockwork.Runtime.Threading.ControlledEventWaitHandle";
 
-    // Cecil full names for the Phase 8A synchronization families. ReaderWriterLockSlim and
+    // Cecil full names for the modern synchronization families. ReaderWriterLockSlim and
     // ManualResetEventSlim retain BCL identity objects and use receiver-first static shims. Mutex and the
     // kernel Semaphore do the same, while SpinLock, Barrier, and CountdownEvent are complete substitutions.
     private const string ReaderWriterLockSlimType = "System.Threading.ReaderWriterLockSlim";
@@ -373,6 +373,8 @@ public static class BuiltInRuleSets
 
     private static readonly ImmutableArray<BuiltInRuleEntry> DeterministicBcl = BuildDeterministicBclEntries();
     private static readonly ImmutableArray<BuiltInRuleEntry> ControlledTasks = BuildControlledTasksEntries();
+    private static readonly ImmutableHashSet<string> ControlledTaskRuleIds =
+        ControlledTasks.Select(entry => entry.Rule.Id).ToImmutableHashSet(StringComparer.Ordinal);
 
     /// <summary>Gets the ids of every built-in rule set that can be enabled by name.</summary>
     public static ImmutableArray<string> AvailableIds { get; } = [DeterministicBclId, ControlledTasksId];
@@ -426,6 +428,12 @@ public static class BuiltInRuleSets
 
     /// <summary>Gets a value indicating whether <paramref name="id"/> names a known built-in rule set.</summary>
     public static bool IsKnownId(string id) => AvailableIds.Contains(id, StringComparer.Ordinal);
+
+    internal static bool ContainsControlledTaskRules(RewriteRuleSet ruleSet)
+    {
+        ArgumentNullException.ThrowIfNull(ruleSet);
+        return ruleSet.Rules.Any(rule => ControlledTaskRuleIds.Contains(rule.Id));
+    }
 
     /// <summary>Parses a case-insensitive family name (e.g. <c>Clock</c>, <c>crypto</c>).</summary>
     public static bool TryParseFamily(string text, out BuiltInRuleFamily family) =>
@@ -584,7 +592,7 @@ public static class BuiltInRuleSets
             MemberSignature.Method(TaskTType, "WaitAsync", TimeSpan, TimeProvider, CancellationToken),
             Shim(TaskShim, "WaitAsync", TaskTDecl, TimeSpan, TimeProvider, CancellationToken));
 
-        // ---- Scheduling: Task.Run (Phase 6B) controlled. The body is queued as a fresh controlled
+        // ---- Scheduling: Task.Run controlled. The body is queued as a fresh controlled
         // operation on the coordinator instead of a physical thread-pool thread. The generic overloads are
         // GenericInstanceMethods (`!!0` target, `TResult` replacement); Func<Task>/Func<Task<TResult>>
         // carry the unwrap overloads. Each has a with- and without-CancellationToken form. ----
@@ -636,7 +644,7 @@ public static class BuiltInRuleSets
         Sub(builder, BuiltInRuleFamily.ValueTaskMachinery, "clockwork.tasks.configured.valuetask.awaiter.generic", BclConfiguredValueAwaiterT, ControlledConfiguredValueAwaiterT);
 
         // ---- TaskFactory scheduling: StartNew offloads onto a task scheduler (the thread pool by
-        // default). Phase 6B controls it by queuing the delegate body as a fresh controlled operation on
+        // default). The controlled runtime handles it by queuing the delegate body as a fresh controlled operation on
         // the coordinator (like Task.Run), honouring the factory's/call's cancellation token; the
         // AttachedToParent creation option is rejected at runtime. Task.Factory.StartNew(Func<TResult>)
         // is a generic method (`!!0`); TaskFactory`1's StartNew(Func<TResult>) is a non-generic method
@@ -832,7 +840,7 @@ public static class BuiltInRuleSets
             MemberSignature.Method(CancellationTokenSourceType, "Dispose"),
             Shim(CancellationTokenSourceShim, "Dispose", CancellationTokenSourceType));
 
-        // ---- Registered waits (Phase 7B): RegisterWaitForSingleObject / UnsafeRegisterWaitForSingleObject
+        // ---- Registered waits: RegisterWaitForSingleObject / UnsafeRegisterWaitForSingleObject
         // bind a WaitOrTimerCallback to a controlled event, which the coordinator now models. RegisteredWaitHandle
         // is retargeted by whole-type substitution so its locals/fields and the Unregister instance member remap
         // onto the controlled type; the eight static factories (four timeout overloads x safe/unsafe) are redirected
@@ -850,7 +858,7 @@ public static class BuiltInRuleSets
         RegisterWaitRedirect(builder, "clockwork.threadpool.unsaferegisterwait.int64", "UnsafeRegisterWaitForSingleObject", Int64);
         RegisterWaitRedirect(builder, "clockwork.threadpool.unsaferegisterwait.timespan", "UnsafeRegisterWaitForSingleObject", TimeSpan);
 
-        // ---- Parallel (Phase 6B slice 6): the simple-body Invoke / For / ForEach overloads decompose into
+        // ---- Parallel: the simple-body Invoke / For / ForEach overloads decompose into
         // controlled operations on the coordinator (each branch queued, then the loop drained until all
         // complete). Parallel is static, so the shim signatures match the target exactly. The generic
         // ForEach<TSource> overloads are GenericInstanceMethods (`!!0` target, `TSource` replacement). The
@@ -882,7 +890,7 @@ public static class BuiltInRuleSets
         ParallelRejection(builder, "clockwork.parallel.foreach.loopstate", "ForEach", IEnumerableOfTSourceVar, ActionOfTSourceLoopStateVar);
         ParallelRejection(builder, "clockwork.parallel.foreach.loopstate.index", "ForEach", IEnumerableOfTSourceVar, ActionOfTSourceLoopStateInt64Var);
 
-        // ---- Uncontrolled invocation (Phase 6B slice 7): process control and abrupt host termination. A
+        // ---- Uncontrolled invocation: process control and abrupt host termination. A
         // rewritten assembly must never launch, kill, block on, or terminate a real OS process out from
         // under the simulation, so each of these call sites is rejected with a precise diagnostic naming
         // the exact API and IL offset (recorded in the manifest as a Rejected transformation). ----
@@ -903,7 +911,7 @@ public static class BuiltInRuleSets
         UncontrolledRejection(builder, "clockwork.environment.failfast.message", EnvironmentType, "FailFast", String);
         UncontrolledRejection(builder, "clockwork.environment.failfast.exception", EnvironmentType, "FailFast", String, ExceptionType);
 
-        // ---- Monitor (Phase 7A): the entire static Monitor surface is redirected to ControlledMonitor,
+        // ---- Monitor: the entire static Monitor surface is redirected to ControlledMonitor,
         // which models ownership/recursion/condition-wait on the cooperative logical thread. Because the C#
         // `lock (object)` statement lowers to Monitor.Enter(obj, ref bool) + finally Monitor.Exit(obj),
         // redirecting these members controls every `lock` automatically - no separate lock rule is needed.
@@ -945,18 +953,18 @@ public static class BuiltInRuleSets
         TaskRule(builder, BuiltInRuleFamily.Monitor, "clockwork.monitor.pulseall",
             MemberSignature.Method(MonitorType, "PulseAll", ObjectType), Shim(MonitorShim, "PulseAll", ObjectType));
 
-        // ---- System.Threading.Lock (Phase 7A): type substitution retargets the dedicated lock type and its
+        // ---- System.Threading.Lock: type substitution retargets the dedicated lock type and its
         // nested Scope ref struct onto the controlled equivalents. This remaps `new Lock()`, every field/
         // local/parameter typed as Lock or Lock.Scope, and the C# `lock (Lock)` lowering
         // (EnterScope/Scope.Dispose) wholesale, so no per-member call rules are required. ----
         Sub(builder, BuiltInRuleFamily.Lock, "clockwork.lock.type", LockType, ControlledLockType);
         Sub(builder, BuiltInRuleFamily.Lock, "clockwork.lock.scope.type", LockScopeType, ControlledLockScopeType);
 
-        // ---- SemaphoreSlim (Phase 7A): SemaphoreSlim is a sealed class, so the controlled object is a real
+        // ---- SemaphoreSlim: SemaphoreSlim is a sealed class, so the controlled object is a real
         // SemaphoreSlim identity handle whose count/waiter state lives in a weak-keyed side table. The two
         // constructors redirect to Create factories; every instance member is receiver-first (the shim
         // prepends the SemaphoreSlim receiver). AvailableWaitHandle is bridged to a controlled manual-reset
-        // wait handle (Phase 7B) whose signalled state tracks whether a permit is available. ----
+        // wait handle whose signalled state tracks whether a permit is available. ----
         builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Semaphore, RewriteRule.RedirectNewObj(
             "clockwork.semaphoreslim.ctor.initial",
             MemberSignature.Constructor(SemaphoreSlimType, Int32), Shim(SemaphoreSlimShim, "Create", Int32))));
@@ -997,14 +1005,14 @@ public static class BuiltInRuleSets
         TaskRule(builder, BuiltInRuleFamily.Semaphore, "clockwork.semaphoreslim.dispose",
             MemberSignature.Method(SemaphoreSlimType, "Dispose"), Shim(SemaphoreSlimShim, "Dispose", SemaphoreSlimType));
 
-        // AvailableWaitHandle is bridged to a controlled manual-reset wait handle (Phase 7B) tracking count > 0.
+        // AvailableWaitHandle is bridged to a controlled manual-reset wait handle tracking count > 0.
         TaskRule(builder, BuiltInRuleFamily.Semaphore, "clockwork.semaphoreslim.get_availablewaithandle",
             MemberSignature.Method(SemaphoreSlimType, "get_AvailableWaitHandle"), Shim(SemaphoreSlimShim, "AvailableWaitHandle", SemaphoreSlimType));
 
         BuildInterlockedEntries(builder);
         BuildVolatileEntries(builder);
 
-        // ---- System.Threading.SpinWait (Phase 7B): a value type retargeted by whole-type substitution,
+        // ---- System.Threading.SpinWait: a value type retargeted by whole-type substitution,
         // exactly like System.Threading.Lock/Scope. This remaps every field/local/parameter typed SpinWait,
         // each `new SpinWait()` / `default`, the instance members (Count, NextSpinWillYield, Reset, both
         // SpinOnce overloads) and the static SpinUntil overloads onto the controlled struct, so no per-member
@@ -1012,17 +1020,17 @@ public static class BuiltInRuleSets
         Sub(builder, BuiltInRuleFamily.SpinWait, "clockwork.spinwait.type", SpinWaitType, ControlledSpinWaitType);
 
         BuildWaitHandleEntries(builder);
-        BuildPhase8ASynchronizationEntries(builder);
+        BuildModernSynchronizationSynchronizationEntries(builder);
 
         return builder.ToImmutable();
     }
 
-    // Phase 8A: the remaining modern synchronization surface. ReaderWriterLockSlim and
+    // modern synchronization: the remaining modern synchronization surface. ReaderWriterLockSlim and
     // ManualResetEventSlim use BCL instances strictly as identity handles, so constructors are redirected
     // to factories and all declared instance members are receiver-first shims. Mutex and Semaphore use the
     // same identity-handle model; inherited WaitHandle operations are already handled by BuildWaitHandleEntries.
     // SpinLock, Barrier, and CountdownEvent have self-contained controlled types and are substituted wholly.
-    private static void BuildPhase8ASynchronizationEntries(ImmutableArray<BuiltInRuleEntry>.Builder builder)
+    private static void BuildModernSynchronizationSynchronizationEntries(ImmutableArray<BuiltInRuleEntry>.Builder builder)
     {
         BuildReaderWriterLockSlimEntries(builder);
         BuildManualResetEventSlimEntries(builder);
@@ -1225,7 +1233,7 @@ public static class BuiltInRuleSets
             Shim(SynchronizationContextShim, "Wait", SynchronizationContextType, IntPtrArray, Boolean, Int32));
     }
 
-    // Phase 7B: the full .NET 10 System.Threading.Interlocked surface. Every call site is redirected to a
+    // wait-handle and atomic control: the full .NET 10 System.Threading.Interlocked surface. Every call site is redirected to a
     // shim carrying the identical ref-first signature. Under Clockwork's cooperative single-logical-thread
     // scheduler a read-modify-write is an indivisible step, so each shim delegates to the real primitive,
     // preserving exact atomic return / overflow / reference-write semantics. The generic Exchange<T> /
@@ -1301,7 +1309,7 @@ public static class BuiltInRuleSets
         Rule("clockwork.interlocked.memorybarrierprocesswide", "MemoryBarrierProcessWide", [], []);
     }
 
-    // Phase 7B: the full .NET 10 System.Threading.Volatile surface. Each Read/Write call site is redirected
+    // wait-handle and atomic control: the full .NET 10 System.Threading.Volatile surface. Each Read/Write call site is redirected
     // to a shim with the identical ref-first signature; the generic Read<T>/Write<T> overloads use the
     // `!!0`/`!!0&` target -> `T`/`T&` replacement split. Under the cooperative single-logical-thread
     // scheduler a volatile access is an indivisible step, so each shim delegates to the real primitive,
@@ -1349,7 +1357,7 @@ public static class BuiltInRuleSets
         Rule("clockwork.volatile.writebarrier", "WriteBarrier", [], []);
     }
 
-    // Phase 7B: the controlled event / wait-handle surface. AutoResetEvent, ManualResetEvent and
+    // wait-handle and atomic control: the controlled event / wait-handle surface. AutoResetEvent, ManualResetEvent and
     // EventWaitHandle are concrete sealed classes, so the real objects are retained as identity handles and
     // side state lives in a ConditionalWeakTable keyed by that object. Each `new` is redirected to a Create
     // factory; every instance member is a receiver-first static shim (the WaitHandle receiver is prepended).

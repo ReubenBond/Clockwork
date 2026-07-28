@@ -17,7 +17,7 @@ internal readonly record struct AppRunResult(int ExitCode, string StandardOutput
 
 /// <summary>
 /// Runs a compiled fixture assembly as a real out-of-process .NET application via
-/// <c>dotnet exec</c>. Phase&#160;4B proves an <em>enabled staged executable</em> dispatches to a
+/// <c>dotnet exec</c>. build/tool integration proves an <em>enabled staged executable</em> dispatches to a
 /// test shim while a <em>normal executable does not</em> - a claim only a separate process can make
 /// honestly, because an in-process collectible <see cref="System.Runtime.Loader.AssemblyLoadContext"/>
 /// cannot demonstrate a fully independent host resolving the rewritten closure from disk.

@@ -138,7 +138,7 @@ public static class ControlledThread
 
     /// <summary>Controlled <c>thread.Join(int)</c>.</summary>
     /// <param name="instance">The receiving thread.</param>
-    /// <param name="millisecondsTimeout">The timeout (modelled as infinite inside a simulation; virtual-time timeouts are Phase 8).</param>
+    /// <param name="millisecondsTimeout">The timeout (modelled as infinite inside a simulation; virtual-time timeouts are virtual-time control).</param>
     /// <returns><see langword="true"/> once the thread has terminated.</returns>
     public static bool Join(Thread instance, int millisecondsTimeout)
     {
@@ -150,7 +150,7 @@ public static class ControlledThread
 
     /// <summary>Controlled <c>thread.Join(TimeSpan)</c>.</summary>
     /// <param name="instance">The receiving thread.</param>
-    /// <param name="timeout">The timeout (modelled as infinite inside a simulation; virtual-time timeouts are Phase 8).</param>
+    /// <param name="timeout">The timeout (modelled as infinite inside a simulation; virtual-time timeouts are virtual-time control).</param>
     /// <returns><see langword="true"/> once the thread has terminated.</returns>
     public static bool Join(Thread instance, TimeSpan timeout)
     {
@@ -161,7 +161,7 @@ public static class ControlledThread
     }
 
     /// <summary>Controlled <c>Thread.Sleep(int)</c>: cooperatively yields without blocking or using real time.</summary>
-    /// <param name="millisecondsTimeout">The requested sleep duration (its length is a virtual-time concern owned by Phase 8).</param>
+    /// <param name="millisecondsTimeout">The requested sleep duration (its length is a virtual-time concern owned by virtual-time control).</param>
     public static void Sleep(int millisecondsTimeout)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(SleepApi);
@@ -170,7 +170,7 @@ public static class ControlledThread
     }
 
     /// <summary>Controlled <c>Thread.Sleep(TimeSpan)</c>: cooperatively yields without blocking or using real time.</summary>
-    /// <param name="timeout">The requested sleep duration (its length is a virtual-time concern owned by Phase 8).</param>
+    /// <param name="timeout">The requested sleep duration (its length is a virtual-time concern owned by virtual-time control).</param>
     public static void Sleep(TimeSpan timeout)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(SleepApi);

@@ -27,8 +27,8 @@ namespace Clockwork.Runtime.Execution;
 /// <b>Cheap when inactive.</b> Outside any simulation, <see cref="Current"/> is a single
 /// <see cref="AsyncLocal{T}"/> read that returns <see langword="null"/> - no allocation, no
 /// dictionary lookup, no environment/global-state check. This is intentionally cheap and
-/// branch-predictable so that a future inlineable "am I simulating?" shim (and Buggify-style fault
-/// injection hooks) can call it on every production code path without meaningful overhead.
+/// branch-predictable so that inlineable simulation checks and fault-injection hooks can call it on
+/// every production code path without meaningful overhead.
 /// </para>
 /// </summary>
 public static class SimulationExecutionContext

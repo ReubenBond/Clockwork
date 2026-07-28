@@ -11,7 +11,7 @@ namespace Clockwork.Instrumentation.Tests.Execution;
 /// Full out-of-process execution tests. Each builds a real console-application closure (app +
 /// third-party dependency + controlled API + shim), stages an instrumented copy with the
 /// orchestrator, and launches both the original and the staged executables as independent
-/// processes. Together they prove the central Phase&#160;4B guarantee - an <em>enabled staged
+/// processes. Together they prove the central build/tool integration guarantee - an <em>enabled staged
 /// executable dispatches to the test shim</em> while a <em>normal executable does not</em> - across
 /// Debug/Release, symbols present/absent, config-loaded rules, a rejected call, an excluded
 /// dependency, an incremental rebuild, and a signed closure.

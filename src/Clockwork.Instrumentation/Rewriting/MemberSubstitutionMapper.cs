@@ -363,67 +363,7 @@ internal sealed class MemberSubstitutionMapper
     }
 
     private static bool SameTypeShape(TypeReference left, TypeReference right) =>
-        SameTypeShape(left, right, []);
-
-    private static bool SameTypeShape(
-        TypeReference left,
-        TypeReference right,
-        HashSet<(TypeReference Left, TypeReference Right)> visited)
-    {
-        if (!visited.Add((left, right)))
-        {
-            return true;
-        }
-
-        if (left is GenericParameter leftParameter && right is GenericParameter rightParameter)
-        {
-            return leftParameter.Type == rightParameter.Type
-                && leftParameter.Position == rightParameter.Position;
-        }
-
-        bool leftSpecification = left is TypeSpecification;
-        bool rightSpecification = right is TypeSpecification;
-        return (left, right) switch
-        {
-            (ByReferenceType l, ByReferenceType r) => SameTypeShape(l.ElementType, r.ElementType, visited),
-            (PointerType l, PointerType r) => SameTypeShape(l.ElementType, r.ElementType, visited),
-            (ArrayType l, ArrayType r) =>
-                l.Rank == r.Rank
-                && l.IsVector == r.IsVector
-                && l.Dimensions.Zip(r.Dimensions).All(
-                    static dimensions =>
-                        dimensions.First.LowerBound == dimensions.Second.LowerBound
-                        && dimensions.First.UpperBound == dimensions.Second.UpperBound)
-                && SameTypeShape(l.ElementType, r.ElementType, visited),
-            (GenericInstanceType l, GenericInstanceType r) =>
-                l.ElementType.FullName == r.ElementType.FullName
-                && l.GenericArguments.Count == r.GenericArguments.Count
-                && l.GenericArguments.Zip(
-                    r.GenericArguments,
-                    (leftArgument, rightArgument) =>
-                        SameTypeShape(leftArgument, rightArgument, visited)).All(static match => match),
-            (RequiredModifierType l, RequiredModifierType r) =>
-                SameTypeShape(l.ModifierType, r.ModifierType, visited)
-                && SameTypeShape(l.ElementType, r.ElementType, visited),
-            (OptionalModifierType l, OptionalModifierType r) =>
-                SameTypeShape(l.ModifierType, r.ModifierType, visited)
-                && SameTypeShape(l.ElementType, r.ElementType, visited),
-            (PinnedType l, PinnedType r) => SameTypeShape(l.ElementType, r.ElementType, visited),
-            (SentinelType l, SentinelType r) => SameTypeShape(l.ElementType, r.ElementType, visited),
-            (FunctionPointerType l, FunctionPointerType r) =>
-                l.HasThis == r.HasThis
-                && l.ExplicitThis == r.ExplicitThis
-                && l.CallingConvention == r.CallingConvention
-                && l.Parameters.Count == r.Parameters.Count
-                && SameTypeShape(l.ReturnType, r.ReturnType, visited)
-                && l.Parameters.Zip(
-                    r.Parameters,
-                    (leftParameter, rightParameter) =>
-                        SameTypeShape(leftParameter.ParameterType, rightParameter.ParameterType, visited))
-                    .All(static match => match),
-            _ => !leftSpecification && !rightSpecification && left.FullName == right.FullName,
-        };
-    }
+        TypeReferenceStructure.AreEquivalent(left, null, right, null);
 
     private static MethodReference Rebase(MethodReference importedOpen, GenericInstanceType declaringType)
     {

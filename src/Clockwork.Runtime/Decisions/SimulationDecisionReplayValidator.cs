@@ -84,9 +84,8 @@ public sealed class SimulationDecisionReplayMismatchException : InvalidOperation
 /// be valid.
 /// </para>
 /// <para>
-/// This is a standalone validation contract, not a scheduler: nothing in Phase 2 calls
-/// <see cref="Validate"/> automatically. A future controlled-operation scheduler (Phase 3+) is
-/// expected to call it once per decision as it re-executes.
+/// This is a standalone validation contract, not a scheduler. Replay components call
+/// <see cref="Validate"/> once per decision as they re-execute.
 /// </para>
 /// </summary>
 /// <param name="reader">The source of previously-recorded decisions to validate against.</param>

@@ -4,10 +4,10 @@ namespace Clockwork.Runtime.Threading;
 /// Thrown when an application invokes a <see cref="System.Threading.SemaphoreSlim"/> member that
 /// Clockwork's controlled semaphore surface cannot model faithfully inside a simulation. Currently this
 /// is only <see cref="System.Threading.SemaphoreSlim.AvailableWaitHandle"/>, which materialises a real
-/// <see cref="System.Threading.WaitHandle"/> - an OS synchronization object owned by Phase 7B. Rather
+/// <see cref="System.Threading.WaitHandle"/> - an OS synchronization object owned by wait-handle and atomic control. Rather
 /// than handing back an uncontrolled kernel handle (which would let code block the physical thread
 /// outside the deterministic scheduler), the rewritten call site rejects it precisely with the reason
-/// and the phase that will own it.
+/// and the unsupported capability.
 /// </summary>
 public sealed class ControlledSemaphoreSlimUnsupportedException : InvalidOperationException
 {

@@ -4,18 +4,18 @@ namespace Clockwork.Instrumentation.Rules;
 
 /// <summary>
 /// A single versioned instruction to the rewrite engine: at every site matching <see cref="Target"/>,
-/// perform <see cref="Operation"/> using <see cref="Replacement"/>. A rule also carries its Phase 2
+/// perform <see cref="Operation"/> using <see cref="Replacement"/>. A rule also carries its simulation
 /// policy classification (<see cref="Policy"/>), its <see cref="Fallback"/> behaviour when it cannot
 /// be applied, and the range of target runtimes it supports (<see cref="SupportedRuntimes"/>).
 /// </summary>
 /// <remarks>
 /// Rules are pure data and Mono.Cecil-free, so a rule set can be authored, versioned, and hashed
-/// independently of the engine. The <see cref="Policy"/> integrates the Phase 2 API-policy model:
+/// independently of the engine. The <see cref="Policy"/> integrates the simulation API-policy model:
 /// a <see cref="SimulationApiPolicy.Controlled"/> target is redirected/wrapped, a
 /// <see cref="SimulationApiPolicy.Rejected"/> target is rejected, and a
 /// <see cref="SimulationApiPolicy.PassThrough"/> target is recorded but left unchanged - without the
 /// rule referencing any specific replacement type by identity, keeping the engine decoupled from
-/// concrete future BCL shims.
+/// concrete BCL shims.
 /// </remarks>
 public sealed record RewriteRule
 {
@@ -31,7 +31,7 @@ public sealed record RewriteRule
     /// <summary>Gets the replacement member or type this rule redirects to.</summary>
     public required RewriteReplacement Replacement { get; init; }
 
-    /// <summary>Gets the Phase 2 API-policy classification of the target. Defaults to <see cref="SimulationApiPolicy.Controlled"/>.</summary>
+    /// <summary>Gets the simulation API-policy classification of the target. Defaults to <see cref="SimulationApiPolicy.Controlled"/>.</summary>
     public SimulationApiPolicy Policy { get; init; } = SimulationApiPolicy.Controlled;
 
     /// <summary>Gets the behaviour when this rule matches but cannot be applied. Defaults to <see cref="RewriteFallback.Fail"/>.</summary>

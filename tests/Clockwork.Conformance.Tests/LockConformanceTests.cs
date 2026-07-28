@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 namespace Clockwork.Conformance.Tests;
 
 /// <summary>
-/// End-to-end conformance for the controlled <see cref="System.Threading.Lock"/> surface (Phase 7A). The
+/// End-to-end conformance for the controlled <see cref="System.Threading.Lock"/> surface. The
 /// rule set substitutes <see cref="System.Threading.Lock"/> and its nested <c>Scope</c> ref struct with the
 /// controlled equivalents, so <c>new Lock()</c>, the C# <c>lock (Lock)</c> statement (lowered to
 /// <c>Lock.Scope scope = obj.EnterScope(); try { ... } finally { scope.Dispose(); }</c>), and the explicit

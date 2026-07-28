@@ -27,6 +27,16 @@ public sealed class ControlledTaskRuleGoldenTests
 
         namespace Fx
         {
+            public sealed class Outer<T>
+            {
+                public sealed class Inner { }
+            }
+
+            public static class RecursiveTaskUser
+            {
+                public static Outer<T>.Inner Read<T>(Task<Outer<T>.Inner> task) => task.Result;
+            }
+
             public static class TaskUser
             {
                 public static Task All(Task a, Task b) => Task.WhenAll(a, b);
@@ -274,6 +284,26 @@ public sealed class ControlledTaskRuleGoldenTests
     }
 
     [Fact]
+    public void BlockingResultWithNestedGenericReturnIsRedirectedWithoutRecursing()
+    {
+        using var context = RewriteTestContext.Create();
+        RewriteResult result = RewriteFixture(context, "Fx.TaskRecursiveResult");
+
+        using ModuleDefinition module = context.LoadModule(
+            Path.Combine(context.Directory, "Fx.TaskRecursiveResult.rewritten.dll"));
+
+        MethodDefinition read = CecilInspect.GetMethod(module, "Fx.RecursiveTaskUser", "Read");
+        Assert.True(CecilInspect.CallsAnyContaining(read, "ControlledTask::Result"));
+        Assert.False(CecilInspect.CallsAnyContaining(read, "Task`1::get_Result"));
+        Assert.Contains(
+            result.Manifest.Transformations,
+            transformation => transformation.RuleId == "clockwork.tasks.result.generic"
+                && transformation.Method.Contains(
+                    "Fx.RecursiveTaskUser.Read",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ValueTaskAsyncMachineryIsSubstituted()
     {
         using var context = RewriteTestContext.Create();
@@ -316,8 +346,8 @@ public sealed class ControlledTaskRuleGoldenTests
             Assert.False(CecilInspect.CallsAnyContaining(method, "Threading.Tasks.TaskFactory::StartNew"), methodName);
         }
 
-        // Phase 6B controls the TaskFactory scheduling surface (queued as a controlled operation on the
-        // coordinator, like Task.Run), superseding the Phase 6A rejection.
+        // The controlled runtime handles the TaskFactory scheduling surface (queued as a controlled operation on the
+        // coordinator, like Task.Run), superseding the controlled async rejection.
         ImmutableArray<ManifestTransformation> transformations = result.Manifest.Transformations;
         Assert.Contains(transformations, t =>
             t.RuleId == "clockwork.tasks.factory.startnew.action" && t.Policy == SimulationApiPolicy.Controlled);

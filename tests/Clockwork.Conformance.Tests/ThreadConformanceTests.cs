@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 namespace Clockwork.Conformance.Tests;
 
 /// <summary>
-/// End-to-end conformance for the controlled <see cref="System.Threading.Thread"/> surface (Phase 6B).
+/// End-to-end conformance for the controlled <see cref="System.Threading.Thread"/> surface.
 /// Once a fixture is rewritten with the controlled-task rule set, <c>new Thread(...)</c> becomes a real
 /// thread object whose body is queued as a fresh controlled operation, <c>Start</c> schedules it on the
 /// single logical thread, and <c>Join</c> pumps the deterministic cluster drive until it terminates —

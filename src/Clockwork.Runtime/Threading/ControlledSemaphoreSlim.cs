@@ -27,7 +27,7 @@ namespace Clockwork.Runtime.Threading;
 /// </para>
 /// <para>
 /// <see cref="SemaphoreSlim.AvailableWaitHandle"/> is bridged to a controlled manual-reset wait handle
-/// (Phase 7B): the handle is materialised once, cached, and its signalled state tracks whether a permit
+///: the handle is materialised once, cached, and its signalled state tracks whether a permit
 /// is available (count &gt; 0) across every <c>Wait</c>/<c>Release</c> transition. Observing it never
 /// consumes a permit, and it composes with <c>WaitAny</c>/<c>WaitAll</c> across the controlled surface.
 /// </para>

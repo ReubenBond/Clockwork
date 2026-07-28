@@ -92,18 +92,17 @@ public sealed class ControlledSynchronousWaitDeadlockException : ControlledTaskE
 }
 
 /// <summary>
-/// Thrown when a controlled task API that Phase&#160;6A deliberately does not support is invoked inside a
-/// simulation - for example <c>Task.Delay</c> (owned by the virtual-timer phase) or <c>Task.Run</c>
-/// (thread-pool scheduling, owned by the threading phase). The call site is rewritten to this precise
-/// rejection rather than being allowed to silently use wall-clock time or an uncontrolled thread.
+/// Thrown when an unsupported controlled API is invoked inside a simulation. The call site is
+/// rewritten to this precise rejection rather than being allowed to silently use wall-clock time or
+/// an uncontrolled thread.
 /// </summary>
 public sealed class ControlledTaskUnsupportedException : ControlledTaskException
 {
     /// <summary>Initializes a new instance of the <see cref="ControlledTaskUnsupportedException"/> class.</summary>
     /// <param name="apiName">The unsupported API.</param>
-    /// <param name="reason">Why it is unsupported and which phase owns it.</param>
+    /// <param name="reason">Why the API is unsupported.</param>
     public ControlledTaskUnsupportedException(string apiName, string reason)
-        : base($"The task API '{apiName}' is not controlled by Clockwork's Phase 6A async machinery: {reason}")
+        : base($"The API '{apiName}' is not controlled by Clockwork: {reason}")
     {
         ApiName = apiName;
     }

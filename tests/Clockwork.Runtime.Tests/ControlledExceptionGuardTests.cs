@@ -6,7 +6,7 @@ using Clockwork.Runtime.Tests.Tasks;
 namespace Clockwork.Runtime.Tests;
 
 /// <summary>
-/// Tests for the exception-handler hardening guard (Phase 6B slice 7). The instrumentation's
+/// Tests for the exception-handler hardening guard. The instrumentation's
 /// exception-hardening pass injects a call to
 /// <see cref="ControlledExceptionGuard.ThrowIfControlSignal(object)"/> at the start of every broad user
 /// <c>catch</c> block and exception filter. The guard must re-throw the scheduler's internal control-flow

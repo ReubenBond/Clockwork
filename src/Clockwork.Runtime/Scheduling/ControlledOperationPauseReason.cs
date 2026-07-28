@@ -3,8 +3,8 @@ namespace Clockwork.Runtime.Scheduling;
 /// <summary>
 /// A coarse classification of <em>why</em> a <see cref="ControlledOperation"/> released the
 /// permission baton and entered <see cref="ControlledOperationState.Paused"/>. This is intentionally
-/// a small, open set: Phase 3A only needs generic categories, and the concrete resource-wait
-/// categories a Phase 3B resource model will add (monitor waits, semaphore waits, wait handles,
+/// a small, open set: controlled-operation kernel only needs generic categories, and the concrete resource-wait
+/// categories a resource model will add (monitor waits, semaphore waits, wait handles,
 /// synchronous task waits) can be represented as <see cref="ResourceWait"/> with a descriptive
 /// <see cref="ControlledOperationPauseReason.Detail"/> until they earn dedicated members.
 /// </summary>
@@ -18,8 +18,8 @@ public enum ControlledOperationPauseKind
 
     /// <summary>
     /// The operation is waiting for a resource, signal, or condition that another operation is
-    /// expected to satisfy (a monitor, semaphore, wait handle, or synchronous task wait). Phase 3A
-    /// exposes this generically; Phase 3B builds the concrete resource model on top of it.
+    /// expected to satisfy (a monitor, semaphore, wait handle, or synchronous task wait). controlled-operation kernel
+    /// exposes this generically; resource/wait scheduler builds the concrete resource model on top of it.
     /// </summary>
     ResourceWait,
 
@@ -44,8 +44,8 @@ public enum ControlledOperationPauseKind
 /// </summary>
 /// <param name="Kind">The coarse category of the pause.</param>
 /// <param name="Detail">
-/// A short, stable description of the specific wait (e.g. the resource tag a future resource model
-/// will supply). Never <see langword="null"/>; use an empty string when there is nothing to add.
+/// A short, stable description of the specific wait, such as its resource tag. Never
+/// <see langword="null"/>; use an empty string when there is nothing to add.
 /// </param>
 public sealed record ControlledOperationPauseReason(ControlledOperationPauseKind Kind, string Detail)
 {

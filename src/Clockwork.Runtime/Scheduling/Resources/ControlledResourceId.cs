@@ -10,8 +10,8 @@ namespace Clockwork.Runtime.Scheduling.Resources;
 /// a stable, process-friendly key for wait-for-graph and deadlock reporting.
 /// </para>
 /// <para>
-/// This identity is deliberately independent of the CLR object that a future controlled
-/// <c>Monitor</c>/<c>SemaphoreSlim</c>/wait-handle shim (Phase 6/7) will associate with the
+/// This identity is deliberately independent of the CLR object that a controlled
+/// <c>Monitor</c>/<c>SemaphoreSlim</c>/wait-handle shim (controlled synchronization) will associate with the
 /// resource: the shim maps its own key (e.g. the sync-object reference) to a
 /// <see cref="ControlledResource"/>, and the resource keeps this stable id for its whole lifetime
 /// regardless of how many operations wait on it.

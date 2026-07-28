@@ -10,7 +10,7 @@ using Mono.Cecil;
 namespace Clockwork.Instrumentation.Tests.Golden;
 
 /// <summary>
-/// End-to-end golden tests for the shipped uncontrolled-invocation rule family (Phase 6B slice 7): they
+/// End-to-end golden tests for the shipped uncontrolled-invocation rule family: they
 /// rewrite real <see cref="System.Diagnostics.Process"/> and <see cref="System.Environment"/> call sites in
 /// a compiled fixture against the real <c>Clockwork.Runtime</c> shim assembly and assert that each site is
 /// rejected - a throwing <see cref="Clockwork.Runtime.UncontrolledInvocationGuard.Reject(string)"/> is

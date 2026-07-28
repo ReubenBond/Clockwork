@@ -55,7 +55,8 @@ public sealed record RewriteOptions
     /// <see cref="ReplacementAssemblyPaths"/>. Defaults to <see langword="false"/> (the built-in
     /// controlled-task activation turns it on); narrow typed catches, finally blocks, rethrow-only
     /// handlers, and compiler-generated async-state-machine handlers are never instrumented, so normal
-    /// application exception handling is unchanged.
+    /// application exception handling is unchanged. The closure runner enables this automatically
+    /// when the effective rule set contains built-in controlled-task rules.
     /// </summary>
     public bool HardenExceptionHandlers { get; init; }
 
@@ -66,9 +67,10 @@ public sealed record RewriteOptions
     /// BCL, nor the Clockwork runtime shim) and returns a <see cref="System.Threading.Tasks.Task"/>,
     /// <see cref="System.Threading.Tasks.ValueTask"/>, or other awaitable whose continuation could escape the
     /// deterministic scheduler. The escape is surfaced with a precise source/IL call-site diagnostic rather
-    /// than being silently accepted. Defaults to <see langword="false"/> (the built-in controlled-task
-    /// activation turns it on). HttpClient-specific control remains Phase 10, so BCL <c>System.*</c> calls
-    /// are intentionally not flagged here.
+    /// than being silently accepted. Defaults to <see langword="false"/> and is available to direct rewrite-engine
+    /// callers; the closure runner does not enable it because a per-assembly pass cannot distinguish an excluded
+    /// dependency from a sibling assembly that is rewritten in the same closure. BCL <c>System.*</c> calls are
+    /// intentionally not flagged here.
     /// </summary>
     public bool DetectUncontrolledTasks { get; init; }
 

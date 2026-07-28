@@ -108,7 +108,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
             RuntimeIdentity,
             _runtimeEnvironment);
 
-        // Controlled async/task wiring (Phase 6A): register a deterministic task coordinator for this
+        // Controlled async/task wiring: register a deterministic task coordinator for this
         // runtime so the controlled compiler machinery (async builders, awaiters, Task/ValueTask shims)
         // resolves a real coordinator instead of failing with "missing runtime service" whenever
         // rewritten code runs inside this cluster. A single ControlledTaskLoop per runtime is the whole
@@ -136,9 +136,8 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     /// work this cluster or its nodes execute through an ambient-integrated queue.
     /// </para>
     /// <para>
-    /// This is runtime plumbing only: nothing currently reads this identity to change behavior
-    /// (there is no interception yet), but it gives future controlled interception (Phase 3+) a
-    /// stable "which simulation is this?" answer wherever ambient context is installed.
+    /// Runtime services and diagnostics use this identity as the stable "which simulation is this?"
+    /// answer wherever ambient context is installed.
     /// </para>
     /// </summary>
     public SimulationRuntimeIdentity RuntimeIdentity { get; }
@@ -747,7 +746,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     }
 
     /// <summary>
-    /// Combines the two RunUntilIdleDetailed phases of <see cref="RunForDurationDetailed"/> (plus the
+    /// Combines the two RunUntilIdleDetailed passes of <see cref="RunForDurationDetailed"/> (plus the
     /// forced advance to the target time, if any) into a single result describing the whole operation.
     /// </summary>
     private static SimulationExecutionResult CombineExecutionResults(

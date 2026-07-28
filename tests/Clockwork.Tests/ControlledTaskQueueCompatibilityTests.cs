@@ -5,7 +5,7 @@ namespace Clockwork.Tests;
 
 /// <summary>
 /// <para>
-/// Covers the opt-in Phase 3A compatibility bridge in <see cref="SimulationTaskQueue"/>: when a
+/// Covers the opt-in controlled-operation kernel compatibility bridge in <see cref="SimulationTaskQueue"/>: when a
 /// <see cref="ControlledOperationScheduler"/> is supplied, each ready item runs as a single
 /// controlled operation on the kernel's permission baton instead of inline. These tests pin down the
 /// two guarantees that make the bridge safe to adopt incrementally: the execution order and outcomes

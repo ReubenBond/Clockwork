@@ -9,7 +9,7 @@ namespace Clockwork.Instrumentation.Rewriting;
 
 /// <summary>
 /// <para>
-/// The Phase 4A rewrite engine: a generic, deterministic Mono.Cecil transformation pipeline that
+/// The rewrite engine: a generic, deterministic Mono.Cecil transformation pipeline that
 /// applies a versioned <see cref="RewriteRuleSet"/> to an assembly. It loads the input, enforces
 /// idempotence via an assembly-level signature marker, runs an ordered set of passes
 /// (<see cref="CallSiteRewritingPass"/> then <see cref="TypeReferenceRewritingPass"/>), validates the
@@ -20,7 +20,7 @@ namespace Clockwork.Instrumentation.Rewriting;
 /// This engine is <b>internal and experimental</b>. It performs the IL transformation mechanics only.
 /// It does not activate MSBuild targets or CLI commands, re-sign or Authenticode-sign assemblies,
 /// rewrite publish output recursively, hook assembly loading, or supply any concrete BCL shim - those
-/// are out of scope for Phase 4A (see the compatibility notes). Rules and replacement assemblies are
+/// are out of scope for the rewrite engine (see the compatibility notes). Rules and replacement assemblies are
 /// supplied by the caller.
 /// </para>
 /// </summary>

@@ -10,7 +10,7 @@ namespace Clockwork.Runtime.Tests.Scheduling;
 /// Verifies that the controlled-operation scheduler installs a logical execution identity into the
 /// ambient <see cref="SimulationExecutionContext"/> such that decisions recorded from inside an
 /// operation body automatically carry that operation's runtime, node, and logical identity - the
-/// Phase 3A "logical identity wiring" requirement - without changing any Phase 2 decision API.
+/// controlled-operation kernel "logical identity wiring" requirement without changing the decision API.
 /// </summary>
 public sealed class ControlledOperationDecisionWiringTests
 {

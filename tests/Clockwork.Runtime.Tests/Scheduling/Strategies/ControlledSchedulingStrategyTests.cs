@@ -248,12 +248,12 @@ public sealed class ControlledSchedulingStrategyTests
                 SchedulingRecord(1, "3"),
             ]);
 
-        scheduler.Schedule("phase-one-a", () => { });
-        scheduler.Schedule("phase-one-b", () => { });
+        scheduler.Schedule("batch-one-a", () => { });
+        scheduler.Schedule("batch-one-b", () => { });
         scheduler.Drain();
 
-        scheduler.Schedule("phase-two-a", () => { });
-        scheduler.Schedule("phase-two-b", () => { });
+        scheduler.Schedule("batch-two-a", () => { });
+        scheduler.Schedule("batch-two-b", () => { });
         scheduler.Drain();
         scheduler.ValidateReplayComplete();
     }

@@ -8,7 +8,7 @@ using Mono.Cecil.Cil;
 namespace Clockwork.Instrumentation.Tests.Golden;
 
 /// <summary>
-/// End-to-end golden tests for the exception-hardening pass (Phase 6B slice 7). They rewrite a compiled
+/// End-to-end golden tests for the exception-hardening pass. They rewrite a compiled
 /// fixture with several handler shapes against the real <c>Clockwork.Runtime</c> shim and assert that only
 /// broad <c>catch (Exception)</c> / <c>catch</c> blocks and exception <c>filter</c>s receive the injected
 /// <c>dup; call ControlledExceptionGuard.ThrowIfControlSignal(object)</c> guard, while narrow typed catches,

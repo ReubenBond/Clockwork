@@ -12,9 +12,8 @@ namespace Clockwork.Runtime.Scheduling.Resources;
 /// </para>
 /// <para>
 /// The set is intentionally open-ended (<see cref="Custom"/> covers anything not yet worth a
-/// dedicated member) so that adding a future primitive never requires a breaking enum change first.
-/// None of these implies the corresponding BCL shim exists yet - shims are Phase 6/7 work; this is
-/// only how the scheduler labels a resource for humans reading a deadlock report.
+/// dedicated member) so that adding a primitive never requires a breaking enum change first. This
+/// classification only labels resources for diagnostics; it does not claim BCL support.
 /// </para>
 /// </summary>
 public enum ControlledResourceKind
@@ -53,7 +52,7 @@ public enum ControlledResourceKind
     AutoResetEvent,
 
     /// <summary>
-    /// A generic wait handle not otherwise classified (e.g. a future mutex/handle shim). Uses the
+    /// A generic wait handle not otherwise classified. Uses the
     /// same wait/wake core; the label just tells a reader which primitive produced the wait.
     /// </summary>
     WaitHandle,

@@ -5,7 +5,7 @@ using Clockwork.Instrumentation.Tests.Infrastructure;
 namespace Clockwork.Instrumentation.Tests.Golden;
 
 /// <summary>
-/// End-to-end golden tests for the cross-assembly task-detection pass (Phase 6B). A consumer assembly is
+/// End-to-end golden tests for the cross-assembly task-detection pass. A consumer assembly is
 /// rewritten while it calls into a separate <em>uncontrolled</em> dependency assembly (neither rewritten,
 /// nor BCL, nor the shim). Every call whose return type is a <see cref="System.Threading.Tasks.Task"/>,
 /// <see cref="System.Threading.Tasks.ValueTask"/>, their generic forms, or a custom awaitable must produce a

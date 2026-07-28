@@ -24,7 +24,7 @@ namespace Clockwork.Runtime.Threading;
 /// cooperative single-logical-thread model makes the atomic guarantee free, so the active-simulation shim delegates
 /// straight to the real <see cref="System.Threading.Interlocked"/> primitive (which additionally gives
 /// exact overflow, memory-order, and reference-write semantics).
-/// The single delegation point is where a future Phase 9 race-access hook attaches; it is intentionally
+/// The single delegation point is where a race-exploration access tracking attaches; it is intentionally
 /// left as a direct delegation today so no atomic operation is ever split.
 /// </para>
 /// </summary>

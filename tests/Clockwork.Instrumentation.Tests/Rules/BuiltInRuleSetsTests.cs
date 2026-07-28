@@ -157,7 +157,7 @@ public sealed class BuiltInRuleSetsTests
     }
 
     [Fact]
-    public void Phase8AFamiliesHaveExactControlledAndRejectedRuleCounts()
+    public void ModernSynchronizationFamiliesHaveExactControlledAndRejectedRuleCounts()
     {
         (BuiltInRuleFamily Family, int Controlled, int Rejected)[] expected =
         [

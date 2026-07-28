@@ -12,7 +12,7 @@ using Mono.Cecil;
 namespace Clockwork.Instrumentation.Tests.Golden;
 
 /// <summary>
-/// Exhaustive end-to-end coverage for the Phase 8A synchronization inventory. The direct fixture invokes
+/// Exhaustive end-to-end coverage for the modern synchronization inventory. The direct fixture invokes
 /// every receiver-first or factory rule, while the closure fixture proves whole-type substitutions also
 /// retarget compiler-generated captures and <c>Action&lt;Barrier&gt;</c>.
 /// </summary>
@@ -198,7 +198,7 @@ public sealed class ModernSynchronizationRuleGoldenTests
         typeof(Clockwork.Runtime.Threading.ControlledBarrier).Assembly.Location;
 
     [Fact]
-    public void EveryPhase8ADirectRuleRewritesToTheControlledRuntimeAndManifest()
+    public void EveryModernSynchronizationDirectRuleRewritesToTheControlledRuntimeAndManifest()
     {
         using var context = RewriteTestContext.Create();
         RewriteResult result = Rewrite(context, "Fx.ModernSynchronization", DirectFixture);
@@ -223,7 +223,7 @@ public sealed class ModernSynchronizationRuleGoldenTests
         AssertWholeTypeWasRetargeted(module, "System.Threading.Barrier", "Clockwork.Runtime.Threading.ControlledBarrier");
         AssertWholeTypeWasRetargeted(module, "System.Threading.CountdownEvent", "Clockwork.Runtime.Threading.ControlledCountdownEvent");
 
-        BuiltInRuleFamily[] phase8AFamilies =
+        BuiltInRuleFamily[] modernSynchronizationFamilies =
         [
             BuiltInRuleFamily.ReaderWriterLockSlim,
             BuiltInRuleFamily.ManualResetEventSlim,
@@ -239,7 +239,7 @@ public sealed class ModernSynchronizationRuleGoldenTests
             .Select(transformation => transformation.RuleId)
             .ToImmutableHashSet(StringComparer.Ordinal);
         foreach ((BuiltInRuleFamily _, Clockwork.Instrumentation.Rules.RewriteRule rule) in BuiltInRuleSets.ControlledTasksInventory
-            .Where(entry => phase8AFamilies.Contains(entry.Family)))
+            .Where(entry => modernSynchronizationFamilies.Contains(entry.Family)))
         {
             Assert.Contains(rule.Id, transformed);
             if (rule.Target.MemberName is not null)

@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 namespace Clockwork.Conformance.Tests;
 
 /// <summary>
-/// End-to-end conformance for the controlled <see cref="System.Threading.Volatile"/> surface (Phase 7B).
+/// End-to-end conformance for the controlled <see cref="System.Threading.Volatile"/> surface.
 /// The rule set redirects every <c>Read</c>/<c>Write</c> overload (and the barriers) to a controlled shim
 /// with the identical <c>ref</c>-first signature. A volatile access is indivisible on the cooperative
 /// logical thread; outside simulation, rewritten calls fail before mutating ref state.

@@ -21,7 +21,7 @@ namespace Clockwork.Runtime.Threading;
 /// </para>
 /// <para>
 /// This type also owns the shared, weak-keyed signalled-state registry that every controlled event uses
-/// (<see cref="ControlledEventWaitHandle"/> populates it in its <c>Create</c> factories, and Phase 7B's
+/// (<see cref="ControlledEventWaitHandle"/> populates it in its <c>Create</c> factories, and wait-handle and atomic control's
 /// <see cref="SemaphoreSlim.AvailableWaitHandle"/> bridge registers a manual-reset entry). A synchronous
 /// <see cref="WaitHandle.WaitOne()"/> pumps the deterministic loop until the handle is signalled (an
 /// auto-reset handle consumes the signal, a manual-reset handle leaves it set), or a finite virtual-time
@@ -154,10 +154,8 @@ public static class ControlledWaitHandle
             ReleaseNextWaiter(this);
         }
 
-        // Intentionally not called today: a controlled mutex remains owned when its logical owner exits
-        // without ReleaseMutex, so a later waiter produces the scheduler's deadlock diagnostic rather than
-        // pretending an OS thread abandoned a kernel mutex. Thread/task lifecycle integration can call this
-        // seam in a later phase to implement explicit AbandonedMutexException delivery.
+        // A controlled mutex remains owned when its logical owner exits without ReleaseMutex, so a later
+        // waiter produces the scheduler's deadlock diagnostic instead of fabricating OS abandonment.
         internal void NotifyOwnerStrandCompleted(long strandId)
         {
             if (OwnerId == strandId)

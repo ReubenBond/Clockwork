@@ -29,7 +29,7 @@ public sealed class UncontrolledInvocationException : InvalidOperationException
 }
 
 /// <summary>
-/// The runtime rejection shim for uncontrolled process/termination APIs (Phase 6B). The instrumentation
+/// The runtime rejection shim for uncontrolled process/termination APIs. The instrumentation
 /// rule set rewrites each targeted call site to invoke <see cref="Reject(string)"/> immediately before the
 /// original call (which therefore never executes), passing the fully-qualified name of the intercepted API.
 /// The rejection is unconditional - unlike the controlled shims, these APIs cannot be modelled at all, so a

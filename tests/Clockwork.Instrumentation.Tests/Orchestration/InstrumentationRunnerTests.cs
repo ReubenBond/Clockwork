@@ -4,6 +4,7 @@ using Clockwork.Instrumentation.Diagnostics;
 using Clockwork.Instrumentation.Imaging;
 using Clockwork.Instrumentation.Orchestration;
 using Clockwork.Instrumentation.Rules;
+using Clockwork.Instrumentation.Rules.BuiltIn;
 using Clockwork.Instrumentation.Signing;
 using Clockwork.Instrumentation.Tests.Infrastructure;
 using Clockwork.Runtime.Racing;
@@ -111,6 +112,45 @@ public sealed class InstrumentationRunnerTests : IDisposable
         Assert.True(second.Succeeded);
         Assert.False(second.WasIncrementalHit);
         Assert.Contains("\"mode\": \"RaceExploration\"", File.ReadAllText(second.ManifestPath));
+    }
+
+    [Fact]
+    public void ControlledTaskRulesHardenBroadExceptionHandlers()
+    {
+        Compile(
+            "app",
+            """
+            namespace App;
+
+            public static class Handler
+            {
+                public static int Run()
+                {
+                    try
+                    {
+                        return 1;
+                    }
+                    catch (System.Exception)
+                    {
+                        return -1;
+                    }
+                }
+            }
+            """);
+        File.Copy(
+            typeof(Clockwork.Runtime.ControlledExceptionGuard).Assembly.Location,
+            Path.Combine(_source, "Clockwork.Runtime.dll"));
+        File.WriteAllText(Path.Combine(_source, "app.runtimeconfig.json"), "{}");
+
+        InstrumentationResult result = Run(
+            new InstrumentationConfiguration(),
+            BuiltInRuleSets.BuildControlledTasks(BuiltInRuleSets.AllFamilies));
+
+        Assert.True(result.Succeeded, string.Join("\n", result.Errors));
+        Assert.Contains(
+            result.Assemblies.Single(assembly => assembly.RelativePath == "app.dll").Manifest!.Transformations,
+            transformation => transformation.RuleId == "clockwork.exceptions.harden"
+                && transformation.Method.EndsWith(".Run", StringComparison.Ordinal));
     }
 
     [Fact]

@@ -87,7 +87,7 @@ public static class ControlledTaskRuntime
 
     /// <summary>
     /// Schedules <paramref name="work"/> as a new, immediately-runnable unit of controlled work on the
-    /// ambient coordinator's ready queue. This is the shared primitive behind every Phase 6B surface that
+    /// ambient coordinator's ready queue. This is the shared primitive behind every controlled concurrency surface that
     /// spawns a fresh logical operation - <c>Task.Run</c>, <c>TaskFactory.StartNew</c>,
     /// <c>ThreadPool.QueueUserWorkItem</c>, <c>Thread.Start</c>, and the branches of <c>Parallel</c> - so
     /// the body runs on the simulation's single logical thread interleaved with all other controlled work
