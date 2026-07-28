@@ -1,12 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>Future home of reusable test helpers and assertions for consumers building on Clockwork (e.g., cluster/network test fixtures, deterministic assertion helpers). Placeholder for now.</Description>
+    <Description>Replay-aware test helpers for deterministic Clockwork scenarios, including stable test identity seeds, failure artifacts, and environment-driven replay.</Description>
     <RootNamespace>Clockwork.Testing</RootNamespace>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Clockwork\Clockwork.csproj" />
     <ProjectReference Include="..\Clockwork.Runtime\Clockwork.Runtime.csproj" />
   </ItemGroup>
 
