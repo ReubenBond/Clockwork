@@ -239,6 +239,7 @@ internal sealed class ControlledTimerRegistration
     public bool Dispose(WaitHandle signal)
     {
         EnsureRuntime();
+        _ = ControlledWaitHandle.StateForOperation(signal, "System.Threading.Timer.Dispose");
         if (!TryDispose())
         {
             return false;

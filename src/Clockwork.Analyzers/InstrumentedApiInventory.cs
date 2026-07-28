@@ -24,10 +24,12 @@ public static class InstrumentedApiInventory
         Api("System.Threading.Tasks.Task", "WaitAny"),
         Api("System.Threading.Tasks.Task", "ContinueWith"),
         Api("System.Threading.Tasks.Task", "Delay"),
+        Api("System.Threading.Tasks.Task", "WaitAsync"),
         Api("System.Threading.Tasks.Task", "Run"),
         Api("System.Threading.Tasks.Task", "Yield"),
         Api("System.Threading.Tasks.Task`1", "Result"),
         Api("System.Threading.Tasks.Task`1", "ContinueWith"),
+        Api("System.Threading.Tasks.Task`1", "WaitAsync"),
         Api("System.Threading.Tasks.TaskExtensions", "Unwrap"),
         Api("System.Threading.Tasks.TaskFactory", "StartNew"),
         Api("System.Threading.Tasks.TaskFactory`1", "StartNew"),
@@ -47,6 +49,17 @@ public static class InstrumentedApiInventory
         Api("System.Threading.ThreadPool", "RegisterWaitForSingleObject"),
         Api("System.Threading.ThreadPool", "UnsafeRegisterWaitForSingleObject"),
         Api("System.Threading.RegisteredWaitHandle", Wildcard),
+        Api("System.Threading.Timer", Wildcard),
+        Api("System.Timers.Timer", Wildcard),
+        Api("System.Threading.PeriodicTimer", Wildcard),
+        Api("System.TimeProvider", "System"),
+        Api("System.TimeProvider", "CreateTimer"),
+        Api("System.Threading.CancellationTokenSource", ".ctor"),
+        Api("System.Threading.CancellationTokenSource", "CancelAfter"),
+        Api("System.Threading.CancellationTokenSource", "Cancel"),
+        Api("System.Threading.CancellationTokenSource", "CancelAsync"),
+        Api("System.Threading.CancellationTokenSource", "TryReset"),
+        Api("System.Threading.CancellationTokenSource", "Dispose"),
         Api("System.Threading.Tasks.Parallel", "Invoke"),
         Api("System.Threading.Tasks.Parallel", "For"),
         Api("System.Threading.Tasks.Parallel", "ForEach"),
@@ -128,9 +141,7 @@ public static class InstrumentedApiInventory
                     method.Parameters.Length == 1
                     && method.Parameters[0].Type is IArrayTypeSymbol array
                     && array.ElementType.ToDisplayString() == "System.Threading.Tasks.Task",
-                "Delay" =>
-                    method.Parameters.Length == 1
-                    && method.Parameters[0].Type.SpecialType == SpecialType.System_Int32,
+                "Delay" or "WaitAsync" => true,
                 _ => true,
             };
         }

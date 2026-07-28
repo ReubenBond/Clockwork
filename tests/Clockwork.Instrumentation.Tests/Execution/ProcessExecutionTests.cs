@@ -33,7 +33,8 @@ public sealed class ProcessExecutionTests
         Assert.Contains("monitor=real", source.Output);
         Assert.Contains("lock=System.Threading.Lock", source.Output);
         Assert.Contains("semaphore=signaled", source.Output);
-        Assert.Contains("delays=0", source.Output);
+        Assert.Contains("delays=6", source.Output);
+        Assert.Contains("timer=System.Threading.Timer", source.Output);
 
         InstrumentationResult instrumentation = fixture.Instrument();
         Assert.True(instrumentation.Succeeded, string.Join("\n", instrumentation.Errors));
@@ -45,6 +46,7 @@ public sealed class ProcessExecutionTests
         Assert.Contains("lock=Clockwork.Runtime.Threading.ControlledLock", staged.Output);
         Assert.Contains("semaphore=signaled", staged.Output);
         Assert.Contains("delays=6", staged.Output);
+        Assert.Contains("timer=Clockwork.Runtime.Threading.ControlledTimer", staged.Output);
     }
 
     [Fact]

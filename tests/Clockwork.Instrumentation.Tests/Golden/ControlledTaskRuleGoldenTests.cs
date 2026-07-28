@@ -141,7 +141,7 @@ public sealed class ControlledTaskRuleGoldenTests
     }
 
     [Fact]
-    public void DeferredSurfacesAreRedirectedToRejectingShim()
+    public void DelaySurfacesAreRedirectedToControlledShim()
     {
         using var context = RewriteTestContext.Create();
         var result = RewriteFixture(context, "Fx.TaskDeferred");
@@ -178,7 +178,7 @@ public sealed class ControlledTaskRuleGoldenTests
         foreach (string ruleId in ruleIds)
         {
             Assert.Contains(transformations, t =>
-                t.RuleId == ruleId && t.Policy == SimulationApiPolicy.Rejected);
+                t.RuleId == ruleId && t.Policy == SimulationApiPolicy.Controlled);
         }
     }
 

@@ -20,7 +20,7 @@ using Clockwork.Runtime.Scheduling.Resources;
 /// drive loop; the controlled shims resolve it through an <see cref="ISimulationTaskCoordinator"/>.
 /// </para>
 /// </summary>
-public sealed class ControlledTaskLoop
+public sealed class ControlledTaskLoop : IDisposable
 {
     private readonly Queue<Action> _ready = new();
     private readonly List<WaitEntry> _waits = [];
@@ -143,6 +143,21 @@ public sealed class ControlledTaskLoop
             }
 
             return earliest;
+        }
+    }
+
+    /// <summary>Captures live virtual deadlines in deterministic due-time and registration order.</summary>
+    public IReadOnlyList<ControlledTaskDeadlineInfo> CapturePendingDeadlines()
+    {
+        lock (_deadlineGate)
+        {
+            return
+            [
+                .. _deadlines
+                    .OrderBy(static deadline => deadline.Due)
+                    .ThenBy(static deadline => deadline.Sequence)
+                    .Select(static deadline => new ControlledTaskDeadlineInfo(deadline.Due, deadline.Sequence)),
+            ];
         }
     }
 
@@ -310,6 +325,22 @@ public sealed class ControlledTaskLoop
         }
     }
 
+    /// <summary>Cancels and removes every pending continuation and virtual deadline.</summary>
+    public void Dispose()
+    {
+        _ready.Clear();
+        _waits.Clear();
+        lock (_deadlineGate)
+        {
+            foreach (Deadline deadline in _deadlines)
+            {
+                deadline.TryCancel();
+            }
+
+            _deadlines.Clear();
+        }
+    }
+
     private sealed class WaitEntry(Func<bool> isReady, Action continuation) : IControlledWorkRegistration
     {
         private int _canceled;
@@ -371,3 +402,6 @@ public sealed class ControlledTaskLoop
         private Action<Deadline>? _canceller;
     }
 }
+
+/// <summary>Diagnostic information for one pending controlled-task virtual deadline.</summary>
+public sealed record ControlledTaskDeadlineInfo(TimeSpan DueTime, long Sequence);

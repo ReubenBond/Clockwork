@@ -7,7 +7,7 @@ namespace Clockwork.Runtime.Threading;
 /// <summary>Deterministic virtual-time replacement for <see cref="System.Timers.Timer"/>.</summary>
 [DefaultProperty(nameof(Interval))]
 [DefaultEvent(nameof(Elapsed))]
-public sealed class ControlledTimersTimer : Component, ISupportInitialize
+public class ControlledTimersTimer : Component, ISupportInitialize
 {
     private const string Api = "System.Timers.Timer";
     private readonly ControlledTimerRegistration _registration;

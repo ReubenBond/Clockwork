@@ -132,7 +132,7 @@ public sealed class BuiltInRuleSetsTests
     [Fact]
     public void ControlledTaskInventoryIsVersionTwoAndEveryReplacementResolves()
     {
-        Assert.Equal("2.0.0", BuiltInRuleSets.ControlledTasksVersion);
+        Assert.Equal("3.0.0", BuiltInRuleSets.ControlledTasksVersion);
         using ModuleDefinition module = ModuleDefinition.ReadModule(ShimAssemblyPath);
 
         foreach ((_, RewriteRule rule) in BuiltInRuleSets.ControlledTasksInventory)

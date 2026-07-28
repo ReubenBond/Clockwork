@@ -1,6 +1,5 @@
 using System.Reflection;
 using System.Threading.Tasks;
-using Clockwork.Runtime.Tasks;
 
 namespace Clockwork.Conformance.Tests;
 
@@ -43,11 +42,11 @@ public sealed class TaskDelayConformanceTests : IDisposable
 
     [Theory]
     [MemberData(nameof(DelayMethods))]
-    public void EveryDelayOverloadIsRejectedInsideSimulation(string methodName)
+    public void EveryDelayOverloadCompletesInsideSimulation(string methodName)
     {
         using var host = new SimulationHost(Start);
-        var ex = Assert.Throws<ControlledTaskUnsupportedException>(() => host.Invoke(Method(methodName)));
-        Assert.Equal("System.Threading.Tasks.Task.Delay", ex.ApiName);
+        var task = (Task)host.Invoke(Method(methodName))!;
+        Assert.True(task.IsCompletedSuccessfully);
     }
 
     [Theory]

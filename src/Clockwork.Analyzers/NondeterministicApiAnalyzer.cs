@@ -72,6 +72,15 @@ public sealed class NondeterministicApiAnalyzer : DiagnosticAnalyzer
         {
             ruleId = "clockwork.bcl.random.shared";
         }
+        else if (SymbolEqualityComparer.Default.Equals(type, known.TimeProvider) && property.Name == "System")
+        {
+            if (IsControlledProviderArgument(operation, known))
+            {
+                return;
+            }
+
+            ruleId = "clockwork.timeprovider.system";
+        }
 
         if (ruleId is not null)
         {
@@ -100,6 +109,26 @@ public sealed class NondeterministicApiAnalyzer : DiagnosticAnalyzer
             IIncrementOrDecrementOperation increment => ReferenceEquals(increment.Target, operation),
             _ => false,
         };
+
+    private static bool IsControlledProviderArgument(
+        IPropertyReferenceOperation operation,
+        KnownTypes known)
+    {
+        if (operation.Parent is not IArgumentOperation argument)
+        {
+            return false;
+        }
+
+        if (argument.Parent is IInvocationOperation invocation
+            && known.TryGetMetadataName(invocation.TargetMethod.ContainingType, out string invocationType))
+        {
+            return InstrumentedApiInventory.ContainsInvocation(invocationType, invocation.TargetMethod);
+        }
+
+        return argument.Parent is IObjectCreationOperation { Constructor: { } constructor }
+            && known.TryGetMetadataName(constructor.ContainingType, out string constructorType)
+            && InstrumentedApiInventory.Contains(constructorType, ".ctor");
+    }
 
     private static void AnalyzeInvocation(OperationAnalysisContext context, KnownTypes known)
     {
@@ -143,10 +172,11 @@ public sealed class NondeterministicApiAnalyzer : DiagnosticAnalyzer
             method.IsStatic &&
             method.Name == "Delay")
         {
-            context.ReportDiagnostic(Diagnostic.Create(
-                DeterminismDiagnostics.RejectedApi,
+            ReportControlled(
+                context,
                 operation.Syntax.GetLocation(),
-                "Task.Delay"));
+                "Task.Delay",
+                "clockwork.tasks.delay");
             return;
         }
 
@@ -214,6 +244,7 @@ public sealed class NondeterministicApiAnalyzer : DiagnosticAnalyzer
             Guid = compilation.GetTypeByMetadataName("System.Guid");
             Random = compilation.GetTypeByMetadataName("System.Random");
             Task = compilation.GetTypeByMetadataName("System.Threading.Tasks.Task");
+            TimeProvider = compilation.GetTypeByMetadataName("System.TimeProvider");
             RandomNumberGenerator = compilation.GetTypeByMetadataName("System.Security.Cryptography.RandomNumberGenerator");
 
             var instrumentedTypes = ImmutableDictionary.CreateBuilder<INamedTypeSymbol, string>(SymbolEqualityComparer.Default);
@@ -241,6 +272,8 @@ public sealed class NondeterministicApiAnalyzer : DiagnosticAnalyzer
         public INamedTypeSymbol? Random { get; }
 
         public INamedTypeSymbol? Task { get; }
+
+        public INamedTypeSymbol? TimeProvider { get; }
 
         public INamedTypeSymbol? RandomNumberGenerator { get; }
 
