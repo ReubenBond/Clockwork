@@ -83,13 +83,13 @@ public sealed class ScheduleExplorerTests
     private static ScheduleExplorationOptions ExploreOptions(
         int maxIterations,
         int maxFailures) => new()
-    {
-        RootSeed = 777,
-        FirstScheduleSeed = 100,
-        MaxIterations = maxIterations,
-        MaxStepsPerIteration = 10_000,
-        MaxFailures = maxFailures,
-    };
+        {
+            RootSeed = 777,
+            FirstScheduleSeed = 100,
+            MaxIterations = maxIterations,
+            MaxStepsPerIteration = 10_000,
+            MaxFailures = maxFailures,
+        };
 
     private static void NoOpScenario(ControlledOperationScheduler scheduler) =>
         scheduler.Schedule("complete", static () => { });

@@ -406,15 +406,15 @@ public static class ReplayRunner
     private static ReplayRaceAccessDiagnostic CaptureRaceAccess(
         RaceAccessRecord access,
         bool includeSourcePaths) => new()
-    {
-        OperationId = access.OperationId.Value,
-        Kind = access.Kind.ToString(),
-        Location = access.Location.ToString(),
-        Member = access.Source.Method,
-        ILOffset = access.Source.ILOffset,
-        SourceFile = includeSourcePaths ? access.Source.SourceFile : null,
-        SourceLine = access.Source.SourceLine,
-    };
+        {
+            OperationId = access.OperationId.Value,
+            Kind = access.Kind.ToString(),
+            Location = access.Location.ToString(),
+            Member = access.Source.Method,
+            ILOffset = access.Source.ILOffset,
+            SourceFile = includeSourcePaths ? access.Source.SourceFile : null,
+            SourceLine = access.Source.SourceLine,
+        };
 
     private static ReplayOutcome ClassifyOutcome(
         ReplayRecordingOptions configuration,

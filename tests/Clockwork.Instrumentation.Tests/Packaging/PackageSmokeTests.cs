@@ -206,6 +206,8 @@ public sealed class PackageSmokeTests
         AppRunResult help = Artifacts.Value.RunTool(["--help"]);
 
         Assert.Equal(0, help.ExitCode);
+        Assert.Contains("clockwork instrument", help.Output, StringComparison.Ordinal);
+        Assert.Contains("clockwork record", help.Output, StringComparison.Ordinal);
         Assert.Contains("clockwork replay", help.Output, StringComparison.Ordinal);
         Assert.Contains("clockwork explore", help.Output, StringComparison.Ordinal);
         Assert.Contains("clockwork minimize", help.Output, StringComparison.Ordinal);
@@ -234,7 +236,7 @@ public sealed class PackageSmokeTests
     }
 
     [Fact]
-    public void InstalledToolBuiltInRewriteRequiresActiveSimulation()
+    public void InstalledToolBuiltInInstrumentationRequiresActiveSimulation()
     {
         Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
         PackagedArtifacts artifacts = Artifacts.Value;
