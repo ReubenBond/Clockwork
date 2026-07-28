@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Clockwork.Runtime.Execution;
+using Clockwork.Runtime.Racing;
 using Clockwork.Runtime.Shims;
 
 namespace Clockwork.Runtime.Tasks.CompilerServices;
@@ -54,11 +55,21 @@ public struct ControlledAsyncTaskMethodBuilder
     }
 
     /// <summary>Completes the task successfully.</summary>
-    public void SetResult() { RequireActive(); _inner.SetResult(); }
+    public void SetResult()
+    {
+        RequireActive();
+        _inner.SetResult();
+        RaceSynchronization.Signal(_inner.Task);
+    }
 
     /// <summary>Completes the task in a faulted or cancelled state.</summary>
     /// <param name="exception">The exception to fault (or cancel) the task with.</param>
-    public void SetException(Exception exception) { RequireActive(); _inner.SetException(exception); }
+    public void SetException(Exception exception)
+    {
+        RequireActive();
+        _inner.SetException(exception);
+        RaceSynchronization.Signal(_inner.Task);
+    }
 
     /// <summary>Schedules the state machine to resume when the awaiter completes (context-flowing).</summary>
     /// <typeparam name="TAwaiter">The awaiter type.</typeparam>
@@ -135,11 +146,21 @@ public struct ControlledAsyncTaskMethodBuilder<TResult>
 
     /// <summary>Completes the task successfully with the given result.</summary>
     /// <param name="result">The result value.</param>
-    public void SetResult(TResult result) { RequireActive(); _inner.SetResult(result); }
+    public void SetResult(TResult result)
+    {
+        RequireActive();
+        _inner.SetResult(result);
+        RaceSynchronization.Signal(_inner.Task);
+    }
 
     /// <summary>Completes the task in a faulted or cancelled state.</summary>
     /// <param name="exception">The exception to fault (or cancel) the task with.</param>
-    public void SetException(Exception exception) { RequireActive(); _inner.SetException(exception); }
+    public void SetException(Exception exception)
+    {
+        RequireActive();
+        _inner.SetException(exception);
+        RaceSynchronization.Signal(_inner.Task);
+    }
 
     /// <summary>Schedules the state machine to resume when the awaiter completes (context-flowing).</summary>
     /// <typeparam name="TAwaiter">The awaiter type.</typeparam>

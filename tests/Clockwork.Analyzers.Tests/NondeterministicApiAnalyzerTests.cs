@@ -217,6 +217,34 @@ public sealed class NondeterministicApiAnalyzerTests
         }
     }
 
+    [Theory]
+    [InlineData("var values = new System.Collections.Generic.Dictionary<int, int>(); _ = System.Linq.Enumerable.First(values);")]
+    [InlineData("var values = new System.Collections.Generic.HashSet<int>(); _ = System.Linq.Enumerable.ElementAt(values, 0);")]
+    [InlineData("var values = new System.Collections.Generic.Dictionary<int, int>(); _ = string.Join(\",\", values.Keys);")]
+    public async Task ReportsActionableUnstableCollectionOrdering(string source)
+    {
+        Diagnostic diagnostic = Assert.Single(await AnalyzeAsync("class Probe { void M() { " + source + " } }"));
+
+        Assert.Equal("CW1003", diagnostic.Id);
+        Assert.Contains(
+            "OrderBy",
+            diagnostic.GetMessage(System.Globalization.CultureInfo.InvariantCulture),
+            StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("var values = new System.Collections.Generic.Dictionary<int, int>(); values[1] = 2; _ = values[1];")]
+    [InlineData("var values = new System.Collections.Generic.HashSet<int>(); values.Add(1); _ = values.Contains(1);")]
+    [InlineData("var values = new System.Collections.Generic.Dictionary<int, int>(); _ = System.Linq.Enumerable.First(System.Linq.Enumerable.OrderBy(values, pair => pair.Key));")]
+    [InlineData("var values = new System.Collections.Generic.List<int>(); values.Add(1); _ = values[0];")]
+    [InlineData("var values = new System.Collections.Generic.HashSet<int>(); _ = System.Linq.Enumerable.SequenceEqual(values, values);")]
+    public async Task DoesNotBlanketWarnForCollectionUsage(string source)
+    {
+        ImmutableArray<Diagnostic> diagnostics = await AnalyzeAsync("class Probe { void M() { " + source + " } }");
+
+        Assert.DoesNotContain(diagnostics, diagnostic => diagnostic.Id == "CW1003");
+    }
+
     private static string Wrap(string statement) =>
         "class Probe { void M() { " + statement + " } }";
 
@@ -233,7 +261,7 @@ public sealed class NondeterministicApiAnalyzerTests
             [new NondeterministicApiAnalyzer()]);
 
         ImmutableArray<Diagnostic> analyzerDiagnostics = await withAnalyzers.GetAnalyzerDiagnosticsAsync();
-        return [.. analyzerDiagnostics.Where(d => d.Id is "CW1001" or "CW1002")];
+        return [.. analyzerDiagnostics.Where(d => d.Id is "CW1001" or "CW1002" or "CW1003")];
     }
 
     private static readonly MetadataReference[] ReferenceAssemblies = LoadReferences();

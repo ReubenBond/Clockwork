@@ -1,9 +1,11 @@
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
 using Clockwork.Runtime.Decisions;
 using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Random;
+using Clockwork.Runtime.Racing;
 using Clockwork.Runtime.Scheduling.Resources;
 using Clockwork.Runtime.Scheduling.Strategies;
 
@@ -59,6 +61,8 @@ public sealed class ControlledOperationScheduler : IDisposable
     private readonly SemaphoreSlim _handback = new(0, 1);
     private readonly SimulationLogicalExecutionIdSource _logicalIds = new();
     private readonly ControlledVirtualClock _clock = new();
+    private readonly List<RaceSchedulingPoint> _raceSchedulingPoints = [];
+    private readonly RaceTracker _raceTracker = new();
     private readonly SimulationActivationToken _activationToken;
     private readonly SimulationRuntimeIdentity _runtime;
     private readonly IControlledOperationListener? _listener;
@@ -71,6 +75,7 @@ public sealed class ControlledOperationScheduler : IDisposable
     private long _nextOperationId;
     private long _nextResourceId;
     private long _nextWaiterSequence;
+    private long _nextRaceSchedulingPointSequence;
     private ControlledOperationId _lastSelected = ControlledOperationId.None;
     private ControlledOperation? _current;
     private int _controlThreadId;
@@ -230,6 +235,134 @@ public sealed class ControlledOperationScheduler : IDisposable
         t_currentOperation is { } op && !ReferenceEquals(op.Scheduler, this) ? null : t_currentOperation;
 
     /// <summary>
+    /// Gets the scheduler and operation currently executing on the calling physical thread.
+    /// </summary>
+    internal static bool TryGetExecutingOperation(
+        [NotNullWhen(true)]
+        out ControlledOperationScheduler? scheduler,
+        [NotNullWhen(true)]
+        out ControlledOperation? operation)
+    {
+        operation = t_currentOperation;
+        scheduler = operation?.Scheduler;
+        return scheduler is not null;
+    }
+
+    /// <summary>Captures the injected race-exploration points reached so far in deterministic order.</summary>
+    public IReadOnlyList<RaceSchedulingPoint> CaptureRaceSchedulingPoints()
+    {
+        lock (_gate)
+        {
+            return [.. _raceSchedulingPoints];
+        }
+    }
+
+    /// <summary>Gets the deterministic first race detected in this scheduler, if any.</summary>
+    public RaceReport? FirstRace
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _raceTracker.FirstRace;
+            }
+        }
+    }
+
+    /// <summary>Gets the structured race-specific outcome observed so far.</summary>
+    public RaceExplorationResult RaceExplorationResult
+    {
+        get
+        {
+            lock (_gate)
+            {
+                RaceReport? race = _raceTracker.FirstRace;
+                return race is null
+                    ? new RaceExplorationResult(RaceExplorationTerminationReason.CompletedWithoutRace, null)
+                    : new RaceExplorationResult(RaceExplorationTerminationReason.RaceDetected, race);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Records an injected scheduling point and yields the current operation through the configured
+    /// scheduling strategy and decision/replay pipeline.
+    /// </summary>
+    internal void ReachRaceSchedulingPoint(
+        RaceAccessKind kind,
+        RaceMemoryLocationKind? locationKind,
+        object? target,
+        string member,
+        long? elementIndex,
+        RaceSourceLocation source)
+    {
+        ControlledOperation operation = RequireCurrentOperation();
+        bool suppressInterleaving;
+        lock (_gate)
+        {
+            RaceMemoryLocation? location = _raceTracker.ResolveLocation(
+                locationKind,
+                target,
+                member,
+                elementIndex);
+            var point = new RaceSchedulingPoint(
+                ++_nextRaceSchedulingPointSequence,
+                operation.Id,
+                kind,
+                location?.ToString() ?? member,
+                source);
+            _raceSchedulingPoints.Add(point);
+            if (location is { } tracked)
+            {
+                _raceTracker.RecordAccess(operation, kind, tracked, source, _raceSchedulingPoints);
+            }
+
+            suppressInterleaving = _raceTracker.HasHeldSynchronization(operation);
+        }
+
+        if (!suppressInterleaving)
+        {
+            Yield();
+        }
+    }
+
+    internal void EnterRaceSynchronization(object synchronization)
+    {
+        ControlledOperation operation = RequireCurrentOperation();
+        lock (_gate)
+        {
+            _raceTracker.EnterSynchronization(operation, synchronization);
+        }
+    }
+
+    internal void ExitRaceSynchronization(object synchronization)
+    {
+        ControlledOperation operation = RequireCurrentOperation();
+        lock (_gate)
+        {
+            _raceTracker.ExitSynchronization(operation, synchronization);
+        }
+    }
+
+    internal void SignalRaceSynchronization(object synchronization)
+    {
+        ControlledOperation operation = RequireCurrentOperation();
+        lock (_gate)
+        {
+            _raceTracker.SignalSynchronization(operation, synchronization);
+        }
+    }
+
+    internal void WaitRaceSynchronization(object synchronization)
+    {
+        ControlledOperation operation = RequireCurrentOperation();
+        lock (_gate)
+        {
+            _raceTracker.WaitSynchronization(operation, synchronization);
+        }
+    }
+
+    /// <summary>
     /// Registers a new operation in the <see cref="ControlledOperationState.Created"/> state without
     /// admitting it for scheduling. The operation's parent is the operation the calling thread is
     /// running as (enabling nested parent/child identity), or <see cref="ControlledOperationId.None"/>
@@ -256,7 +389,11 @@ public sealed class ControlledOperationScheduler : IDisposable
             lock (_gate)
             {
                 ThrowIfDisposed();
-                var parentId = t_currentOperation is { } parent && ReferenceEquals(parent.Scheduler, this)
+                ControlledOperation? parent =
+                    t_currentOperation is { } currentParent && ReferenceEquals(currentParent.Scheduler, this)
+                        ? currentParent
+                        : null;
+                var parentId = parent is not null
                     ? parent.Id
                     : ControlledOperationId.None;
                 var id = new ControlledOperationId(++_nextOperationId);
@@ -272,6 +409,7 @@ public sealed class ControlledOperationScheduler : IDisposable
                     capturedContext,
                     priority);
                 _operations.Add(id, operation);
+                _raceTracker.RegisterOperation(operation, parent);
             }
 
             Notify(operation, ControlledOperationState.Created);
@@ -902,7 +1040,19 @@ public sealed class ControlledOperationScheduler : IDisposable
         DisposeRegistration(detachedRegistration);
         HandBackAndPark(operation);
 
-        return FinishWait(operation, waiter);
+        ControlledWaitOutcome outcome = FinishWait(operation, waiter);
+        if (outcome == ControlledWaitOutcome.Signaled)
+        {
+            lock (_gate)
+            {
+                if (waiter.RaceReleaseClock is { } releaseClock)
+                {
+                    _raceTracker.ConsumeRelease(operation, releaseClock);
+                }
+            }
+        }
+
+        return outcome;
     }
 
     /// <summary>
@@ -975,6 +1125,11 @@ public sealed class ControlledOperationScheduler : IDisposable
                 var next = resource.PeekNextPending();
                 if (next is not null && next.TryResolve(ControlledWaitOutcome.Signaled))
                 {
+                    if (t_currentOperation is { } signaler && ReferenceEquals(signaler.Scheduler, this))
+                    {
+                        next.RaceReleaseClock = _raceTracker.CaptureRelease(signaler);
+                    }
+
                     RecordWaitResolution(next, ControlledWaitOutcome.Signaled);
                     registration = DetachWaiterRegistrationsUnderLock(next);
                     resource.RemoveWaiter(next);
@@ -1024,6 +1179,11 @@ public sealed class ControlledOperationScheduler : IDisposable
                 {
                     if (waiter.TryResolve(ControlledWaitOutcome.Signaled))
                     {
+                        if (t_currentOperation is { } signaler && ReferenceEquals(signaler.Scheduler, this))
+                        {
+                            waiter.RaceReleaseClock = _raceTracker.CaptureRelease(signaler);
+                        }
+
                         RecordWaitResolution(waiter, ControlledWaitOutcome.Signaled);
                         registration = DetachWaiterRegistrationsUnderLock(waiter);
                         resource.RemoveWaiter(waiter);
@@ -1710,7 +1870,9 @@ public sealed class ControlledOperationScheduler : IDisposable
             using (operation.Node is { } node ? SimulationExecutionContext.EnterNode(node) : null)
             using (SimulationExecutionContext.EnterLogicalExecution(operation.LogicalExecutionId))
             {
-                operation.InvokeBody();
+                Threading.ControlledSynchronizationFlow.RunAsStrand(
+                    -operation.Id.Value,
+                    operation.InvokeBody);
             }
         }
         finally

@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Threading.Tasks;
+using Clockwork.Runtime.Racing;
 using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks.CompilerServices;
 using Clockwork.Runtime.Threading;
@@ -37,8 +38,11 @@ public static class ControlledTask
     /// <summary>Controlled <c>Task.WhenAll(Task[])</c>.</summary>
     /// <param name="tasks">The tasks to await.</param>
     /// <returns>A task that completes when all <paramref name="tasks"/> complete.</returns>
-    public static Task WhenAll(params Task[] tasks) =>
-        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAll"), Task.WhenAll(tasks)).Item2;
+    public static Task WhenAll(params Task[] tasks)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAll");
+        return TrackAll(Task.WhenAll(tasks), tasks);
+    }
 
     /// <summary>
     /// Controlled <c>Task.WhenAll(ReadOnlySpan&lt;Task&gt;)</c>: the .NET 9+ params-span overload that a
@@ -46,21 +50,32 @@ public static class ControlledTask
     /// </summary>
     /// <param name="tasks">The tasks to await.</param>
     /// <returns>A task that completes when all <paramref name="tasks"/> complete.</returns>
-    public static Task WhenAll(params ReadOnlySpan<Task> tasks) =>
-        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAll"), Task.WhenAll(tasks)).Item2;
+    public static Task WhenAll(params ReadOnlySpan<Task> tasks)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAll");
+        Task[] dependencies = tasks.ToArray();
+        return TrackAll(Task.WhenAll(dependencies), dependencies);
+    }
 
     /// <summary>Controlled <c>Task.WhenAll(IEnumerable&lt;Task&gt;)</c>.</summary>
     /// <param name="tasks">The tasks to await.</param>
     /// <returns>A task that completes when all <paramref name="tasks"/> complete.</returns>
-    public static Task WhenAll(IEnumerable<Task> tasks) =>
-        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAll"), Task.WhenAll(tasks)).Item2;
+    public static Task WhenAll(IEnumerable<Task> tasks)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAll");
+        Task[] dependencies = tasks.ToArray();
+        return TrackAll(Task.WhenAll(dependencies), dependencies);
+    }
 
     /// <summary>Controlled <c>Task.WhenAll&lt;TResult&gt;(Task&lt;TResult&gt;[])</c>.</summary>
     /// <typeparam name="TResult">The task result type.</typeparam>
     /// <param name="tasks">The tasks to await.</param>
     /// <returns>A task with the ordered results once all complete.</returns>
-    public static Task<TResult[]> WhenAll<TResult>(params Task<TResult>[] tasks) =>
-        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAll"), Task.WhenAll(tasks)).Item2;
+    public static Task<TResult[]> WhenAll<TResult>(params Task<TResult>[] tasks)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAll");
+        return TrackAll(Task.WhenAll(tasks), tasks);
+    }
 
     /// <summary>
     /// Controlled <c>Task.WhenAll&lt;TResult&gt;(ReadOnlySpan&lt;Task&lt;TResult&gt;&gt;)</c>: the .NET 9+
@@ -70,21 +85,32 @@ public static class ControlledTask
     /// <typeparam name="TResult">The task result type.</typeparam>
     /// <param name="tasks">The tasks to await.</param>
     /// <returns>A task with the ordered results once all complete.</returns>
-    public static Task<TResult[]> WhenAll<TResult>(params ReadOnlySpan<Task<TResult>> tasks) =>
-        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAll"), Task.WhenAll(tasks)).Item2;
+    public static Task<TResult[]> WhenAll<TResult>(params ReadOnlySpan<Task<TResult>> tasks)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAll");
+        Task<TResult>[] dependencies = tasks.ToArray();
+        return TrackAll(Task.WhenAll(dependencies), dependencies);
+    }
 
     /// <summary>Controlled <c>Task.WhenAll&lt;TResult&gt;(IEnumerable&lt;Task&lt;TResult&gt;&gt;)</c>.</summary>
     /// <typeparam name="TResult">The task result type.</typeparam>
     /// <param name="tasks">The tasks to await.</param>
     /// <returns>A task with the ordered results once all complete.</returns>
-    public static Task<TResult[]> WhenAll<TResult>(IEnumerable<Task<TResult>> tasks) =>
-        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAll"), Task.WhenAll(tasks)).Item2;
+    public static Task<TResult[]> WhenAll<TResult>(IEnumerable<Task<TResult>> tasks)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAll");
+        Task<TResult>[] dependencies = tasks.ToArray();
+        return TrackAll(Task.WhenAll(dependencies), dependencies);
+    }
 
     /// <summary>Controlled <c>Task.WhenAny(Task[])</c>. First-completer order is deterministic because tasks complete one loop step at a time.</summary>
     /// <param name="tasks">The candidate tasks.</param>
     /// <returns>A task whose result is the first task to complete.</returns>
-    public static Task<Task> WhenAny(params Task[] tasks) =>
-        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny"), Task.WhenAny(tasks)).Item2;
+    public static Task<Task> WhenAny(params Task[] tasks)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny");
+        return TrackWinner(Task.WhenAny(tasks));
+    }
 
     /// <summary>
     /// Controlled <c>Task.WhenAny(ReadOnlySpan&lt;Task&gt;)</c>: the .NET 9+ params-span overload that a
@@ -92,8 +118,11 @@ public static class ControlledTask
     /// </summary>
     /// <param name="tasks">The candidate tasks.</param>
     /// <returns>A task whose result is the first task to complete.</returns>
-    public static Task<Task> WhenAny(params ReadOnlySpan<Task> tasks) =>
-        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny"), Task.WhenAny(tasks)).Item2;
+    public static Task<Task> WhenAny(params ReadOnlySpan<Task> tasks)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny");
+        return TrackWinner(Task.WhenAny(tasks));
+    }
 
     /// <summary>
     /// Controlled <c>Task.WhenAny(Task, Task)</c>: the two-argument overload that <c>Task.WhenAny(a, b)</c>
@@ -102,21 +131,30 @@ public static class ControlledTask
     /// <param name="task1">The first candidate task.</param>
     /// <param name="task2">The second candidate task.</param>
     /// <returns>A task whose result is the first task to complete.</returns>
-    public static Task<Task> WhenAny(Task task1, Task task2) =>
-        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny"), Task.WhenAny(task1, task2)).Item2;
+    public static Task<Task> WhenAny(Task task1, Task task2)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny");
+        return TrackWinner(Task.WhenAny(task1, task2));
+    }
 
     /// <summary>Controlled <c>Task.WhenAny(IEnumerable&lt;Task&gt;)</c>.</summary>
     /// <param name="tasks">The candidate tasks.</param>
     /// <returns>A task whose result is the first task to complete.</returns>
-    public static Task<Task> WhenAny(IEnumerable<Task> tasks) =>
-        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny"), Task.WhenAny(tasks)).Item2;
+    public static Task<Task> WhenAny(IEnumerable<Task> tasks)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny");
+        return TrackWinner(Task.WhenAny(tasks));
+    }
 
     /// <summary>Controlled <c>Task.WhenAny&lt;TResult&gt;(Task&lt;TResult&gt;[])</c>.</summary>
     /// <typeparam name="TResult">The task result type.</typeparam>
     /// <param name="tasks">The candidate tasks.</param>
     /// <returns>A task whose result is the first task to complete.</returns>
-    public static Task<Task<TResult>> WhenAny<TResult>(params Task<TResult>[] tasks) =>
-        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny"), Task.WhenAny(tasks)).Item2;
+    public static Task<Task<TResult>> WhenAny<TResult>(params Task<TResult>[] tasks)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny");
+        return TrackWinner(Task.WhenAny(tasks));
+    }
 
     /// <summary>
     /// Controlled <c>Task.WhenAny&lt;TResult&gt;(ReadOnlySpan&lt;Task&lt;TResult&gt;&gt;)</c>: the .NET 9+
@@ -125,8 +163,11 @@ public static class ControlledTask
     /// <typeparam name="TResult">The task result type.</typeparam>
     /// <param name="tasks">The candidate tasks.</param>
     /// <returns>A task whose result is the first task to complete.</returns>
-    public static Task<Task<TResult>> WhenAny<TResult>(params ReadOnlySpan<Task<TResult>> tasks) =>
-        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny"), Task.WhenAny(tasks)).Item2;
+    public static Task<Task<TResult>> WhenAny<TResult>(params ReadOnlySpan<Task<TResult>> tasks)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny");
+        return TrackWinner(Task.WhenAny(tasks));
+    }
 
     /// <summary>
     /// Controlled <c>Task.WhenAny&lt;TResult&gt;(Task&lt;TResult&gt;, Task&lt;TResult&gt;)</c>: the
@@ -136,15 +177,21 @@ public static class ControlledTask
     /// <param name="task1">The first candidate task.</param>
     /// <param name="task2">The second candidate task.</param>
     /// <returns>A task whose result is the first task to complete.</returns>
-    public static Task<Task<TResult>> WhenAny<TResult>(Task<TResult> task1, Task<TResult> task2) =>
-        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny"), Task.WhenAny(task1, task2)).Item2;
+    public static Task<Task<TResult>> WhenAny<TResult>(Task<TResult> task1, Task<TResult> task2)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny");
+        return TrackWinner(Task.WhenAny(task1, task2));
+    }
 
     /// <summary>Controlled <c>Task.WhenAny&lt;TResult&gt;(IEnumerable&lt;Task&lt;TResult&gt;&gt;)</c>.</summary>
     /// <typeparam name="TResult">The task result type.</typeparam>
     /// <param name="tasks">The candidate tasks.</param>
     /// <returns>A task whose result is the first task to complete.</returns>
-    public static Task<Task<TResult>> WhenAny<TResult>(IEnumerable<Task<TResult>> tasks) =>
-        (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny"), Task.WhenAny(tasks)).Item2;
+    public static Task<Task<TResult>> WhenAny<TResult>(IEnumerable<Task<TResult>> tasks)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny");
+        return TrackWinner(Task.WhenAny(tasks));
+    }
 
     /// <summary>
     /// Controlled <c>TaskExtensions.Unwrap(this Task&lt;Task&gt;)</c>. Like the combinators this delegates
@@ -158,7 +205,12 @@ public static class ControlledTask
     {
         SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.TaskExtensions.Unwrap");
         ArgumentNullException.ThrowIfNull(task);
-        return task.Unwrap();
+        Task proxy = task.Unwrap();
+        return RaceTaskDependencies.Register(
+            proxy,
+            () => task.Status == TaskStatus.RanToCompletion
+                ? [task, task.Result]
+                : [task]);
     }
 
     /// <summary>Controlled <c>TaskExtensions.Unwrap&lt;TResult&gt;(this Task&lt;Task&lt;TResult&gt;&gt;)</c>.</summary>
@@ -169,7 +221,12 @@ public static class ControlledTask
     {
         SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.TaskExtensions.Unwrap");
         ArgumentNullException.ThrowIfNull(task);
-        return task.Unwrap();
+        Task<TResult> proxy = task.Unwrap();
+        return RaceTaskDependencies.Register(
+            proxy,
+            () => task.Status == TaskStatus.RanToCompletion
+                ? [task, task.Result]
+                : [task]);
     }
 
     /// <summary>
@@ -183,6 +240,7 @@ public static class ControlledTask
         SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.Wait");
         ArgumentNullException.ThrowIfNull(task);
         ControlledTaskRuntime.DrainUntilCompleted(task, "System.Threading.Tasks.Task.Wait");
+        RaceSynchronization.Wait(task);
         task.Wait();
     }
 
@@ -199,6 +257,7 @@ public static class ControlledTask
         SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task`1.get_Result");
         ArgumentNullException.ThrowIfNull(task);
         ControlledTaskRuntime.DrainUntilCompleted(task, "System.Threading.Tasks.Task`1.get_Result");
+        RaceSynchronization.Wait(task);
         return task.Result;
     }
 
@@ -210,6 +269,11 @@ public static class ControlledTask
         ArgumentNullException.ThrowIfNull(tasks);
         ValidateNoNullTasks(tasks);
         ControlledTaskRuntime.DrainUntil(() => AllCompleted(tasks), "System.Threading.Tasks.Task.WaitAll");
+        foreach (Task task in tasks)
+        {
+            RaceSynchronization.Wait(task);
+        }
+
         Task.WaitAll(tasks);
     }
 
@@ -222,7 +286,9 @@ public static class ControlledTask
         ArgumentNullException.ThrowIfNull(tasks);
         ValidateNoNullTasks(tasks);
         ControlledTaskRuntime.DrainUntil(() => AnyCompleted(tasks), "System.Threading.Tasks.Task.WaitAny");
-        return Task.WaitAny(tasks);
+        int winner = Task.WaitAny(tasks);
+        RaceSynchronization.Wait(tasks[winner]);
+        return winner;
     }
 
     /// <summary>
@@ -524,6 +590,7 @@ public static class ControlledTask
                     if (cancellationToken.IsCancellationRequested)
                     {
                         tcs.TrySetCanceled(cancellationToken);
+                        PublishCompletion(tcs.Task);
                         return;
                     }
 
@@ -531,14 +598,17 @@ public static class ControlledTask
                     {
                         action();
                         tcs.TrySetResult();
+                        PublishCompletion(tcs.Task);
                     }
                     catch (OperationCanceledException oce)
                     {
                         tcs.TrySetCanceled(oce.CancellationToken);
+                        PublishCompletion(tcs.Task);
                     }
                     catch (Exception ex)
                     {
                         tcs.TrySetException(ex);
+                        PublishCompletion(tcs.Task);
                     }
                 }),
             "System.Threading.Tasks.Task.Run");
@@ -570,20 +640,24 @@ public static class ControlledTask
                     if (cancellationToken.IsCancellationRequested)
                     {
                         tcs.TrySetCanceled(cancellationToken);
+                        PublishCompletion(tcs.Task);
                         return;
                     }
 
                     try
                     {
                         tcs.TrySetResult(function());
+                        PublishCompletion(tcs.Task);
                     }
                     catch (OperationCanceledException oce)
                     {
                         tcs.TrySetCanceled(oce.CancellationToken);
+                        PublishCompletion(tcs.Task);
                     }
                     catch (Exception ex)
                     {
                         tcs.TrySetException(ex);
+                        PublishCompletion(tcs.Task);
                     }
                 }),
             "System.Threading.Tasks.Task.Run");
@@ -617,6 +691,7 @@ public static class ControlledTask
                     if (cancellationToken.IsCancellationRequested)
                     {
                         tcs.TrySetCanceled(cancellationToken);
+                        PublishCompletion(tcs.Task);
                         return;
                     }
 
@@ -628,11 +703,13 @@ public static class ControlledTask
                     catch (OperationCanceledException oce)
                     {
                         tcs.TrySetCanceled(oce.CancellationToken);
+                        PublishCompletion(tcs.Task);
                         return;
                     }
                     catch (Exception ex)
                     {
                         tcs.TrySetException(ex);
+                        PublishCompletion(tcs.Task);
                         return;
                     }
 
@@ -640,6 +717,7 @@ public static class ControlledTask
                     {
                         tcs.TrySetException(new InvalidOperationException(
                             "Task.Run(Func<Task>) delegate returned a null task."));
+                        PublishCompletion(tcs.Task);
                         return;
                     }
 
@@ -678,6 +756,7 @@ public static class ControlledTask
                     if (cancellationToken.IsCancellationRequested)
                     {
                         tcs.TrySetCanceled(cancellationToken);
+                        PublishCompletion(tcs.Task);
                         return;
                     }
 
@@ -689,11 +768,13 @@ public static class ControlledTask
                     catch (OperationCanceledException oce)
                     {
                         tcs.TrySetCanceled(oce.CancellationToken);
+                        PublishCompletion(tcs.Task);
                         return;
                     }
                     catch (Exception ex)
                     {
                         tcs.TrySetException(ex);
+                        PublishCompletion(tcs.Task);
                         return;
                     }
 
@@ -701,6 +782,7 @@ public static class ControlledTask
                     {
                         tcs.TrySetException(new InvalidOperationException(
                             "Task.Run(Func<Task<TResult>>) delegate returned a null task."));
+                        PublishCompletion(tcs.Task);
                         return;
                     }
 
@@ -846,6 +928,10 @@ public static class ControlledTask
         {
             tcs.SetException(ex);
         }
+        finally
+        {
+            PublishCompletion(tcs.Task);
+        }
     }
 
     private static void RunContinuation<TResult>(Func<TResult> body, TaskCompletionSource<TResult> tcs)
@@ -857,6 +943,10 @@ public static class ControlledTask
         catch (Exception ex)
         {
             tcs.SetException(ex);
+        }
+        finally
+        {
+            PublishCompletion(tcs.Task);
         }
     }
 
@@ -875,6 +965,8 @@ public static class ControlledTask
         {
             tcs.TrySetResult();
         }
+
+        PublishCompletion(tcs.Task);
     }
 
     /// <summary>Copies a completed antecedent's terminal status (success/fault/cancel) onto a generic source.</summary>
@@ -892,7 +984,30 @@ public static class ControlledTask
         {
             tcs.TrySetResult(inner.Result);
         }
+
+        PublishCompletion(tcs.Task);
     }
+
+    private static void PublishCompletion(Task task)
+    {
+        if (task.IsCompleted)
+        {
+            RaceSynchronization.Signal(task);
+        }
+    }
+
+    private static TTask TrackAll<TTask>(TTask proxy, IEnumerable<Task> dependencies)
+        where TTask : Task
+    {
+        Task[] captured = dependencies.ToArray();
+        return RaceTaskDependencies.Register(proxy, () => captured);
+    }
+
+    private static Task<Task> TrackWinner(Task<Task> proxy) =>
+        RaceTaskDependencies.Register(proxy, () => [proxy.GetAwaiter().GetResult()]);
+
+    private static Task<Task<TResult>> TrackWinner<TResult>(Task<Task<TResult>> proxy) =>
+        RaceTaskDependencies.Register(proxy, () => [proxy.GetAwaiter().GetResult()]);
 
     private static void ValidateNoNullTasks(Task[] tasks)
     {

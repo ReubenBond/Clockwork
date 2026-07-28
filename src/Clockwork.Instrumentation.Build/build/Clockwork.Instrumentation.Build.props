@@ -10,6 +10,7 @@
   <PropertyGroup>
     <!-- Master opt-in switch. Never instrument unless this is explicitly true. -->
     <ClockworkInstrumentationEnabled Condition="'$(ClockworkInstrumentationEnabled)' == ''">false</ClockworkInstrumentationEnabled>
+    <ClockworkInstrumentationMode Condition="'$(ClockworkInstrumentationMode)' == ''">Controlled</ClockworkInstrumentationMode>
 
     <!-- Policy defaults mirror the safe library defaults. -->
     <ClockworkExcludeFrameworkAssemblies Condition="'$(ClockworkExcludeFrameworkAssemblies)' == ''">true</ClockworkExcludeFrameworkAssemblies>

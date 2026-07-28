@@ -133,12 +133,47 @@ one-size-fits-all behavior into the shared model.
 
 ### Race exploration mode
 
-Beyond redirecting nondeterminism, this mode actively perturbs scheduling decisions
-(interleavings, delays, delivery order) across repeated seeded runs to search for
-concurrency bugs that a single deterministic replay would not surface. This is
-expected to build on `SimulationRandom` forking and `SimulationNetwork`'s existing
-seeded delay/drop/partition behavior, extended with systematic exploration
-strategies rather than single fixed scripts.
+`RaceExploration` is an explicit instrumentation mode (`--mode RaceExploration`,
+`<ClockworkInstrumentationMode>RaceExploration</ClockworkInstrumentationMode>`, or JSON
+`"mode": "RaceExploration"`). `Controlled` remains the default and runs none of the fine-grained
+passes, so normal controlled binaries incur no memory/control-flow instrumentation calls.
+
+The Cecil pass injects:
+
+- tracked reads/writes for reference-type instance fields (`ldfld`/`stfld`), static fields
+  (`ldsfld`/`stsfld`), and one-dimensional vector array elements (`ldelem.*`/`stelem.*`);
+- schedule-only points for volatile fields, field-address and indirect/object accesses
+  (`ldflda`/`ldsflda`, `ldind.*`/`stind.*`, `ldobj`/`stobj`, `cpobj`, `initobj`, and `ldelema`) where
+  the evaluation stack does not retain enough information for a stable object-plus-offset identity;
+- control-flow points at `brtrue`/`brfalse`, matching Coyote's memory-access rewriting coverage;
+- direct concrete calls on `List<T>`, `Dictionary<TKey,TValue>`, and `HashSet<T>` as tracked
+  collection accesses, plus scheduling points for `ConcurrentBag<T>`,
+  `ConcurrentDictionary<TKey,TValue>`, `ConcurrentQueue<T>`, and `ConcurrentStack<T>`.
+
+Injected calls carry the original containing method, IL offset, portable-PDB document, and source
+line. Branch targets, volatile prefixes, exception-handler boundaries, and return values remain
+valid. Constructors and property accessors follow Coyote's documented exclusions. Compiler-generated
+`MoveNext` methods are intentionally visited: generated value-type state fields get schedule-only
+points, while accesses reached through a hoisted `this` or closure object retain object-field identity.
+
+The runtime assigns weak, monotonically ordered identities through `ConditionalWeakTable`; reports and
+location tables retain only numeric identities. A per-operation vector clock detects unordered
+read/write and write/write conflicts. Common controlled locksets and release/acquire clocks suppress
+protected accesses across Monitor/C# `lock`, `System.Threading.Lock`, `ReaderWriterLockSlim`,
+`SemaphoreSlim`, controlled task completion/waits, and scheduler resources/events. The first race is
+selected deterministically and returned as a distinct `RaceDetected` structured outcome rather than
+thrown through user code.
+
+**Exact limits:** multidimensional/non-vector arrays lowered to helper calls, interface-typed collection
+calls, reflection/dynamic invocation, `Span<T>`/native pointers, unmanaged memory, and offsets derived
+from arbitrary managed pointers are not assigned tracked locations. They remain schedule-only where an
+IL opcode is identifiable. Concurrent collections are interleaving points but are not themselves
+reported as data races. Collection coverage is direct-member call coverage, not whole-type substitution;
+members reached only through `ICollection<T>`/`IDictionary<TKey,TValue>` are outside the inventory.
+Tail-prefixed collection calls are left intact because the CLI requires `tail.` adjacency and a direct
+call-to-return flow; injecting after such a call would invalidate the method.
+This capability does not add broad schedule-search/minimization commands, profiler/native detours, or
+runtime hosting/transport interception.
 
 ### Optional deep instrumentation mode
 

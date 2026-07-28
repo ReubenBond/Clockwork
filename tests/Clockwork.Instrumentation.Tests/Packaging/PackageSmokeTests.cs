@@ -98,6 +98,46 @@ public sealed class PackageSmokeTests
     }
 
     [Fact]
+    public void BuildPackageSupportsExplicitRaceExplorationMode()
+    {
+        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        ConsumerProject consumer = Artifacts.Value.ScaffoldConsumer(
+            "RaceExplorationApp",
+            instrumentationEnabled: true,
+            mode: InstrumentationMode.RaceExploration);
+
+        AppRunResult build = consumer.Build();
+
+        Assert.True(build.ExitCode == 0, $"Build failed:\n{build.StandardOutput}\n{build.StandardError}");
+        Assert.Contains("\"mode\": \"RaceExploration\"", File.ReadAllText(consumer.ManifestPath));
+        Assert.True(File.Exists(Path.Combine(consumer.StagingDirectory, "Clockwork.Runtime.dll")));
+        AppRunResult staged = ProcessAppRunner.Run(consumer.StagedAppPath);
+        Assert.Equal(0, staged.ExitCode);
+        Assert.Contains("ticks=999", staged.Output);
+    }
+
+    [Fact]
+    public void BuildPackageReinstrumentsWhenModeTogglesBackAndForth()
+    {
+        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        ConsumerProject consumer = Artifacts.Value.ScaffoldConsumer(
+            "ModeToggleApp",
+            instrumentationEnabled: true);
+        Assert.Equal(0, consumer.Build().ExitCode);
+        Assert.Contains("\"mode\": \"Controlled\"", File.ReadAllText(consumer.ManifestPath));
+
+        consumer.SetInstrumentationMode(InstrumentationMode.RaceExploration);
+        Assert.Equal(0, consumer.Build().ExitCode);
+        Assert.Contains("\"mode\": \"RaceExploration\"", File.ReadAllText(consumer.ManifestPath));
+
+        consumer.SetInstrumentationMode(InstrumentationMode.Controlled);
+        Assert.Equal(0, consumer.Build().ExitCode);
+        Assert.Contains("\"mode\": \"Controlled\"", File.ReadAllText(consumer.ManifestPath));
+        using Mono.Cecil.ModuleDefinition module = Mono.Cecil.ModuleDefinition.ReadModule(consumer.StagedAppPath);
+        Assert.False(CecilInspect.AnyMethodCallsContaining(module, "RaceInstrumentation"));
+    }
+
+    [Fact]
     public void BuildPackageRetriesUnchangedFailedInstrumentation()
     {
         Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
@@ -311,7 +351,8 @@ public sealed class PackageSmokeTests
             string name,
             bool instrumentationEnabled,
             bool signEntryAssembly = false,
-            bool useBuiltInRules = false)
+            bool useBuiltInRules = false,
+            InstrumentationMode mode = InstrumentationMode.Controlled)
         {
             string rootDir = Path.Combine(Root, name);
             string appDir = Path.Combine(rootDir, "app");
@@ -408,6 +449,7 @@ public sealed class PackageSmokeTests
                     <ImplicitUsings>enable</ImplicitUsings>
                     <AssemblyName>SmokeApp</AssemblyName>
                     <ClockworkInstrumentationEnabled>{enabled}</ClockworkInstrumentationEnabled>
+                    <ClockworkInstrumentationMode>{mode}</ClockworkInstrumentationMode>
                     <ClockworkUseBuiltInRules>{builtIn}</ClockworkUseBuiltInRules>
                 {signingProperties}
                   </PropertyGroup>
@@ -435,7 +477,7 @@ public sealed class PackageSmokeTests
                 ]);
             File.WriteAllText(Path.Combine(appDir, "clockwork.rules.json"), RuleSetJson.Write(ruleSet));
 
-            return new ConsumerProject(appDir, _packagesDirectory);
+            return new ConsumerProject(appDir, _packagesDirectory, mode);
         }
 
         private static void Pack(string repoRoot, string relativeProject, string version, string feed, string packages)
@@ -501,14 +543,17 @@ public sealed class PackageSmokeTests
         private const string OutputRelative = "bin/Release/net10.0";
         private const string StagingRelative = "obj/Release/net10.0/clockwork/instrumented";
         private const string ManifestRelative = "obj/Release/net10.0/clockwork/clockwork.manifest.json";
-        private const string SuccessRelative = "obj/Release/net10.0/clockwork/clockwork.success";
-
         private readonly string _packagesDirectory;
+        private readonly InstrumentationMode _mode;
 
-        public ConsumerProject(string projectDirectory, string packagesDirectory)
+        public ConsumerProject(
+            string projectDirectory,
+            string packagesDirectory,
+            InstrumentationMode mode)
         {
             ProjectDirectory = projectDirectory;
             _packagesDirectory = packagesDirectory;
+            _mode = mode;
         }
 
         public string ProjectDirectory { get; }
@@ -521,7 +566,9 @@ public sealed class PackageSmokeTests
 
         public string ManifestPath => Path.Combine(ProjectDirectory, ManifestRelative);
 
-        public string SuccessPath => Path.Combine(ProjectDirectory, SuccessRelative);
+        public string SuccessPath => Path.Combine(
+            ProjectDirectory,
+            $"obj/Release/net10.0/clockwork/clockwork.{_mode}.success");
 
         public static string SideEffectPath(string appPath) =>
             Path.Combine(Path.GetDirectoryName(appPath)!, "side-effect.txt");
@@ -531,6 +578,21 @@ public sealed class PackageSmokeTests
             string sourcePath = Path.Combine(ProjectDirectory, "..", "lib", "SmokeApi.cs");
             string source = File.ReadAllText(sourcePath);
             File.WriteAllText(sourcePath, source.Replace("999L", ticks + "L", StringComparison.Ordinal));
+        }
+
+        public void SetInstrumentationMode(InstrumentationMode mode)
+        {
+            string projectPath = Path.Combine(ProjectDirectory, "SmokeApp.csproj");
+            string project = File.ReadAllText(projectPath);
+            foreach (InstrumentationMode existing in Enum.GetValues<InstrumentationMode>())
+            {
+                project = project.Replace(
+                    $"<ClockworkInstrumentationMode>{existing}</ClockworkInstrumentationMode>",
+                    $"<ClockworkInstrumentationMode>{mode}</ClockworkInstrumentationMode>",
+                    StringComparison.Ordinal);
+            }
+
+            File.WriteAllText(projectPath, project);
         }
 
         public AppRunResult Build() => ProcessAppRunner.Execute(

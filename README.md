@@ -31,6 +31,10 @@ are historical implementation notes.
 - `Clockwork.Instrumentation.Build` and `Clockwork.Tool` perform opt-in, out-of-place Cecil rewriting of
   application/dependency closures. The shipped Roslyn analyzer reports controlled and rejected direct
   BCL usage; all of these components are implemented and exercised in CI.
+- Instrumentation defaults to `Controlled`, which injects no fine-grained memory/control-flow calls.
+  Explicit `RaceExploration` mode adds seeded scheduling points, weak-identity race tracking, structured
+  first-race reports, and direct collection access coverage; see
+  [`docs/compatibility.md`](docs/compatibility.md#race-exploration-mode).
 - `clockwork.bcl.deterministic` controls the exact time, identity, and random signatures in
   [`docs/rule-inventory.md`](docs/rule-inventory.md).
 - `clockwork.tasks.controlled` controls async builders/awaiters, task combinators and waits,
@@ -70,6 +74,26 @@ dotnet pack src/Clockwork/Clockwork.csproj --configuration Release
 ```
 
 The NuGet package ID is `Clockwork.Simulation`. Until packages are published, clone the repository or add it as a Git submodule and reference `src/Clockwork/Clockwork.csproj`.
+
+## Optional race exploration instrumentation
+
+Race exploration is a build-time opt-in separate from ordinary controlled rewriting:
+
+```xml
+<ClockworkInstrumentationEnabled>true</ClockworkInstrumentationEnabled>
+<ClockworkInstrumentationMode>RaceExploration</ClockworkInstrumentationMode>
+```
+
+The CLI equivalent is `clockwork rewrite ... --mode RaceExploration`; JSON configuration uses
+`"mode": "RaceExploration"`. The selected mode is recorded in per-assembly and closure manifests and
+participates in rewrite signatures and incremental cache keys. `Controlled` remains the default and
+does not add memory, branch, array, indirect, or collection scheduling calls.
+
+Injected points yield only while running as a `ControlledOperation`. They use the scheduler's selected
+strategy and decision/replay log, preserving the exactly-one-running baton invariant. A run exposes
+`ControlledOperationScheduler.RaceExplorationResult`, `FirstRace`, and
+`CaptureRaceSchedulingPoints()`. A race is a distinct `RaceDetected` outcome with both operations,
+access kinds, logical location, source/IL sites, synchronization context, and the schedule trace.
 
 ## Define a simulation
 

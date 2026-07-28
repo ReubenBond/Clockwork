@@ -29,6 +29,11 @@ jobs:
         run: dotnet run --project tests/Clockwork.Tests/Clockwork.Tests.csproj --configuration Release --no-build -- --timeout 60s
       - name: Test Runtime
         run: dotnet run --project tests/Clockwork.Runtime.Tests/Clockwork.Runtime.Tests.csproj --configuration Release --no-build -- --timeout 60s
+      - name: Repeat race exploration corpus
+        run: |
+          for iteration in 1 2 3; do
+            dotnet run --project tests/Clockwork.Runtime.Tests/Clockwork.Runtime.Tests.csproj --configuration Release --no-build -- --timeout 60s --filter-namespace Clockwork.Runtime.Tests.Racing
+          done
       - name: Test Instrumentation
         run: dotnet run --project tests/Clockwork.Instrumentation.Tests/Clockwork.Instrumentation.Tests.csproj --configuration Release --no-build -- --timeout 180s
       - name: Test Testing

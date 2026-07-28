@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Linq;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Operations;
 
@@ -18,7 +19,11 @@ public sealed class NondeterministicApiAnalyzer : DiagnosticAnalyzer
 {
     /// <inheritdoc/>
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } =
-        [DeterminismDiagnostics.ControlledApi, DeterminismDiagnostics.RejectedApi];
+        [
+            DeterminismDiagnostics.ControlledApi,
+            DeterminismDiagnostics.RejectedApi,
+            DeterminismDiagnostics.UnstableCollectionOrdering,
+        ];
 
     /// <inheritdoc/>
     public override void Initialize(AnalysisContext context)
@@ -140,6 +145,14 @@ public sealed class NondeterministicApiAnalyzer : DiagnosticAnalyzer
             return;
         }
 
+        if (TryGetOrderSensitiveCollectionArgument(operation, known, out IOperation unordered))
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                DeterminismDiagnostics.UnstableCollectionOrdering,
+                unordered.Syntax.GetLocation(),
+                type.Name + "." + method.Name));
+        }
+
         if (SymbolEqualityComparer.Default.Equals(type, known.Stopwatch))
         {
             if (method.Name == "GetTimestamp")
@@ -229,6 +242,76 @@ public sealed class NondeterministicApiAnalyzer : DiagnosticAnalyzer
         }
     }
 
+    private static bool TryGetOrderSensitiveCollectionArgument(
+        IInvocationOperation operation,
+        KnownTypes known,
+        out IOperation unordered)
+    {
+        unordered = null!;
+        IMethodSymbol method = operation.TargetMethod;
+        string? containingType = method.ContainingType?.ToDisplayString();
+        bool orderSensitiveLinq =
+            containingType == "System.Linq.Enumerable" &&
+            method.Name is "First" or "FirstOrDefault" or "Last" or "LastOrDefault" or
+                "ElementAt" or "ElementAtOrDefault" or "SequenceEqual";
+        bool deterministicText =
+            containingType == "string" &&
+            method.Name == "Join";
+        if (!orderSensitiveLinq && !deterministicText)
+        {
+            return false;
+        }
+
+        if (method.Name == "SequenceEqual" &&
+            operation.Arguments.Length >= 2 &&
+            SyntaxFactory.AreEquivalent(
+                Unwrap(operation.Arguments[0].Value).Syntax,
+                Unwrap(operation.Arguments[1].Value).Syntax))
+        {
+            return false;
+        }
+
+        foreach (IArgumentOperation argument in operation.Arguments)
+        {
+            IOperation value = Unwrap(argument.Value);
+            if (IsUnorderedCollection(value, known))
+            {
+                unordered = value;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsUnorderedCollection(IOperation operation, KnownTypes known)
+    {
+        if (IsDictionaryOrHashSet(operation.Type, known))
+        {
+            return true;
+        }
+
+        return operation is IPropertyReferenceOperation property &&
+            property.Property.Name is "Keys" or "Values" &&
+            property.Instance is { } instance &&
+            IsDictionaryOrHashSet(Unwrap(instance).Type, known);
+    }
+
+    private static bool IsDictionaryOrHashSet(ITypeSymbol? type, KnownTypes known) =>
+        type is INamedTypeSymbol named &&
+        (SymbolEqualityComparer.Default.Equals(named.OriginalDefinition, known.Dictionary) ||
+         SymbolEqualityComparer.Default.Equals(named.OriginalDefinition, known.HashSet));
+
+    private static IOperation Unwrap(IOperation operation)
+    {
+        while (operation is IConversionOperation conversion)
+        {
+            operation = conversion.Operand;
+        }
+
+        return operation;
+    }
+
     private static void ReportControlled(OperationAnalysisContext context, Location location, string member, string ruleId) =>
         context.ReportDiagnostic(Diagnostic.Create(DeterminismDiagnostics.ControlledApi, location, member, ruleId));
 
@@ -246,6 +329,8 @@ public sealed class NondeterministicApiAnalyzer : DiagnosticAnalyzer
             Task = compilation.GetTypeByMetadataName("System.Threading.Tasks.Task");
             TimeProvider = compilation.GetTypeByMetadataName("System.TimeProvider");
             RandomNumberGenerator = compilation.GetTypeByMetadataName("System.Security.Cryptography.RandomNumberGenerator");
+            Dictionary = compilation.GetTypeByMetadataName("System.Collections.Generic.Dictionary`2");
+            HashSet = compilation.GetTypeByMetadataName("System.Collections.Generic.HashSet`1");
 
             var instrumentedTypes = ImmutableDictionary.CreateBuilder<INamedTypeSymbol, string>(SymbolEqualityComparer.Default);
             foreach (string metadataName in InstrumentedApiInventory.TypeMetadataNames)
@@ -276,6 +361,10 @@ public sealed class NondeterministicApiAnalyzer : DiagnosticAnalyzer
         public INamedTypeSymbol? TimeProvider { get; }
 
         public INamedTypeSymbol? RandomNumberGenerator { get; }
+
+        public INamedTypeSymbol? Dictionary { get; }
+
+        public INamedTypeSymbol? HashSet { get; }
 
         private ImmutableDictionary<INamedTypeSymbol, string> InstrumentedTypes { get; }
 

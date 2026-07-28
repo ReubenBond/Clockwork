@@ -39,4 +39,10 @@ public enum RewriteOperationKind
     /// left in place so the IL stack stays balanced and verifiable.
     /// </summary>
     InjectRejection,
+
+    /// <summary>
+    /// Inject a race-exploration scheduling point while preserving the original memory or
+    /// control-flow instruction and its stack behavior.
+    /// </summary>
+    InjectSchedulingPoint,
 }

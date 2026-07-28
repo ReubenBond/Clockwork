@@ -32,6 +32,35 @@ behavior.
 
 ---
 
+## Race exploration instrumentation
+
+Clockwork's optional `RaceExploration` mode uses Microsoft Coyote's
+`MemoryAccessRewritingPass`, `SchedulingPoint`, collection interception types, and race tests as the
+primary prior art. Clockwork preserves Coyote's constructor/property exclusion and `brtrue`/`brfalse`
+coverage, and extends the pass with static fields, arrays, safely classified indirect accesses,
+source/IL metadata, and manifest records.
+
+| Surface | Clockwork coverage | Deviation / limit |
+| --- | --- | --- |
+| `ldfld` / `stfld` | Tracked by weak object identity + member | Value-type/state-machine infrastructure fields are schedule-only |
+| `ldsfld` / `stsfld` | Tracked by member identity | Volatile-prefixed accesses are indivisible schedule-only points |
+| `ldelem.*` / `stelem.*` | Tracked by weak array identity + index | Multidimensional helper calls are not recognized |
+| field address / indirect / object IL | Schedule-only | Arbitrary managed/native pointer offsets have no safe logical identity |
+| `brtrue` / `brfalse` | Control-flow scheduling point | Other branch opcodes are not injected, matching Coyote's pass |
+| `List<T>` / `Dictionary<TKey,TValue>` / `HashSet<T>` | Direct concrete reads, writes, and enumeration are tracked | Interface/reflection/dynamic and `tail.`-prefixed calls are outside coverage |
+| four `System.Collections.Concurrent` types | Direct concrete calls are scheduling points | Thread-safe collection access is not reported as a race |
+
+Unlike Coyote's wrapper subclasses for generic collections, Clockwork spills and restores the receiver
+and arguments around the original direct call. The runtime collection type, return value, exceptions,
+and .NET 10 member semantics therefore remain those of the BCL. Normal `Controlled` mode runs no such
+pass and does not change collection types.
+
+The detector uses vector-clock happens-before plus controlled locksets rather than physical-thread
+overlap. Object and synchronization identities are weak-keyed. Reports include both operations,
+read/write kinds, source/IL call sites, held synchronization, and the seeded schedule trace.
+
+---
+
 ## `System.Threading.Thread` — Coyote `…Types.Threading.Thread`
 
 Coyote's controlled `Thread` exposes exactly `Create` (×4), `Start` (×2), `Sleep` (×2), `SpinWait`,

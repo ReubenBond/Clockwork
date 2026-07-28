@@ -52,6 +52,9 @@ public sealed class ClockworkInstrumentTask : MSBuildTask
     /// <summary>Gets or sets the exclude glob patterns removing assemblies from rewriting.</summary>
     public ITaskItem[] ExcludePatterns { get; set; } = [];
 
+    /// <summary>Gets or sets the instrumentation mode (<c>Controlled</c> or <c>RaceExploration</c>).</summary>
+    public string InstrumentationMode { get; set; } = nameof(Configuration.InstrumentationMode.Controlled);
+
     /// <summary>Gets or sets a value indicating whether framework/reference assemblies are excluded. Defaults to <see langword="true"/>.</summary>
     public bool ExcludeFrameworkAssemblies { get; set; } = true;
 
@@ -175,6 +178,7 @@ public sealed class ClockworkInstrumentTask : MSBuildTask
             {
                 IncludePatterns = ToPatternArray(IncludePatterns),
                 ExcludePatterns = ToPatternArray(ExcludePatterns),
+                Mode = ParseEnum<InstrumentationMode>(InstrumentationMode, nameof(InstrumentationMode)),
                 ExcludeFrameworkAssemblies = ExcludeFrameworkAssemblies,
                 RewriteDependencies = RewriteDependencies,
                 TargetRuntime = ParseVersion(TargetRuntime),

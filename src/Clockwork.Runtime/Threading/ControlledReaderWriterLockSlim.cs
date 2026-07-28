@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks;
+using Clockwork.Runtime.Racing;
 
 namespace Clockwork.Runtime.Threading;
 
@@ -198,6 +199,7 @@ public static class ControlledReaderWriterLockSlim
         }
 
         SetReadCount(state, owner, count - 1);
+        RaceSynchronization.Signal(instance);
     }
 
     /// <summary>Enters the sole upgradeable read lock, cooperatively waiting when required.</summary>
@@ -238,6 +240,9 @@ public static class ControlledReaderWriterLockSlim
         {
             state.UpgradeableOwner = null;
         }
+
+        RaceSynchronization.Exit(instance);
+        RaceSynchronization.Signal(instance);
     }
 
     /// <summary>Enters the write lock, cooperatively waiting when required.</summary>
@@ -277,6 +282,9 @@ public static class ControlledReaderWriterLockSlim
         {
             state.WriterOwner = null;
         }
+
+        RaceSynchronization.Exit(instance);
+        RaceSynchronization.Signal(instance);
     }
 
     /// <summary>Disposes the controlled model and rejects all further operations.</summary>
@@ -327,6 +335,7 @@ public static class ControlledReaderWriterLockSlim
         {
             EnsureRecursionAllowed(state);
             Acquire(state, kind, owner);
+            TrackAcquisition(instance, kind);
             return true;
         }
 
@@ -334,6 +343,7 @@ public static class ControlledReaderWriterLockSlim
         if (CanAcquire(state, kind, owner, waiter: null))
         {
             Acquire(state, kind, owner);
+            TrackAcquisition(instance, kind);
             return true;
         }
 
@@ -371,6 +381,7 @@ public static class ControlledReaderWriterLockSlim
         waiter.Deadline?.Cancel();
         state.Waiters.Remove(waiter);
         Acquire(state, kind, owner);
+        TrackAcquisition(instance, kind);
         return true;
     }
 
@@ -478,6 +489,19 @@ public static class ControlledReaderWriterLockSlim
                 state.WriterOwner = owner;
                 state.WriterRecursion++;
                 break;
+        }
+    }
+
+    private static void TrackAcquisition(ReaderWriterLockSlim instance, WaitKind kind)
+    {
+        if (kind == WaitKind.Read)
+        {
+            RaceSynchronization.Wait(instance);
+        }
+        else
+        {
+            RaceSynchronization.Wait(instance);
+            RaceSynchronization.Enter(instance);
         }
     }
 

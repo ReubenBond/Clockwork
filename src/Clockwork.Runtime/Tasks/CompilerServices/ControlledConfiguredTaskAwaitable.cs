@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
+using Clockwork.Runtime.Racing;
 using Clockwork.Runtime.Shims;
 
 namespace Clockwork.Runtime.Tasks.CompilerServices;
@@ -58,6 +59,7 @@ public readonly struct ControlledConfiguredTaskAwaiter : ICriticalNotifyCompleti
     public void GetResult()
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(ApiName);
+        RaceSynchronization.Wait(_task);
         _task.GetAwaiter().GetResult();
     }
 
@@ -123,8 +125,12 @@ public readonly struct ControlledConfiguredTaskAwaiter<TResult> : ICriticalNotif
 
     /// <summary>Completes the await, returning the result or throwing the task's fault/cancellation.</summary>
     /// <returns>The awaited task's result.</returns>
-    public TResult GetResult() =>
-        (SimulationRuntimeDispatch.RequireActiveSimulation(ApiName), _task.GetAwaiter().GetResult()).Item2;
+    public TResult GetResult()
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation(ApiName);
+        RaceSynchronization.Wait(_task);
+        return _task.GetAwaiter().GetResult();
+    }
 
     /// <inheritdoc />
     public void OnCompleted(Action continuation) => Register(continuation, flowExecutionContext: true);

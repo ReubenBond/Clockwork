@@ -1,5 +1,6 @@
 using System.Threading.Tasks;
 using Clockwork.Runtime.Execution;
+using Clockwork.Runtime.Racing;
 using Clockwork.Runtime.Shims;
 
 namespace Clockwork.Runtime.Tasks;
@@ -37,27 +38,54 @@ public sealed class ControlledTaskCompletionSource
     public Task Task => (RequireActive(), _inner.Task).Item2;
 
     /// <summary>Transitions the task to <see cref="TaskStatus.RanToCompletion"/>.</summary>
-    public void SetResult() { RequireActive(); _inner.SetResult(); }
+    public void SetResult()
+    {
+        RequireActive();
+        _inner.SetResult();
+        RaceSynchronization.Signal(_inner.Task);
+    }
 
     /// <summary>Attempts to transition the task to <see cref="TaskStatus.RanToCompletion"/>.</summary>
     /// <returns><see langword="true"/> if successful.</returns>
-    public bool TrySetResult() => (RequireActive(), _inner.TrySetResult()).Item2;
+    public bool TrySetResult() => TryComplete(_inner.TrySetResult);
 
     /// <summary>Transitions the task to <see cref="TaskStatus.Faulted"/> with the given exception.</summary>
     /// <param name="exception">The fault.</param>
-    public void SetException(Exception exception) { RequireActive(); _inner.SetException(exception); }
+    public void SetException(Exception exception)
+    {
+        RequireActive();
+        _inner.SetException(exception);
+        RaceSynchronization.Signal(_inner.Task);
+    }
 
     /// <summary>Attempts to transition the task to <see cref="TaskStatus.Faulted"/>.</summary>
     /// <param name="exception">The fault.</param>
     /// <returns><see langword="true"/> if successful.</returns>
-    public bool TrySetException(Exception exception) => (RequireActive(), _inner.TrySetException(exception)).Item2;
+    public bool TrySetException(Exception exception) => TryComplete(() => _inner.TrySetException(exception));
 
     /// <summary>Transitions the task to <see cref="TaskStatus.Canceled"/>.</summary>
-    public void SetCanceled() { RequireActive(); _inner.SetCanceled(); }
+    public void SetCanceled()
+    {
+        RequireActive();
+        _inner.SetCanceled();
+        RaceSynchronization.Signal(_inner.Task);
+    }
 
     /// <summary>Attempts to transition the task to <see cref="TaskStatus.Canceled"/>.</summary>
     /// <returns><see langword="true"/> if successful.</returns>
-    public bool TrySetCanceled() => (RequireActive(), _inner.TrySetCanceled()).Item2;
+    public bool TrySetCanceled() => TryComplete(_inner.TrySetCanceled);
+
+    private bool TryComplete(Func<bool> complete)
+    {
+        RequireActive();
+        bool completed = complete();
+        if (completed)
+        {
+            RaceSynchronization.Signal(_inner.Task);
+        }
+
+        return completed;
+    }
 
     private static SimulationExecutionSnapshot RequireActive() =>
         SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.TaskCompletionSource");
@@ -89,28 +117,55 @@ public sealed class ControlledTaskCompletionSource<TResult>
 
     /// <summary>Transitions the task to <see cref="TaskStatus.RanToCompletion"/> with the given result.</summary>
     /// <param name="result">The result.</param>
-    public void SetResult(TResult result) { RequireActive(); _inner.SetResult(result); }
+    public void SetResult(TResult result)
+    {
+        RequireActive();
+        _inner.SetResult(result);
+        RaceSynchronization.Signal(_inner.Task);
+    }
 
     /// <summary>Attempts to transition the task to <see cref="TaskStatus.RanToCompletion"/> with the given result.</summary>
     /// <param name="result">The result.</param>
     /// <returns><see langword="true"/> if successful.</returns>
-    public bool TrySetResult(TResult result) => (RequireActive(), _inner.TrySetResult(result)).Item2;
+    public bool TrySetResult(TResult result) => TryComplete(() => _inner.TrySetResult(result));
 
     /// <summary>Transitions the task to <see cref="TaskStatus.Faulted"/> with the given exception.</summary>
     /// <param name="exception">The fault.</param>
-    public void SetException(Exception exception) { RequireActive(); _inner.SetException(exception); }
+    public void SetException(Exception exception)
+    {
+        RequireActive();
+        _inner.SetException(exception);
+        RaceSynchronization.Signal(_inner.Task);
+    }
 
     /// <summary>Attempts to transition the task to <see cref="TaskStatus.Faulted"/>.</summary>
     /// <param name="exception">The fault.</param>
     /// <returns><see langword="true"/> if successful.</returns>
-    public bool TrySetException(Exception exception) => (RequireActive(), _inner.TrySetException(exception)).Item2;
+    public bool TrySetException(Exception exception) => TryComplete(() => _inner.TrySetException(exception));
 
     /// <summary>Transitions the task to <see cref="TaskStatus.Canceled"/>.</summary>
-    public void SetCanceled() { RequireActive(); _inner.SetCanceled(); }
+    public void SetCanceled()
+    {
+        RequireActive();
+        _inner.SetCanceled();
+        RaceSynchronization.Signal(_inner.Task);
+    }
 
     /// <summary>Attempts to transition the task to <see cref="TaskStatus.Canceled"/>.</summary>
     /// <returns><see langword="true"/> if successful.</returns>
-    public bool TrySetCanceled() => (RequireActive(), _inner.TrySetCanceled()).Item2;
+    public bool TrySetCanceled() => TryComplete(_inner.TrySetCanceled);
+
+    private bool TryComplete(Func<bool> complete)
+    {
+        RequireActive();
+        bool completed = complete();
+        if (completed)
+        {
+            RaceSynchronization.Signal(_inner.Task);
+        }
+
+        return completed;
+    }
 
     private static SimulationExecutionSnapshot RequireActive() =>
         SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.TaskCompletionSource`1");

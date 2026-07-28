@@ -174,4 +174,78 @@ internal abstract class RewritePass
             }
         }
     }
+
+    /// <summary>
+    /// Inserts instructions immediately before <paramref name="target"/> and redirects incoming
+    /// control-flow and exception-region boundaries to the first injected instruction.
+    /// </summary>
+    protected void InsertBeforeAndRetarget(Instruction target, IReadOnlyList<Instruction> instructions)
+    {
+        if (instructions.Count == 0)
+        {
+            return;
+        }
+
+        IsMethodBodyModified = true;
+        Instruction first = instructions[0];
+        foreach (Instruction instruction in instructions)
+        {
+            Processor!.InsertBefore(target, instruction);
+        }
+
+        MethodBody body = Processor!.Body;
+        if (body.HasExceptionHandlers)
+        {
+            foreach (ExceptionHandler handler in body.ExceptionHandlers)
+            {
+                if (handler.TryStart == target)
+                {
+                    handler.TryStart = first;
+                }
+
+                if (handler.TryEnd == target)
+                {
+                    handler.TryEnd = first;
+                }
+
+                if (handler.FilterStart == target)
+                {
+                    handler.FilterStart = first;
+                }
+
+                if (handler.HandlerStart == target)
+                {
+                    handler.HandlerStart = first;
+                }
+
+                if (handler.HandlerEnd == target)
+                {
+                    handler.HandlerEnd = first;
+                }
+            }
+        }
+
+        foreach (Instruction current in body.Instructions)
+        {
+            if (instructions.Contains(current))
+            {
+                continue;
+            }
+
+            if (current.Operand is Instruction branchTarget && branchTarget == target)
+            {
+                current.Operand = first;
+            }
+            else if (current.Operand is Instruction[] targets)
+            {
+                for (int i = 0; i < targets.Length; i++)
+                {
+                    if (targets[i] == target)
+                    {
+                        targets[i] = first;
+                    }
+                }
+            }
+        }
+    }
 }

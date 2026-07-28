@@ -113,13 +113,15 @@ public static class InstrumentationRunner
             copied.Add(asset.RelativePath);
         }
 
-        ImmutableArray<string> replacementPaths = ResolveReplacementAssemblies(sourceDirectory, request.RuleSet);
-        HashSet<string> replacementNames = ResolveReplacementNames(request.RuleSet);
+        ImmutableArray<string> replacementPaths =
+            ResolveReplacementAssemblies(sourceDirectory, request.RuleSet, configuration);
+        HashSet<string> replacementNames = ResolveReplacementNames(request.RuleSet, configuration);
         var options = new RewriteOptions
         {
             ReplacementAssemblyPaths = replacementPaths,
             ReferenceSearchDirectories = [sourceDirectory],
             TargetRuntime = configuration.TargetRuntime,
+            InstrumentRaceExploration = configuration.Mode == InstrumentationMode.RaceExploration,
         };
 
         var assemblyResults = new List<AssemblyInstrumentationResult>();
@@ -138,6 +140,19 @@ public static class InstrumentationRunner
             }
 
             assemblyResults.Add(ProcessAssembly(asset, stagingDirectory, configuration, request.RuleSet, options, key));
+        }
+
+        if (configuration.Mode == InstrumentationMode.RaceExploration)
+        {
+            const string runtimeAsset = "Clockwork.Runtime.dll";
+            File.Copy(
+                typeof(Runtime.Racing.RaceInstrumentation).Assembly.Location,
+                Path.Combine(stagingDirectory, runtimeAsset),
+                overwrite: true);
+            if (!copied.Contains(runtimeAsset, StringComparer.Ordinal))
+            {
+                copied.Add(runtimeAsset);
+            }
         }
 
         bool succeeded = topLevel.All(d => !d.IsError) && !assemblyResults.SelectMany(a => a.Errors).Any();
@@ -283,7 +298,10 @@ public static class InstrumentationRunner
             asset.RelativePath, rewrite.WasWritten, rewrite.WasNoOp, wasReSigned, readyToRunStripped, rewrite.Manifest, [.. diagnostics]);
     }
 
-    private static ImmutableArray<string> ResolveReplacementAssemblies(string sourceDirectory, Rules.RewriteRuleSet ruleSet)
+    private static ImmutableArray<string> ResolveReplacementAssemblies(
+        string sourceDirectory,
+        Rules.RewriteRuleSet ruleSet,
+        InstrumentationConfiguration configuration)
     {
         var paths = new SortedSet<string>(StringComparer.Ordinal);
         foreach (string name in ruleSet.Rules
@@ -296,12 +314,19 @@ public static class InstrumentationRunner
             {
                 paths.Add(candidate);
             }
+
+            if (configuration.Mode == InstrumentationMode.RaceExploration)
+            {
+                paths.Add(typeof(Runtime.Racing.RaceInstrumentation).Assembly.Location);
+            }
         }
 
         return [.. paths];
     }
 
-    private static HashSet<string> ResolveReplacementNames(Rules.RewriteRuleSet ruleSet)
+    private static HashSet<string> ResolveReplacementNames(
+        Rules.RewriteRuleSet ruleSet,
+        InstrumentationConfiguration configuration)
     {
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (string name in ruleSet.Rules
@@ -309,6 +334,11 @@ public static class InstrumentationRunner
             .Where(n => !string.IsNullOrEmpty(n)))
         {
             names.Add(name);
+        }
+
+        if (configuration.Mode == InstrumentationMode.RaceExploration)
+        {
+            names.Add("Clockwork.Runtime");
         }
 
         return names;
@@ -338,6 +368,7 @@ public static class InstrumentationRunner
             RuleSetVersion = ruleSet.Version,
             RuleSetSignature = ruleSet.ComputeSignature(),
             ConfigurationSignature = configuration.ComputeSignature(),
+            Mode = configuration.Mode,
             IncrementalKey = incrementalKey,
             EntryRelativePath = plan.EntryAssemblyRelativePath,
             Assemblies = entries,
@@ -359,6 +390,12 @@ public static class InstrumentationRunner
         canonical.Append("r2r=").Append(configuration.ReadyToRunPolicy).Append('\n');
         canonical.Append("sn=").Append(configuration.StrongNamePolicy).Append('\n');
         canonical.Append("key=").Append(key is null ? "none" : HashBytes(key.Blob)).Append('\n');
+        if (configuration.Mode == InstrumentationMode.RaceExploration)
+        {
+            canonical.Append("raceRuntime=")
+                .Append(TryHashFile(typeof(Runtime.Racing.RaceInstrumentation).Assembly.Location) ?? "missing")
+                .Append('\n');
+        }
 
         foreach (ClosureAsset asset in plan.Assets)
         {
