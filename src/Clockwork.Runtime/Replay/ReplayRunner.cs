@@ -28,7 +28,7 @@ public enum ReplaySchedulingPolicy
 }
 
 /// <summary>Configures one recorded execution.</summary>
-public sealed record ReplayRunConfiguration
+public sealed record ReplayRecordingOptions
 {
     /// <summary>Gets the root model/application seed.</summary>
     public required int RootSeed { get; init; }
@@ -73,11 +73,6 @@ public sealed record ReplayExecutionResult
     /// <summary>Gets whether a replay reproduced the recorded terminal outcome.</summary>
     public bool Reproduced { get; init; }
 
-    /// <summary>Gets a persisted artifact path, when the caller wrote it.</summary>
-    public string? ArtifactPath { get; init; }
-
-    /// <summary>Gets a persisted minimized artifact path, when available.</summary>
-    public string? MinimizedArtifactPath { get; init; }
 }
 
 /// <summary>Thrown when replay reaches a different terminal outcome than the artifact.</summary>
@@ -110,13 +105,13 @@ public static class ReplayRunner
 {
     /// <summary>Records one controlled scenario into a complete or explicitly aborted artifact.</summary>
     public static ReplayExecutionResult Record(
-        ReplayRunConfiguration configuration,
+        ReplayRecordingOptions configuration,
         Action<ControlledOperationScheduler> scenario) =>
         Record(configuration, scenario, CancellationToken.None);
 
     /// <summary>Records one controlled scenario with explicit orchestration cancellation.</summary>
     public static ReplayExecutionResult Record(
-        ReplayRunConfiguration configuration,
+        ReplayRecordingOptions configuration,
         Action<ControlledOperationScheduler> scenario,
         CancellationToken cancellationToken)
     {
@@ -184,7 +179,7 @@ public static class ReplayRunner
             scheduler.ValidateReplayDecisionStreamsComplete();
         }
 
-        ReplayRunConfiguration replayConfiguration = new()
+        ReplayRecordingOptions replayConfiguration = new()
         {
             RootSeed = artifact.RootSeed,
             SchedulingPolicy = ParsePolicy(artifact.Scheduler.Strategy),
@@ -279,7 +274,7 @@ public static class ReplayRunner
     }
 
     private static ReplayArtifact CreateArtifact(
-        ReplayRunConfiguration configuration,
+        ReplayRecordingOptions configuration,
         int scheduleSeed,
         IReadOnlyList<SimulationDecisionRecord> decisions,
         ControlledOperationScheduler scheduler,
@@ -422,7 +417,7 @@ public static class ReplayRunner
     };
 
     private static ReplayOutcome ClassifyOutcome(
-        ReplayRunConfiguration configuration,
+        ReplayRecordingOptions configuration,
         ControlledOperationScheduler scheduler,
         ReplayOperationListener listener,
         DriveResult drive)
@@ -534,7 +529,7 @@ public static class ReplayRunner
             ? value
             : value[..ReplayArtifactLimits.MaxStringLength];
 
-    private static int GetScheduleSeed(ReplayRunConfiguration configuration) =>
+    private static int GetScheduleSeed(ReplayRecordingOptions configuration) =>
         configuration.SchedulingPolicy == ReplaySchedulingPolicy.SeededRandom
             ? configuration.ScheduleSeed ??
               new SimulationSeedAuthority(configuration.RootSeed).GetDomainSeed(SimulationSeedDomain.Scheduler)
@@ -560,7 +555,7 @@ public static class ReplayRunner
             _ => throw new ReplayCompatibilityException($"Unsupported recorded scheduler strategy '{strategy}'."),
         };
 
-    private static void ValidateConfiguration(ReplayRunConfiguration configuration)
+    private static void ValidateConfiguration(ReplayRecordingOptions configuration)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(configuration.MaxSteps);
         if (configuration.SchedulingPolicy != ReplaySchedulingPolicy.SeededRandom &&

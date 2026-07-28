@@ -79,7 +79,6 @@ public sealed class ReplayCliCommandTests : IDisposable
             "--seed", "44",
             "--schedule-seed", "9",
             "--count", "4",
-            "--stop-on-first",
             "--json");
 
         Assert.Equal(ExitCode.ExecutionFailure, code);

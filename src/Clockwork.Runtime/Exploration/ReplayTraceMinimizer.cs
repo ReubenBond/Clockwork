@@ -7,7 +7,7 @@ using Clockwork.Runtime.Scheduling;
 namespace Clockwork.Runtime.Exploration;
 
 /// <summary>Configures bounded deterministic replay trace minimization.</summary>
-public sealed record ReplayMinimizationConfiguration
+public sealed record ReplayMinimizationOptions
 {
     /// <summary>Gets the maximum number of failure-predicate attempts.</summary>
     public int MaxAttempts { get; init; } = 1000;
@@ -171,7 +171,7 @@ public static class ReplayTraceMinimizer
     /// <summary>Minimizes a replay artifact against a deterministic failure predicate.</summary>
     public static ReplayMinimizationResult Minimize(
         ReplayArtifact artifact,
-        ReplayMinimizationConfiguration configuration,
+        ReplayMinimizationOptions configuration,
         Func<ReplayArtifact, ReplayFailureObservation> failurePredicate)
     {
         ArgumentNullException.ThrowIfNull(artifact);
@@ -244,7 +244,7 @@ public static class ReplayTraceMinimizer
     private static ReplayArtifact MinimizeSubsequences(
         ReplayArtifact current,
         ReplayOutcome target,
-        ReplayMinimizationConfiguration configuration,
+        ReplayMinimizationOptions configuration,
         Func<ReplayArtifact, ReplayFailureObservation> predicate,
         Stopwatch stopwatch,
         List<ReplayMinimizationProgress> progress,
@@ -296,7 +296,7 @@ public static class ReplayTraceMinimizer
     private static ReplayArtifact MinimizeAlternatives(
         ReplayArtifact current,
         ReplayOutcome target,
-        ReplayMinimizationConfiguration configuration,
+        ReplayMinimizationOptions configuration,
         Func<ReplayArtifact, ReplayFailureObservation> predicate,
         Stopwatch stopwatch,
         List<ReplayMinimizationProgress> progress,
@@ -427,13 +427,13 @@ public static class ReplayTraceMinimizer
         string.Equals(observation.FailureIdentity, target.FailureIdentity, StringComparison.Ordinal);
 
     private static bool CanAttempt(
-        ReplayMinimizationConfiguration configuration,
+        ReplayMinimizationOptions configuration,
         Stopwatch stopwatch,
         int attempts) =>
         attempts < configuration.MaxAttempts &&
         (configuration.TimeLimit is null || stopwatch.Elapsed < configuration.TimeLimit.Value);
 
-    private static void ValidateConfiguration(ReplayMinimizationConfiguration configuration)
+    private static void ValidateConfiguration(ReplayMinimizationOptions configuration)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(configuration.MaxAttempts);
         if (configuration.TimeLimit <= TimeSpan.Zero)

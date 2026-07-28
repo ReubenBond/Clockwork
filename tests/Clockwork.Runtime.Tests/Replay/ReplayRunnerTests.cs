@@ -11,7 +11,7 @@ public sealed class ReplayRunnerTests
     public void RecordAndReplaySuccessfulSeededSchedule()
     {
         var recordedOrder = new List<string>();
-        ReplayRunConfiguration configuration = SeededConfiguration(scheduleSeed: 91);
+        ReplayRecordingOptions configuration = SeededConfiguration(scheduleSeed: 91);
 
         ReplayExecutionResult recorded = Record(
             configuration,
@@ -118,7 +118,7 @@ public sealed class ReplayRunnerTests
                 });
         }
 
-        ReplayRunConfiguration configuration = new()
+        ReplayRecordingOptions configuration = new()
         {
             RootSeed = 7,
             SchedulingPolicy = ReplaySchedulingPolicy.RoundRobin,
@@ -229,7 +229,7 @@ public sealed class ReplayRunnerTests
                 static _ => { }));
     }
 
-    private static ReplayRunConfiguration SeededConfiguration(int scheduleSeed) => new()
+    private static ReplayRecordingOptions SeededConfiguration(int scheduleSeed) => new()
     {
         RootSeed = 1234,
         SchedulingPolicy = ReplaySchedulingPolicy.SeededRandom,
@@ -238,7 +238,7 @@ public sealed class ReplayRunnerTests
     };
 
     private static ReplayExecutionResult Record(
-        ReplayRunConfiguration configuration,
+        ReplayRecordingOptions configuration,
         Action<ControlledOperationScheduler> scenario) =>
         ReplayRunner.Record(configuration, scenario, TestContext.Current.CancellationToken);
 

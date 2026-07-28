@@ -11,8 +11,8 @@ public sealed class ScheduleExplorerTests
     [Fact]
     public void IterationIdsAndSeedsAreDeterministic()
     {
-        ScheduleExplorationResult first = Explore(ExploreConfiguration(maxIterations: 4, stopOnFirstFailure: false), NoOpScenario);
-        ScheduleExplorationResult second = Explore(ExploreConfiguration(maxIterations: 4, stopOnFirstFailure: false), NoOpScenario);
+        ScheduleExplorationResult first = Explore(ExploreOptions(maxIterations: 4, maxFailures: 1), NoOpScenario);
+        ScheduleExplorationResult second = Explore(ExploreOptions(maxIterations: 4, maxFailures: 1), NoOpScenario);
 
         Assert.Equal(
             first.Iterations.Select(static iteration => (iteration.IterationId, iteration.ScheduleSeed)),
@@ -25,13 +25,13 @@ public sealed class ScheduleExplorerTests
     public void ExplorationFindsRaceWithinFixedBoundAndReplaysExactly()
     {
         ScheduleExplorationResult result = Explore(
-            ExploreConfiguration(maxIterations: 8, stopOnFirstFailure: true),
+            ExploreOptions(maxIterations: 8, maxFailures: 1),
             RaceScenario);
 
         ScheduleExplorationIteration failure = Assert.Single(
             result.Iterations,
             static iteration => iteration.IsFailure);
-        Assert.Equal(ExplorationTerminationReason.FirstFailure, result.TerminationReason);
+        Assert.Equal(ExplorationTerminationReason.FailureLimit, result.TerminationReason);
         Assert.Equal(ReplayTerminationKind.RaceDetected, failure.Execution.Artifact.Outcome.Kind);
         ReplayExecutionResult replay = ReplayRunner.Replay(
             failure.Execution.Artifact,
@@ -46,7 +46,7 @@ public sealed class ScheduleExplorerTests
     public void ExplorationFindsDeadlockWithinFixedBoundAndReplaysExactly()
     {
         ScheduleExplorationResult result = Explore(
-            ExploreConfiguration(maxIterations: 32, stopOnFirstFailure: true),
+            ExploreOptions(maxIterations: 32, maxFailures: 1),
             ConditionalDeadlockScenario);
 
         ScheduleExplorationIteration failure = Assert.Single(
@@ -65,12 +65,7 @@ public sealed class ScheduleExplorerTests
     [Fact]
     public void FailureLimitAndAggregateCountsAreStable()
     {
-        ScheduleExplorationConfiguration configuration = ExploreConfiguration(
-            maxIterations: 20,
-            stopOnFirstFailure: false) with
-        {
-            MaxFailures = 3,
-        };
+        ScheduleExplorationOptions configuration = ExploreOptions(maxIterations: 20, maxFailures: 3);
 
         ScheduleExplorationResult result = Explore(configuration, RaceScenario);
 
@@ -80,34 +75,20 @@ public sealed class ScheduleExplorerTests
         Assert.Single(result.RetainedFailures);
     }
 
-    [Fact]
-    public void ParallelExplorationIsRejectedUntilIsolationIsProven()
-    {
-        ScheduleExplorationConfiguration configuration = ExploreConfiguration(2, true) with
-        {
-            Parallelism = 2,
-        };
-
-        NotSupportedException exception = Assert.Throws<NotSupportedException>(
-            () => Explore(configuration, NoOpScenario));
-
-        Assert.Contains("Parallelism=1", exception.Message, StringComparison.Ordinal);
-    }
-
     private static ScheduleExplorationResult Explore(
-        ScheduleExplorationConfiguration configuration,
+        ScheduleExplorationOptions options,
         Action<ControlledOperationScheduler> scenario) =>
-        ScheduleExplorer.Explore(configuration, scenario, TestContext.Current.CancellationToken);
+        ScheduleExplorer.Explore(options, scenario, TestContext.Current.CancellationToken);
 
-    private static ScheduleExplorationConfiguration ExploreConfiguration(
+    private static ScheduleExplorationOptions ExploreOptions(
         int maxIterations,
-        bool stopOnFirstFailure) => new()
+        int maxFailures) => new()
     {
         RootSeed = 777,
         FirstScheduleSeed = 100,
         MaxIterations = maxIterations,
         MaxStepsPerIteration = 10_000,
-        StopOnFirstFailure = stopOnFirstFailure,
+        MaxFailures = maxFailures,
     };
 
     private static void NoOpScenario(ControlledOperationScheduler scheduler) =>

@@ -13,9 +13,6 @@ public enum ExplorationTerminationReason
     /// <summary>Every configured iteration completed.</summary>
     IterationLimit,
 
-    /// <summary>The first non-success outcome was found.</summary>
-    FirstFailure,
-
     /// <summary>The configured failure count was reached.</summary>
     FailureLimit,
 
@@ -27,7 +24,7 @@ public enum ExplorationTerminationReason
 }
 
 /// <summary>Configures bounded serial schedule exploration.</summary>
-public sealed record ScheduleExplorationConfiguration
+public sealed record ScheduleExplorationOptions
 {
     /// <summary>Gets the stable model/application root seed held constant across all iterations.</summary>
     public required int RootSeed { get; init; }
@@ -41,23 +38,14 @@ public sealed record ScheduleExplorationConfiguration
     /// <summary>Gets the maximum controlled steps per iteration.</summary>
     public int MaxStepsPerIteration { get; init; } = 1_000_000;
 
-    /// <summary>Gets whether exploration stops at the first non-success outcome.</summary>
-    public bool StopOnFirstFailure { get; init; } = true;
-
     /// <summary>Gets the maximum number of non-success outcomes to collect.</summary>
-    public int MaxFailures { get; init; } = int.MaxValue;
+    public int MaxFailures { get; init; } = 1;
 
     /// <summary>
     /// Gets an optional wall-clock safety bound. It is checked only between iterations, so an
     /// iteration and its artifact are never truncated by this bound.
     /// </summary>
     public TimeSpan? TimeLimit { get; init; }
-
-    /// <summary>
-    /// Gets requested exploration parallelism. Only serial execution is supported because scheduler
-    /// and instrumentation isolation across concurrent iterations is not assumed.
-    /// </summary>
-    public int Parallelism { get; init; } = 1;
 
     /// <summary>Gets the instrumentation closure identity, when applicable.</summary>
     public ReplayInstrumentationIdentity? Instrumentation { get; init; }
@@ -109,13 +97,13 @@ public static class ScheduleExplorer
 {
     /// <summary>Explores schedule seeds serially.</summary>
     public static ScheduleExplorationResult Explore(
-        ScheduleExplorationConfiguration configuration,
+        ScheduleExplorationOptions configuration,
         Action<ControlledOperationScheduler> scenario) =>
         Explore(configuration, scenario, CancellationToken.None);
 
     /// <summary>Explores schedule seeds serially with explicit cancellation.</summary>
     public static ScheduleExplorationResult Explore(
-        ScheduleExplorationConfiguration configuration,
+        ScheduleExplorationOptions configuration,
         Action<ControlledOperationScheduler> scenario,
         CancellationToken cancellationToken)
     {
@@ -146,7 +134,7 @@ public static class ScheduleExplorer
 
             int scheduleSeed = DeriveScheduleSeed(configuration.FirstScheduleSeed, index);
             ReplayExecutionResult execution = ReplayRunner.Record(
-                new ReplayRunConfiguration
+                new ReplayRecordingOptions
                 {
                     RootSeed = configuration.RootSeed,
                     SchedulingPolicy = ReplaySchedulingPolicy.SeededRandom,
@@ -174,12 +162,6 @@ public static class ScheduleExplorer
 
             failureCount++;
             RetainSmallest(retained, execution);
-            if (configuration.StopOnFirstFailure)
-            {
-                terminationReason = ExplorationTerminationReason.FirstFailure;
-                break;
-            }
-
             if (failureCount >= configuration.MaxFailures)
             {
                 terminationReason = ExplorationTerminationReason.FailureLimit;
@@ -242,7 +224,7 @@ public static class ScheduleExplorer
             : StringComparer.Ordinal.Compare(left.ArtifactId, right.ArtifactId);
     }
 
-    private static void Validate(ScheduleExplorationConfiguration configuration)
+    private static void Validate(ScheduleExplorationOptions configuration)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(configuration.MaxIterations);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(configuration.MaxStepsPerIteration);
@@ -252,12 +234,6 @@ public static class ScheduleExplorer
             throw new ArgumentOutOfRangeException(
                 nameof(configuration),
                 "TimeLimit must be positive when specified.");
-        }
-
-        if (configuration.Parallelism != 1)
-        {
-            throw new NotSupportedException(
-                "Schedule exploration currently requires Parallelism=1 so iteration isolation and replay order remain reproducible.");
         }
     }
 }

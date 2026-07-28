@@ -18,7 +18,7 @@ public sealed class ReplayTraceMinimizerTests
 
         ReplayMinimizationResult result = ReplayTraceMinimizer.Minimize(
             recorded.Artifact,
-            new ReplayMinimizationConfiguration { MaxAttempts = 200 },
+            new ReplayMinimizationOptions { MaxAttempts = 200 },
             predicate);
 
         Assert.True(result.Verified);
@@ -65,11 +65,11 @@ public sealed class ReplayTraceMinimizerTests
 
         ReplayMinimizationResult first = ReplayTraceMinimizer.Minimize(
             recorded.Artifact,
-            new ReplayMinimizationConfiguration { MaxAttempts = 3 },
+            new ReplayMinimizationOptions { MaxAttempts = 3 },
             predicate);
         ReplayMinimizationResult second = ReplayTraceMinimizer.Minimize(
             recorded.Artifact,
-            new ReplayMinimizationConfiguration { MaxAttempts = 3 },
+            new ReplayMinimizationOptions { MaxAttempts = 3 },
             predicate);
 
         Assert.Equal(3, first.Attempts);
@@ -83,7 +83,7 @@ public sealed class ReplayTraceMinimizerTests
         for (var scheduleSeed = 1; scheduleSeed <= 100; scheduleSeed++)
         {
             ReplayExecutionResult execution = ReplayRunner.Record(
-                new ReplayRunConfiguration
+                new ReplayRecordingOptions
                 {
                     RootSeed = 55,
                     SchedulingPolicy = ReplaySchedulingPolicy.SeededRandom,

@@ -55,7 +55,7 @@ internal static class ReplayCommands
 
         Func<IReplayScenario> factory = ReplayScenarioLoader.LoadFactory(assembly, scenarioType);
         ReplayExecutionResult result = ReplayRunner.Record(
-            new ReplayRunConfiguration
+            new ReplayRecordingOptions
             {
                 RootSeed = rootSeed,
                 SchedulingPolicy = policy,
@@ -65,7 +65,7 @@ internal static class ReplayCommands
             },
             scheduler => factory().Configure(scheduler));
         ReplayArtifactSerializer.Write(artifactPath, result.Artifact);
-        WriteExecution(output, result with { ArtifactPath = Path.GetFullPath(artifactPath) }, json);
+        WriteExecution(output, result, Path.GetFullPath(artifactPath), json);
         return ExitForOutcome(result.Artifact.Outcome);
     }
 
@@ -93,7 +93,8 @@ internal static class ReplayCommands
             maxSteps);
         WriteExecution(
             output,
-            result with { ArtifactPath = Path.GetFullPath(artifactPath) },
+            result,
+            Path.GetFullPath(artifactPath),
             json);
         return ExitForOutcome(result.Artifact.Outcome);
     }
@@ -110,24 +111,22 @@ internal static class ReplayCommands
             Require(reader.GetString("schedule-seed"), "--schedule-seed"),
             "--schedule-seed");
         int count = ParsePositiveInt(reader.GetString("count", "100")!, "--count");
-        int maxFailures = ParsePositiveInt(reader.GetString("max-failures", int.MaxValue.ToString(CultureInfo.InvariantCulture))!, "--max-failures");
+        int maxFailures = ParsePositiveInt(reader.GetString("max-failures", "1")!, "--max-failures");
         int maxSteps = ParsePositiveInt(reader.GetString("max-steps", "1000000")!, "--max-steps");
         TimeSpan? timeLimit = ParseOptionalTimeSpan(reader.GetString("time-limit"), "--time-limit");
         ReplayInstrumentationIdentity? instrumentation = ReadOptionalManifest(reader.GetString("manifest"));
-        bool stopOnFirst = reader.GetFlag("stop-on-first");
         bool json = reader.GetFlag("json");
         reader.EnsureAllConsumed();
 
         Func<IReplayScenario> factory = ReplayScenarioLoader.LoadFactory(assembly, scenarioType);
         ScheduleExplorationResult result = ScheduleExplorer.Explore(
-            new ScheduleExplorationConfiguration
+            new ScheduleExplorationOptions
             {
                 RootSeed = rootSeed,
                 FirstScheduleSeed = firstScheduleSeed,
                 MaxIterations = count,
                 MaxFailures = maxFailures,
                 MaxStepsPerIteration = maxSteps,
-                StopOnFirstFailure = stopOnFirst,
                 TimeLimit = timeLimit,
                 Instrumentation = instrumentation,
             },
@@ -174,7 +173,7 @@ internal static class ReplayCommands
             CancellationToken.None);
         ReplayMinimizationResult result = ReplayTraceMinimizer.Minimize(
             artifact,
-            new ReplayMinimizationConfiguration
+            new ReplayMinimizationOptions
             {
                 MaxAttempts = maxAttempts,
                 TimeLimit = timeLimit,
@@ -203,14 +202,18 @@ internal static class ReplayCommands
         return ExitCode.Success;
     }
 
-    private static void WriteExecution(TextWriter output, ReplayExecutionResult result, bool json)
+    private static void WriteExecution(
+        TextWriter output,
+        ReplayExecutionResult result,
+        string artifactPath,
+        bool json)
     {
         if (json)
         {
             var node = new JsonObject
             {
                 ["artifactId"] = result.ArtifactId,
-                ["artifactPath"] = result.ArtifactPath,
+                ["artifactPath"] = artifactPath,
                 ["outcome"] = result.Artifact.Outcome.Kind.ToString(),
                 ["failureIdentity"] = result.Artifact.Outcome.FailureIdentity,
                 ["steps"] = result.Steps,
@@ -221,7 +224,7 @@ internal static class ReplayCommands
         }
 
         output.WriteLine($"artifact: {result.ArtifactId}");
-        output.WriteLine($"path: {result.ArtifactPath ?? "not-written"}");
+        output.WriteLine($"path: {artifactPath}");
         output.WriteLine($"outcome: {result.Artifact.Outcome.Kind}");
         output.WriteLine($"failure: {result.Artifact.Outcome.FailureIdentity ?? "none"}");
         output.WriteLine($"steps: {result.Steps.ToString(CultureInfo.InvariantCulture)}");
