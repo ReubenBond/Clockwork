@@ -155,4 +155,22 @@ public sealed class ControlledTimerTests
             Assert.Throws<ArgumentOutOfRangeException>(() => timer.Change(invalid, Timeout.Infinite));
         });
     }
+
+    [Fact]
+    public void DisposeWaitHandleSignalsControlledEventAndRejectsKernelEscape()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var timer = new ControlledTimer(_ => { });
+            using ManualResetEvent completion = ControlledEventWaitHandle.CreateManualResetEvent(false);
+
+            Assert.True(timer.Dispose(completion));
+            Assert.True(ControlledWaitHandle.WaitOne(completion, 0));
+
+            using var uncontrolled = new ManualResetEvent(false);
+            using var second = new ControlledTimer(_ => { });
+            Assert.Throws<ControlledWaitHandleUnsupportedException>(() => second.Dispose(uncontrolled));
+        });
+    }
 }

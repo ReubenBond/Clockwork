@@ -894,6 +894,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
             Run(async () =>
             {
                 SafeCancel(_teardownCts);
+                _taskCoordinator.Loop.CancelPendingDeadlines();
                 await DisposeAsyncCore();
             });
         }

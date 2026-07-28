@@ -144,10 +144,10 @@ public sealed class ControlledTaskRuleGoldenTests
     public void DelaySurfacesAreRedirectedToControlledShim()
     {
         using var context = RewriteTestContext.Create();
-        var result = RewriteFixture(context, "Fx.TaskDeferred");
+        var result = RewriteFixture(context, "Fx.TaskTime");
 
         using ModuleDefinition module = context.LoadModule(
-            Path.Combine(context.Directory, "Fx.TaskDeferred.rewritten.dll"));
+            Path.Combine(context.Directory, "Fx.TaskTime.rewritten.dll"));
 
         string[] methods =
         [

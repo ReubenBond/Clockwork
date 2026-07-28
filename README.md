@@ -53,11 +53,13 @@ are historical implementation notes.
   Uninstrumented production binaries retain ordinary BCL behavior. Named/cross-process event, mutex,
   and semaphore forms, `OpenExisting`/`TryOpenExisting`, raw wait-handle accessors, raw
   `SynchronizationContext.Wait`, and other unmodellable OS APIs are rejected rather than ignored.
-- **Phase 8B boundary:** `System.Threading.Timer`, `System.Timers.Timer`, `PeriodicTimer`,
-  `Task.Delay`, `CancellationTokenSource.CancelAfter`, and timer-driven cancellation are still
-  deferred; the six `Task.Delay` overloads are explicitly rejected during simulation. Synchronous
-  `ValueTask` blocking also remains unsupported. Phase 9 race instrumentation is not part of this
-  support claim. Custom `TaskScheduler` instances and unsupported `TaskCreationOptions` are rejected.
+- **Virtual timers and deadlines:** `System.Threading.Timer`, `System.Timers.Timer`,
+  `PeriodicTimer`, all .NET 10 `Task.Delay` and `Task.WaitAsync` overloads,
+  `CancellationTokenSource.CancelAfter`, timed cancellation-source constructors, and
+  `TimeProvider.System`/`CreateTimer` run on simulation time. Custom providers and non-null
+  `System.Timers.Timer.SynchronizingObject`/designer integration are rejected precisely.
+  Synchronous `ValueTask` blocking remains unsupported. Custom `TaskScheduler` instances and
+  unsupported `TaskCreationOptions` are rejected.
 
 ## Build and test
 
@@ -321,7 +323,8 @@ participant's arrival, so a canceled wait never silently counts toward releasing
 
 Clockwork can only control dependencies routed through the simulation:
 
-- Inject `TimeProvider`; do not use wall-clock APIs or `Task.Delay` directly.
+- In cooperative mode, inject `TimeProvider` and route delays through it. In controlled mode, the
+  listed wall-clock, timer, and delay APIs are rewritten automatically.
 - Keep continuations on the simulation context; avoid `ConfigureAwait(false)`.
 - Do not use `Task.Run`, thread-pool APIs, real network I/O, or real file I/O.
 - Use `SimulationRandom` or a derived random stream instead of `Random.Shared`.
@@ -663,9 +666,9 @@ simulation. Separate uninstrumented binaries retain normal BCL behaviour. Determ
 [compatibility](docs/compatibility.md) for the documented holes.
 
 
-## Controlled task and async rule set (Phase 6A/6B)
+## Controlled task, timer, and async rule set
 
-The second built-in simulation rule set, **`clockwork.tasks.controlled`** (version `2.0.0`),
+The second built-in simulation rule set, **`clockwork.tasks.controlled`** (version `3.0.0`),
 makes ordinary `async`/`await` code and the direct `Task` surface run on the simulation's single
 logical thread instead of the physical thread pool — again with no dependency injection or manual
 wiring. It is selected independently of the BCL rule set:
@@ -715,11 +718,12 @@ Activation is unchanged: enable the built-ins through the MSBuild package/proper
 packages; the exact selected signatures and policies are generated in the
 [rule inventory](docs/rule-inventory.md).
 
-**Phase 8B remains deferred.** `System.Threading.Timer`, `System.Timers.Timer`, `PeriodicTimer`,
-`Task.Delay`, `CancellationTokenSource.CancelAfter`, and timer-driven cancellation are not
-implemented; `Task.Delay` is explicitly rejected under simulation rather than using wall time.
-Phase 9 race instrumentation is excluded. Control parity is claimed **only** for the exact signatures
-in the [rule inventory](docs/rule-inventory.md). This work adapts the *design* of Microsoft Coyote's
+The controlled rule set also substitutes the three public timer types, redirects every .NET 10
+`Task.Delay`/`Task.WaitAsync` overload, controls timer-driven cancellation, and bridges
+`TimeProvider.System`/`CreateTimer`. Periodic ticks coalesce, timer callbacks flow the BCL user
+`ExecutionContext` where applicable, and all finite deadlines appear as pending virtual-time work.
+Control parity is claimed **only** for the exact signatures in the
+[rule inventory](docs/rule-inventory.md). This work adapts the *design* of Microsoft Coyote's
 controlled-task model (MIT); see [THIRD-PARTY-NOTICES](THIRD-PARTY-NOTICES.md) for the attribution.
 
 

@@ -136,4 +136,22 @@ public sealed class ControlledCancellationTokenSourceTests
             Assert.True(source.IsCancellationRequested);
         });
     }
+
+    [Fact]
+    public void LinkedCancellationDisablesPendingCancelAfterDeadline()
+    {
+        var coordinator = new ControlledTaskLoopCoordinator();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            using var parent = new CancellationTokenSource();
+            using CancellationTokenSource linked =
+                CancellationTokenSource.CreateLinkedTokenSource(parent.Token);
+            ControlledCancellationTokenSource.CancelAfter(linked, 10);
+
+            parent.Cancel();
+
+            Assert.True(linked.IsCancellationRequested);
+            Assert.Null(coordinator.Loop.NextDeadlineDue());
+        });
+    }
 }

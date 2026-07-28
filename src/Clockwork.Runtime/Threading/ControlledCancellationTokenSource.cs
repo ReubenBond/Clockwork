@@ -180,7 +180,8 @@ public static class ControlledCancellationTokenSource
                     }
                 },
                 null,
-                null));
+                null),
+            source.Token);
 
     private static void DisableTimer(CancellationTokenSource source)
     {
@@ -211,10 +212,25 @@ public static class ControlledCancellationTokenSource
             : TimeSpan.FromMilliseconds(milliseconds);
     }
 
-    private sealed class Registration(ControlledTimerRegistration timer) : IDisposable
+    private sealed class Registration : IDisposable
     {
-        public void Change(TimeSpan delay) => timer.Change(delay, Timeout.InfiniteTimeSpan);
+        private readonly ControlledTimerRegistration _timer;
+        private readonly CancellationTokenRegistration _sourceCancellation;
 
-        public void Dispose() => timer.Dispose();
+        public Registration(ControlledTimerRegistration timer, CancellationToken token)
+        {
+            _timer = timer;
+            _sourceCancellation = token.UnsafeRegister(
+                static state => ((ControlledTimerRegistration)state!).DisableFromCancellation(),
+                timer);
+        }
+
+        public void Change(TimeSpan delay) => _timer.Change(delay, Timeout.InfiniteTimeSpan);
+
+        public void Dispose()
+        {
+            _sourceCancellation.Unregister();
+            _timer.Dispose();
+        }
     }
 }

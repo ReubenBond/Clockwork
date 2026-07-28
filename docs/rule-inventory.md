@@ -66,7 +66,7 @@ Policy: **Rejected**. Static entropy APIs are redirected to `ControlledRandomNum
 # Controlled task rule set
 
 Rule set id: `clockwork.tasks.controlled`
-Version: `2.0.0`
+Version: `3.0.0`
 Shim assembly: `Clockwork.Runtime`
 
 ## TaskCombinators family
@@ -113,18 +113,28 @@ Policy: **Controlled**. `Task.ContinueWith(Action<Task>)`, `Task<T>.ContinueWith
 | `clockwork.tasks.continuewith.generic.action` | `System.Threading.Tasks.Task`1::ContinueWith(System.Action`1<System.Threading.Tasks.Task`1<!0>>)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::ContinueWith(System.Threading.Tasks.Task`1<TResult>,System.Action`1<System.Threading.Tasks.Task`1<TResult>>)` | Controlled |
 | `clockwork.tasks.continuewith.generic.func` | `System.Threading.Tasks.Task`1::ContinueWith(System.Func`2<System.Threading.Tasks.Task`1<!0>,!!0>)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::ContinueWith(System.Threading.Tasks.Task`1<TResult>,System.Func`2<System.Threading.Tasks.Task`1<TResult>,TNewResult>)` | Controlled |
 
-## TaskDeferred family
+## TaskTime family
 
-Policy: **Rejected**. `Task.Delay` (virtual timers, Phase 8B) is rejected under simulation with a precise diagnostic rather than silently using wall time. The instrumented entry point requires an active simulation.
+Policy: **Controlled**. `Task.Delay` and `Task.WaitAsync` use controlled virtual deadlines, preserve cancellation and terminal task state, and never consume wall-clock time.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
-| `clockwork.tasks.delay.milliseconds` | `System.Threading.Tasks.Task::Delay(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Delay(System.Int32)` | Rejected |
-| `clockwork.tasks.delay.timespan` | `System.Threading.Tasks.Task::Delay(System.TimeSpan)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Delay(System.TimeSpan)` | Rejected |
-| `clockwork.tasks.delay.milliseconds.cancellationtoken` | `System.Threading.Tasks.Task::Delay(System.Int32,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Delay(System.Int32,System.Threading.CancellationToken)` | Rejected |
-| `clockwork.tasks.delay.timespan.cancellationtoken` | `System.Threading.Tasks.Task::Delay(System.TimeSpan,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Delay(System.TimeSpan,System.Threading.CancellationToken)` | Rejected |
-| `clockwork.tasks.delay.timespan.timeprovider` | `System.Threading.Tasks.Task::Delay(System.TimeSpan,System.TimeProvider)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Delay(System.TimeSpan,System.TimeProvider)` | Rejected |
-| `clockwork.tasks.delay.timespan.timeprovider.cancellationtoken` | `System.Threading.Tasks.Task::Delay(System.TimeSpan,System.TimeProvider,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Delay(System.TimeSpan,System.TimeProvider,System.Threading.CancellationToken)` | Rejected |
+| `clockwork.tasks.delay.milliseconds` | `System.Threading.Tasks.Task::Delay(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Delay(System.Int32)` | Controlled |
+| `clockwork.tasks.delay.timespan` | `System.Threading.Tasks.Task::Delay(System.TimeSpan)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Delay(System.TimeSpan)` | Controlled |
+| `clockwork.tasks.delay.milliseconds.cancellationtoken` | `System.Threading.Tasks.Task::Delay(System.Int32,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Delay(System.Int32,System.Threading.CancellationToken)` | Controlled |
+| `clockwork.tasks.delay.timespan.cancellationtoken` | `System.Threading.Tasks.Task::Delay(System.TimeSpan,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Delay(System.TimeSpan,System.Threading.CancellationToken)` | Controlled |
+| `clockwork.tasks.delay.timespan.timeprovider` | `System.Threading.Tasks.Task::Delay(System.TimeSpan,System.TimeProvider)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Delay(System.TimeSpan,System.TimeProvider)` | Controlled |
+| `clockwork.tasks.delay.timespan.timeprovider.cancellationtoken` | `System.Threading.Tasks.Task::Delay(System.TimeSpan,System.TimeProvider,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::Delay(System.TimeSpan,System.TimeProvider,System.Threading.CancellationToken)` | Controlled |
+| `clockwork.tasks.waitasync.cancellationtoken` | `System.Threading.Tasks.Task::WaitAsync(System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::WaitAsync(System.Threading.Tasks.Task,System.Threading.CancellationToken)` | Controlled |
+| `clockwork.tasks.waitasync.timespan` | `System.Threading.Tasks.Task::WaitAsync(System.TimeSpan)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::WaitAsync(System.Threading.Tasks.Task,System.TimeSpan)` | Controlled |
+| `clockwork.tasks.waitasync.timespan.timeprovider` | `System.Threading.Tasks.Task::WaitAsync(System.TimeSpan,System.TimeProvider)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::WaitAsync(System.Threading.Tasks.Task,System.TimeSpan,System.TimeProvider)` | Controlled |
+| `clockwork.tasks.waitasync.timespan.cancellationtoken` | `System.Threading.Tasks.Task::WaitAsync(System.TimeSpan,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::WaitAsync(System.Threading.Tasks.Task,System.TimeSpan,System.Threading.CancellationToken)` | Controlled |
+| `clockwork.tasks.waitasync.timespan.timeprovider.cancellationtoken` | `System.Threading.Tasks.Task::WaitAsync(System.TimeSpan,System.TimeProvider,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::WaitAsync(System.Threading.Tasks.Task,System.TimeSpan,System.TimeProvider,System.Threading.CancellationToken)` | Controlled |
+| `clockwork.tasks.generic.waitasync.cancellationtoken` | `System.Threading.Tasks.Task`1::WaitAsync(System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::WaitAsync(System.Threading.Tasks.Task`1<TResult>,System.Threading.CancellationToken)` | Controlled |
+| `clockwork.tasks.generic.waitasync.timespan` | `System.Threading.Tasks.Task`1::WaitAsync(System.TimeSpan)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::WaitAsync(System.Threading.Tasks.Task`1<TResult>,System.TimeSpan)` | Controlled |
+| `clockwork.tasks.generic.waitasync.timespan.timeprovider` | `System.Threading.Tasks.Task`1::WaitAsync(System.TimeSpan,System.TimeProvider)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::WaitAsync(System.Threading.Tasks.Task`1<TResult>,System.TimeSpan,System.TimeProvider)` | Controlled |
+| `clockwork.tasks.generic.waitasync.timespan.cancellationtoken` | `System.Threading.Tasks.Task`1::WaitAsync(System.TimeSpan,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::WaitAsync(System.Threading.Tasks.Task`1<TResult>,System.TimeSpan,System.Threading.CancellationToken)` | Controlled |
+| `clockwork.tasks.generic.waitasync.timespan.timeprovider.cancellationtoken` | `System.Threading.Tasks.Task`1::WaitAsync(System.TimeSpan,System.TimeProvider,System.Threading.CancellationToken)` | `Clockwork.Runtime!Clockwork.Runtime.Tasks.ControlledTask::WaitAsync(System.Threading.Tasks.Task`1<TResult>,System.TimeSpan,System.TimeProvider,System.Threading.CancellationToken)` | Controlled |
 
 ## TaskScheduling family
 
@@ -251,6 +261,35 @@ Policy: **Controlled**. `ThreadPool.QueueUserWorkItem` (the `WaitCallback`, `Wai
 | `clockwork.threadpool.unsaferegisterwait.int32` | `System.Threading.ThreadPool::UnsafeRegisterWaitForSingleObject(System.Threading.WaitHandle,System.Threading.WaitOrTimerCallback,System.Object,System.Int32,System.Boolean)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThreadPool::UnsafeRegisterWaitForSingleObject(System.Threading.WaitHandle,System.Threading.WaitOrTimerCallback,System.Object,System.Int32,System.Boolean)` | Controlled |
 | `clockwork.threadpool.unsaferegisterwait.int64` | `System.Threading.ThreadPool::UnsafeRegisterWaitForSingleObject(System.Threading.WaitHandle,System.Threading.WaitOrTimerCallback,System.Object,System.Int64,System.Boolean)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThreadPool::UnsafeRegisterWaitForSingleObject(System.Threading.WaitHandle,System.Threading.WaitOrTimerCallback,System.Object,System.Int64,System.Boolean)` | Controlled |
 | `clockwork.threadpool.unsaferegisterwait.timespan` | `System.Threading.ThreadPool::UnsafeRegisterWaitForSingleObject(System.Threading.WaitHandle,System.Threading.WaitOrTimerCallback,System.Object,System.TimeSpan,System.Boolean)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledThreadPool::UnsafeRegisterWaitForSingleObject(System.Threading.WaitHandle,System.Threading.WaitOrTimerCallback,System.Object,System.TimeSpan,System.Boolean)` | Controlled |
+
+## Timers family
+
+Policy: **Controlled**. `System.Threading.Timer`, `System.Timers.Timer`, and `PeriodicTimer` are substituted with controlled virtual-time implementations. `TimeProvider.System` and `CreateTimer` bridge to the same scheduler; unsupported provider and designer marshaling paths reject precisely.
+
+| Rule id | BCL target | Shim | Policy |
+| --- | --- | --- | --- |
+| `clockwork.timer.threading.type` | `System.Threading.Timer` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledTimer` | Controlled |
+| `clockwork.timer.component.type` | `System.Timers.Timer` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledTimersTimer` | Controlled |
+| `clockwork.timer.periodic.type` | `System.Threading.PeriodicTimer` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledPeriodicTimer` | Controlled |
+| `clockwork.timeprovider.system` | `System.TimeProvider::get_System()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledTimeProvider::get_System()` | Controlled |
+| `clockwork.timeprovider.createtimer` | `System.TimeProvider::CreateTimer(System.Threading.TimerCallback,System.Object,System.TimeSpan,System.TimeSpan)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledTimeProvider::CreateTimer(System.TimeProvider,System.Threading.TimerCallback,System.Object,System.TimeSpan,System.TimeSpan)` | Controlled |
+
+## CancellationTimers family
+
+Policy: **Controlled**. `CancellationTokenSource` timed constructors and `CancelAfter` use resettable virtual deadlines. Manual cancellation, reset, and disposal remove stale registrations before they can fire.
+
+| Rule id | BCL target | Shim | Policy |
+| --- | --- | --- | --- |
+| `clockwork.cancellationtokensource.ctor.milliseconds` | `new System.Threading.CancellationTokenSource(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledCancellationTokenSource::Create(System.Int32)` | Controlled |
+| `clockwork.cancellationtokensource.ctor.timespan` | `new System.Threading.CancellationTokenSource(System.TimeSpan)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledCancellationTokenSource::Create(System.TimeSpan)` | Controlled |
+| `clockwork.cancellationtokensource.ctor.timespan.timeprovider` | `new System.Threading.CancellationTokenSource(System.TimeSpan,System.TimeProvider)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledCancellationTokenSource::Create(System.TimeSpan,System.TimeProvider)` | Controlled |
+| `clockwork.cancellationtokensource.cancelafter.milliseconds` | `System.Threading.CancellationTokenSource::CancelAfter(System.Int32)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledCancellationTokenSource::CancelAfter(System.Threading.CancellationTokenSource,System.Int32)` | Controlled |
+| `clockwork.cancellationtokensource.cancelafter.timespan` | `System.Threading.CancellationTokenSource::CancelAfter(System.TimeSpan)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledCancellationTokenSource::CancelAfter(System.Threading.CancellationTokenSource,System.TimeSpan)` | Controlled |
+| `clockwork.cancellationtokensource.cancel` | `System.Threading.CancellationTokenSource::Cancel()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledCancellationTokenSource::Cancel(System.Threading.CancellationTokenSource)` | Controlled |
+| `clockwork.cancellationtokensource.cancel.throw` | `System.Threading.CancellationTokenSource::Cancel(System.Boolean)` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledCancellationTokenSource::Cancel(System.Threading.CancellationTokenSource,System.Boolean)` | Controlled |
+| `clockwork.cancellationtokensource.cancelasync` | `System.Threading.CancellationTokenSource::CancelAsync()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledCancellationTokenSource::CancelAsync(System.Threading.CancellationTokenSource)` | Controlled |
+| `clockwork.cancellationtokensource.tryreset` | `System.Threading.CancellationTokenSource::TryReset()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledCancellationTokenSource::TryReset(System.Threading.CancellationTokenSource)` | Controlled |
+| `clockwork.cancellationtokensource.dispose` | `System.Threading.CancellationTokenSource::Dispose()` | `Clockwork.Runtime!Clockwork.Runtime.Threading.ControlledCancellationTokenSource::Dispose(System.Threading.CancellationTokenSource)` | Controlled |
 
 ## Parallel family
 
@@ -662,6 +701,6 @@ remain real BCL calls even under simulation:
 - `DateTime`/`DateTimeOffset` parsing/formatting and any culture-, timezone-, or kind-conversion helpers other than the `Now`/`UtcNow`/`Today` clocks above.
 - Synchronous blocking on `ValueTask`/`ValueTask<T>` (`.Result`/`.GetResult()` outside an awaiter): a value task may be consumed only once, so a blocking drain is unsafe. `await` is the supported controlled path.
 - Named/cross-process synchronization (named `EventWaitHandle`/`Mutex`/`Semaphore` and their `OpenExisting`/`TryOpenExisting` APIs): a single-process simulation cannot model kernel-object sharing, so these are rejected.
-- **Phase 8B timer boundary:** `System.Threading.Timer`, `System.Timers.Timer`, `PeriodicTimer`, `CancellationTokenSource.CancelAfter`, and timer-driven cancellation remain unrewritten. The delay API listed above remains explicitly Rejected under simulation rather than allowed to use wall time. Phase 9 race instrumentation is outside these rule sets.
+- Custom `TimeProvider` implementations are rejected by timer-consuming controlled APIs unless Clockwork explicitly recognizes them. `System.Timers.Timer` rejects non-null `SynchronizingObject` and designer `Site` integration because those paths can marshal callbacks to uncontrolled UI or native threads. `Timer.Dispose(WaitHandle)` accepts controlled event handles only.
 
 Determinism is claimed **only** for the exact rules tabulated above.

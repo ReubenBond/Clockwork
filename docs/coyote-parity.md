@@ -12,7 +12,6 @@ surface is classified here as one of:
 | ✅ **Controlled** | Clockwork rewrites the call site to a controlled shim. The exact rule id is cited; the full signature list is in [`rule-inventory.md`](rule-inventory.md). |
 | ⛔ **Rejected (tested)** | Clockwork deliberately rejects the call at the rewritten site with a precise diagnostic, because the semantics cannot be modelled faithfully by the cooperative scheduler yet. A test asserts the rejection. |
 | 🏛 **Controlled by architecture** | No dedicated rule is needed: Clockwork controls the *awaiter*, not the `Task` type, so the surface is already controlled whenever the produced task is awaited or waited on. |
-| 🕗 **Deferred (Phase 8B)** | Outside the implemented inventory; tracked to the timer/cancellation phase. |
 | n/a | Not applicable on .NET 10 / not a concurrency-scheduling surface. |
 
 The single largest **architectural difference**: Coyote substitutes the `Task`/`Task<T>` *types*
@@ -82,7 +81,8 @@ continuations, async machinery, `Yield`) and Phase 6B (`Run`). All are controlle
 | `Task<T>.ContinueWith<TNewResult>(Func<Task<T>,TNewResult>)` | ✅ Controlled **(Phase 6B gap-closure)** | `clockwork.tasks.continuewith.generic.func` |
 | `Task.Yield()` | ✅ Controlled | `clockwork.tasks.yield.call` (AsyncMachinery) |
 | `async` builder + awaiter types (`AsyncTaskMethodBuilder`, `TaskAwaiter`, `ConfiguredTaskAwaitable`, `YieldAwaitable`, generic + non-generic) | ✅ Controlled | AsyncMachinery family (type substitution) |
-| `Task.Delay` (all 6 .NET 10 overloads: `int`/`TimeSpan`, cancellation, and `TimeProvider`) | ⛔ Rejected (tested) | `clockwork.tasks.delay.*` — every overload rejects until virtual timers land in Phase 8B |
+| `Task.Delay` (all 6 .NET 10 overloads: `int`/`TimeSpan`, cancellation, and `TimeProvider`) | ✅ Controlled | `clockwork.tasks.delay.*` — virtual deadlines, no wall clock |
+| `Task.WaitAsync` / `Task<T>.WaitAsync` (all 5 overloads on each type) | ✅ Controlled | `clockwork.tasks[.generic].waitasync.*` — result/fault/cancel propagation with virtual timeout |
 | `Task.FromResult` / `FromException` / `FromCanceled` / `CompletedTask` | 🏛 Controlled by architecture | already-completed tasks need no scheduling; awaiting one routes through the controlled awaiter |
 
 ---
@@ -484,12 +484,15 @@ finite timeouts are virtual-time deadlines, not OS blocking or CPU spinning. Raw
 `Handle`/`SafeWaitHandle` accessors, unmanaged/unregistered wait handles, and named/cross-process
 event forms remain rejected as documented above.
 
-## Phase 8B boundary
+## Virtual timers and timer-driven cancellation
 
-`System.Threading.Timer`, `System.Timers.Timer`, `PeriodicTimer`, `Task.Delay`,
-`CancellationTokenSource.CancelAfter`, and timer-driven cancellation are not Phase 8A support.
-`Task.Delay` remains explicitly rejected by the shipped rules; the other timer surfaces are deferred
-and unrewritten. Phase 9 race instrumentation is also excluded.
+`System.Threading.Timer`, `System.Timers.Timer`, and `PeriodicTimer` are whole-type substitutions
+backed by the controlled deadline loop. `Task.Delay`, `Task.WaitAsync`, timed
+`CancellationTokenSource` construction, `CancelAfter`, and `TimeProvider.System`/`CreateTimer` use
+the same virtual-time ordering. Equal deadlines preserve registration order, reentrant changes
+invalidate stale generations, periodic ticks coalesce where the BCL specifies, and callbacks never
+escape to a physical thread pool. Custom providers and `System.Timers.Timer` designer/UI marshaling
+are rejected precisely.
 
 ---
 
@@ -497,8 +500,8 @@ and unrewritten. Phase 9 race instrumentation is also excluded.
 
 - **Coyote `Thread`:** 13/13 controlled surfaces mirrored; Clockwork additionally **rejects** 4
   OS-specific members Coyote leaves uncontrolled.
-- **Coyote `Task` static / async machinery:** fully controlled except all six `Task.Delay` overloads,
-  which are explicitly rejected until Phase 8B.
+- **Coyote `Task` static / async machinery:** all six `Task.Delay` overloads and all ten
+  `Task.WaitAsync`/`Task<T>.WaitAsync` overloads use controlled virtual deadlines.
 - **Coyote `TaskFactory`:** all 24 .NET 10 `StartNew` signatures classified and rewritten; default
   scheduler forms controlled, unsupported scheduler/option combinations rejected.
 - **Coyote `TaskCompletionSource` / `TaskExtensions` / `ValueTask`:** controlled by architecture
@@ -545,10 +548,9 @@ and unrewritten. Phase 9 race instrumentation is also excluded.
   `SynchronizationContext`, `Barrier`, and `CountdownEvent` are controlled with logical-strand
   ownership, virtual time, and no OS blocking; named/cross-process forms and raw context waits are
   rejected. `WaitAll` containing a `Mutex` is rejected.
-- **Deferred Phase 8B boundary:** `System.Threading.Timer`, `System.Timers.Timer`, `PeriodicTimer`,
-  `Task.Delay`, `CancellationTokenSource.CancelAfter`, and timer-driven cancellation; `Task.Delay`
-  is rejected and the rest are unrewritten. Phase 9 race instrumentation is excluded.
+- **Virtual timer surface:** `System.Threading.Timer`, `System.Timers.Timer`, `PeriodicTimer`,
+  `Task.Delay`, `Task.WaitAsync`, timed cancellation-source construction, `CancelAfter`, and
+  `TimeProvider` timer creation are controlled; custom providers and designer/UI marshaling reject.
 
-Every Coyote entry above is therefore **controlled** (with a cited rule id or by architecture),
-**deliberately rejected with a tested reason**, or **explicitly deferred to a named later phase** —
-no Coyote concurrency surface is silently unhandled.
+Every Coyote entry above is therefore **controlled** (with a cited rule id or by architecture) or
+**deliberately rejected with a tested reason**; no listed concurrency surface is silently unhandled.

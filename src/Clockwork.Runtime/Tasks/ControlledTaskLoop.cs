@@ -161,6 +161,20 @@ public sealed class ControlledTaskLoop : IDisposable
         }
     }
 
+    /// <summary>Cancels every pending virtual deadline without removing ordinary ready work.</summary>
+    public void CancelPendingDeadlines()
+    {
+        lock (_deadlineGate)
+        {
+            foreach (Deadline deadline in _deadlines)
+            {
+                deadline.TryCancel();
+            }
+
+            _deadlines.Clear();
+        }
+    }
+
     /// <summary>
     /// Advances the loop's modelled time forward to <paramref name="target"/> (never backwards) and fires
     /// every deadline that is now due, in ascending (due time, registration) order for determinism. Each
@@ -330,15 +344,7 @@ public sealed class ControlledTaskLoop : IDisposable
     {
         _ready.Clear();
         _waits.Clear();
-        lock (_deadlineGate)
-        {
-            foreach (Deadline deadline in _deadlines)
-            {
-                deadline.TryCancel();
-            }
-
-            _deadlines.Clear();
-        }
+        CancelPendingDeadlines();
     }
 
     private sealed class WaitEntry(Func<bool> isReady, Action continuation) : IControlledWorkRegistration

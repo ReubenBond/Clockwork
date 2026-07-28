@@ -236,6 +236,19 @@ internal sealed class ControlledTimerRegistration
         CompleteDisposalIfQuiescent();
     }
 
+    internal void DisableFromCancellation()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _generation++;
+        _deadline?.Cancel();
+        _deadline = null;
+        SetActive(false);
+    }
+
     public bool Dispose(WaitHandle signal)
     {
         EnsureRuntime();
