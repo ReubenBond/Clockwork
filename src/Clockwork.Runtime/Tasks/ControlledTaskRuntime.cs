@@ -49,10 +49,25 @@ public static class ControlledTaskRuntime
         ArgumentNullException.ThrowIfNull(continuation);
         var snapshot = SimulationRuntimeDispatch.RequireActiveSimulation(apiName);
         ExecutionContext? context = flowExecutionContext ? ExecutionContext.Capture() : null;
-        coordinator.ScheduleWhenReady(
+        _ = coordinator.ScheduleWhenReady(
             node,
             () => antecedent.IsCompleted,
             () => RunScheduledWork(snapshot, context, continuation));
+    }
+
+    internal static IControlledWorkRegistration ScheduleCancelableContinuation(
+        System.Threading.Tasks.Task antecedent,
+        Action continuation,
+        string apiName)
+    {
+        var (coordinator, node) = RequireCoordinator(apiName);
+        ArgumentNullException.ThrowIfNull(antecedent);
+        ArgumentNullException.ThrowIfNull(continuation);
+        SimulationExecutionSnapshot snapshot = SimulationRuntimeDispatch.RequireActiveSimulation(apiName);
+        return coordinator.ScheduleWhenReady(
+            node,
+            () => antecedent.IsCompleted,
+            () => RunScheduledWork(snapshot, null, continuation));
     }
 
     /// <summary>
@@ -176,7 +191,7 @@ public static class ControlledTaskRuntime
     internal static void ParkIndefinitely(string apiName)
     {
         var (coordinator, node) = RequireCoordinator(apiName);
-        coordinator.ScheduleWhenReady(node, static () => false, static () => { });
+        _ = coordinator.ScheduleWhenReady(node, static () => false, static () => { });
     }
 
     /// <summary>

@@ -221,14 +221,17 @@ public sealed class ControlledTaskApiTests
 
     [Theory]
     [MemberData(nameof(DelayCalls))]
-    public void EveryDelayOverloadIsRejectedInsideSimulation(Func<Task> delay)
+    public void EveryDelayOverloadCompletesOnVirtualTime(Func<Task> delay)
     {
         var coordinator = new ControlledTaskLoopCoordinator();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            var ex = Assert.Throws<ControlledTaskUnsupportedException>(() => { _ = delay(); });
-            Assert.Equal("System.Threading.Tasks.Task.Delay", ex.ApiName);
+            Task task = delay();
+            Assert.False(task.IsCompleted);
+            coordinator.Loop.RunUntil(() => task.IsCompleted, "test.delay");
+            Assert.True(task.IsCompletedSuccessfully);
+            Assert.Equal(TimeSpan.FromMilliseconds(100), coordinator.Loop.VirtualNow);
         });
     }
 

@@ -2,6 +2,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks.CompilerServices;
+using Clockwork.Runtime.Threading;
 
 namespace Clockwork.Runtime.Tasks;
 
@@ -20,10 +21,10 @@ namespace Clockwork.Runtime.Tasks;
 /// Synchronous waits (<see cref="Wait"/>, <see cref="Result{TResult}"/>, <see cref="WaitAll"/>,
 /// <see cref="WaitAny"/>) pump the coordinator instead of blocking a physical thread, then delegate to
 /// the real API to reproduce its exact completion/exception semantics. <see cref="Run(Action)"/> and
-/// its overloads queue their body as a fresh controlled operation on the coordinator (Phase 6B), so
+/// its overloads queue their body as a fresh controlled operation on the coordinator, so
 /// the work runs on the single logical thread interleaved with everything else instead of on an
-/// uncontrolled physical thread-pool thread. <see cref="Delay(int)"/> stays rejected: virtual timers
-/// belong to a later phase and must never silently fall back to wall-clock time.
+/// uncontrolled physical thread-pool thread. Delay and timeout APIs register deterministic virtual
+/// deadlines on the same coordinator and never consume wall-clock time.
 /// </para>
 /// </summary>
 public static class ControlledTask
@@ -341,61 +342,152 @@ public static class ControlledTask
         task.RunSynchronously();
     }
 
-    /// <summary>
-    /// Rejects <c>Task.Delay</c>: virtual-timer support is owned by a later phase. Rejecting here prevents
-    /// a rewritten assembly from silently using wall-clock time inside a simulation.
-    /// </summary>
-    /// <param name="millisecondsDelay">The delay duration.</param>
-    /// <returns>Never returns.</returns>
-    /// <exception cref="ControlledTaskUnsupportedException">Always thrown inside a simulation.</exception>
+    /// <summary>Returns a task completed after the requested virtual delay.</summary>
     public static Task Delay(int millisecondsDelay)
     {
-        return RejectDelay();
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.Delay");
+        return DelayCore(ValidateMillisecondsDelay(millisecondsDelay), CancellationToken.None);
     }
 
-    /// <summary>Rejects <c>Task.Delay(TimeSpan)</c> during simulation.</summary>
-    /// <param name="delay">The delay duration.</param>
-    /// <returns>Never returns.</returns>
+    /// <summary>Returns a task completed after the requested virtual delay.</summary>
     public static Task Delay(TimeSpan delay)
     {
-        return RejectDelay();
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.Delay");
+        return DelayCore(ValidateTimerTimeSpan(delay, nameof(delay)), CancellationToken.None);
     }
 
-    /// <summary>Rejects <c>Task.Delay(int, CancellationToken)</c> during simulation.</summary>
-    /// <param name="millisecondsDelay">The delay duration.</param>
-    /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>Never returns.</returns>
+    /// <summary>Returns a cancellable task completed after the requested virtual delay.</summary>
     public static Task Delay(int millisecondsDelay, CancellationToken cancellationToken)
     {
-        return RejectDelay();
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.Delay");
+        return DelayCore(ValidateMillisecondsDelay(millisecondsDelay), cancellationToken);
     }
 
-    /// <summary>Rejects <c>Task.Delay(TimeSpan, CancellationToken)</c> during simulation.</summary>
-    /// <param name="delay">The delay duration.</param>
-    /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>Never returns.</returns>
+    /// <summary>Returns a cancellable task completed after the requested virtual delay.</summary>
     public static Task Delay(TimeSpan delay, CancellationToken cancellationToken)
     {
-        return RejectDelay();
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.Delay");
+        return DelayCore(ValidateTimerTimeSpan(delay, nameof(delay)), cancellationToken);
     }
 
-    /// <summary>Rejects <c>Task.Delay(TimeSpan, TimeProvider)</c> during simulation.</summary>
-    /// <param name="delay">The delay duration.</param>
-    /// <param name="timeProvider">The time provider.</param>
-    /// <returns>Never returns.</returns>
+    /// <summary>Returns a task completed after a virtual delay interpreted by a controlled provider.</summary>
     public static Task Delay(TimeSpan delay, TimeProvider timeProvider)
     {
-        return RejectDelay();
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.Delay");
+        ArgumentNullException.ThrowIfNull(timeProvider);
+        ControlledTimeProvider.ValidateProvider(timeProvider, "System.Threading.Tasks.Task.Delay");
+        return DelayCore(ValidateTimerTimeSpan(delay, nameof(delay)), CancellationToken.None);
     }
 
-    /// <summary>Rejects <c>Task.Delay(TimeSpan, TimeProvider, CancellationToken)</c> during simulation.</summary>
-    /// <param name="delay">The delay duration.</param>
-    /// <param name="timeProvider">The time provider.</param>
-    /// <param name="cancellationToken">The cancellation token.</param>
-    /// <returns>Never returns.</returns>
+    /// <summary>Returns a cancellable task completed after a virtual delay interpreted by a controlled provider.</summary>
     public static Task Delay(TimeSpan delay, TimeProvider timeProvider, CancellationToken cancellationToken)
     {
-        return RejectDelay();
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.Delay");
+        ArgumentNullException.ThrowIfNull(timeProvider);
+        ControlledTimeProvider.ValidateProvider(timeProvider, "System.Threading.Tasks.Task.Delay");
+        return DelayCore(ValidateTimerTimeSpan(delay, nameof(delay)), cancellationToken);
+    }
+
+    /// <summary>Waits for a task or cancellation without escaping the controlled scheduler.</summary>
+    public static Task WaitAsync(Task task, CancellationToken cancellationToken)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WaitAsync");
+        ArgumentNullException.ThrowIfNull(task);
+        return WaitAsyncCore(task, Timeout.InfiniteTimeSpan, cancellationToken);
+    }
+
+    /// <summary>Waits for a task or virtual timeout.</summary>
+    public static Task WaitAsync(Task task, TimeSpan timeout)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WaitAsync");
+        ArgumentNullException.ThrowIfNull(task);
+        return WaitAsyncCore(task, ValidateTimerTimeSpan(timeout, nameof(timeout)), CancellationToken.None);
+    }
+
+    /// <summary>Waits for a task or virtual timeout interpreted by a controlled provider.</summary>
+    public static Task WaitAsync(Task task, TimeSpan timeout, TimeProvider timeProvider)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WaitAsync");
+        ArgumentNullException.ThrowIfNull(task);
+        ArgumentNullException.ThrowIfNull(timeProvider);
+        ControlledTimeProvider.ValidateProvider(timeProvider, "System.Threading.Tasks.Task.WaitAsync");
+        return WaitAsyncCore(task, ValidateTimerTimeSpan(timeout, nameof(timeout)), CancellationToken.None);
+    }
+
+    /// <summary>Waits for a task, virtual timeout, or cancellation.</summary>
+    public static Task WaitAsync(Task task, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WaitAsync");
+        ArgumentNullException.ThrowIfNull(task);
+        return WaitAsyncCore(task, ValidateTimerTimeSpan(timeout, nameof(timeout)), cancellationToken);
+    }
+
+    /// <summary>Waits for a task, controlled-provider timeout, or cancellation.</summary>
+    public static Task WaitAsync(
+        Task task,
+        TimeSpan timeout,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WaitAsync");
+        ArgumentNullException.ThrowIfNull(task);
+        ArgumentNullException.ThrowIfNull(timeProvider);
+        ControlledTimeProvider.ValidateProvider(timeProvider, "System.Threading.Tasks.Task.WaitAsync");
+        return WaitAsyncCore(task, ValidateTimerTimeSpan(timeout, nameof(timeout)), cancellationToken);
+    }
+
+    /// <summary>Waits for a generic task or cancellation.</summary>
+    public static Task<TResult> WaitAsync<TResult>(Task<TResult> task, CancellationToken cancellationToken)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task`1.WaitAsync");
+        ArgumentNullException.ThrowIfNull(task);
+        return WaitAsyncCore(task, Timeout.InfiniteTimeSpan, cancellationToken);
+    }
+
+    /// <summary>Waits for a generic task or virtual timeout.</summary>
+    public static Task<TResult> WaitAsync<TResult>(Task<TResult> task, TimeSpan timeout)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task`1.WaitAsync");
+        ArgumentNullException.ThrowIfNull(task);
+        return WaitAsyncCore(task, ValidateTimerTimeSpan(timeout, nameof(timeout)), CancellationToken.None);
+    }
+
+    /// <summary>Waits for a generic task or controlled-provider timeout.</summary>
+    public static Task<TResult> WaitAsync<TResult>(
+        Task<TResult> task,
+        TimeSpan timeout,
+        TimeProvider timeProvider)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task`1.WaitAsync");
+        ArgumentNullException.ThrowIfNull(task);
+        ArgumentNullException.ThrowIfNull(timeProvider);
+        ControlledTimeProvider.ValidateProvider(timeProvider, "System.Threading.Tasks.Task`1.WaitAsync");
+        return WaitAsyncCore(task, ValidateTimerTimeSpan(timeout, nameof(timeout)), CancellationToken.None);
+    }
+
+    /// <summary>Waits for a generic task, virtual timeout, or cancellation.</summary>
+    public static Task<TResult> WaitAsync<TResult>(
+        Task<TResult> task,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task`1.WaitAsync");
+        ArgumentNullException.ThrowIfNull(task);
+        return WaitAsyncCore(task, ValidateTimerTimeSpan(timeout, nameof(timeout)), cancellationToken);
+    }
+
+    /// <summary>Waits for a generic task, controlled-provider timeout, or cancellation.</summary>
+    public static Task<TResult> WaitAsync<TResult>(
+        Task<TResult> task,
+        TimeSpan timeout,
+        TimeProvider timeProvider,
+        CancellationToken cancellationToken)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task`1.WaitAsync");
+        ArgumentNullException.ThrowIfNull(task);
+        ArgumentNullException.ThrowIfNull(timeProvider);
+        ControlledTimeProvider.ValidateProvider(timeProvider, "System.Threading.Tasks.Task`1.WaitAsync");
+        return WaitAsyncCore(task, ValidateTimerTimeSpan(timeout, nameof(timeout)), cancellationToken);
     }
 
     /// <summary>
@@ -629,13 +721,99 @@ public static class ControlledTask
         return true;
     }
 
-    private static Task RejectDelay()
+    private static Task DelayCore(TimeSpan delay, CancellationToken cancellationToken)
     {
-        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.Delay");
-        throw new ControlledTaskUnsupportedException(
-            "System.Threading.Tasks.Task.Delay",
-            "virtual time and timers are owned by Phase 8; using Task.Delay inside a simulation is rejected " +
-            "so no overload can silently consume wall time.");
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return Task.FromCanceled(cancellationToken);
+        }
+
+        if (delay == TimeSpan.Zero)
+        {
+            return Task.CompletedTask;
+        }
+
+        return new ControlledDelayPromise(delay, cancellationToken).Task;
+    }
+
+    private static Task WaitAsyncCore(Task task, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        if (task.IsCompleted || (timeout == Timeout.InfiniteTimeSpan && !cancellationToken.CanBeCanceled))
+        {
+            return task;
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return Task.FromCanceled(cancellationToken);
+        }
+
+        if (timeout == TimeSpan.Zero)
+        {
+            return Task.FromException(new TimeoutException());
+        }
+
+        var completion = new TaskCompletionSource();
+        var race = new ControlledTaskCompletionRace(
+            task,
+            timeout,
+            () => PropagateTo(task, completion),
+            () => completion.TrySetException(new TimeoutException()),
+            () => completion.TrySetCanceled(cancellationToken),
+            cancellationToken);
+        race.Start();
+        return completion.Task;
+    }
+
+    private static Task<TResult> WaitAsyncCore<TResult>(
+        Task<TResult> task,
+        TimeSpan timeout,
+        CancellationToken cancellationToken)
+    {
+        if (task.IsCompleted || (timeout == Timeout.InfiniteTimeSpan && !cancellationToken.CanBeCanceled))
+        {
+            return task;
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return Task.FromCanceled<TResult>(cancellationToken);
+        }
+
+        if (timeout == TimeSpan.Zero)
+        {
+            return Task.FromException<TResult>(new TimeoutException());
+        }
+
+        var completion = new TaskCompletionSource<TResult>();
+        var race = new ControlledTaskCompletionRace(
+            task,
+            timeout,
+            () => PropagateTo(task, completion),
+            () => completion.TrySetException(new TimeoutException()),
+            () => completion.TrySetCanceled(cancellationToken),
+            cancellationToken);
+        race.Start();
+        return completion.Task;
+    }
+
+    private static TimeSpan ValidateMillisecondsDelay(int millisecondsDelay)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(millisecondsDelay, -1);
+        return millisecondsDelay == Timeout.Infinite
+            ? Timeout.InfiniteTimeSpan
+            : TimeSpan.FromMilliseconds(millisecondsDelay);
+    }
+
+    private static TimeSpan ValidateTimerTimeSpan(TimeSpan timeout, string parameterName)
+    {
+        const uint maxSupportedTimeout = 0xfffffffe;
+        long milliseconds = (long)timeout.TotalMilliseconds;
+        ArgumentOutOfRangeException.ThrowIfLessThan(milliseconds, -1, parameterName);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(milliseconds, maxSupportedTimeout, parameterName);
+        return milliseconds == Timeout.Infinite
+            ? Timeout.InfiniteTimeSpan
+            : TimeSpan.FromMilliseconds(milliseconds);
     }
 
     private static bool AnyCompleted(Task[] tasks)

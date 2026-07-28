@@ -45,7 +45,10 @@ public sealed class ControlledTaskLoopCoordinator : ISimulationTaskCoordinator
         _loop.Schedule(continuation);
 
     /// <inheritdoc />
-    public void ScheduleWhenReady(SimulationNodeIdentity? node, Func<bool> isReady, Action continuation) =>
+    public IControlledWorkRegistration ScheduleWhenReady(
+        SimulationNodeIdentity? node,
+        Func<bool> isReady,
+        Action continuation) =>
         _loop.ScheduleWhenReady(isReady, continuation);
 
     /// <inheritdoc />
