@@ -656,6 +656,19 @@ public sealed class ControlledOperationScheduler : IDisposable
     }
 
     /// <summary>
+    /// Validates complete consumption of decision streams at an explicit terminal boundary which may
+    /// retain non-terminal operations, such as a diagnosed deadlock.
+    /// </summary>
+    public void ValidateReplayDecisionStreamsComplete()
+    {
+        _replayValidator?.ValidateComplete();
+        if (_strategy is ReplaySchedulingStrategy replay)
+        {
+            replay.ValidateComplete();
+        }
+    }
+
+    /// <summary>
     /// Advances modeled virtual time to the earliest pending timeout and fires every timeout due at
     /// that instant, resolving each affected waiter as <see cref="ControlledWaitOutcome.TimedOut"/>
     /// and making its operation runnable. Advancing is only legal when no operation is currently
@@ -1122,7 +1135,7 @@ public sealed class ControlledOperationScheduler : IDisposable
             lock (_gate)
             {
                 ThrowIfDisposed();
-                var next = resource.PeekNextPending();
+                var next = SelectResourceWaiter(resource);
                 if (next is not null && next.TryResolve(ControlledWaitOutcome.Signaled))
                 {
                     if (t_currentOperation is { } signaler && ReferenceEquals(signaler.Scheduler, this))
@@ -1727,7 +1740,7 @@ public sealed class ControlledOperationScheduler : IDisposable
         var request = new SimulationDecisionRequest(
             SimulationSeedDomain.Scheduler,
             SimulationDecisionKind.SchedulingOrder,
-            _strategy.Name,
+            GetDecisionSourceId(),
             FormatCandidateIds(runnable),
             ReplaySchedulingStrategy.FormatId(chosen.Id),
             _runtime.Id,
@@ -1749,6 +1762,80 @@ public sealed class ControlledOperationScheduler : IDisposable
 
         _replayValidator?.Validate(record);
     }
+
+    private ControlledResourceWaiter? SelectResourceWaiter(ControlledResource resource)
+    {
+        ControlledResourceWaiter[] pending = resource.SnapshotPendingWaiters();
+        if (pending.Length <= 1)
+        {
+            return pending.Length == 0 ? null : pending[0];
+        }
+
+        var waiterInfos = new ControlledResourceWaiterInfo[pending.Length];
+        for (var index = 0; index < pending.Length; index++)
+        {
+            waiterInfos[index] = pending[index].ToInfo();
+        }
+
+        var selectedIndex = _strategy switch
+        {
+            SeededRandomSchedulingStrategy random => random.ChooseIndex(pending.Length),
+            ReplaySchedulingStrategy replay => replay.ChooseResourceWaiter(waiterInfos),
+            _ => 0,
+        };
+
+        ControlledResourceWaiter selected = pending[selectedIndex];
+        RecordResourceWinner(selected, pending);
+        return selected;
+    }
+
+    private void RecordResourceWinner(
+        ControlledResourceWaiter selected,
+        ControlledResourceWaiter[] pending)
+    {
+        if (_decisionLog is null && _replayValidator is null)
+        {
+            return;
+        }
+
+        var candidateIds = new string[pending.Length];
+        for (var index = 0; index < pending.Length; index++)
+        {
+            candidateIds[index] = ReplaySchedulingStrategy.FormatId(pending[index].Operation.Id);
+        }
+
+        var request = new SimulationDecisionRequest(
+            SimulationSeedDomain.Scheduler,
+            SimulationDecisionKind.ResourceWinner,
+            GetDecisionSourceId(),
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"resource={selected.Resource.Id.Value};waiters={string.Join(",", candidateIds)}"),
+            ReplaySchedulingStrategy.FormatId(selected.Operation.Id),
+            _runtime.Id,
+            selected.Operation.Node?.Address,
+            selected.Operation.LogicalExecutionId);
+
+        var record = _decisionLog is not null
+            ? _decisionLog.Record(request)
+            : new SimulationDecisionRecord(
+                new SimulationDecisionId(_nextReplayDecisionId++),
+                request.Domain,
+                request.Kind,
+                request.SourceId,
+                request.InputMetadata,
+                request.SelectedResult,
+                request.RuntimeId,
+                request.NodeId,
+                request.LogicalExecutionId);
+
+        _replayValidator?.Validate(record);
+    }
+
+    private string GetDecisionSourceId() =>
+        _strategy is ReplaySchedulingStrategy replay
+            ? replay.LastDecisionSourceId ?? _strategy.Name
+            : _strategy.Name;
 
     private void RecordWaitResolution(ControlledResourceWaiter waiter, ControlledWaitOutcome outcome)
     {

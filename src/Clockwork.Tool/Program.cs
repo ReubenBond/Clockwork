@@ -1,5 +1,8 @@
 using Clockwork.Instrumentation.Closure;
 using Clockwork.Instrumentation.Configuration;
+using Clockwork.Runtime.Decisions;
+using Clockwork.Runtime.Exploration;
+using Clockwork.Runtime.Replay;
 
 namespace Clockwork.Tool;
 
@@ -39,6 +42,11 @@ internal static class Program
             {
                 "rewrite" => RewriteCommand.Run(rest, output, error),
                 "inspect" => InspectCommand.Run(rest, output, error),
+                "run" => ReplayCommands.RunRecord(rest, output),
+                "replay" => ReplayCommands.RunReplay(rest, output),
+                "explore" => ReplayCommands.RunExplore(rest, output),
+                "minimize" => ReplayCommands.RunMinimize(rest, output),
+                "trace" => ReplayCommands.RunTrace(rest, output),
                 _ => Fail(error, $"Unknown command '{command}'.", ExitCode.UsageError),
             };
         }
@@ -57,6 +65,18 @@ internal static class Program
         catch (ClosureException ex)
         {
             return Fail(error, ex.Message, ExitCode.ClosureError);
+        }
+        catch (ReplayMinimizationException ex)
+        {
+            return Fail(error, ex.Message, ExitCode.MinimizationError);
+        }
+        catch (Exception ex) when (
+            ex is ReplayArtifactFormatException or
+            ReplayCompatibilityException or
+            SimulationDecisionReplayMismatchException or
+            ReplayOutcomeMismatchException)
+        {
+            return Fail(error, ex.Message, ExitCode.ReplayError);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FileNotFoundException or BadImageFormatException)
         {
@@ -79,6 +99,11 @@ internal static class Program
         output.WriteLine("Usage:");
         output.WriteLine("  clockwork rewrite --source <dir> --output <dir> [options]");
         output.WriteLine("  clockwork inspect <assembly|dir>... [options]");
+        output.WriteLine("  clockwork run --assembly <path> --scenario-type <type> --artifact <path> --seed <int> [options]");
+        output.WriteLine("  clockwork replay <artifact> --assembly <path> --scenario-type <type> [options]");
+        output.WriteLine("  clockwork explore --assembly <path> --scenario-type <type> --output <dir> --seed <int> [options]");
+        output.WriteLine("  clockwork minimize <artifact> --assembly <path> --scenario-type <type> [options]");
+        output.WriteLine("  clockwork trace show <artifact> [--json]");
         output.WriteLine();
         output.WriteLine("rewrite options:");
         output.WriteLine("  --source <dir>              application output/publish directory to read (required)");
@@ -122,6 +147,18 @@ internal static class Program
         output.WriteLine("  --target-runtime <version> configuration target runtime");
         output.WriteLine("  --json                     emit JSON instead of text");
         output.WriteLine();
-        output.WriteLine("Exit codes: 0 success, 1 usage, 2 configuration, 3 closure, 4 instrumentation, 5 I/O.");
+        output.WriteLine();
+        output.WriteLine("replay/exploration options:");
+        output.WriteLine("  --assembly <path>          explicit scenario harness assembly");
+        output.WriteLine("  --scenario-type <type>     public IReplayScenario implementation with a public parameterless constructor");
+        output.WriteLine("  --manifest <path>          closure instrumentation manifest used for compatibility checks");
+        output.WriteLine("  --seed <int>               stable model/application root seed");
+        output.WriteLine("  --schedule-seed <int>      explicit scheduler seed");
+        output.WriteLine("  --strategy <name>          fifo|round-robin|priority|seeded-random");
+        output.WriteLine("  --max-steps <int>          controlled step bound per execution");
+        output.WriteLine("  --json                     emit deterministic JSON");
+        output.WriteLine();
+        output.WriteLine("Exit codes: 0 success, 1 usage, 2 configuration, 3 closure, 4 instrumentation, 5 I/O,");
+        output.WriteLine("            6 scenario failure, 7 replay/compatibility/divergence, 8 minimization.");
     }
 }

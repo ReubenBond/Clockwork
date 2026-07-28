@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>The Clockwork command-line tool (clockwork). Provides 'rewrite' to apply deterministic IL instrumentation to an application closure and 'inspect' to report the managed/ReadyToRun/strong-name/symbol/idempotence state of assemblies. Packaged as a .NET global/local tool. Requires the .NET 10 runtime.</Description>
+    <Description>The Clockwork command-line tool for deterministic IL instrumentation, explicit scenario recording, exact replay, bounded schedule exploration, trace minimization, and diagnostics. Requires the .NET 10 runtime.</Description>
     <RootNamespace>Clockwork.Tool</RootNamespace>
     <OutputType>Exe</OutputType>
     <AssemblyName>clockwork</AssemblyName>
@@ -13,10 +13,12 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/ReubenBond/Clockwork</RepositoryUrl>
+    <PackageTags>deterministic;testing;replay;schedule-exploration;instrumentation</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Clockwork.Instrumentation\Clockwork.Instrumentation.csproj" />
+    <ProjectReference Include="..\Clockwork.Runtime\Clockwork.Runtime.csproj" />
   </ItemGroup>
 
   <ItemGroup>

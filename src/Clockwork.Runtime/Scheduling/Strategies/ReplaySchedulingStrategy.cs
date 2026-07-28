@@ -1,5 +1,6 @@
 using System.Globalization;
 using Clockwork.Runtime.Decisions;
+using Clockwork.Runtime.Scheduling.Resources;
 
 namespace Clockwork.Runtime.Scheduling.Strategies;
 
@@ -23,7 +24,9 @@ namespace Clockwork.Runtime.Scheduling.Strategies;
 public sealed class ReplaySchedulingStrategy : IControlledSchedulingStrategy
 {
     private readonly List<SimulationDecisionRecord> _scheduling;
-    private int _index;
+    private readonly List<SimulationDecisionRecord> _resourceWinners;
+    private int _schedulingIndex;
+    private int _resourceWinnerIndex;
     private bool _mismatchAlreadyThrown;
 
     /// <summary>
@@ -37,15 +40,21 @@ public sealed class ReplaySchedulingStrategy : IControlledSchedulingStrategy
     {
         ArgumentNullException.ThrowIfNull(recordedDecisions);
         var scheduling = new List<SimulationDecisionRecord>(recordedDecisions.Count);
+        var resourceWinners = new List<SimulationDecisionRecord>();
         foreach (var record in recordedDecisions)
         {
             if (record.Kind == SimulationDecisionKind.SchedulingOrder)
             {
                 scheduling.Add(record);
             }
+            else if (record.Kind == SimulationDecisionKind.ResourceWinner)
+            {
+                resourceWinners.Add(record);
+            }
         }
 
         _scheduling = scheduling;
+        _resourceWinners = resourceWinners;
     }
 
     /// <inheritdoc/>
@@ -65,16 +74,16 @@ public sealed class ReplaySchedulingStrategy : IControlledSchedulingStrategy
             return context.Runnable[0];
         }
 
-        if (_index >= _scheduling.Count)
+        if (_schedulingIndex >= _scheduling.Count)
         {
-            _mismatchAlreadyThrown = true;
             _mismatchAlreadyThrown = true;
             throw new SimulationDecisionReplayMismatchException(
                 "Replay diverged: the recorded scheduling log is exhausted, but the scheduler still has " +
                 $"a choice among {context.Runnable.Count} runnable operations to make.");
         }
 
-        var expected = _scheduling[_index++];
+        var expected = _scheduling[_schedulingIndex++];
+        LastDecisionSourceId = expected.SourceId;
         foreach (var operation in context.Runnable)
         {
             if (string.Equals(FormatId(operation.Id), expected.SelectedResult, StringComparison.Ordinal))
@@ -89,6 +98,45 @@ public sealed class ReplaySchedulingStrategy : IControlledSchedulingStrategy
             $"[{FormatCandidates(context.Runnable)}].");
     }
 
+    /// <summary>Gets the source identity of the decision most recently consumed by the strategy.</summary>
+    internal string? LastDecisionSourceId { get; private set; }
+
+    /// <summary>Chooses a resource waiter from a replayed resource-winner decision.</summary>
+    internal int ChooseResourceWaiter(IReadOnlyList<ControlledResourceWaiterInfo> waiters)
+    {
+        ArgumentNullException.ThrowIfNull(waiters);
+        if (waiters.Count == 1)
+        {
+            return 0;
+        }
+
+        if (_resourceWinnerIndex >= _resourceWinners.Count)
+        {
+            _mismatchAlreadyThrown = true;
+            throw new SimulationDecisionReplayMismatchException(
+                "Replay diverged: the recorded resource-winner stream is exhausted, but a signal must choose " +
+                $"among {waiters.Count} pending waiters.");
+        }
+
+        SimulationDecisionRecord expected = _resourceWinners[_resourceWinnerIndex++];
+        LastDecisionSourceId = expected.SourceId;
+        for (var index = 0; index < waiters.Count; index++)
+        {
+            if (string.Equals(
+                FormatId(waiters[index].OperationId),
+                expected.SelectedResult,
+                StringComparison.Ordinal))
+            {
+                return index;
+            }
+        }
+
+        _mismatchAlreadyThrown = true;
+        throw new SimulationDecisionReplayMismatchException(
+            $"Replay diverged at resource-winner decision {expected.Id}: the recorded run selected operation " +
+            $"'{expected.SelectedResult}', but it is not among the pending waiters [{FormatWaiters(waiters)}].");
+    }
+
     /// <summary>
     /// Verifies that a successful replay consumed every recorded scheduling choice.
     /// </summary>
@@ -101,17 +149,30 @@ public sealed class ReplaySchedulingStrategy : IControlledSchedulingStrategy
     /// </exception>
     public void ValidateComplete()
     {
-        if (_mismatchAlreadyThrown || _index >= _scheduling.Count)
+        if (_mismatchAlreadyThrown)
         {
             return;
         }
 
-        var expected = _scheduling[_index];
-        var remaining = _scheduling.Count - _index;
-        _mismatchAlreadyThrown = true;
-        throw new SimulationDecisionReplayMismatchException(
-            $"Replay diverged at end of run: {remaining} recorded scheduling decision(s) remain unconsumed; " +
-            $"the next is {expected.Id}, which selected operation '{expected.SelectedResult}'.");
+        if (_schedulingIndex < _scheduling.Count)
+        {
+            var expected = _scheduling[_schedulingIndex];
+            var remaining = _scheduling.Count - _schedulingIndex;
+            _mismatchAlreadyThrown = true;
+            throw new SimulationDecisionReplayMismatchException(
+                $"Replay diverged at end of run: {remaining} recorded scheduling decision(s) remain unconsumed; " +
+                $"the next is {expected.Id}, which selected operation '{expected.SelectedResult}'.");
+        }
+
+        if (_resourceWinnerIndex < _resourceWinners.Count)
+        {
+            var expected = _resourceWinners[_resourceWinnerIndex];
+            var remaining = _resourceWinners.Count - _resourceWinnerIndex;
+            _mismatchAlreadyThrown = true;
+            throw new SimulationDecisionReplayMismatchException(
+                $"Replay diverged at end of run: {remaining} recorded resource-winner decision(s) remain unconsumed; " +
+                $"the next is {expected.Id}, which selected operation '{expected.SelectedResult}'.");
+        }
     }
 
     internal static string FormatId(ControlledOperationId id) =>
@@ -123,6 +184,17 @@ public sealed class ReplaySchedulingStrategy : IControlledSchedulingStrategy
         for (var i = 0; i < runnable.Count; i++)
         {
             ids[i] = FormatId(runnable[i].Id);
+        }
+
+        return string.Join(",", ids);
+    }
+
+    private static string FormatWaiters(IReadOnlyList<ControlledResourceWaiterInfo> waiters)
+    {
+        var ids = new string[waiters.Count];
+        for (var index = 0; index < waiters.Count; index++)
+        {
+            ids[index] = FormatId(waiters[index].OperationId);
         }
 
         return string.Join(",", ids);

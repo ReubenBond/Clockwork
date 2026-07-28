@@ -14,8 +14,11 @@ public enum SimulationDecisionKind
     /// <summary>A choice among a discrete, enumerable set of options.</summary>
     Choice,
 
-    /// <summary>A decision about execution/scheduling order (reserved for the future scheduler).</summary>
+    /// <summary>A decision about execution/scheduling order.</summary>
     SchedulingOrder,
+
+    /// <summary>A choice of which pending resource waiter receives a signal.</summary>
+    ResourceWinner,
 
     /// <summary>A simulated-network decision (delay, loss, jitter, partition).</summary>
     NetworkBehavior,

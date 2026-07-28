@@ -200,6 +200,19 @@ public sealed class PackageSmokeTests
     }
 
     [Fact]
+    public void InstalledToolListsReplayCommands()
+    {
+        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        AppRunResult help = Artifacts.Value.RunTool(["--help"]);
+
+        Assert.Equal(0, help.ExitCode);
+        Assert.Contains("clockwork replay", help.Output, StringComparison.Ordinal);
+        Assert.Contains("clockwork explore", help.Output, StringComparison.Ordinal);
+        Assert.Contains("clockwork minimize", help.Output, StringComparison.Ordinal);
+        Assert.Contains("clockwork trace show", help.Output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void InstalledToolInspectsAssemblyAsJson()
     {
         Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");

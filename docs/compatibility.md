@@ -172,8 +172,37 @@ reported as data races. Collection coverage is direct-member call coverage, not 
 members reached only through `ICollection<T>`/`IDictionary<TKey,TValue>` are outside the inventory.
 Tail-prefixed collection calls are left intact because the CLI requires `tail.` adjacency and a direct
 call-to-return flow; injecting after such a call would invalidate the method.
-This capability does not add broad schedule-search/minimization commands, profiler/native detours, or
-runtime hosting/transport interception.
+Replay artifacts, bounded schedule exploration, and trace minimization operate over these scheduling
+points. This capability does not add profiler/native detours or runtime hosting/transport interception.
+
+### Replay and schedule exploration
+
+Replay artifacts use canonical UTF-8 JSON with format identity `clockwork.replay` and schema version 1.
+They record the root seed, explicit schedule seed, strategy/options, Clockwork/runtime compatibility,
+optional closure-manifest and assembly hashes, ordered scheduler/resource/timer decisions, race
+scheduling points, terminal outcome, and structured operation/resource/timer/race/deadlock diagnostics.
+Readers ignore unknown optional properties within a supported schema version. A schema version,
+runtime version, rule-set, manifest, or assembly hash mismatch fails before scenario code executes.
+
+Recording and replay are exposed through `ReplayRunner`. Replay validates every decision at the first
+divergence, including expected/actual source, candidate metadata, and selected result, then verifies
+that the complete decision stream was consumed at the reproduced terminal boundary. Interrupted
+recordings are marked `Aborted` and are rejected for exact replay.
+
+`ScheduleExplorer` varies only the schedule seed while keeping the model/application root seed fixed.
+Iterations run serially; iteration, failure, step, cancellation, and optional wall-clock safety bounds
+are explicit. Iteration ids are deterministic, aggregate outcomes are stable, and the smallest artifact
+per failure identity is retained. Parallel exploration is rejected until runtime/instrumentation
+isolation can be guaranteed.
+
+`ReplayTraceMinimizer` uses bounded delta debugging plus discrete scheduling/resource alternative
+selection. A candidate is accepted only if exact replay passes compatibility and first-divergence
+validation and reproduces the original failure category and identity.
+
+Artifacts exclude process arguments, environment variables, arbitrary user metadata, stack traces,
+caller work descriptions, and source paths by default. Caller descriptions/source paths can be
+explicitly retained through the API. Per-field, decision, race-point, assembly, and total-byte limits
+are enforced before use.
 
 ### Optional deep instrumentation mode
 
@@ -256,7 +285,9 @@ signature, engine version, configuration, and reference set.
 `net10.0` and load only under `dotnet build` / `dotnet msbuild`; .NET Framework MSBuild
 (classic `msbuild.exe`) cannot host them. The `Clockwork.Tool` CLI exposes `rewrite`
 (with `--dry-run`) and `inspect` (text or `--json`), with nonzero exit codes classified
-by failure kind. `run`/`replay`/`minimize` are deferred to later replay work.
+by failure kind. The tool also exposes explicit `IReplayScenario` harness commands for
+`run`/`replay`/`explore`/`minimize`/`trace show`; it never discovers a process or scenario type
+implicitly.
 
 **Configuration is data, not code.** Configuration and rule sets are JSON documents,
 validated strictly for schema, types, and signatures; **no arbitrary code is executed
