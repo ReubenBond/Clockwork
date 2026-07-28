@@ -138,7 +138,7 @@ Policy: **Controlled**. `Task.Delay` and `Task.WaitAsync` use controlled virtual
 
 ## TaskScheduling family
 
-Policy: **Controlled**. `Task.Run` (all `Action`/`Func<TResult>`/`Func<Task>`/`Func<Task<TResult>>` overloads, with and without a `CancellationToken`) offloads work that Phase 6A left uncontrolled onto the thread pool. Each overload redirects to a controlled equivalent that schedules the delegate as a controlled operation on the simulation coordinator, preserving cancellation and unwrap semantics.
+Policy: **Controlled**. `Task.Run` (all `Action`/`Func<TResult>`/`Func<Task>`/`Func<Task<TResult>>` overloads, with and without a `CancellationToken`) redirects thread-pool scheduling into controlled operations. Each overload redirects to a controlled equivalent that schedules the delegate as a controlled operation on the simulation coordinator, preserving cancellation and unwrap semantics.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -374,7 +374,7 @@ Policy: **Controlled**. The .NET 10 `SemaphoreSlim` constructors, counts, waits,
 
 ## Interlocked family
 
-Policy: **Controlled**. The full .NET 10 `Interlocked` surface - `Increment`/`Decrement`/`Add`/`And`/`Or` (`int`/`long`/`uint`/`ulong`), `Exchange`/`CompareExchange` (every primitive, native-int, floating-point, reference, and generic reference overload), `Read` (`long`/`ulong`), and the memory barriers - redirects each call site to a shim with the identical `ref`-first signature. Clockwork's cooperative single-logical-thread scheduler makes every read-modify-write an indivisible step (never split, never interleaved mid-operation), so the shim delegates to the real primitive and preserves exact atomic return, overflow, and reference-write semantics under the active simulation. The exploration policy injects no mid-operation scheduling point; the single delegation site is the future Phase 9 race-hook attachment point.
+Policy: **Controlled**. The full .NET 10 `Interlocked` surface - `Increment`/`Decrement`/`Add`/`And`/`Or` (`int`/`long`/`uint`/`ulong`), `Exchange`/`CompareExchange` (every primitive, native-int, floating-point, reference, and generic reference overload), `Read` (`long`/`ulong`), and the memory barriers - redirects each call site to a shim with the identical `ref`-first signature. Clockwork's cooperative single-logical-thread scheduler makes every read-modify-write an indivisible step (never split, never interleaved mid-operation), so the shim delegates to the real primitive and preserves exact atomic return, overflow, and reference-write semantics under the active simulation. The exploration policy injects no mid-operation scheduling point; the single delegation site is the race-exploration access-tracking attachment point.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -433,7 +433,7 @@ Policy: **Controlled**. The full .NET 10 `Interlocked` surface - `Increment`/`De
 
 ## Volatile family
 
-Policy: **Controlled**. The full .NET 10 `Volatile` surface - `Read`/`Write` (every primitive, native-int, floating-point, and generic reference overload) and the `ReadBarrier`/`WriteBarrier` fences - redirects each call site to a shim with the identical `ref`-first signature. Under the cooperative single-logical-thread scheduler a volatile access is an indivisible step, so the shim delegates to the real primitive and preserves the exact value read/written together with the acquire (read) / release (write) fence intent. The single delegation site is the future Phase 9 race-hook attachment point.
+Policy: **Controlled**. The full .NET 10 `Volatile` surface - `Read`/`Write` (every primitive, native-int, floating-point, and generic reference overload) and the `ReadBarrier`/`WriteBarrier` fences - redirects each call site to a shim with the identical `ref`-first signature. Under the cooperative single-logical-thread scheduler a volatile access is an indivisible step, so the shim delegates to the real primitive and preserves the exact value read/written together with the acquire (read) / release (write) fence intent. The single delegation site is the race-exploration access-tracking attachment point.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
