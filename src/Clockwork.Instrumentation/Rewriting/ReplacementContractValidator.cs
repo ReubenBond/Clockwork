@@ -157,22 +157,20 @@ internal static class ReplacementContractValidator
         || additionalTypeCompatibility(left, right);
 
     private static string Shape(TypeReference type, MethodReference owner) =>
-        Shape(type, owner, []);
+        Shape(type, owner, allowSubstitution: true);
 
     private static string Shape(
         TypeReference type,
         MethodReference owner,
-        HashSet<GenericParameter> expandingParameters)
+        bool allowSubstitution)
     {
         if (type is GenericParameter parameter)
         {
-            if (TryGetGenericArgument(parameter, owner, out TypeReference? argument)
-                && !ReferenceEquals(parameter, argument)
-                && expandingParameters.Add(parameter))
+            if (allowSubstitution
+                && TryGetGenericArgument(parameter, owner, out TypeReference? argument)
+                && !ReferenceEquals(parameter, argument))
             {
-                string shape = Shape(argument!, owner, expandingParameters);
-                expandingParameters.Remove(parameter);
-                return shape;
+                return Shape(argument!, owner, allowSubstitution: false);
             }
 
             return (parameter.Type == GenericParameterType.Method ? "!!" : "!") + parameter.Position;
@@ -180,22 +178,22 @@ internal static class ReplacementContractValidator
 
         return type switch
         {
-            ByReferenceType byReference => Shape(byReference.ElementType, owner, expandingParameters) + "&",
-            PointerType pointer => Shape(pointer.ElementType, owner, expandingParameters) + "*",
-            ArrayType array => Shape(array.ElementType, owner, expandingParameters) + ShapeArrayDimensions(array),
+            ByReferenceType byReference => Shape(byReference.ElementType, owner, allowSubstitution) + "&",
+            PointerType pointer => Shape(pointer.ElementType, owner, allowSubstitution) + "*",
+            ArrayType array => Shape(array.ElementType, owner, allowSubstitution) + ShapeArrayDimensions(array),
             GenericInstanceType generic =>
-                Shape(generic.ElementType, owner, expandingParameters) + "<" +
+                Shape(generic.ElementType, owner, allowSubstitution) + "<" +
                 string.Join(",", generic.GenericArguments.Select(
-                    argument => Shape(argument, owner, expandingParameters))) + ">",
+                    argument => Shape(argument, owner, allowSubstitution))) + ">",
             RequiredModifierType modifier =>
-                Shape(modifier.ElementType, owner, expandingParameters) + " modreq(" +
-                Shape(modifier.ModifierType, owner, expandingParameters) + ")",
+                Shape(modifier.ElementType, owner, allowSubstitution) + " modreq(" +
+                Shape(modifier.ModifierType, owner, allowSubstitution) + ")",
             OptionalModifierType modifier =>
-                Shape(modifier.ElementType, owner, expandingParameters) + " modopt(" +
-                Shape(modifier.ModifierType, owner, expandingParameters) + ")",
-            PinnedType pinned => Shape(pinned.ElementType, owner, expandingParameters) + " pinned",
-            SentinelType sentinel => Shape(sentinel.ElementType, owner, expandingParameters) + " sentinel",
-            FunctionPointerType functionPointer => Shape(functionPointer, owner, expandingParameters),
+                Shape(modifier.ElementType, owner, allowSubstitution) + " modopt(" +
+                Shape(modifier.ModifierType, owner, allowSubstitution) + ")",
+            PinnedType pinned => Shape(pinned.ElementType, owner, allowSubstitution) + " pinned",
+            SentinelType sentinel => Shape(sentinel.ElementType, owner, allowSubstitution) + " sentinel",
+            FunctionPointerType functionPointer => Shape(functionPointer, owner, allowSubstitution),
             _ => type.FullName,
         };
     }
@@ -203,11 +201,11 @@ internal static class ReplacementContractValidator
     private static string Shape(
         FunctionPointerType functionPointer,
         MethodReference owner,
-        HashSet<GenericParameter> expandingParameters) =>
+        bool allowSubstitution) =>
         $"method[{functionPointer.CallingConvention};this={functionPointer.HasThis};explicit={functionPointer.ExplicitThis}] " +
-        Shape(functionPointer.ReturnType, owner, expandingParameters) + " *(" +
+        Shape(functionPointer.ReturnType, owner, allowSubstitution) + " *(" +
         string.Join(",", functionPointer.Parameters.Select(
-            parameter => Shape(parameter.ParameterType, owner, expandingParameters))) + ")";
+            parameter => Shape(parameter.ParameterType, owner, allowSubstitution))) + ")";
 
     private static string ShapeArrayDimensions(ArrayType array) =>
         array.IsVector
@@ -220,22 +218,20 @@ internal static class ReplacementContractValidator
                 + "]";
 
     public static TypeReference InflateType(TypeReference type, MethodReference owner) =>
-        InflateType(type, owner, []);
+        InflateType(type, owner, allowSubstitution: true);
 
     private static TypeReference InflateType(
         TypeReference type,
         MethodReference owner,
-        HashSet<GenericParameter> expandingParameters)
+        bool allowSubstitution)
     {
         if (type is GenericParameter parameter)
         {
-            if (TryGetGenericArgument(parameter, owner, out TypeReference? argument)
-                && !ReferenceEquals(parameter, argument)
-                && expandingParameters.Add(parameter))
+            if (allowSubstitution
+                && TryGetGenericArgument(parameter, owner, out TypeReference? argument)
+                && !ReferenceEquals(parameter, argument))
             {
-                TypeReference inflated = InflateType(argument!, owner, expandingParameters);
-                expandingParameters.Remove(parameter);
-                return inflated;
+                return InflateType(argument!, owner, allowSubstitution: false);
             }
 
             return type;
@@ -246,7 +242,7 @@ internal static class ReplacementContractValidator
             var inflated = new GenericInstanceType(generic.ElementType);
             foreach (TypeReference argument in generic.GenericArguments)
             {
-                inflated.GenericArguments.Add(InflateType(argument, owner, expandingParameters));
+                inflated.GenericArguments.Add(InflateType(argument, owner, allowSubstitution));
             }
 
             return inflated;
@@ -255,22 +251,22 @@ internal static class ReplacementContractValidator
         return type switch
         {
             ByReferenceType byReference =>
-                new ByReferenceType(InflateType(byReference.ElementType, owner, expandingParameters)),
+                new ByReferenceType(InflateType(byReference.ElementType, owner, allowSubstitution)),
             PointerType pointer =>
-                new PointerType(InflateType(pointer.ElementType, owner, expandingParameters)),
-            ArrayType array => InflateArray(array, owner, expandingParameters),
+                new PointerType(InflateType(pointer.ElementType, owner, allowSubstitution)),
+            ArrayType array => InflateArray(array, owner, allowSubstitution),
             RequiredModifierType modifier => new RequiredModifierType(
-                InflateType(modifier.ModifierType, owner, expandingParameters),
-                InflateType(modifier.ElementType, owner, expandingParameters)),
+                InflateType(modifier.ModifierType, owner, allowSubstitution),
+                InflateType(modifier.ElementType, owner, allowSubstitution)),
             OptionalModifierType modifier => new OptionalModifierType(
-                InflateType(modifier.ModifierType, owner, expandingParameters),
-                InflateType(modifier.ElementType, owner, expandingParameters)),
+                InflateType(modifier.ModifierType, owner, allowSubstitution),
+                InflateType(modifier.ElementType, owner, allowSubstitution)),
             PinnedType pinned =>
-                new PinnedType(InflateType(pinned.ElementType, owner, expandingParameters)),
+                new PinnedType(InflateType(pinned.ElementType, owner, allowSubstitution)),
             SentinelType sentinel =>
-                new SentinelType(InflateType(sentinel.ElementType, owner, expandingParameters)),
+                new SentinelType(InflateType(sentinel.ElementType, owner, allowSubstitution)),
             FunctionPointerType functionPointer =>
-                InflateFunctionPointer(functionPointer, owner, expandingParameters),
+                InflateFunctionPointer(functionPointer, owner, allowSubstitution),
             _ => type,
         };
     }
@@ -278,9 +274,9 @@ internal static class ReplacementContractValidator
     private static ArrayType InflateArray(
         ArrayType array,
         MethodReference owner,
-        HashSet<GenericParameter> expandingParameters)
+        bool allowSubstitution)
     {
-        TypeReference element = InflateType(array.ElementType, owner, expandingParameters);
+        TypeReference element = InflateType(array.ElementType, owner, allowSubstitution);
         var inflated = array.IsVector ? new ArrayType(element) : new ArrayType(element, array.Rank);
         for (int i = 0; i < array.Dimensions.Count; i++)
         {
@@ -295,19 +291,19 @@ internal static class ReplacementContractValidator
     private static FunctionPointerType InflateFunctionPointer(
         FunctionPointerType functionPointer,
         MethodReference owner,
-        HashSet<GenericParameter> expandingParameters)
+        bool allowSubstitution)
     {
         var inflated = new FunctionPointerType
         {
             HasThis = functionPointer.HasThis,
             ExplicitThis = functionPointer.ExplicitThis,
             CallingConvention = functionPointer.CallingConvention,
-            ReturnType = InflateType(functionPointer.ReturnType, owner, expandingParameters),
+            ReturnType = InflateType(functionPointer.ReturnType, owner, allowSubstitution),
         };
         foreach (ParameterDefinition parameter in functionPointer.Parameters)
         {
             inflated.Parameters.Add(new ParameterDefinition(
-                InflateType(parameter.ParameterType, owner, expandingParameters)));
+                InflateType(parameter.ParameterType, owner, allowSubstitution)));
         }
 
         return inflated;
@@ -358,13 +354,36 @@ internal static class ReplacementContractValidator
         MethodReference leftOwner,
         MethodReference rightOwner)
     {
-        private readonly HashSet<(TypeReference Left, TypeReference Right)> _visited = [];
+        private readonly HashSet<(
+            TypeReference Left,
+            bool SubstituteLeft,
+            TypeReference Right,
+            bool SubstituteRight)> _visited = [];
 
-        public bool Same(TypeReference left, TypeReference right)
+        public bool Same(TypeReference left, TypeReference right) =>
+            Same(left, substituteLeft: true, right, substituteRight: true);
+
+        private bool Same(
+            TypeReference left,
+            bool substituteLeft,
+            TypeReference right,
+            bool substituteRight)
         {
-            left = Substitute(left, leftOwner);
-            right = Substitute(right, rightOwner);
-            if (!_visited.Add((left, right)))
+            if (substituteLeft
+                && TrySubstitute(left, leftOwner, out TypeReference? substitutedLeft))
+            {
+                left = substitutedLeft!;
+                substituteLeft = false;
+            }
+
+            if (substituteRight
+                && TrySubstitute(right, rightOwner, out TypeReference? substitutedRight))
+            {
+                right = substitutedRight!;
+                substituteRight = false;
+            }
+
+            if (!_visited.Add((left, substituteLeft, right, substituteRight)))
             {
                 return true;
             }
@@ -377,39 +396,65 @@ internal static class ReplacementContractValidator
 
             return (left, right) switch
             {
-                (ByReferenceType l, ByReferenceType r) => Same(l.ElementType, r.ElementType),
-                (PointerType l, PointerType r) => Same(l.ElementType, r.ElementType),
-                (ArrayType l, ArrayType r) => SameArray(l, r),
+                (ByReferenceType l, ByReferenceType r) =>
+                    Same(l.ElementType, substituteLeft, r.ElementType, substituteRight),
+                (PointerType l, PointerType r) =>
+                    Same(l.ElementType, substituteLeft, r.ElementType, substituteRight),
+                (ArrayType l, ArrayType r) =>
+                    SameArray(l, substituteLeft, r, substituteRight),
                 (GenericInstanceType l, GenericInstanceType r) =>
-                    Same(l.ElementType, r.ElementType)
+                    Same(l.ElementType, substituteLeft, r.ElementType, substituteRight)
                     && l.GenericArguments.Count == r.GenericArguments.Count
-                    && l.GenericArguments.Zip(r.GenericArguments, Same).All(static match => match),
+                    && l.GenericArguments.Zip(
+                        r.GenericArguments,
+                        (leftArgument, rightArgument) =>
+                            Same(leftArgument, substituteLeft, rightArgument, substituteRight))
+                        .All(static match => match),
                 (RequiredModifierType l, RequiredModifierType r) =>
-                    Same(l.ModifierType, r.ModifierType) && Same(l.ElementType, r.ElementType),
+                    Same(l.ModifierType, substituteLeft, r.ModifierType, substituteRight)
+                    && Same(l.ElementType, substituteLeft, r.ElementType, substituteRight),
                 (OptionalModifierType l, OptionalModifierType r) =>
-                    Same(l.ModifierType, r.ModifierType) && Same(l.ElementType, r.ElementType),
-                (PinnedType l, PinnedType r) => Same(l.ElementType, r.ElementType),
-                (SentinelType l, SentinelType r) => Same(l.ElementType, r.ElementType),
-                (FunctionPointerType l, FunctionPointerType r) => SameFunctionPointer(l, r),
+                    Same(l.ModifierType, substituteLeft, r.ModifierType, substituteRight)
+                    && Same(l.ElementType, substituteLeft, r.ElementType, substituteRight),
+                (PinnedType l, PinnedType r) =>
+                    Same(l.ElementType, substituteLeft, r.ElementType, substituteRight),
+                (SentinelType l, SentinelType r) =>
+                    Same(l.ElementType, substituteLeft, r.ElementType, substituteRight),
+                (FunctionPointerType l, FunctionPointerType r) =>
+                    SameFunctionPointer(l, substituteLeft, r, substituteRight),
                 _ => left is not TypeSpecification
                     && right is not TypeSpecification
                     && string.Equals(left.FullName, right.FullName, StringComparison.Ordinal),
             };
         }
 
-        private static TypeReference Substitute(TypeReference type, MethodReference owner) =>
-            type is GenericParameter parameter
+        private static bool TrySubstitute(
+            TypeReference type,
+            MethodReference owner,
+            out TypeReference? substituted)
+        {
+            if (type is GenericParameter parameter
                 && TryGetGenericArgument(parameter, owner, out TypeReference? argument)
-                && !ReferenceEquals(type, argument)
-                    ? argument!
-                    : type;
+                && !ReferenceEquals(type, argument))
+            {
+                substituted = argument;
+                return true;
+            }
 
-        private bool SameArray(ArrayType left, ArrayType right)
+            substituted = null;
+            return false;
+        }
+
+        private bool SameArray(
+            ArrayType left,
+            bool substituteLeft,
+            ArrayType right,
+            bool substituteRight)
         {
             if (left.Rank != right.Rank
                 || left.IsVector != right.IsVector
                 || left.Dimensions.Count != right.Dimensions.Count
-                || !Same(left.ElementType, right.ElementType))
+                || !Same(left.ElementType, substituteLeft, right.ElementType, substituteRight))
             {
                 return false;
             }
@@ -420,15 +465,20 @@ internal static class ReplacementContractValidator
                     && dimensions.First.UpperBound == dimensions.Second.UpperBound);
         }
 
-        private bool SameFunctionPointer(FunctionPointerType left, FunctionPointerType right) =>
+        private bool SameFunctionPointer(
+            FunctionPointerType left,
+            bool substituteLeft,
+            FunctionPointerType right,
+            bool substituteRight) =>
             left.HasThis == right.HasThis
             && left.ExplicitThis == right.ExplicitThis
             && left.CallingConvention == right.CallingConvention
             && left.Parameters.Count == right.Parameters.Count
-            && Same(left.ReturnType, right.ReturnType)
+            && Same(left.ReturnType, substituteLeft, right.ReturnType, substituteRight)
             && left.Parameters.Zip(
                 right.Parameters,
-                (l, r) => Same(l.ParameterType, r.ParameterType)).All(static match => match);
+                (l, r) => Same(l.ParameterType, substituteLeft, r.ParameterType, substituteRight))
+                .All(static match => match);
     }
 
     private static bool Success(out string? error)

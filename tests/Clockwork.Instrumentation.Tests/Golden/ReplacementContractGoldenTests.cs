@@ -294,4 +294,66 @@ public sealed class ReplacementContractGoldenTests
         Assert.Contains("parameter 0 is incompatible", diagnostic.Message);
         Assert.Contains("recursive-generic-mismatch", diagnostic.Message);
     }
+
+    [Fact]
+    public void RecursiveSelfCallPreservesCallerGenericArgumentContext()
+    {
+        const string source = """
+            using System.Collections.Generic;
+
+            namespace Fx
+            {
+                public static class Recursive
+                {
+                    public static List<T> M<T>(List<T> value)
+                    {
+                        _ = M<List<T>>(new List<List<T>>());
+                        return value;
+                    }
+                }
+            }
+            """;
+        const string shimSource = """
+            using System.Collections.Generic;
+
+            namespace Fx
+            {
+                public static class RecursiveShim
+                {
+                    public static List<T> M<T>(List<T> value) => value;
+                }
+            }
+            """;
+        using var context = RewriteTestContext.Create();
+        string fixturePath = context.CompileFixture("Fx.RecursiveSelfCall", source);
+        string shimPath = FixtureCompiler.Compile(
+            "Fx.RecursiveShim",
+            shimSource,
+            context.Directory,
+            FixtureSymbols.PortableFile,
+            optimize: false);
+        var rules = new RewriteRuleSet(
+            "clockwork.recursive-self-call",
+            "1.0",
+            [
+                RewriteRule.RedirectCall(
+                    "recursive-self-call",
+                    new MemberSignature("Fx.Recursive", "M"),
+                    RewriteReplacement.Method("Fx.RecursiveShim", "Fx.RecursiveShim", "M")),
+            ]);
+        var options = new RewriteOptions
+        {
+            ReplacementAssemblyPaths = [shimPath],
+            ReferenceSearchDirectories = [context.Directory],
+        };
+
+        RewriteResult result = context.Rewrite(fixturePath, rules, options);
+
+        result.EnsureSuccess();
+        using ModuleDefinition module = context.LoadModule(
+            Path.Combine(context.Directory, "Fx.RecursiveSelfCall.rewritten.dll"));
+        MethodDefinition method = CecilInspect.GetMethod(module, "Fx.Recursive", "M");
+        Assert.True(CecilInspect.CallsAnyContaining(method, "RecursiveShim::M"));
+        Assert.False(CecilInspect.CallsAnyContaining(method, "Recursive::M"));
+    }
 }
