@@ -14,4 +14,8 @@
     <PackageReference Include="Mono.Cecil" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Clockwork.Instrumentation.Tests" />
+  </ItemGroup>
+
 </Project>

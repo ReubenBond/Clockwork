@@ -15,7 +15,7 @@ internal static class ReplacementContractValidator
     {
         if (replacement.HasThis)
         {
-            error = $"Replacement '{replacement.FullName}' must be static.";
+            error = $"Replacement '{MethodShape(replacement)}' must be static.";
             return false;
         }
 
@@ -44,8 +44,8 @@ internal static class ReplacementContractValidator
         if (replacement.Parameters.Count != expectedCount)
         {
             error =
-                $"Replacement '{replacement.FullName}' consumes {replacement.Parameters.Count} stack arguments, " +
-                $"but target '{original.FullName}' requires {expectedCount} including its receiver.";
+                $"Replacement '{MethodShape(replacement)}' consumes {replacement.Parameters.Count} stack arguments, " +
+                $"but target '{MethodShape(original)}' requires {expectedCount} including its receiver.";
             return false;
         }
 
@@ -61,7 +61,9 @@ internal static class ReplacementContractValidator
                 replacement,
                 additionalTypeCompatibility))
         {
-            error = $"Replacement '{replacement.FullName}' has an incompatible receiver parameter for '{original.FullName}'.";
+            error =
+                $"Replacement '{MethodShape(replacement)}' has an incompatible receiver parameter for " +
+                $"'{MethodShape(original)}'.";
             return false;
         }
 
@@ -75,8 +77,8 @@ internal static class ReplacementContractValidator
                 additionalTypeCompatibility))
             {
                 error =
-                    $"Replacement '{replacement.FullName}' parameter {replacementIndex + i} is incompatible with " +
-                    $"target parameter {i} of '{original.FullName}'.";
+                    $"Replacement '{MethodShape(replacement)}' parameter {replacementIndex + i} is incompatible with " +
+                    $"target parameter {i} of '{MethodShape(original)}'.";
                 return false;
             }
         }
@@ -90,8 +92,8 @@ internal static class ReplacementContractValidator
             additionalTypeCompatibility))
         {
             error =
-                $"Replacement '{replacement.FullName}' returns '{Shape(replacement.ReturnType, replacement)}', " +
-                $"but target '{original.FullName}' requires '{Shape(expectedReturn, original)}'.";
+                $"Replacement '{MethodShape(replacement)}' returns '{Shape(replacement.ReturnType, replacement)}', " +
+                $"but target '{MethodShape(original)}' requires '{Shape(expectedReturn, original)}'.";
             return false;
         }
 
@@ -106,7 +108,7 @@ internal static class ReplacementContractValidator
     {
         if (original.ReturnType.MetadataType == MetadataType.Void)
         {
-            error = $"Post-call rule cannot wrap void target '{original.FullName}'.";
+            error = $"Post-call rule cannot wrap void target '{MethodShape(original)}'.";
             return false;
         }
 
@@ -125,7 +127,7 @@ internal static class ReplacementContractValidator
                 additionalTypeCompatibility))
         {
             error =
-                $"Post-call replacement '{replacement.FullName}' must be static and consume and return exactly " +
+                $"Post-call replacement '{MethodShape(replacement)}' must be static and consume and return exactly " +
                 $"'{Shape(original.ReturnType, original)}'.";
             return false;
         }
@@ -140,7 +142,7 @@ internal static class ReplacementContractValidator
             || replacement.ReturnType.MetadataType != MetadataType.Void)
         {
             error =
-                $"Rejection replacement '{replacement.FullName}' must be a static void method taking exactly one System.String.";
+                $"Rejection replacement '{MethodShape(replacement)}' must be a static void method taking exactly one System.String.";
             return false;
         }
 
@@ -153,93 +155,28 @@ internal static class ReplacementContractValidator
         TypeReference right,
         MethodReference rightOwner,
         Func<TypeReference, TypeReference, bool> additionalTypeCompatibility) =>
-        string.Equals(Shape(left, leftOwner), Shape(right, rightOwner), StringComparison.Ordinal)
+        TypeReferenceStructure.AreEquivalent(left, leftOwner, right, rightOwner)
         || additionalTypeCompatibility(left, right);
 
-    private static string Shape(TypeReference type, MethodReference owner)
+    private static string Shape(TypeReference type, MethodReference owner) =>
+        TypeReferenceStructure.Shape(type, owner);
+
+    private static string MethodShape(MethodReference method)
     {
-        if (type is GenericParameter parameter)
-        {
-            if (parameter.Type == GenericParameterType.Method
-                && owner is GenericInstanceMethod genericMethod
-                && parameter.Position < genericMethod.GenericArguments.Count)
-            {
-                TypeReference argument = genericMethod.GenericArguments[parameter.Position];
-                return IsSameGenericParameter(parameter, argument)
-                    ? "!!" + parameter.Position
-                    : Shape(argument, owner);
-            }
-
-            if (parameter.Type == GenericParameterType.Type
-                && owner.DeclaringType is GenericInstanceType genericType
-                && parameter.Position < genericType.GenericArguments.Count)
-            {
-                TypeReference argument = genericType.GenericArguments[parameter.Position];
-                return IsSameGenericParameter(parameter, argument)
-                    ? "!" + parameter.Position
-                    : Shape(argument, owner);
-            }
-
-            return (parameter.Type == GenericParameterType.Method ? "!!" : "!") + parameter.Position;
-        }
-
-        return type switch
-        {
-            ByReferenceType byReference => Shape(byReference.ElementType, owner) + "&",
-            PointerType pointer => Shape(pointer.ElementType, owner) + "*",
-            ArrayType array => Shape(array.ElementType, owner) + "[" + new string(',', array.Rank - 1) + "]",
-            GenericInstanceType generic =>
-                generic.ElementType.FullName + "<" +
-                string.Join(",", generic.GenericArguments.Select(argument => Shape(argument, owner))) + ">",
-            RequiredModifierType modifier =>
-                Shape(modifier.ElementType, owner) + " modreq(" + modifier.ModifierType.FullName + ")",
-            OptionalModifierType modifier =>
-                Shape(modifier.ElementType, owner) + " modopt(" + modifier.ModifierType.FullName + ")",
-            _ => type.FullName,
-        };
+        string genericArguments = method is GenericInstanceMethod generic
+            ? "<" + string.Join(",", generic.GenericArguments.Select(argument => Shape(argument, method))) + ">"
+            : string.Empty;
+        string parameters = string.Join(
+            ",",
+            method.Parameters.Select(parameter => Shape(parameter.ParameterType, method)));
+        return Shape(method.ReturnType, method)
+            + " " + Shape(method.DeclaringType, method)
+            + "::" + method.Name + genericArguments
+            + "(" + parameters + ")";
     }
 
-    public static TypeReference InflateType(TypeReference type, MethodReference owner)
-    {
-        if (type is GenericParameter parameter)
-        {
-            if (parameter.Type == GenericParameterType.Method
-                && owner is GenericInstanceMethod genericMethod
-                && parameter.Position < genericMethod.GenericArguments.Count)
-            {
-                TypeReference argument = genericMethod.GenericArguments[parameter.Position];
-                return IsSameGenericParameter(parameter, argument) ? type : InflateType(argument, owner);
-            }
-
-            if (parameter.Type == GenericParameterType.Type
-                && owner.DeclaringType is GenericInstanceType genericType
-                && parameter.Position < genericType.GenericArguments.Count)
-            {
-                TypeReference argument = genericType.GenericArguments[parameter.Position];
-                return IsSameGenericParameter(parameter, argument) ? type : InflateType(argument, owner);
-            }
-
-            return type;
-        }
-
-        if (type is GenericInstanceType generic)
-        {
-            var inflated = new GenericInstanceType(generic.ElementType);
-            foreach (TypeReference argument in generic.GenericArguments)
-            {
-                inflated.GenericArguments.Add(InflateType(argument, owner));
-            }
-
-            return inflated;
-        }
-
-        return type;
-    }
-
-    private static bool IsSameGenericParameter(GenericParameter parameter, TypeReference argument) =>
-        argument is GenericParameter other
-        && other.Type == parameter.Type
-        && other.Position == parameter.Position;
+    public static TypeReference InflateType(TypeReference type, MethodReference owner) =>
+        TypeReferenceStructure.Inflate(type, owner);
 
     private static bool Success(out string? error)
     {

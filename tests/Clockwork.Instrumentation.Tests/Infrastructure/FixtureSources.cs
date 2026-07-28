@@ -38,6 +38,17 @@ internal static class FixtureSources
                 public static T Echo<T>(T value) => value;
             }
 
+            public sealed class GenericBox<T>
+            {
+                public GenericBox(T value) { Value = value; }
+                public T Value { get; }
+            }
+
+            public sealed class RecursiveContainer<T>
+            {
+                public sealed class Element { }
+            }
+
             public interface IProbe { int Probe(); }
 
             public struct StructProbe : IProbe
@@ -119,6 +130,11 @@ internal static class FixtureSources
                 }
 
                 public static T WrapGeneric<T>(T value) => value;
+
+                public static TResult ReadBox<TResult>(GenericBox<TResult> box) => box.Value;
+
+                public static System.Collections.Generic.List<TResult> ReadBoxWrong<TResult>(
+                    GenericBox<TResult> box) => new() { box.Value };
 
                 public static int GetProbe(ref StructProbe probe) => probe.Probe();
 
