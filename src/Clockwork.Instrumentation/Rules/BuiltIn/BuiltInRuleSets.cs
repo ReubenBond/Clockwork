@@ -373,6 +373,8 @@ public static class BuiltInRuleSets
 
     private static readonly ImmutableArray<BuiltInRuleEntry> DeterministicBcl = BuildDeterministicBclEntries();
     private static readonly ImmutableArray<BuiltInRuleEntry> ControlledTasks = BuildControlledTasksEntries();
+    private static readonly ImmutableHashSet<string> ControlledTaskRuleIds =
+        ControlledTasks.Select(entry => entry.Rule.Id).ToImmutableHashSet(StringComparer.Ordinal);
 
     /// <summary>Gets the ids of every built-in rule set that can be enabled by name.</summary>
     public static ImmutableArray<string> AvailableIds { get; } = [DeterministicBclId, ControlledTasksId];
@@ -426,6 +428,12 @@ public static class BuiltInRuleSets
 
     /// <summary>Gets a value indicating whether <paramref name="id"/> names a known built-in rule set.</summary>
     public static bool IsKnownId(string id) => AvailableIds.Contains(id, StringComparer.Ordinal);
+
+    internal static bool ContainsControlledTaskRules(RewriteRuleSet ruleSet)
+    {
+        ArgumentNullException.ThrowIfNull(ruleSet);
+        return ruleSet.Rules.Any(rule => ControlledTaskRuleIds.Contains(rule.Id));
+    }
 
     /// <summary>Parses a case-insensitive family name (e.g. <c>Clock</c>, <c>crypto</c>).</summary>
     public static bool TryParseFamily(string text, out BuiltInRuleFamily family) =>

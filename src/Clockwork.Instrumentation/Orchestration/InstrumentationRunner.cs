@@ -6,6 +6,7 @@ using Clockwork.Instrumentation.Configuration;
 using Clockwork.Instrumentation.Diagnostics;
 using Clockwork.Instrumentation.Imaging;
 using Clockwork.Instrumentation.Rewriting;
+using Clockwork.Instrumentation.Rules.BuiltIn;
 using Clockwork.Instrumentation.Signing;
 
 namespace Clockwork.Instrumentation.Orchestration;
@@ -13,7 +14,7 @@ namespace Clockwork.Instrumentation.Orchestration;
 /// <summary>
 /// The deterministic orchestrator that turns an application output/publish directory into an
 /// instrumented closure staged in a separate directory. It discovers the closure, enforces the
-/// configured ReadyToRun and strong-name policies, rewrites managed IL with the Phase&#160;4A
+/// configured ReadyToRun and strong-name policies, rewrites managed IL with the
 /// <see cref="RewriteEngine"/>, copies every non-rewritten asset verbatim, emits a deterministic
 /// closure manifest, and maintains an incremental cache keyed by every input's content hash plus the
 /// engine, rule-set, and configuration signatures. The source directory is never modified.
@@ -116,11 +117,13 @@ public static class InstrumentationRunner
         ImmutableArray<string> replacementPaths =
             ResolveReplacementAssemblies(sourceDirectory, request.RuleSet, configuration);
         HashSet<string> replacementNames = ResolveReplacementNames(request.RuleSet, configuration);
+        bool containsControlledTaskRules = BuiltInRuleSets.ContainsControlledTaskRules(request.RuleSet);
         var options = new RewriteOptions
         {
             ReplacementAssemblyPaths = replacementPaths,
             ReferenceSearchDirectories = [sourceDirectory],
             TargetRuntime = configuration.TargetRuntime,
+            HardenExceptionHandlers = containsControlledTaskRules,
             InstrumentRaceExploration = configuration.Mode == InstrumentationMode.RaceExploration,
         };
 
