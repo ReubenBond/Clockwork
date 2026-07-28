@@ -113,8 +113,9 @@ public static class InstrumentationRunner
             copied.Add(asset.RelativePath);
         }
 
-        ImmutableArray<string> replacementPaths = ResolveReplacementAssemblies(sourceDirectory, request.RuleSet);
-        HashSet<string> replacementNames = ResolveReplacementNames(request.RuleSet);
+        ImmutableArray<string> replacementPaths =
+            ResolveReplacementAssemblies(sourceDirectory, request.RuleSet, configuration);
+        HashSet<string> replacementNames = ResolveReplacementNames(request.RuleSet, configuration);
         var options = new RewriteOptions
         {
             ReplacementAssemblyPaths = replacementPaths,
@@ -139,6 +140,16 @@ public static class InstrumentationRunner
             }
 
             assemblyResults.Add(ProcessAssembly(asset, stagingDirectory, configuration, request.RuleSet, options, key));
+        }
+
+        if (configuration.Mode == InstrumentationMode.RaceExploration &&
+            !File.Exists(Path.Combine(stagingDirectory, "Clockwork.Runtime.dll")))
+        {
+            File.Copy(
+                typeof(Runtime.Racing.RaceInstrumentation).Assembly.Location,
+                Path.Combine(stagingDirectory, "Clockwork.Runtime.dll"),
+                overwrite: true);
+            copied.Add("Clockwork.Runtime.dll");
         }
 
         bool succeeded = topLevel.All(d => !d.IsError) && !assemblyResults.SelectMany(a => a.Errors).Any();
@@ -284,7 +295,10 @@ public static class InstrumentationRunner
             asset.RelativePath, rewrite.WasWritten, rewrite.WasNoOp, wasReSigned, readyToRunStripped, rewrite.Manifest, [.. diagnostics]);
     }
 
-    private static ImmutableArray<string> ResolveReplacementAssemblies(string sourceDirectory, Rules.RewriteRuleSet ruleSet)
+    private static ImmutableArray<string> ResolveReplacementAssemblies(
+        string sourceDirectory,
+        Rules.RewriteRuleSet ruleSet,
+        InstrumentationConfiguration configuration)
     {
         var paths = new SortedSet<string>(StringComparer.Ordinal);
         foreach (string name in ruleSet.Rules
@@ -297,12 +311,22 @@ public static class InstrumentationRunner
             {
                 paths.Add(candidate);
             }
+
+            if (configuration.Mode == InstrumentationMode.RaceExploration)
+            {
+                string sourceRuntime = Path.Combine(sourceDirectory, "Clockwork.Runtime.dll");
+                paths.Add(File.Exists(sourceRuntime)
+                    ? sourceRuntime
+                    : typeof(Runtime.Racing.RaceInstrumentation).Assembly.Location);
+            }
         }
 
         return [.. paths];
     }
 
-    private static HashSet<string> ResolveReplacementNames(Rules.RewriteRuleSet ruleSet)
+    private static HashSet<string> ResolveReplacementNames(
+        Rules.RewriteRuleSet ruleSet,
+        InstrumentationConfiguration configuration)
     {
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (string name in ruleSet.Rules
@@ -310,6 +334,11 @@ public static class InstrumentationRunner
             .Where(n => !string.IsNullOrEmpty(n)))
         {
             names.Add(name);
+        }
+
+        if (configuration.Mode == InstrumentationMode.RaceExploration)
+        {
+            names.Add("Clockwork.Runtime");
         }
 
         return names;
