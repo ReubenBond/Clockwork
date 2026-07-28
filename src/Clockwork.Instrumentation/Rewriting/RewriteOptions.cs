@@ -73,6 +73,13 @@ public sealed record RewriteOptions
     public bool DetectUncontrolledTasks { get; init; }
 
     /// <summary>
+    /// Gets a value indicating whether the rewrite injects fine-grained scheduling and race-access
+    /// instrumentation. Defaults to <see langword="false"/> so controlled mode has no memory or
+    /// control-flow instrumentation overhead.
+    /// </summary>
+    public bool InstrumentRaceExploration { get; init; }
+
+    /// <summary>
     /// Computes a canonical fingerprint of every option which can affect rewritten output,
     /// diagnostics, or manifest content. Set-like exclusions are sorted so equivalent orderings
     /// produce the same fingerprint; resolver path order is preserved because it controls precedence.
@@ -88,6 +95,7 @@ public sealed record RewriteOptions
         canonical.Append("outputHash=").Append(ComputeOutputHash).Append('\n');
         canonical.Append("hardenExceptions=").Append(HardenExceptionHandlers).Append('\n');
         canonical.Append("detectTasks=").Append(DetectUncontrolledTasks).Append('\n');
+        canonical.Append("raceExploration=").Append(InstrumentRaceExploration).Append('\n');
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString())));
     }
 

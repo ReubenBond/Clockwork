@@ -25,6 +25,13 @@ public sealed record InstrumentationConfiguration
     public ImmutableArray<string> RuleSetPaths { get; init; } = [];
 
     /// <summary>
+    /// Gets the instrumentation granularity. The default <see cref="InstrumentationMode.Controlled"/>
+    /// performs only configured controlled-API rewriting; <see cref="InstrumentationMode.RaceExploration"/>
+    /// additionally injects fine-grained memory and control-flow scheduling points.
+    /// </summary>
+    public InstrumentationMode Mode { get; init; } = InstrumentationMode.Controlled;
+
+    /// <summary>
     /// Gets the ids of the built-in rule sets to enable (see
     /// <see cref="Rules.BuiltIn.BuiltInRuleSets.AvailableIds"/>). Built-in rule sets are merged at the
     /// <em>lowest</em> precedence, so a document in <see cref="RuleSetPaths"/> can override any
@@ -113,6 +120,7 @@ public sealed record InstrumentationConfiguration
     {
         var builder = new StringBuilder();
         builder.Append("schema:").Append(CurrentSchemaVersion).Append('\n');
+        builder.Append("mode:").Append(Mode).Append('\n');
         AppendList(builder, "ruleSets", RuleSetPaths);
         AppendList(builder, "builtInRuleSets", BuiltInRuleSetIds);
         AppendList(builder, "builtInInclude", BuiltInIncludeFamilies);

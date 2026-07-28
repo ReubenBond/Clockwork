@@ -72,6 +72,8 @@ public static class InstrumentationConfigurationLoader
             }
 
             ImmutableArray<string> ruleSets = ResolvePaths(GetStringArray(root, "ruleSets", origin), baseDirectory);
+            InstrumentationMode mode =
+                GetOptionalEnum<InstrumentationMode>(root, "mode", origin) ?? InstrumentationMode.Controlled;
             ImmutableArray<string> builtInRuleSets = GetStringArray(root, "builtInRuleSets", origin);
             ImmutableArray<string> builtInInclude = GetStringArray(root, "builtInIncludeFamilies", origin);
             ImmutableArray<string> builtInExclude = GetStringArray(root, "builtInExcludeFamilies", origin);
@@ -98,6 +100,7 @@ public static class InstrumentationConfigurationLoader
             return new InstrumentationConfiguration
             {
                 RuleSetPaths = ruleSets,
+                Mode = mode,
                 BuiltInRuleSetIds = builtInRuleSets,
                 BuiltInIncludeFamilies = builtInInclude,
                 BuiltInExcludeFamilies = builtInExclude,

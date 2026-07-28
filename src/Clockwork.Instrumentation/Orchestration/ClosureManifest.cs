@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Clockwork.Instrumentation.Configuration;
 
 namespace Clockwork.Instrumentation.Orchestration;
 
@@ -36,7 +37,7 @@ public readonly record struct ClosureManifestEntry(
 public sealed record ClosureManifest
 {
     /// <summary>The closure-manifest schema version.</summary>
-    public const int SchemaVersion = 1;
+    public const int SchemaVersion = 2;
 
     /// <summary>Gets the producing engine's name.</summary>
     public string EngineName { get; init; } = "Clockwork.Instrumentation";
@@ -55,6 +56,9 @@ public sealed record ClosureManifest
 
     /// <summary>Gets the effective configuration's signature.</summary>
     public required string ConfigurationSignature { get; init; }
+
+    /// <summary>Gets the instrumentation granularity applied to this closure.</summary>
+    public InstrumentationMode Mode { get; init; } = InstrumentationMode.Controlled;
 
     /// <summary>Gets the incremental cache key computed for the closure.</summary>
     public required string IncrementalKey { get; init; }
@@ -80,6 +84,7 @@ public sealed record ClosureManifest
             ["ruleSetVersion"] = RuleSetVersion,
             ["ruleSetSignature"] = RuleSetSignature,
             ["configurationSignature"] = ConfigurationSignature,
+            ["mode"] = Mode.ToString(),
             ["incrementalKey"] = IncrementalKey,
             ["entryRelativePath"] = EntryRelativePath,
             ["assemblies"] = SerializeAssemblies(),

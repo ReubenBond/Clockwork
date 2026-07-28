@@ -97,6 +97,21 @@ public sealed class InstrumentationRunnerTests : IDisposable
         Assert.False(second.WasIncrementalHit);
     }
 
+    [Fact]
+    public void ChangedInstrumentationModeInvalidatesIncrementalCache()
+    {
+        BuildStandardClosure();
+        Run(new InstrumentationConfiguration(), EmptyRuleSet());
+
+        InstrumentationResult second = Run(
+            new InstrumentationConfiguration { Mode = InstrumentationMode.RaceExploration },
+            EmptyRuleSet());
+
+        Assert.True(second.Succeeded);
+        Assert.False(second.WasIncrementalHit);
+        Assert.Contains("\"mode\": \"RaceExploration\"", File.ReadAllText(second.ManifestPath));
+    }
+
     [Theory]
     [MemberData(nameof(UnsafeStagingDirectories))]
     public void RejectsStagingDirectoryWhichOverlapsSource(string stagingSelector)

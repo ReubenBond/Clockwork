@@ -16,6 +16,7 @@ public sealed class InstrumentationConfigurationTests
 
         Assert.True(config.ExcludeFrameworkAssemblies);
         Assert.True(config.RewriteDependencies);
+        Assert.Equal(InstrumentationMode.Controlled, config.Mode);
         Assert.Equal(ReadyToRunPolicy.Reject, config.ReadyToRunPolicy);
         Assert.Equal(StrongNamePolicy.Fail, config.StrongNamePolicy);
         Assert.Null(config.TargetRuntime);
@@ -29,6 +30,7 @@ public sealed class InstrumentationConfigurationTests
             {
               "schemaVersion": 1,
               "ruleSets": ["a.json", "b.json"],
+              "mode": "RaceExploration",
               "include": ["App*.dll"],
               "exclude": ["*.Tests.dll"],
               "excludeFrameworkAssemblies": false,
@@ -43,6 +45,7 @@ public sealed class InstrumentationConfigurationTests
         InstrumentationConfiguration config = InstrumentationConfigurationLoader.Parse(doc);
 
         Assert.Equal(2, config.RuleSetPaths.Length);
+        Assert.Equal(InstrumentationMode.RaceExploration, config.Mode);
         Assert.Equal(["App*.dll"], config.IncludePatterns);
         Assert.Equal(["*.Tests.dll"], config.ExcludePatterns);
         Assert.False(config.ExcludeFrameworkAssemblies);
@@ -119,8 +122,10 @@ public sealed class InstrumentationConfigurationTests
         var baseConfig = new InstrumentationConfiguration { IncludePatterns = ["A*.dll"] };
         var same = new InstrumentationConfiguration { IncludePatterns = ["A*.dll"] };
         var different = baseConfig with { RewriteDependencies = false };
+        var raceExploration = baseConfig with { Mode = InstrumentationMode.RaceExploration };
 
         Assert.Equal(baseConfig.ComputeSignature(), same.ComputeSignature());
         Assert.NotEqual(baseConfig.ComputeSignature(), different.ComputeSignature());
+        Assert.NotEqual(baseConfig.ComputeSignature(), raceExploration.ComputeSignature());
     }
 }

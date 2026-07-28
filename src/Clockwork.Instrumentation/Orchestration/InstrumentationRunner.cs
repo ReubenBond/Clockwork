@@ -120,6 +120,7 @@ public static class InstrumentationRunner
             ReplacementAssemblyPaths = replacementPaths,
             ReferenceSearchDirectories = [sourceDirectory],
             TargetRuntime = configuration.TargetRuntime,
+            InstrumentRaceExploration = configuration.Mode == InstrumentationMode.RaceExploration,
         };
 
         var assemblyResults = new List<AssemblyInstrumentationResult>();
@@ -338,6 +339,7 @@ public static class InstrumentationRunner
             RuleSetVersion = ruleSet.Version,
             RuleSetSignature = ruleSet.ComputeSignature(),
             ConfigurationSignature = configuration.ComputeSignature(),
+            Mode = configuration.Mode,
             IncrementalKey = incrementalKey,
             EntryRelativePath = plan.EntryAssemblyRelativePath,
             Assemblies = entries,

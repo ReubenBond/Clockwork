@@ -89,6 +89,7 @@ internal static class Program
         output.WriteLine("  --exclude <glob>           exclude pattern (repeatable)");
         output.WriteLine("  --entry <name>             entry assembly simple name (else auto-detected)");
         output.WriteLine("  --manifest <path>          manifest output path (else a sibling of --output)");
+        output.WriteLine("  --mode <Controlled|RaceExploration> instrumentation granularity (default Controlled)");
         output.WriteLine("  --r2r <Reject|StripToIL>   ReadyToRun policy (default Reject)");
         output.WriteLine("  --strong-name <Fail|ReSign> strong-name policy (default Fail)");
         output.WriteLine("  --key <path>               strong-name key for ReSign");
@@ -112,6 +113,7 @@ internal static class Program
         output.WriteLine("  --builtin-strict <bool>    enforce strict built-in selection (default true)");
         output.WriteLine("  --include <glob>           configuration include pattern (repeatable)");
         output.WriteLine("  --exclude <glob>           configuration exclude pattern (repeatable)");
+        output.WriteLine("  --mode <Controlled|RaceExploration> configuration instrumentation granularity");
         output.WriteLine("  --r2r <Reject|StripToIL>   configuration ReadyToRun policy");
         output.WriteLine("  --strong-name <Fail|ReSign> configuration strong-name policy");
         output.WriteLine("  --key <path>               configuration strong-name key");

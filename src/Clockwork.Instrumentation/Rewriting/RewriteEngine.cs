@@ -336,6 +336,9 @@ public static class RewriteEngine
             RuleSetId = request.RuleSet.Id,
             RuleSetVersion = request.RuleSet.Version,
             RuleSetSignature = signature,
+            Mode = request.EffectiveOptions.InstrumentRaceExploration
+                ? Configuration.InstrumentationMode.RaceExploration
+                : Configuration.InstrumentationMode.Controlled,
             Input = input,
             Output = output,
             WasNoOp = wasNoOp,

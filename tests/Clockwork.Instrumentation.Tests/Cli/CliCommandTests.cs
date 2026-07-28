@@ -79,11 +79,26 @@ public sealed class CliCommandTests : IDisposable
         {
             "--config", "--rule-set", "--builtin", "--builtin-include", "--builtin-exclude",
             "--builtin-strict", "--include", "--exclude", "--r2r", "--strong-name", "--key",
-            "--exclude-framework", "--rewrite-dependencies", "--target-runtime", "--json",
+            "--exclude-framework", "--rewrite-dependencies", "--target-runtime", "--mode", "--json",
         })
         {
             Assert.Contains(option, output);
         }
+    }
+
+    [Fact]
+    public void RewriteAcceptsRaceExplorationMode()
+    {
+        BuildMinimalClosure();
+        string ruleSet = WriteEmptyRuleSet();
+
+        (ExitCode code, _, string errors) = Invoke(
+            "rewrite", "--source", _source, "--output", _staging, "--rule-set", ruleSet,
+            "--mode", "RaceExploration");
+
+        Assert.Equal(ExitCode.Success, code);
+        Assert.Contains("\"mode\": \"RaceExploration\"", File.ReadAllText(_staging + ".manifest.json"));
+        Assert.Empty(errors);
     }
 
     [Fact]

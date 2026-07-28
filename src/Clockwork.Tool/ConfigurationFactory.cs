@@ -16,7 +16,7 @@ internal static class ConfigurationFactory
     /// <summary>The value options this factory understands, contributed to a command's option set.</summary>
     public static readonly ImmutableArray<string> ValueOptions =
     [
-        "config", "rule-set", "include", "exclude", "r2r", "strong-name",
+        "config", "rule-set", "include", "exclude", "mode", "r2r", "strong-name",
         "key", "target-runtime", "exclude-framework", "rewrite-dependencies",
         "builtin", "builtin-include", "builtin-exclude", "builtin-strict",
     ];
@@ -35,6 +35,9 @@ internal static class ConfigurationFactory
             {
                 IncludePatterns = [.. reader.GetMany("include")],
                 ExcludePatterns = [.. reader.GetMany("exclude")],
+                Mode = ParseEnum<InstrumentationMode>(
+                    reader.GetString("mode"),
+                    InstrumentationMode.Controlled),
                 ExcludeFrameworkAssemblies = reader.GetBool("exclude-framework", true),
                 RewriteDependencies = reader.GetBool("rewrite-dependencies", true),
                 TargetRuntime = ParseVersion(reader.GetString("target-runtime")),

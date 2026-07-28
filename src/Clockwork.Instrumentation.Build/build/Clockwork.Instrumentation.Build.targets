@@ -43,7 +43,7 @@
   <Target Name="ClockworkInstrument"
           AfterTargets="Build"
           Condition="'$(ClockworkInstrumentationEnabled)' == 'true'"
-          Inputs="$(TargetPath);@(ReferenceCopyLocalPaths);@(ClockworkRuleSet);@(ClockworkBuiltInRuleSet);$(ClockworkConfigurationPath);$(MSBuildAllProjects)"
+          Inputs="$(TargetPath);@(ReferenceCopyLocalPaths);@(ClockworkRuleSet);@(ClockworkBuiltInRuleSet);$(ClockworkConfigurationPath);$(MSBuildAllProjects);$(ClockworkInstrumentationMode)"
           Outputs="$(ClockworkSuccessPath);$(ClockworkManifestPath)">
 
     <Message Importance="high" Text="Clockwork: instrumenting '$(ClockworkSourceDirectory)' -> '$(ClockworkStagingDirectory)'" />
@@ -59,6 +59,7 @@
         StrictBuiltIns="$(ClockworkStrictBuiltIns)"
         IncludePatterns="@(ClockworkInclude)"
         ExcludePatterns="@(ClockworkExclude)"
+        InstrumentationMode="$(ClockworkInstrumentationMode)"
         ExcludeFrameworkAssemblies="$(ClockworkExcludeFrameworkAssemblies)"
         RewriteDependencies="$(ClockworkRewriteDependencies)"
         ReadyToRunPolicy="$(ClockworkReadyToRunPolicy)"

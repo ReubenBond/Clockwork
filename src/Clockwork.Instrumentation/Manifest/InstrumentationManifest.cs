@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Clockwork.Instrumentation.Diagnostics;
+using Clockwork.Instrumentation.Configuration;
 
 namespace Clockwork.Instrumentation.Manifest;
 
@@ -37,7 +38,7 @@ public readonly record struct ManifestExclusion(string TypeFullName, string Reas
 public sealed record InstrumentationManifest
 {
     /// <summary>The manifest schema version.</summary>
-    public const int SchemaVersion = 1;
+    public const int SchemaVersion = 2;
 
     /// <summary>Gets the producing engine's name.</summary>
     public string EngineName { get; init; } = "Clockwork.Instrumentation";
@@ -53,6 +54,9 @@ public sealed record InstrumentationManifest
 
     /// <summary>Gets the applied rule set's content signature.</summary>
     public required string RuleSetSignature { get; init; }
+
+    /// <summary>Gets the instrumentation granularity used for this rewrite.</summary>
+    public InstrumentationMode Mode { get; init; } = InstrumentationMode.Controlled;
 
     /// <summary>Gets the input assembly identity.</summary>
     public required ManifestAssemblyIdentity Input { get; init; }
@@ -89,6 +93,7 @@ public sealed record InstrumentationManifest
             ["ruleSetId"] = RuleSetId,
             ["ruleSetVersion"] = RuleSetVersion,
             ["ruleSetSignature"] = RuleSetSignature,
+            ["mode"] = Mode.ToString(),
             ["wasNoOp"] = WasNoOp,
             ["input"] = SerializeIdentity(Input),
             ["output"] = Output is { } output ? SerializeIdentity(output) : null,
