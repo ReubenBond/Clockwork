@@ -45,7 +45,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     /// </param>
     /// <param name="cryptoRandomnessPolicy">
     /// Optional policy for cryptographic-randomness calls during simulation. Defaults to
-    /// <see cref="SimulationCryptoRandomnessPolicy.Reject"/>, which fails such calls with a precise
+    /// <see cref="CryptoRandomnessPolicy.Reject"/>, which fails such calls with a precise
     /// diagnostic rather than ever substituting insecure bytes.
     /// </param>
     /// <param name="cancellationToken">Optional cancellation token to link with the cluster teardown.</param>
@@ -53,7 +53,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
         int seed,
         DateTimeOffset? startDateTime = null,
         TimeZoneInfo? simulationTimeZone = null,
-        SimulationCryptoRandomnessPolicy cryptoRandomnessPolicy = SimulationCryptoRandomnessPolicy.Reject,
+        CryptoRandomnessPolicy cryptoRandomnessPolicy = CryptoRandomnessPolicy.Reject,
         CancellationToken cancellationToken = default)
     {
         _teardownCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -102,7 +102,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
             () => _timeProvider.GetUtcNow(),
             SimulationTimeZone,
             StartDateTime,
-            CryptoRandomnessPolicy);
+            CryptoRandomnessPolicy.ToRuntimePolicy());
         _runtimeRegistration = SimulationRuntimeServices.Register(
             _activationToken,
             RuntimeIdentity,
@@ -160,10 +160,10 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
 
     /// <summary>
     /// Gets the cryptographic-randomness policy the deterministic crypto shims enforce during this
-    /// simulation. Defaults to <see cref="SimulationCryptoRandomnessPolicy.Reject"/>: OS-entropy calls
+    /// simulation. Defaults to <see cref="CryptoRandomnessPolicy.Reject"/>: OS-entropy calls
     /// fail with a precise diagnostic rather than ever silently substituting insecure bytes.
     /// </summary>
-    public SimulationCryptoRandomnessPolicy CryptoRandomnessPolicy { get; }
+    public CryptoRandomnessPolicy CryptoRandomnessPolicy { get; }
 
     /// <summary>
     /// Gets the deterministic runtime environment the BCL shims dispatch to while this cluster's
@@ -311,7 +311,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     /// <summary>
     /// Creates a new deterministic random instance derived from the cluster's random.
     /// </summary>
-    public SimulationRandom CreateDerivedRandom()
+    public SimulationRandom ForkRandom()
     {
         using var _ = Guard.Enter();
 #pragma warning disable CA5394 // Do not use insecure randomness

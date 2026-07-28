@@ -89,13 +89,13 @@ public sealed class SimulationClusterTests
     }
 
     [Fact]
-    public async Task CreateDerivedRandomIsReproducibleAcrossClustersWithTheSameSeed()
+    public async Task ForkRandomIsReproducibleAcrossClustersWithTheSameSeed()
     {
         await using var first = new TestCluster(seed: 42);
         await using var second = new TestCluster(seed: 42);
 
-        var firstDerived = first.CreateDerivedRandom();
-        var secondDerived = second.CreateDerivedRandom();
+        var firstDerived = first.ForkRandom();
+        var secondDerived = second.ForkRandom();
 
         Assert.Equal(firstDerived.Next(), secondDerived.Next());
         Assert.Equal(firstDerived.NextGuid(), secondDerived.NextGuid());
@@ -136,7 +136,7 @@ public sealed class SimulationClusterTests
 
         public TestNode AddNode(string address)
         {
-            var context = new SimulationNodeContext(Clock, Guard, CreateDerivedRandom(), TaskQueue);
+            var context = new SimulationNodeContext(Clock, Guard, ForkRandom(), TaskQueue);
             var node = new TestNode(address, context);
             RegisterNode(node);
             return node;

@@ -245,7 +245,7 @@ public sealed class SimulationClusterAdaptiveTests
 
         public AdaptiveTestNode AddNode(string address)
         {
-            var context = new SimulationNodeContext(Clock, Guard, CreateDerivedRandom(), TaskQueue);
+            var context = new SimulationNodeContext(Clock, Guard, ForkRandom(), TaskQueue);
             var node = new AdaptiveTestNode(address, context);
             RegisterNode(node);
             return node;

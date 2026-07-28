@@ -218,7 +218,7 @@ public sealed class ControlledBclConformanceTests : IDisposable
         byte[] RunOnce()
         {
             using var host = new SimulationHost(
-                Start, seed: 5, cryptoPolicy: SimulationCryptoRandomnessPolicy.DeterministicInsecureForTesting);
+                Start, seed: 5, cryptoPolicy: CryptoRandomnessPolicy.DeterministicInsecureForTesting);
             return (byte[])host.Invoke(probe.Method("Bytes"), 16)!;
         }
 
@@ -274,7 +274,7 @@ public sealed class ControlledBclConformanceTests : IDisposable
             [BuiltInRuleFamily.Crypto]);
         using var host = new SimulationHost(
             Start,
-            cryptoPolicy: SimulationCryptoRandomnessPolicy.DeterministicInsecureForTesting);
+            cryptoPolicy: CryptoRandomnessPolicy.DeterministicInsecureForTesting);
 
         var byteErrors = new List<Exception?>();
         foreach (int count in new[] { -1, int.MinValue })
@@ -328,7 +328,7 @@ public sealed class ControlledBclConformanceTests : IDisposable
             using var host = new SimulationHost(
                 Start,
                 seed: 71,
-                cryptoPolicy: SimulationCryptoRandomnessPolicy.DeterministicInsecureForTesting);
+                cryptoPolicy: CryptoRandomnessPolicy.DeterministicInsecureForTesting);
             string typeName = (string)host.Invoke(probe.Method("NamedType"), KnownName)!;
             byte[] bytes = (byte[])host.Invoke(probe.Method("NamedBytes"), KnownName, 24)!;
             return (typeName, bytes);
@@ -345,7 +345,7 @@ public sealed class ControlledBclConformanceTests : IDisposable
 
         using var unknownHost = new SimulationHost(
             Start,
-            cryptoPolicy: SimulationCryptoRandomnessPolicy.DeterministicInsecureForTesting);
+            cryptoPolicy: CryptoRandomnessPolicy.DeterministicInsecureForTesting);
         Assert.Null(unknownHost.Invoke(probe.Method("NamedType"), UnknownName));
     }
 

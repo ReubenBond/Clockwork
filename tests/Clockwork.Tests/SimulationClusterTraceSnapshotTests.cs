@@ -61,7 +61,7 @@ public sealed class SimulationClusterTraceSnapshotTests
 
         public TracingNode AddNode(string address)
         {
-            var context = new SimulationNodeContext(Clock, Guard, CreateDerivedRandom(), TaskQueue);
+            var context = new SimulationNodeContext(Clock, Guard, ForkRandom(), TaskQueue);
             var node = new TracingNode(address, context);
             RegisterNode(node);
             return node;

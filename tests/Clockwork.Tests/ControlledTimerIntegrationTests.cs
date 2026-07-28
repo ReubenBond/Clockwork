@@ -11,7 +11,7 @@ public sealed class ControlledTimerIntegrationTests
             .WithSeed(1)
             .WithStartDateTime(new DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero));
         SimulationNodeHandle<object?> node = builder.AddNode("node");
-        BuiltSimulation simulation = builder.Build();
+        SimulationCluster simulation = builder.Build();
         ControlledTimer? timer = null;
 
         node.Context.TaskQueue.EnqueueAfter(

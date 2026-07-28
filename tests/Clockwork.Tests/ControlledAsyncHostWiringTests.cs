@@ -127,7 +127,7 @@ public sealed class ControlledAsyncHostWiringTests
 
         public TestNode AddNode(string address)
         {
-            var context = new SimulationNodeContext(Clock, Guard, CreateDerivedRandom(), TaskQueue);
+            var context = new SimulationNodeContext(Clock, Guard, ForkRandom(), TaskQueue);
             var node = new TestNode(address, context);
             RegisterNode(node);
             return node;
