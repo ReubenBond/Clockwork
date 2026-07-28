@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks;
+using Clockwork.Runtime.Racing;
 
 namespace Clockwork.Runtime.Threading;
 
@@ -355,6 +356,7 @@ public static class ControlledSemaphoreSlim
         }
 
         CompleteWaiters(completed);
+        RaceSynchronization.Signal(instance);
         return previous;
     }
 
@@ -419,7 +421,8 @@ public static class ControlledSemaphoreSlim
     {
         ValidateTimeout(millisecondsTimeout);
         var state = StateOf(instance, "System.Threading.SemaphoreSlim.Wait");
-        Waiter waiter;
+        Waiter waiter = null!;
+        bool acquiredImmediately = false;
         lock (state.Gate)
         {
             ThrowIfDisposed(state);
@@ -428,15 +431,22 @@ public static class ControlledSemaphoreSlim
             if (state.Count > 0)
             {
                 state.Count--;
-                return true;
+                acquiredImmediately = true;
             }
-
-            if (millisecondsTimeout == 0)
+            else if (millisecondsTimeout == 0)
             {
                 return false;
             }
+            else
+            {
+                waiter = EnqueueUnderLock(state, millisecondsTimeout);
+            }
+        }
 
-            waiter = EnqueueUnderLock(state, millisecondsTimeout);
+        if (acquiredImmediately)
+        {
+            RaceSynchronization.Wait(instance);
+            return true;
         }
 
         AttachCancellation(state, waiter, cancellationToken);
@@ -445,7 +455,13 @@ public static class ControlledSemaphoreSlim
         // The waiter completes as served (true), timed-out (false), or cancelled. GetResult rethrows the
         // OperationCanceledException for a cancelled waiter, so synchronous cancellation observes the same
         // exception as the real SemaphoreSlim; a timeout returns false.
-        return waiter.Completion.Task.GetAwaiter().GetResult();
+        bool acquired = waiter.Completion.Task.GetAwaiter().GetResult();
+        if (acquired)
+        {
+            RaceSynchronization.Wait(instance);
+        }
+
+        return acquired;
     }
 
     private static Task<bool> WaitAsyncControlled(SemaphoreSlim instance, int millisecondsTimeout, CancellationToken cancellationToken)

@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks;
+using Clockwork.Runtime.Racing;
 
 namespace Clockwork.Runtime.Threading;
 
@@ -117,6 +118,7 @@ public static class ControlledMonitor
         }
 
         state.Recursion--;
+        RaceSynchronization.Exit(obj);
         if (state.Recursion == 0)
         {
             state.Owner = Unowned;
@@ -359,6 +361,11 @@ public static class ControlledMonitor
         // count so a different strand can enter, and record the waiter in arrival order.
         var waiter = new Waiter { SavedRecursion = savedRecursion };
         state.WaitSet.Add(waiter);
+        for (var recursion = 0; recursion < savedRecursion; recursion++)
+        {
+            RaceSynchronization.Exit(obj);
+        }
+
         state.Owner = Unowned;
         state.Recursion = 0;
 
@@ -370,6 +377,7 @@ public static class ControlledMonitor
             ControlledTaskRuntime.DrainUntil(() => state.Owner == Unowned, WaitApi);
             state.Owner = me;
             state.Recursion = savedRecursion;
+            TrackReacquisition(obj, savedRecursion);
             return false;
         }
 
@@ -391,6 +399,7 @@ public static class ControlledMonitor
             state.WaitSet.Remove(waiter);
             state.Owner = me;
             state.Recursion = savedRecursion;
+            TrackReacquisition(obj, savedRecursion);
             return waiter.Pulsed;
         }
 
@@ -400,6 +409,7 @@ public static class ControlledMonitor
         state.WaitSet.Remove(waiter);
         state.Owner = me;
         state.Recursion = savedRecursion;
+        TrackReacquisition(obj, savedRecursion);
         return true;
     }
 
@@ -422,6 +432,7 @@ public static class ControlledMonitor
         if (state.Owner == me)
         {
             state.Recursion++;
+            RaceSynchronization.Enter(obj);
             return;
         }
 
@@ -430,6 +441,7 @@ public static class ControlledMonitor
         ControlledTaskRuntime.DrainUntil(() => state.Owner == Unowned, EnterApi);
         state.Owner = me;
         state.Recursion = 1;
+        RaceSynchronization.Enter(obj);
     }
 
     /// <summary>
@@ -446,6 +458,7 @@ public static class ControlledMonitor
         if (state.Owner == me)
         {
             state.Recursion++;
+            RaceSynchronization.Enter(obj);
             return true;
         }
 
@@ -453,6 +466,7 @@ public static class ControlledMonitor
         {
             state.Owner = me;
             state.Recursion = 1;
+            RaceSynchronization.Enter(obj);
             return true;
         }
 
@@ -469,6 +483,7 @@ public static class ControlledMonitor
             deadline.Cancel();
             state.Owner = me;
             state.Recursion = 1;
+            RaceSynchronization.Enter(obj);
             return true;
         }
 
@@ -486,6 +501,7 @@ public static class ControlledMonitor
         if (state.Owner == me)
         {
             state.Recursion++;
+            RaceSynchronization.Enter(obj);
             return true;
         }
 
@@ -493,10 +509,19 @@ public static class ControlledMonitor
         {
             state.Owner = me;
             state.Recursion = 1;
+            RaceSynchronization.Enter(obj);
             return true;
         }
 
         return false;
+    }
+
+    private static void TrackReacquisition(object obj, int recursion)
+    {
+        for (var count = 0; count < recursion; count++)
+        {
+            RaceSynchronization.Enter(obj);
+        }
     }
 
     private static void ValidateTimeout(int millisecondsTimeout)
