@@ -78,7 +78,12 @@ internal sealed class RaceTracker
         long objectId = _objectIdentities.GetValue(
             target,
             _ => new WeakIdentity { Value = ++_nextObjectIdentity }).Value;
-        return new RaceMemoryLocation(kind.Value, objectId, member, elementIndex);
+        string locationMember = kind == RaceMemoryLocationKind.Collection &&
+            member.IndexOf("::", StringComparison.Ordinal) is int separator &&
+            separator >= 0
+                ? member[..separator]
+                : member;
+        return new RaceMemoryLocation(kind.Value, objectId, locationMember, elementIndex);
     }
 
     public void RecordAccess(

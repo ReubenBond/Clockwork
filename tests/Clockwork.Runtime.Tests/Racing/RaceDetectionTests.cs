@@ -82,6 +82,22 @@ public sealed class RaceDetectionTests
     }
 
     [Fact]
+    public void MutableCollectionAccessesRaceButConcurrentCollectionPointsDoNot()
+    {
+        var mutable = new List<int>();
+        using ControlledOperationScheduler raced = RunPair(
+            () => RaceInstrumentation.WriteCollection(mutable, "List::Add", "A", 1, null, -1),
+            () => RaceInstrumentation.ReadCollection(mutable, "List::GetEnumerator", "B", 2, null, -1));
+        Assert.Equal(RaceMemoryLocationKind.Collection, Assert.IsType<RaceReport>(raced.FirstRace).FirstAccess.Location.Kind);
+
+        var concurrent = new System.Collections.Concurrent.ConcurrentQueue<int>();
+        using ControlledOperationScheduler clean = RunPair(
+            () => RaceInstrumentation.InterleaveConcurrentCollection(concurrent, "ConcurrentQueue::Enqueue", "A", 1, null, -1),
+            () => RaceInstrumentation.InterleaveConcurrentCollection(concurrent, "ConcurrentQueue::TryDequeue", "B", 2, null, -1));
+        Assert.Null(clean.FirstRace);
+    }
+
+    [Fact]
     public void SharedControlledLockSuppressesProtectedAccesses()
     {
         var synchronization = new object();

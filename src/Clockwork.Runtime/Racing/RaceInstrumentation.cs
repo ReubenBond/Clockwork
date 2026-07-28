@@ -126,6 +126,63 @@ public static class RaceInstrumentation
             sourceFile,
             sourceLine);
 
+    /// <summary>Records and schedules a mutable collection read or iteration.</summary>
+    public static void ReadCollection(
+        object? target,
+        string member,
+        string method,
+        int ilOffset,
+        string? sourceFile,
+        int sourceLine) =>
+        Interleave(
+            RaceAccessKind.Read,
+            RaceMemoryLocationKind.Collection,
+            target,
+            member,
+            elementIndex: null,
+            method,
+            ilOffset,
+            sourceFile,
+            sourceLine);
+
+    /// <summary>Records and schedules a mutable collection write.</summary>
+    public static void WriteCollection(
+        object? target,
+        string member,
+        string method,
+        int ilOffset,
+        string? sourceFile,
+        int sourceLine) =>
+        Interleave(
+            RaceAccessKind.Write,
+            RaceMemoryLocationKind.Collection,
+            target,
+            member,
+            elementIndex: null,
+            method,
+            ilOffset,
+            sourceFile,
+            sourceLine);
+
+    /// <summary>Schedules an access to a thread-safe concurrent collection without reporting a race.</summary>
+    public static void InterleaveConcurrentCollection(
+        object? target,
+        string member,
+        string method,
+        int ilOffset,
+        string? sourceFile,
+        int sourceLine) =>
+        Interleave(
+            RaceAccessKind.UntrackedMemory,
+            locationKind: null,
+            target,
+            member,
+            elementIndex: null,
+            method,
+            ilOffset,
+            sourceFile,
+            sourceLine);
+
     /// <summary>Schedules a memory access whose stable logical location cannot be recovered from IL.</summary>
     public static void InterleaveUntrackedMemory(
         string description,

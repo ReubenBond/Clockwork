@@ -109,7 +109,11 @@ public static class RewriteEngine
             new TypeReferenceRewritingPass(session),
             new MemberSubstitutionRewritingPass(session),
             .. options.InstrumentRaceExploration
-                ? new RewritePass[] { new RaceExplorationRewritingPass(session) }
+                ? new RewritePass[]
+                {
+                    new CollectionAccessRewritingPass(session),
+                    new RaceExplorationRewritingPass(session),
+                }
                 : [],
             .. options.HardenExceptionHandlers
                 ? new RewritePass[] { new ExceptionHardeningRewritingPass(session, ExceptionGuardShimAssembly) }
