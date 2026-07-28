@@ -539,7 +539,12 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(taskFactory);
         using var lockScope = Guard.Enter();
 
-        var task = new Task<Task>(taskFactory);
+        Task<Task> task;
+        using (ExecutionContext.SuppressFlow())
+        {
+            task = new Task<Task>(taskFactory);
+        }
+
         task.Start(TaskScheduler);
 
         if (!RunUntilCore(() => task.IsCompleted && task.Result.IsCompleted, maxIterations))
