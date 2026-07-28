@@ -138,7 +138,7 @@ public sealed class InstrumentationRunnerTests : IDisposable
             }
             """);
         File.Copy(
-            typeof(Clockwork.Runtime.ControlledExceptionGuard).Assembly.Location,
+            typeof(Clockwork.Runtime.SimulationExceptionGuard).Assembly.Location,
             Path.Combine(_source, "Clockwork.dll"));
         File.WriteAllText(Path.Combine(_source, "app.runtimeconfig.json"), "{}");
 

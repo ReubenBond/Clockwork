@@ -144,7 +144,7 @@ public static class RuleInventoryDocument
         BuiltInRuleFamily.Crypto =>
             "Static entropy APIs are redirected to `ControlledRandomNumberGenerator`. The default under " +
             "simulation is a precise rejected-call diagnostic; a test-only opt-in can serve bytes from " +
-            "`ControlledInsecureRandomNumberGenerator`. Uninstrumented production binaries retain ordinary " +
+            "`SimulationInsecureRandomNumberGenerator`. Uninstrumented production binaries retain ordinary " +
             "cryptographic BCL behavior.",
         BuiltInRuleFamily.TaskCombinators =>
             "`Task.WhenAll`/`WhenAny` (the non-generic `Task[]`, `IEnumerable<Task>`, .NET 9+ params " +

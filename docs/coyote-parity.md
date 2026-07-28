@@ -149,7 +149,7 @@ classifies and rewrites the same 24 .NET 10 `StartNew` signatures.
 Coyote wraps TCS so the produced task is a controlled task. Clockwork does **not** need a rewrite
 rule: because the *awaiter* is controlled, a plain BCL `TaskCompletionSource`'s task is already
 controlled when awaited or waited on. For code that wants an explicit controlled TCS, Clockwork ships
-`Clockwork.Runtime.Tasks.ControlledTaskCompletionSource` / `ControlledTaskCompletionSource<TResult>`
+`Clockwork.Shims.System.Threading.Tasks.ControlledTaskCompletionSource` / `ControlledTaskCompletionSource<TResult>`
 mirroring the Coyote surface.
 
 | Coyote surface | Clockwork status | Notes |
@@ -258,7 +258,7 @@ errors throw exactly as the BCL (`SynchronizationLockException`, `ArgumentNullEx
 positive timeout waits until acquisition/signal or a **simulated** deadline (driven by the cluster clock)
 and then returns/sets `false` — a same-instant pulse or release beats the timeout, and the finite wait is
 `PausedUntilTime`, never a deadlock edge; an infinite / never-satisfiable acquire or wait surfaces as the
-loop-model `ControlledSynchronousWaitDeadlockException`. Monitor
+loop-model `SimulationSynchronousWaitDeadlockException`. Monitor
 associations are held in a `ConditionalWeakTable` (weak keys) so lock objects are never kept alive.
 
 ---

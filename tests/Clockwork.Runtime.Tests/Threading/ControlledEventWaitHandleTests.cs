@@ -259,7 +259,7 @@ public sealed class ControlledEventWaitHandleTests
         var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            Assert.Throws<ControlledApiException>(() =>
+            Assert.Throws<SimulationApiException>(() =>
                 ControlledEventWaitHandle.CreateNamedEvent(false, EventResetMode.AutoReset, "clockwork-named"));
         });
     }
@@ -282,7 +282,7 @@ public sealed class ControlledEventWaitHandleTests
         var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            Assert.Throws<ControlledApiException>(() =>
+            Assert.Throws<SimulationApiException>(() =>
                 ControlledEventWaitHandle.OpenExisting("clockwork-named"));
         });
     }
@@ -293,7 +293,7 @@ public sealed class ControlledEventWaitHandleTests
         var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            Assert.Throws<ControlledApiException>(() =>
+            Assert.Throws<SimulationApiException>(() =>
                 ControlledEventWaitHandle.TryOpenExisting("clockwork-named", out _));
         });
     }
@@ -305,8 +305,8 @@ public sealed class ControlledEventWaitHandleTests
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             AutoResetEvent evt = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: false);
-            Assert.Throws<ControlledApiException>(() => ControlledWaitHandle.GetHandle(evt));
-            Assert.Throws<ControlledApiException>(() => ControlledWaitHandle.GetSafeWaitHandle(evt));
+            Assert.Throws<SimulationApiException>(() => ControlledWaitHandle.GetHandle(evt));
+            Assert.Throws<SimulationApiException>(() => ControlledWaitHandle.GetSafeWaitHandle(evt));
         });
     }
 
@@ -318,7 +318,7 @@ public sealed class ControlledEventWaitHandleTests
         {
             // An event constructed directly (not via a Create factory) has no modelled state.
             using var raw = new AutoResetEvent(false);
-            Assert.Throws<ControlledApiException>(() => ControlledWaitHandle.WaitOne(raw, 0));
+            Assert.Throws<SimulationApiException>(() => ControlledWaitHandle.WaitOne(raw, 0));
         });
     }
 
@@ -596,7 +596,7 @@ public sealed class ControlledEventWaitHandleTests
         {
             ManualResetEvent gate = ControlledEventWaitHandle.CreateManualResetEvent(initialState: false);
             using var unknown = new AutoResetEvent(false);
-            Assert.Throws<ControlledApiException>(
+            Assert.Throws<SimulationApiException>(
                 () => ControlledWaitHandle.SignalAndWait(gate, unknown, 0, exitContext: false));
             Assert.False(ControlledWaitHandle.WaitOne(gate, 0));
 

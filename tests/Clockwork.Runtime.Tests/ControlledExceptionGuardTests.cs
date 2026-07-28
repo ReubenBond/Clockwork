@@ -8,7 +8,7 @@ namespace Clockwork.Runtime.Tests;
 /// <summary>
 /// Tests for the exception-handler hardening guard. The instrumentation's
 /// exception-hardening pass injects a call to
-/// <see cref="ControlledExceptionGuard.ThrowIfControlSignal(object)"/> at the start of every broad user
+/// <see cref="SimulationExceptionGuard.ThrowIfControlSignal(object)"/> at the start of every broad user
 /// <c>catch</c> block and exception filter. The guard must re-throw the scheduler's internal control-flow
 /// signal (so it keeps unwinding past a broad user handler) while letting every ordinary exception pass
 /// straight through untouched.
@@ -25,7 +25,7 @@ public sealed class ControlledExceptionGuardTests
         {
             // The guard must re-surface the exact same signal instance, preserving its identity/stack.
             var rethrown = Assert.Throws<SimulationOperationAbortSignal>(
-                () => ControlledExceptionGuard.ThrowIfControlSignal(signal));
+                () => SimulationExceptionGuard.ThrowIfControlSignal(signal));
 
             Assert.Same(signal, rethrown);
             Assert.Equal(new SimulationOperationId(42), rethrown.OperationId);
@@ -40,9 +40,9 @@ public sealed class ControlledExceptionGuardTests
         {
             // A normal application exception a broad user catch is meant to handle must NOT be re-thrown by
             // the guard - it returns so the user handler runs exactly as written.
-            ControlledExceptionGuard.ThrowIfControlSignal(new InvalidOperationException("boom"));
-            ControlledExceptionGuard.ThrowIfControlSignal(new IOException("io"));
-            ControlledExceptionGuard.ThrowIfControlSignal(new TimeoutException("base"));
+            SimulationExceptionGuard.ThrowIfControlSignal(new InvalidOperationException("boom"));
+            SimulationExceptionGuard.ThrowIfControlSignal(new IOException("io"));
+            SimulationExceptionGuard.ThrowIfControlSignal(new TimeoutException("base"));
         });
     }
 
@@ -54,9 +54,9 @@ public sealed class ControlledExceptionGuardTests
         {
             // The injected IL dups whatever is on the handler's evaluation stack; the guard must tolerate a
             // null or non-Exception operand without throwing.
-            ControlledExceptionGuard.ThrowIfControlSignal(null);
-            ControlledExceptionGuard.ThrowIfControlSignal("not an exception");
-            ControlledExceptionGuard.ThrowIfControlSignal(42);
+            SimulationExceptionGuard.ThrowIfControlSignal(null);
+            SimulationExceptionGuard.ThrowIfControlSignal("not an exception");
+            SimulationExceptionGuard.ThrowIfControlSignal(42);
         });
     }
 }

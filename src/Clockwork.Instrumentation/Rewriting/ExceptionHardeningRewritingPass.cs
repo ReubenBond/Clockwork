@@ -24,14 +24,14 @@ namespace Clockwork.Instrumentation.Rewriting;
 /// Rewriting pass that hardens user exception handling so a rewritten assembly's broad
 /// <c>catch (Exception)</c> / <c>catch</c> blocks and exception <c>filter</c>s cannot swallow the
 /// scheduler's internal control-flow signal. At the start of each such handler it injects
-/// <c>dup; call ControlledExceptionGuard.ThrowIfControlSignal(object)</c>, which rethrows the signal (and
+/// <c>dup; call SimulationExceptionGuard.ThrowIfControlSignal(object)</c>, which rethrows the signal (and
 /// only the signal) before the user handler runs. Narrow typed catches, finally blocks, rethrow-only
 /// handlers, and compiler-generated async-state-machine handlers are left untouched, so ordinary
 /// application exception handling is unchanged.
 /// </summary>
 internal sealed class ExceptionHardeningRewritingPass : RewritePass
 {
-    private const string GuardType = "Clockwork.Runtime.ControlledExceptionGuard";
+    private const string GuardType = "Clockwork.Runtime.SimulationExceptionGuard";
     private const string GuardMethod = "ThrowIfControlSignal";
     private const string ObjectFullName = "System.Object";
 

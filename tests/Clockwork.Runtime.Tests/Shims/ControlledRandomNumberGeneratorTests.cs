@@ -275,7 +275,7 @@ public sealed class ControlledRandomNumberGeneratorTests
             {
                 using RandomNumberGenerator? generator =
                     ControlledRandomNumberGenerator.Create("RandomNumberGenerator");
-                var deterministic = Assert.IsType<ControlledInsecureRandomNumberGenerator>(generator);
+                var deterministic = Assert.IsType<SimulationInsecureRandomNumberGenerator>(generator);
                 var bytes = new byte[24];
                 deterministic.GetBytes(bytes);
                 return bytes;

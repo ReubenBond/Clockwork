@@ -633,7 +633,7 @@ public sealed class ControlledSemaphoreSlimTests
         {
             using var semaphore = new SemaphoreSlim(1, 1);
 
-            var exception = Assert.Throws<ControlledApiException>(
+            var exception = Assert.Throws<SimulationApiException>(
                 () => InvokeReceiverOperation(semaphore, operation));
 
             Assert.Equal(ExpectedApiName(operation), exception.ApiName);
@@ -793,7 +793,7 @@ public sealed class ControlledSemaphoreSlimTests
             Assert.True(coordinator.Scheduler.IsIdle);
         });
 
-        var rejection = Assert.IsType<ControlledApiException>(error);
+        var rejection = Assert.IsType<SimulationApiException>(error);
         Assert.Equal(ExpectedApiName(operation), rejection.ApiName);
         Assert.Contains(
             "not created through the controlled SemaphoreSlim surface",

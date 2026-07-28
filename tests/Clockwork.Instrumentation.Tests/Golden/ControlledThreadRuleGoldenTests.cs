@@ -14,7 +14,7 @@ namespace Clockwork.Instrumentation.Tests.Golden;
 /// they rewrite real <c>Thread</c> call sites in a compiled fixture against the real
 /// <c>Clockwork</c> assembly and assert on the rewritten IL and manifest. This proves the
 /// static/instance signatures declared in <c>BuiltInRuleSets</c> line up with the actual
-/// <see cref="Clockwork.Runtime.Threading.ControlledThread"/> members - constructors become
+/// <see cref="Clockwork.Shims.System.Threading.ControlledThread"/> members - constructors become
 /// <c>Create</c>, instance <c>Start</c>/<c>Join</c> become static shims taking the receiver, the static
 /// <c>Sleep</c>/<c>Yield</c> stay static, and the rejected OS-specific surface (priority) is redirected
 /// to a rejecting shim.
@@ -43,7 +43,7 @@ public sealed class ControlledThreadRuleGoldenTests
         """;
 
     private static string RuntimeAssemblyPath =>
-        typeof(Clockwork.Runtime.Threading.ControlledThread).Assembly.Location;
+        typeof(Clockwork.Shims.System.Threading.ControlledThread).Assembly.Location;
 
     private static RewriteResult RewriteFixture(RewriteTestContext context, string assemblyName)
     {

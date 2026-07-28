@@ -90,9 +90,9 @@ public sealed class RuleInventoryDocumentTests
     {
         (string Target, string Replacement)[] expected =
         [
-            ("System.Threading.Timer", "Clockwork.Runtime.Threading.ControlledTimer"),
-            ("System.Timers.Timer", "Clockwork.Runtime.Threading.ControlledTimersTimer"),
-            ("System.Threading.PeriodicTimer", "Clockwork.Runtime.Threading.ControlledPeriodicTimer"),
+            ("System.Threading.Timer", "Clockwork.Shims.System.Threading.ControlledTimer"),
+            ("System.Timers.Timer", "Clockwork.Shims.System.Timers.ControlledTimer"),
+            ("System.Threading.PeriodicTimer", "Clockwork.Shims.System.Threading.ControlledPeriodicTimer"),
         ];
 
         foreach ((string target, string replacement) in expected)
@@ -191,9 +191,9 @@ public sealed class RuleInventoryDocumentTests
     {
         (string Target, string Replacement)[] expected =
         [
-            ("System.Threading.SpinLock", "Clockwork.Runtime.Threading.ControlledSpinLock"),
-            ("System.Threading.Barrier", "Clockwork.Runtime.Threading.ControlledBarrier"),
-            ("System.Threading.CountdownEvent", "Clockwork.Runtime.Threading.ControlledCountdownEvent"),
+            ("System.Threading.SpinLock", "Clockwork.Shims.System.Threading.ControlledSpinLock"),
+            ("System.Threading.Barrier", "Clockwork.Shims.System.Threading.ControlledBarrier"),
+            ("System.Threading.CountdownEvent", "Clockwork.Shims.System.Threading.ControlledCountdownEvent"),
         ];
 
         foreach ((string target, string replacement) in expected)

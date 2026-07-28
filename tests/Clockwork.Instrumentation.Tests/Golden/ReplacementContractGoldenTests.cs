@@ -262,7 +262,7 @@ public sealed class ReplacementContractGoldenTests
             """;
         using var context = RewriteTestContext.Create();
         string fixturePath = context.CompileFixture("Fx.RecursiveBuiltIns", source);
-        string runtimePath = typeof(Clockwork.Runtime.Tasks.ControlledTask).Assembly.Location;
+        string runtimePath = typeof(Clockwork.Shims.System.Threading.Tasks.ControlledTask).Assembly.Location;
         var configuration = new InstrumentationConfiguration
         {
             BuiltInRuleSetIds =

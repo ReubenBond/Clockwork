@@ -1,6 +1,6 @@
 using System.Threading.Tasks;
 using Clockwork.Runtime.Tasks;
-using Clockwork.Runtime.Tasks.CompilerServices;
+using Clockwork.Shims.System.Runtime.CompilerServices;
 
 namespace Clockwork.Runtime.Tests.Tasks;
 
@@ -105,7 +105,7 @@ public sealed class ControlledTaskCompletionSourceTests
     [Fact]
     public void ConstructorOutsideSimulationRequiresActiveSimulation()
     {
-        Assert.False(ControlledTaskRuntime.IsSimulationActive);
+        Assert.False(SimulationTaskRuntime.IsSimulationActive);
         ControlledTaskCompletionSource<int>? source = null;
 
         Exception? exception = Record.Exception(

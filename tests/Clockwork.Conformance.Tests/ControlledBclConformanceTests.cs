@@ -337,7 +337,7 @@ public sealed class ControlledBclConformanceTests : IDisposable
         (string TypeName, byte[] Bytes) first = DrawKnown();
         (string TypeName, byte[] Bytes) replay = DrawKnown();
 
-        Assert.Equal(typeof(ControlledInsecureRandomNumberGenerator).FullName, first.TypeName);
+        Assert.Equal(typeof(SimulationInsecureRandomNumberGenerator).FullName, first.TypeName);
         Assert.Equal(24, first.Bytes.Length);
         Assert.Equal(first.TypeName, replay.TypeName);
         Assert.Equal(first.Bytes, replay.Bytes);

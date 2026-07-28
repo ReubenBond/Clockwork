@@ -12,10 +12,10 @@ public sealed class ControlledTaskRuntimeTests
     [Fact]
     public void RequireSchedulerOutsideSimulationRequiresActiveSimulation()
     {
-        Assert.False(ControlledTaskRuntime.IsSimulationActive);
+        Assert.False(SimulationTaskRuntime.IsSimulationActive);
 
         Exception? exception = Record.Exception(
-            () => ControlledTaskRuntime.RequireScheduler("test.api"));
+            () => SimulationTaskRuntime.RequireScheduler("test.api"));
 
         SimulationNotActiveExceptionAssert.Equal(exception, "test.api");
     }
@@ -27,7 +27,7 @@ public sealed class ControlledTaskRuntimeTests
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            var (resolved, node) = ControlledTaskRuntime.RequireScheduler("test.api");
+            var (resolved, node) = SimulationTaskRuntime.RequireScheduler("test.api");
             Assert.Same(coordinator.Scheduler, resolved);
             Assert.NotNull(node);
             Assert.Equal(TaskTestHarness.DefaultNodeAddress, node!.Address);
@@ -43,7 +43,7 @@ public sealed class ControlledTaskRuntimeTests
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var completed = System.Threading.Tasks.Task.CompletedTask;
-            ControlledTaskRuntime.ScheduleContinuation(completed, () => ran = true, "test.await", flowExecutionContext: false);
+            SimulationTaskRuntime.ScheduleContinuation(completed, () => ran = true, "test.await", flowExecutionContext: false);
 
             // The continuation must not run inline - it is queued on the coordinator's loop.
             Assert.False(ran);
@@ -60,7 +60,7 @@ public sealed class ControlledTaskRuntimeTests
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            ControlledTaskRuntime.ScheduleYield(() => ran = true, "test.yield", flowExecutionContext: false);
+            SimulationTaskRuntime.ScheduleYield(() => ran = true, "test.yield", flowExecutionContext: false);
             Assert.False(ran);
             coordinator.Scheduler.RunUntilIdle();
             Assert.True(ran);
@@ -77,7 +77,7 @@ public sealed class ControlledTaskRuntimeTests
         {
             // Completing the task is itself scheduled work; the drain must run it.
             coordinator.Scheduler.Schedule(() => tcs.SetResult());
-            ControlledTaskRuntime.DrainUntilCompleted(tcs.Task, "test.wait");
+            SimulationTaskRuntime.DrainUntilCompleted(tcs.Task, "test.wait");
             Assert.True(tcs.Task.IsCompleted);
         });
     }
@@ -90,8 +90,8 @@ public sealed class ControlledTaskRuntimeTests
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            Assert.Throws<ControlledSynchronousWaitDeadlockException>(
-                () => ControlledTaskRuntime.DrainUntilCompleted(tcs.Task, "test.wait"));
+            Assert.Throws<SimulationSynchronousWaitDeadlockException>(
+                () => SimulationTaskRuntime.DrainUntilCompleted(tcs.Task, "test.wait"));
         });
     }
 
@@ -105,13 +105,13 @@ public sealed class ControlledTaskRuntimeTests
             coordinatorA,
             () =>
             {
-                return ControlledTaskRuntime.RequireScheduler("api").Scheduler;
+                return SimulationTaskRuntime.RequireScheduler("api").Scheduler;
             });
         var resolvedB = TaskTestHarness.RunInSimulation(
             coordinatorB,
             () =>
             {
-                return ControlledTaskRuntime.RequireScheduler("api").Scheduler;
+                return SimulationTaskRuntime.RequireScheduler("api").Scheduler;
             });
 
         Assert.Same(coordinatorA.Scheduler, resolvedA);

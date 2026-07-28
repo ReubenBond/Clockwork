@@ -210,7 +210,7 @@ public sealed class MonitorConformanceTests : IDisposable
                     _ = Monitor.LockContentionCount;
                     return Task.FromResult(false);
                 }
-                catch (Exception ex) when (ex.GetType().Name == "ControlledApiException")
+                catch (Exception ex) when (ex.GetType().Name == "SimulationApiException")
                 {
                     return Task.FromResult(true);
                 }

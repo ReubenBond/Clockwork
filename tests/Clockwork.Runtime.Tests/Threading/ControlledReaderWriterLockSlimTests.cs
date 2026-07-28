@@ -152,9 +152,9 @@ public sealed class ControlledReaderWriterLockSlimTests
             });
 
             ControlledThread.Start(ordinaryWriter);
-            ControlledTaskRuntime.QueueWork(
-                () => ControlledSynchronizationFlow.RunAsStrand(
-                    ControlledSynchronizationFlow.None,
+            SimulationTaskRuntime.QueueWork(
+                () => SimulationSynchronizationFlow.RunAsStrand(
+                    SimulationSynchronizationFlow.None,
                     () =>
                     {
                         ControlledReaderWriterLockSlim.EnterWriteLock(rw);

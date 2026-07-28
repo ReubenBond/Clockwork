@@ -95,7 +95,7 @@ public sealed class ControlledTaskRuleGoldenTests
         """;
 
     private static string RuntimeAssemblyPath =>
-        typeof(Clockwork.Runtime.Tasks.ControlledTask).Assembly.Location;
+        typeof(Clockwork.Shims.System.Threading.Tasks.ControlledTask).Assembly.Location;
 
     private static RewriteResult RewriteFixture(RewriteTestContext context, string assemblyName)
     {

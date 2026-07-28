@@ -733,7 +733,7 @@ public sealed class SimulationScheduler : IDisposable
                 continue;
             }
 
-            throw new ControlledSynchronousWaitDeadlockException(apiName);
+            throw new SimulationSynchronousWaitDeadlockException(apiName);
         }
     }
 
@@ -1002,7 +1002,7 @@ public sealed class SimulationScheduler : IDisposable
             }
 
             _readinessWaits.Remove(wait);
-            wait.Fail(new ControlledSynchronousWaitDeadlockException(wait.ApiName!));
+            wait.Fail(new SimulationSynchronousWaitDeadlockException(wait.ApiName!));
             wait.Operation.ApplyTransition(SimulationOperationState.Runnable);
             return wait.Operation;
         }
@@ -2542,7 +2542,7 @@ public sealed class SimulationScheduler : IDisposable
             using (operation.Node is { } node ? SimulationExecutionContext.EnterNode(node) : null)
             using (SimulationExecutionContext.EnterLogicalExecution(operation.LogicalExecutionId))
             {
-                Threading.ControlledSynchronizationFlow.RunAsStrand(
+                Threading.SimulationSynchronizationFlow.RunAsStrand(
                     -operation.Id.Value,
                     operation.InvokeBody);
             }

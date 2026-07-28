@@ -136,7 +136,7 @@ public sealed class ControlledThreadTests
             // A thread not created through the controlled surface has an unknown body; starting the real OS
             // thread would escape the single logical thread, so it is rejected precisely.
             var raw = new Thread(() => { });
-            Assert.Throws<ControlledApiException>(() => ControlledThread.Start(raw));
+            Assert.Throws<SimulationApiException>(() => ControlledThread.Start(raw));
         });
     }
 
@@ -163,7 +163,7 @@ public sealed class ControlledThreadTests
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var thread = ControlledThread.Create(() => { });
-            var ex = Assert.Throws<ControlledApiException>(
+            var ex = Assert.Throws<SimulationApiException>(
                 () => ControlledThread.SetPriority(thread, ThreadPriority.Highest));
             Assert.Contains("set_Priority", ex.Message, StringComparison.Ordinal);
         });
@@ -177,7 +177,7 @@ public sealed class ControlledThreadTests
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var thread = ControlledThread.Create(() => { });
-            Assert.Throws<ControlledApiException>(() => ControlledThread.Interrupt(thread));
+            Assert.Throws<SimulationApiException>(() => ControlledThread.Interrupt(thread));
         });
     }
 
@@ -189,9 +189,9 @@ public sealed class ControlledThreadTests
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var thread = ControlledThread.Create(() => { });
-            Assert.Throws<ControlledApiException>(
+            Assert.Throws<SimulationApiException>(
                 () => ControlledThread.SetApartmentState(thread, ApartmentState.STA));
-            Assert.Throws<ControlledApiException>(
+            Assert.Throws<SimulationApiException>(
                 () => ControlledThread.TrySetApartmentState(thread, ApartmentState.STA));
         });
     }

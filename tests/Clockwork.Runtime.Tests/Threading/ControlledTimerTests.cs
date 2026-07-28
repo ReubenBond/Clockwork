@@ -170,7 +170,7 @@ public sealed class ControlledTimerTests
 
             using var uncontrolled = new ManualResetEvent(false);
             using var second = new ControlledTimer(_ => { });
-            Assert.Throws<ControlledApiException>(() => second.Dispose(uncontrolled));
+            Assert.Throws<SimulationApiException>(() => second.Dispose(uncontrolled));
         });
     }
 }

@@ -28,7 +28,7 @@ internal sealed class BuiltInProcessFixture : IDisposable
                 {
                     string monitor;
                     try { _ = Monitor.LockContentionCount; monitor = "real"; }
-                    catch (Exception ex) when (ex.GetType().Name == "ControlledApiException") { monitor = "rejected"; }
+                    catch (Exception ex) when (ex.GetType().Name == "SimulationApiException") { monitor = "rejected"; }
 
                     var dedicated = new Lock();
                     lock (dedicated) { }

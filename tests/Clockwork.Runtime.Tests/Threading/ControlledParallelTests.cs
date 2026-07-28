@@ -120,7 +120,7 @@ public sealed class ControlledParallelTests
         var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            var ex = Assert.Throws<ControlledApiException>(
+            var ex = Assert.Throws<SimulationApiException>(
                 () => ControlledParallel.RejectUnsupported("System.Threading.Tasks.Parallel.For"));
             Assert.Contains("Parallel.For", ex.Message, StringComparison.Ordinal);
         });

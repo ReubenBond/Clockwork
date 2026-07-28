@@ -14,7 +14,7 @@ namespace Clockwork.Instrumentation.Tests.Golden;
 /// family: they rewrite real <c>ThreadPool.QueueUserWorkItem</c> / <c>UnsafeQueueUserWorkItem</c> call
 /// sites in a compiled fixture against the real <c>Clockwork</c> assembly and assert on the
 /// rewritten IL and manifest. This proves the static signatures declared in <c>BuiltInRuleSets</c> line
-/// up with the actual <see cref="Clockwork.Runtime.Threading.ControlledThreadPool"/> members, and that
+/// up with the actual <see cref="Clockwork.Shims.System.Threading.ControlledThreadPool"/> members, and that
 /// the native-overlapped overload is rejected at the call site, while the registered-wait factories are
 /// redirected to controlled shims and the <c>RegisteredWaitHandle</c> type is substituted.
 /// </summary>
@@ -45,7 +45,7 @@ public sealed class ControlledThreadPoolRuleGoldenTests
         """;
 
     private static string RuntimeAssemblyPath =>
-        typeof(Clockwork.Runtime.Threading.ControlledThreadPool).Assembly.Location;
+        typeof(Clockwork.Shims.System.Threading.ControlledThreadPool).Assembly.Location;
 
     private static RewriteResult RewriteFixture(RewriteTestContext context, string assemblyName)
     {

@@ -195,7 +195,7 @@ public sealed class ModernSynchronizationRuleGoldenTests
         """;
 
     private static string RuntimeAssemblyPath =>
-        typeof(Clockwork.Runtime.Threading.ControlledBarrier).Assembly.Location;
+        typeof(Clockwork.Shims.System.Threading.ControlledBarrier).Assembly.Location;
 
     [Fact]
     public void EveryModernSynchronizationDirectRuleRewritesToTheControlledRuntimeAndManifest()
@@ -219,9 +219,9 @@ public sealed class ModernSynchronizationRuleGoldenTests
         Assert.False(CecilInspect.AnyMethodCallsContaining(module, "System.Threading.ExecutionContext::Capture"));
         Assert.False(CecilInspect.AnyMethodCallsContaining(module, "System.Threading.SynchronizationContext::Wait"));
 
-        AssertWholeTypeWasRetargeted(module, "System.Threading.SpinLock", "Clockwork.Runtime.Threading.ControlledSpinLock");
-        AssertWholeTypeWasRetargeted(module, "System.Threading.Barrier", "Clockwork.Runtime.Threading.ControlledBarrier");
-        AssertWholeTypeWasRetargeted(module, "System.Threading.CountdownEvent", "Clockwork.Runtime.Threading.ControlledCountdownEvent");
+        AssertWholeTypeWasRetargeted(module, "System.Threading.SpinLock", "Clockwork.Shims.System.Threading.ControlledSpinLock");
+        AssertWholeTypeWasRetargeted(module, "System.Threading.Barrier", "Clockwork.Shims.System.Threading.ControlledBarrier");
+        AssertWholeTypeWasRetargeted(module, "System.Threading.CountdownEvent", "Clockwork.Shims.System.Threading.ControlledCountdownEvent");
 
         BuiltInRuleFamily[] modernSynchronizationFamilies =
         [
@@ -270,8 +270,8 @@ public sealed class ModernSynchronizationRuleGoldenTests
 
         using ModuleDefinition module = context.LoadModule(
             Path.Combine(context.Directory, "Fx.ModernSynchronizationClosures.rewritten.dll"));
-        AssertWholeTypeWasRetargeted(module, "System.Threading.Barrier", "Clockwork.Runtime.Threading.ControlledBarrier");
-        AssertWholeTypeWasRetargeted(module, "System.Threading.CountdownEvent", "Clockwork.Runtime.Threading.ControlledCountdownEvent");
+        AssertWholeTypeWasRetargeted(module, "System.Threading.Barrier", "Clockwork.Shims.System.Threading.ControlledBarrier");
+        AssertWholeTypeWasRetargeted(module, "System.Threading.CountdownEvent", "Clockwork.Shims.System.Threading.ControlledCountdownEvent");
         Assert.DoesNotContain(
             module.GetTypes().SelectMany(type => type.Fields),
             field => field.FieldType.FullName.Contains("System.Threading.Barrier", StringComparison.Ordinal)
@@ -317,9 +317,9 @@ public sealed class ModernSynchronizationRuleGoldenTests
         Assert.Equal(3, apiCalls.Length);
         Assert.All(apiCalls, call =>
         {
-            Assert.DoesNotContain("System.Threading.", call.ReturnType.FullName, StringComparison.Ordinal);
+            Assert.False(call.ReturnType.FullName.StartsWith("System.Threading.", StringComparison.Ordinal));
             Assert.All(call.Parameters, parameter =>
-                Assert.DoesNotContain("System.Threading.", parameter.ParameterType.FullName, StringComparison.Ordinal));
+                Assert.False(parameter.ParameterType.FullName.StartsWith("System.Threading.", StringComparison.Ordinal)));
         });
 
         File.Copy(rewrittenApiPath, apiPath, overwrite: true);

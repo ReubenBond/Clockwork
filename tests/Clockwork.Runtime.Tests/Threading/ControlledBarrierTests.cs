@@ -117,7 +117,7 @@ public sealed class ControlledBarrierTests
         {
             var barrier = new ControlledBarrier(2);
             Exception? nestedSignal = null;
-            ControlledTaskRuntime.ScheduleYield(
+            SimulationTaskRuntime.ScheduleYield(
                 () => nestedSignal = Record.Exception(() => barrier.SignalAndWait(0)),
                 "ControlledBarrierTests.SameStrand",
                 flowExecutionContext: true);

@@ -108,7 +108,7 @@ public sealed class ControlledTaskApiTests
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var tcs = new TaskCompletionSource();
-            Assert.Throws<ControlledSynchronousWaitDeadlockException>(() => ControlledTask.Wait(tcs.Task));
+            Assert.Throws<SimulationSynchronousWaitDeadlockException>(() => ControlledTask.Wait(tcs.Task));
         });
     }
 
@@ -328,7 +328,7 @@ public sealed class ControlledTaskApiTests
 #pragma warning disable xUnit1051 // Each exact overload, including those without tokens, is the subject under test.
     public void RunOutsideSimulationFailsBeforeInvokingTheDelegate()
     {
-        Assert.False(ControlledTaskRuntime.IsSimulationActive);
+        Assert.False(SimulationTaskRuntime.IsSimulationActive);
         var ran = false;
 
         Exception? exception = Record.Exception(() =>
@@ -386,14 +386,14 @@ public sealed class ControlledTaskApiTests
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            long actionStrand = ControlledSynchronizationFlow.None;
+            long actionStrand = SimulationSynchronizationFlow.None;
             long actionState = 0;
             var action = ControlledTaskFactory.StartNew(
                 Task.Factory,
                 state =>
                 {
                     actionState = (long)state!;
-                    actionStrand = ControlledSynchronizationFlow.CurrentId;
+                    actionStrand = SimulationSynchronizationFlow.CurrentId;
                 },
                 17L,
                 CancellationToken.None,
@@ -401,7 +401,7 @@ public sealed class ControlledTaskApiTests
                 TaskScheduler.Default);
             var result = ControlledTaskFactory.StartNew(
                 Task.Factory,
-                state => (Value: (int)state!, Strand: ControlledSynchronizationFlow.CurrentId),
+                state => (Value: (int)state!, Strand: SimulationSynchronizationFlow.CurrentId),
                 42,
                 CancellationToken.None,
                 TaskCreationOptions.None,
@@ -411,10 +411,10 @@ public sealed class ControlledTaskApiTests
 
             Assert.Equal(17L, actionState);
             Assert.Equal(17L, action.AsyncState);
-            Assert.NotEqual(ControlledSynchronizationFlow.None, actionStrand);
+            Assert.NotEqual(SimulationSynchronizationFlow.None, actionStrand);
             Assert.Equal(42, result.Result.Value);
             Assert.Equal(42, result.AsyncState);
-            Assert.NotEqual(ControlledSynchronizationFlow.None, result.Result.Strand);
+            Assert.NotEqual(SimulationSynchronizationFlow.None, result.Result.Strand);
             Assert.True(action.IsCompletedSuccessfully);
         });
     }
@@ -449,7 +449,7 @@ public sealed class ControlledTaskApiTests
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var schedulers = new ConcurrentExclusiveSchedulerPair();
-            Assert.Throws<ControlledApiException>((Action)(() =>
+            Assert.Throws<SimulationApiException>((Action)(() =>
             {
                 _ = ControlledTaskFactory.StartNew(
                     Task.Factory,
@@ -458,7 +458,7 @@ public sealed class ControlledTaskApiTests
                     TaskCreationOptions.None,
                     schedulers.ExclusiveScheduler);
             }));
-            Assert.Throws<ControlledApiException>((Action)(() =>
+            Assert.Throws<SimulationApiException>((Action)(() =>
             {
                 _ = ControlledTaskFactory.StartNew(
                     Task.Factory,
@@ -467,7 +467,7 @@ public sealed class ControlledTaskApiTests
                     TaskCreationOptions.LongRunning,
                     TaskScheduler.Default);
             }));
-            Assert.Throws<ControlledApiException>((Action)(() =>
+            Assert.Throws<SimulationApiException>((Action)(() =>
             {
                 _ = ControlledTaskFactory.StartNew(
                     Task.Factory,
@@ -518,7 +518,7 @@ public sealed class ControlledTaskApiTests
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            var ex = Assert.Throws<ControlledApiException>(() =>
+            var ex = Assert.Throws<SimulationApiException>(() =>
             {
                 // Exercise the options-only overload independently from the full scheduler form.
 #pragma warning disable xUnit1051
@@ -570,7 +570,7 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public void TaskFactoryStartNewOutsideSimulationFailsBeforeInvokingDelegate()
     {
-        Assert.False(ControlledTaskRuntime.IsSimulationActive);
+        Assert.False(SimulationTaskRuntime.IsSimulationActive);
         var ran = false;
         Task<int>? task = null;
 
@@ -595,7 +595,7 @@ public sealed class ControlledTaskApiTests
     [Fact]
     public async Task TaskFactoryStateAndCustomSchedulerOutsideSimulationFailBeforeInvokingDelegate()
     {
-        Assert.False(ControlledTaskRuntime.IsSimulationActive);
+        Assert.False(SimulationTaskRuntime.IsSimulationActive);
         var schedulers = new ConcurrentExclusiveSchedulerPair();
         var ran = false;
         Task<int>? task = null;

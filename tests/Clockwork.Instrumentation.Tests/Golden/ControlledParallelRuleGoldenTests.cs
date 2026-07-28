@@ -14,7 +14,7 @@ namespace Clockwork.Instrumentation.Tests.Golden;
 /// family: they rewrite real <c>Parallel.Invoke</c> / <c>For</c> / <c>ForEach</c> call sites in a compiled
 /// fixture against the real <c>Clockwork</c> assembly and assert on the rewritten IL and
 /// manifest. This proves the static signatures declared in <c>BuiltInRuleSets</c> line up with the actual
-/// <see cref="Clockwork.Runtime.Threading.ControlledParallel"/> members, and that the break/stop
+/// <see cref="Clockwork.Shims.System.Threading.Tasks.ControlledParallel"/> members, and that the break/stop
 /// (<c>ParallelLoopState</c>) overloads are rejected at the call site.
 /// </summary>
 public sealed class ControlledParallelRuleGoldenTests
@@ -44,7 +44,7 @@ public sealed class ControlledParallelRuleGoldenTests
         """;
 
     private static string RuntimeAssemblyPath =>
-        typeof(Clockwork.Runtime.Threading.ControlledParallel).Assembly.Location;
+        typeof(Clockwork.Shims.System.Threading.Tasks.ControlledParallel).Assembly.Location;
 
     private static RewriteResult RewriteFixture(RewriteTestContext context, string assemblyName)
     {

@@ -43,13 +43,13 @@ public sealed class BuiltInRuleSetsTests
     {
         string[] expected =
         [
-            "Clockwork.Runtime.Shims.ControlledDateTime",
-            "Clockwork.Runtime.Shims.ControlledDateTimeOffset",
-            "Clockwork.Runtime.Shims.ControlledEnvironment",
-            "Clockwork.Runtime.Shims.ControlledGuid",
-            "Clockwork.Runtime.Shims.ControlledRandom",
-            "Clockwork.Runtime.Shims.ControlledRandomNumberGenerator",
-            "Clockwork.Runtime.Shims.ControlledStopwatch",
+            "Clockwork.Shims.System.ControlledDateTime",
+            "Clockwork.Shims.System.ControlledDateTimeOffset",
+            "Clockwork.Shims.System.ControlledEnvironment",
+            "Clockwork.Shims.System.ControlledGuid",
+            "Clockwork.Shims.System.ControlledRandom",
+            "Clockwork.Shims.System.Diagnostics.ControlledStopwatch",
+            "Clockwork.Shims.System.Security.Cryptography.ControlledRandomNumberGenerator",
         ];
         string[] actual = BuiltInRuleSets.DeterministicBclInventory
             .Select(entry => entry.Rule.Replacement.DeclaringTypeFullName)

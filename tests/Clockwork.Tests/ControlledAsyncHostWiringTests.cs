@@ -2,7 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Tasks;
-using Clockwork.Runtime.Tasks.CompilerServices;
+using Clockwork.Shims.System.Runtime.CompilerServices;
 
 namespace Clockwork.Tests;
 
@@ -28,9 +28,9 @@ public sealed class ControlledAsyncHostWiringTests
         // machinery must see an active simulation and resolve this cluster's coordinator.
         cluster.SchedulerLane.Enqueue(new ScheduledActionItem(() =>
         {
-            active = ControlledTaskRuntime.IsSimulationActive;
+            active = SimulationTaskRuntime.IsSimulationActive;
             resolved = ReferenceEquals(
-                ControlledTaskRuntime.RequireScheduler("test.scheduler").Scheduler,
+                SimulationTaskRuntime.RequireScheduler("test.scheduler").Scheduler,
                 cluster.RuntimeIdentity.Scheduler);
         }));
 

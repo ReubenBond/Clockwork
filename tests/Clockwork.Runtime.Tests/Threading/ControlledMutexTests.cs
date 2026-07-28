@@ -162,9 +162,9 @@ public sealed class ControlledMutexTests
             });
 
             ControlledThread.Start(waiter);
-            ControlledTaskRuntime.QueueWork(
-                () => ControlledSynchronizationFlow.RunAsStrand(
-                    ControlledSynchronizationFlow.None,
+            SimulationTaskRuntime.QueueWork(
+                () => SimulationSynchronizationFlow.RunAsStrand(
+                    SimulationSynchronizationFlow.None,
                     () => ControlledMutex.ReleaseMutex(mutex)),
                 "test.release-mutex",
                 flowExecutionContext: false);
@@ -185,7 +185,7 @@ public sealed class ControlledMutexTests
             Mutex mutex = ControlledMutex.Create();
             AutoResetEvent signaled = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: true);
 
-            Assert.Throws<ControlledApiException>(() => ControlledWaitHandle.WaitAll([signaled, mutex], 0));
+            Assert.Throws<SimulationApiException>(() => ControlledWaitHandle.WaitAll([signaled, mutex], 0));
             Assert.True(ControlledWaitHandle.WaitOne(signaled, 0));
         });
     }
@@ -234,14 +234,14 @@ public sealed class ControlledMutexTests
         var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            Assert.Throws<ControlledApiException>(() => ControlledMutex.CreateNamed(false, "clockwork-mutex"));
-            Assert.Throws<ControlledApiException>(() => ControlledMutex.CreateNamed(false, "clockwork-mutex", out _));
-            Assert.Throws<ControlledApiException>(() => ControlledMutex.CreateNamed(false, "clockwork-mutex", default));
-            Assert.Throws<ControlledApiException>(() => ControlledMutex.CreateNamed(false, "clockwork-mutex", default, out _));
-            Assert.Throws<ControlledApiException>(() => ControlledMutex.OpenExisting("clockwork-mutex"));
-            Assert.Throws<ControlledApiException>(() => ControlledMutex.OpenExisting("clockwork-mutex", default));
-            Assert.Throws<ControlledApiException>(() => ControlledMutex.TryOpenExisting("clockwork-mutex", out _));
-            Assert.Throws<ControlledApiException>(() => ControlledMutex.TryOpenExisting("clockwork-mutex", default, out _));
+            Assert.Throws<SimulationApiException>(() => ControlledMutex.CreateNamed(false, "clockwork-mutex"));
+            Assert.Throws<SimulationApiException>(() => ControlledMutex.CreateNamed(false, "clockwork-mutex", out _));
+            Assert.Throws<SimulationApiException>(() => ControlledMutex.CreateNamed(false, "clockwork-mutex", default));
+            Assert.Throws<SimulationApiException>(() => ControlledMutex.CreateNamed(false, "clockwork-mutex", default, out _));
+            Assert.Throws<SimulationApiException>(() => ControlledMutex.OpenExisting("clockwork-mutex"));
+            Assert.Throws<SimulationApiException>(() => ControlledMutex.OpenExisting("clockwork-mutex", default));
+            Assert.Throws<SimulationApiException>(() => ControlledMutex.TryOpenExisting("clockwork-mutex", out _));
+            Assert.Throws<SimulationApiException>(() => ControlledMutex.TryOpenExisting("clockwork-mutex", default, out _));
         });
     }
 

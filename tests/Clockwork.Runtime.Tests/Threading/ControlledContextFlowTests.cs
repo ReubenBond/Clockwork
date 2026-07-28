@@ -20,9 +20,9 @@ public sealed class ControlledContextFlowTests
             var ambient = new AsyncLocal<int> { Value = 5 };
             ExecutionContext captured = Assert.IsType<ExecutionContext>(ControlledExecutionContext.Capture());
             ExecutionContext copy = ControlledExecutionContext.CreateCopy(captured);
-            var outerStrand = ControlledSynchronizationFlow.CurrentId;
+            var outerStrand = SimulationSynchronizationFlow.CurrentId;
             var seen = -1;
-            var seenStrand = ControlledSynchronizationFlow.None;
+            var seenStrand = SimulationSynchronizationFlow.None;
 
             ambient.Value = 9;
             ControlledExecutionContext.Run(
@@ -30,7 +30,7 @@ public sealed class ControlledContextFlowTests
                 _ =>
                 {
                     seen = ambient.Value;
-                    seenStrand = ControlledSynchronizationFlow.CurrentId;
+                    seenStrand = SimulationSynchronizationFlow.CurrentId;
                 },
                 state: null);
 
@@ -71,14 +71,14 @@ public sealed class ControlledContextFlowTests
         {
             var ambient = new AsyncLocal<int> { Value = 5 };
             ExecutionContext captured = Assert.IsType<ExecutionContext>(ControlledExecutionContext.Capture());
-            var expectedStrand = ControlledSynchronizationFlow.CurrentId;
+            var expectedStrand = SimulationSynchronizationFlow.CurrentId;
             ambient.Value = 9;
 
             ControlledExecutionContext.Restore(captured);
 
-            Assert.True(ControlledTaskRuntime.IsSimulationActive);
+            Assert.True(SimulationTaskRuntime.IsSimulationActive);
             Assert.Equal(5, ambient.Value);
-            Assert.Equal(expectedStrand, ControlledSynchronizationFlow.CurrentId);
+            Assert.Equal(expectedStrand, SimulationSynchronizationFlow.CurrentId);
         });
     }
 
@@ -95,16 +95,16 @@ public sealed class ControlledContextFlowTests
         {
             outsideAmbient.Value = 9;
             SimulationExecutionSnapshot expected = Assert.IsType<SimulationExecutionSnapshot>(SimulationExecutionContext.Current);
-            long strand = ControlledSynchronizationFlow.CurrentId;
+            long strand = SimulationSynchronizationFlow.CurrentId;
 
             ControlledExecutionContext.Run(
                 outside,
                 _ =>
                 {
                     Assert.Equal(5, outsideAmbient.Value);
-                    Assert.True(ControlledTaskRuntime.IsSimulationActive);
+                    Assert.True(SimulationTaskRuntime.IsSimulationActive);
                     Assert.Equal(expected, SimulationExecutionContext.Current);
-                    Assert.Equal(strand, ControlledSynchronizationFlow.CurrentId);
+                    Assert.Equal(strand, SimulationSynchronizationFlow.CurrentId);
                     AutoResetEvent handle = ControlledEventWaitHandle.CreateAutoResetEvent(initialState: true);
                     Assert.True(ControlledWaitHandle.WaitOne(handle, 0));
                 },
@@ -113,9 +113,9 @@ public sealed class ControlledContextFlowTests
             Assert.Equal(9, outsideAmbient.Value);
             ControlledExecutionContext.Restore(outsideCopy);
             Assert.Equal(5, outsideAmbient.Value);
-            Assert.True(ControlledTaskRuntime.IsSimulationActive);
+            Assert.True(SimulationTaskRuntime.IsSimulationActive);
             Assert.Equal(expected, SimulationExecutionContext.Current);
-            Assert.Equal(strand, ControlledSynchronizationFlow.CurrentId);
+            Assert.Equal(strand, SimulationSynchronizationFlow.CurrentId);
             ManualResetEvent restoredHandle = ControlledEventWaitHandle.CreateManualResetEvent(initialState: true);
             Assert.True(ControlledWaitHandle.WaitOne(restoredHandle, 0));
         });
@@ -131,8 +131,8 @@ public sealed class ControlledContextFlowTests
             var ambient = new AsyncLocal<int> { Value = 5 };
             var values = new List<(int Value, long Strand)>();
 
-            ControlledThreadPool.QueueUserWorkItem(_ => values.Add((ambient.Value, ControlledSynchronizationFlow.CurrentId)));
-            ControlledTask.Run(() => values.Add((ambient.Value, ControlledSynchronizationFlow.CurrentId)));
+            ControlledThreadPool.QueueUserWorkItem(_ => values.Add((ambient.Value, SimulationSynchronizationFlow.CurrentId)));
+            ControlledTask.Run(() => values.Add((ambient.Value, SimulationSynchronizationFlow.CurrentId)));
             ambient.Value = 9;
 
             coordinator.Scheduler.RunUntilIdle();
@@ -141,7 +141,7 @@ public sealed class ControlledContextFlowTests
             Assert.All(values, entry =>
             {
                 Assert.Equal(5, entry.Value);
-                Assert.NotEqual(ControlledSynchronizationFlow.None, entry.Strand);
+                Assert.NotEqual(SimulationSynchronizationFlow.None, entry.Strand);
             });
             Assert.NotEqual(values[0].Strand, values[1].Strand);
         });
@@ -158,12 +158,12 @@ public sealed class ControlledContextFlowTests
             var safe = -1;
             var unsafeValue = -1;
 
-            ControlledTaskRuntime.ScheduleContinuation(
+            SimulationTaskRuntime.ScheduleContinuation(
                 Task.CompletedTask,
                 () => safe = ambient.Value,
                 "test.safe-continuation",
                 flowExecutionContext: true);
-            ControlledTaskRuntime.ScheduleContinuation(
+            SimulationTaskRuntime.ScheduleContinuation(
                 Task.CompletedTask,
                 () => unsafeValue = ambient.Value,
                 "test.unsafe-continuation",
@@ -232,7 +232,7 @@ public sealed class ControlledContextFlowTests
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            var ex = Assert.Throws<ControlledApiException>(
+            var ex = Assert.Throws<SimulationApiException>(
                 () => ControlledSynchronizationContext.Wait(new SynchronizationContext(), [IntPtr.Zero], waitAll: false, millisecondsTimeout: 0));
             Assert.Equal("System.Threading.SynchronizationContext.Wait", ex.ApiName);
         });

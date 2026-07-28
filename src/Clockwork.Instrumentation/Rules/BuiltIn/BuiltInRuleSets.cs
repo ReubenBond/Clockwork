@@ -9,7 +9,7 @@ namespace Clockwork.Instrumentation.Rules.BuiltIn;
 /// hand-authoring JSON signatures. The only rule set today is
 /// <see cref="DeterministicBclId"/> - the built-in deterministic BCL shim set - which
 /// redirects the direct static time / identity / random surface to the runtime shims in the
-/// <c>Clockwork</c> assembly (namespace <c>Clockwork.Runtime.Shims</c>).
+/// <c>Clockwork</c> assembly (under the <c>Clockwork.Shims</c> namespace hierarchy).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -44,30 +44,30 @@ public static class BuiltInRuleSets
     /// <summary>The simple name of the assembly declaring every built-in shim.</summary>
     public const string ShimAssemblyName = "Clockwork";
 
-    private const string DateTimeShim = "Clockwork.Runtime.Shims.ControlledDateTime";
-    private const string DateTimeOffsetShim = "Clockwork.Runtime.Shims.ControlledDateTimeOffset";
-    private const string StopwatchShim = "Clockwork.Runtime.Shims.ControlledStopwatch";
-    private const string EnvironmentShim = "Clockwork.Runtime.Shims.ControlledEnvironment";
-    private const string GuidShim = "Clockwork.Runtime.Shims.ControlledGuid";
-    private const string RandomShim = "Clockwork.Runtime.Shims.ControlledRandom";
-    private const string CryptoShim = "Clockwork.Runtime.Shims.ControlledRandomNumberGenerator";
-    private const string TaskShim = "Clockwork.Runtime.Tasks.ControlledTask";
-    private const string TaskFactoryShim = "Clockwork.Runtime.Tasks.ControlledTaskFactory";
-    private const string ThreadShim = "Clockwork.Runtime.Threading.ControlledThread";
-    private const string ThreadPoolShim = "Clockwork.Runtime.Threading.ControlledThreadPool";
-    private const string ParallelShim = "Clockwork.Runtime.Threading.ControlledParallel";
-    private const string MonitorShim = "Clockwork.Runtime.Threading.ControlledMonitor";
-    private const string SemaphoreSlimShim = "Clockwork.Runtime.Threading.ControlledSemaphoreSlim";
-    private const string InterlockedShim = "Clockwork.Runtime.Threading.ControlledInterlocked";
-    private const string VolatileShim = "Clockwork.Runtime.Threading.ControlledVolatile";
-    private const string ReaderWriterLockSlimShim = "Clockwork.Runtime.Threading.ControlledReaderWriterLockSlim";
-    private const string ManualResetEventSlimShim = "Clockwork.Runtime.Threading.ControlledManualResetEventSlim";
-    private const string MutexShim = "Clockwork.Runtime.Threading.ControlledMutex";
-    private const string KernelSemaphoreShim = "Clockwork.Runtime.Threading.ControlledSemaphore";
-    private const string ExecutionContextShim = "Clockwork.Runtime.Threading.ControlledExecutionContext";
-    private const string SynchronizationContextShim = "Clockwork.Runtime.Threading.ControlledSynchronizationContext";
-    private const string TimeProviderShim = "Clockwork.Runtime.Threading.ControlledTimeProvider";
-    private const string CancellationTokenSourceShim = "Clockwork.Runtime.Threading.ControlledCancellationTokenSource";
+    private const string DateTimeShim = "Clockwork.Shims.System.ControlledDateTime";
+    private const string DateTimeOffsetShim = "Clockwork.Shims.System.ControlledDateTimeOffset";
+    private const string StopwatchShim = "Clockwork.Shims.System.Diagnostics.ControlledStopwatch";
+    private const string EnvironmentShim = "Clockwork.Shims.System.ControlledEnvironment";
+    private const string GuidShim = "Clockwork.Shims.System.ControlledGuid";
+    private const string RandomShim = "Clockwork.Shims.System.ControlledRandom";
+    private const string CryptoShim = "Clockwork.Shims.System.Security.Cryptography.ControlledRandomNumberGenerator";
+    private const string TaskShim = "Clockwork.Shims.System.Threading.Tasks.ControlledTask";
+    private const string TaskFactoryShim = "Clockwork.Shims.System.Threading.Tasks.ControlledTaskFactory";
+    private const string ThreadShim = "Clockwork.Shims.System.Threading.ControlledThread";
+    private const string ThreadPoolShim = "Clockwork.Shims.System.Threading.ControlledThreadPool";
+    private const string ParallelShim = "Clockwork.Shims.System.Threading.Tasks.ControlledParallel";
+    private const string MonitorShim = "Clockwork.Shims.System.Threading.ControlledMonitor";
+    private const string SemaphoreSlimShim = "Clockwork.Shims.System.Threading.ControlledSemaphoreSlim";
+    private const string InterlockedShim = "Clockwork.Shims.System.Threading.ControlledInterlocked";
+    private const string VolatileShim = "Clockwork.Shims.System.Threading.ControlledVolatile";
+    private const string ReaderWriterLockSlimShim = "Clockwork.Shims.System.Threading.ControlledReaderWriterLockSlim";
+    private const string ManualResetEventSlimShim = "Clockwork.Shims.System.Threading.ControlledManualResetEventSlim";
+    private const string MutexShim = "Clockwork.Shims.System.Threading.ControlledMutex";
+    private const string KernelSemaphoreShim = "Clockwork.Shims.System.Threading.ControlledSemaphore";
+    private const string ExecutionContextShim = "Clockwork.Shims.System.Threading.ControlledExecutionContext";
+    private const string SynchronizationContextShim = "Clockwork.Shims.System.Threading.ControlledSynchronizationContext";
+    private const string TimeProviderShim = "Clockwork.Shims.System.ControlledTimeProvider";
+    private const string CancellationTokenSourceShim = "Clockwork.Shims.System.Threading.ControlledCancellationTokenSource";
 
     // Cecil full names for the exact overload parameters (from the net10 reference assemblies).
     private const string Int32 = "System.Int32";
@@ -153,11 +153,11 @@ public static class BuiltInRuleSets
     // Cecil full names for the controlled System.Threading.Thread surface.
     private const string ThreadType = "System.Threading.Thread";
     private const string TimerType = "System.Threading.Timer";
-    private const string ControlledTimerType = "Clockwork.Runtime.Threading.ControlledTimer";
+    private const string ControlledTimerType = "Clockwork.Shims.System.Threading.ControlledTimer";
     private const string TimersTimerType = "System.Timers.Timer";
-    private const string ControlledTimersTimerType = "Clockwork.Runtime.Threading.ControlledTimersTimer";
+    private const string ControlledComponentTimerType = "Clockwork.Shims.System.Timers.ControlledTimer";
     private const string PeriodicTimerType = "System.Threading.PeriodicTimer";
-    private const string ControlledPeriodicTimerType = "Clockwork.Runtime.Threading.ControlledPeriodicTimer";
+    private const string ControlledPeriodicTimerType = "Clockwork.Shims.System.Threading.ControlledPeriodicTimer";
     private const string CancellationTokenSourceType = "System.Threading.CancellationTokenSource";
     private const string ThreadStart = "System.Threading.ThreadStart";
     private const string ParameterizedThreadStart = "System.Threading.ParameterizedThreadStart";
@@ -184,7 +184,7 @@ public static class BuiltInRuleSets
     // field / parameter and the Unregister instance member remap onto the controlled type, while the static
     // factories are redirected to shims returning it.
     private const string RegisteredWaitHandleType = "System.Threading.RegisteredWaitHandle";
-    private const string ControlledRegisteredWaitHandleType = "Clockwork.Runtime.Threading.ControlledRegisteredWaitHandle";
+    private const string ControlledRegisteredWaitHandleType = "Clockwork.Shims.System.Threading.ControlledRegisteredWaitHandle";
 
     // Cecil full names shared by the registered-wait factory redirects. Each of
     // RegisterWaitForSingleObject and UnsafeRegisterWaitForSingleObject has four timeout overloads
@@ -236,8 +236,8 @@ public static class BuiltInRuleSets
     private const string BooleanRef = "System.Boolean&";
     private const string LockType = "System.Threading.Lock";
     private const string LockScopeType = "System.Threading.Lock/Scope";
-    private const string ControlledLockType = "Clockwork.Runtime.Threading.ControlledLock";
-    private const string ControlledLockScopeType = "Clockwork.Runtime.Threading.ControlledLock/Scope";
+    private const string ControlledLockType = "Clockwork.Shims.System.Threading.ControlledLock";
+    private const string ControlledLockScopeType = "Clockwork.Shims.System.Threading.ControlledLock/Scope";
     private const string SemaphoreSlimType = "System.Threading.SemaphoreSlim";
 
     // Cecil full names for the controlled wait-handle and atomic control Interlocked atomic surface. Every overload takes its
@@ -282,7 +282,7 @@ public static class BuiltInRuleSets
     // `default`, the instance members (Count, NextSpinWillYield, Reset, SpinOnce overloads) and the static
     // SpinUntil overloads remap onto the controlled struct.
     private const string SpinWaitType = "System.Threading.SpinWait";
-    private const string ControlledSpinWaitType = "Clockwork.Runtime.Threading.ControlledSpinWait";
+    private const string ControlledSpinWaitType = "Clockwork.Shims.System.Threading.ControlledSpinWait";
 
     // Cecil full names for the controlled wait-handle and atomic control event / wait-handle surface. AutoResetEvent,
     // ManualResetEvent and EventWaitHandle are concrete sealed classes: the real objects are retained as
@@ -301,8 +301,8 @@ public static class BuiltInRuleSets
     private const string SafeWaitHandleType = "Microsoft.Win32.SafeHandles.SafeWaitHandle";
     private const string EventWaitHandleRef = "System.Threading.EventWaitHandle&";
     private const string WaitHandleArray = "System.Threading.WaitHandle[]";
-    private const string WaitHandleShim = "Clockwork.Runtime.Threading.ControlledWaitHandle";
-    private const string EventWaitHandleShim = "Clockwork.Runtime.Threading.ControlledEventWaitHandle";
+    private const string WaitHandleShim = "Clockwork.Shims.System.Threading.ControlledWaitHandle";
+    private const string EventWaitHandleShim = "Clockwork.Shims.System.Threading.ControlledEventWaitHandle";
 
     // Cecil full names for the modern synchronization families. ReaderWriterLockSlim and
     // ManualResetEventSlim retain BCL identity objects and use receiver-first static shims. Mutex and the
@@ -323,17 +323,17 @@ public static class BuiltInRuleSets
     private const string SendOrPostCallbackType = "System.Threading.SendOrPostCallback";
     private const string IntPtrArray = "System.IntPtr[]";
     private const string BarrierType = "System.Threading.Barrier";
-    private const string ControlledBarrierType = "Clockwork.Runtime.Threading.ControlledBarrier";
+    private const string ControlledBarrierType = "Clockwork.Shims.System.Threading.ControlledBarrier";
     private const string CountdownEventType = "System.Threading.CountdownEvent";
-    private const string ControlledCountdownEventType = "Clockwork.Runtime.Threading.ControlledCountdownEvent";
+    private const string ControlledCountdownEventType = "Clockwork.Shims.System.Threading.ControlledCountdownEvent";
     private const string SpinLockType = "System.Threading.SpinLock";
-    private const string ControlledSpinLockType = "Clockwork.Runtime.Threading.ControlledSpinLock";
+    private const string ControlledSpinLockType = "Clockwork.Shims.System.Threading.ControlledSpinLock";
 
 
     // Cecil full names for the compiler-generated async machinery (BCL) and their controlled substitutes.
     // Nested awaiter types use Cecil's '/' separator; generic arities carry the backtick.
     private const string CompilerNs = "System.Runtime.CompilerServices.";
-    private const string ControlledNs = "Clockwork.Runtime.Tasks.CompilerServices.";
+    private const string ControlledNs = "Clockwork.Shims.System.Runtime.CompilerServices.";
     private const string BclBuilder = CompilerNs + "AsyncTaskMethodBuilder";
     private const string BclBuilderT = CompilerNs + "AsyncTaskMethodBuilder`1";
     private const string BclTaskAwaiter = CompilerNs + "TaskAwaiter";
@@ -799,7 +799,7 @@ public static class BuiltInRuleSets
         // ---- Timer types and TimeProvider bridge. Whole-type substitutions ensure constructors,
         // properties, events, and instance methods cannot bypass the controlled timer implementations. ----
         Sub(builder, BuiltInRuleFamily.Timers, "clockwork.timer.threading.type", TimerType, ControlledTimerType);
-        Sub(builder, BuiltInRuleFamily.Timers, "clockwork.timer.component.type", TimersTimerType, ControlledTimersTimerType);
+        Sub(builder, BuiltInRuleFamily.Timers, "clockwork.timer.component.type", TimersTimerType, ControlledComponentTimerType);
         Sub(builder, BuiltInRuleFamily.Timers, "clockwork.timer.periodic.type", PeriodicTimerType, ControlledPeriodicTimerType);
         TaskRule(builder, BuiltInRuleFamily.Timers, "clockwork.timeprovider.system",
             MemberSignature.Method(TimeProvider, "get_System"), Shim(TimeProviderShim, "get_System"));

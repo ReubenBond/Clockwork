@@ -148,7 +148,7 @@ public sealed class ControlledThreadPoolTests
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            var ex = Assert.Throws<ControlledApiException>(
+            var ex = Assert.Throws<SimulationApiException>(
                 () => ControlledThreadPool.RejectNativeOverlapped(
                     "System.Threading.ThreadPool.UnsafeQueueNativeOverlapped"));
             Assert.Contains("UnsafeQueueNativeOverlapped", ex.Message, StringComparison.Ordinal);
@@ -283,7 +283,7 @@ public sealed class ControlledThreadPoolTests
                     count++;
                     if (count == 1)
                     {
-                        ControlledTaskRuntime.QueueWork(
+                        SimulationTaskRuntime.QueueWork(
                             () =>
                             {
                                 ControlledEventWaitHandle.Set(evt);

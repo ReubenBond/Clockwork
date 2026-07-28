@@ -389,8 +389,8 @@ NativeAOT, signed assemblies, and profiler conflicts).
 The built-in simulation rule set **`clockwork.bcl.deterministic`** (version `2.0.0`),
 makes ordinary source that calls the direct **static** time / identity / random BCL surface
 deterministic - with no dependency injection, no `TimeProvider` threading, and no manual shim
-wiring. Enabling it rewrites those call sites to runtime shims in the `Clockwork` assembly
-(namespace `Clockwork.Runtime.Shims`).
+wiring. Enabling it rewrites those call sites to runtime shims in the `Clockwork` assembly,
+under namespaces matching `Clockwork.Shims.<framework namespace>`.
 The complete, exhaustive list of controlled and rejected signatures is generated into
 [`docs/rule-inventory.md`](docs/rule-inventory.md) and verified against the shipped rules by a
 test, so the documentation cannot drift from the code.
@@ -428,7 +428,7 @@ active Clockwork simulation; invoking one without an active simulation throws
 Production binaries remain uninstrumented and therefore retain ordinary BCL behavior. The renamed
 runtime inventory uses `ControlledDateTime`, `ControlledDateTimeOffset`, `ControlledStopwatch`,
 `ControlledEnvironment`, `ControlledGuid`, `ControlledRandom`,
-`ControlledRandomNumberGenerator`, `ControlledInsecureRandomNumberGenerator`, and
+`ControlledRandomNumberGenerator`, `SimulationInsecureRandomNumberGenerator`, and
 `SimulationStableHash`.
 
 **Semantics.** Local-time clocks (`DateTime.Now`/`Today`, `DateTimeOffset.Now`) honour the
@@ -484,7 +484,7 @@ Alongside it, call-site redirects route the `Task.WhenAll`/`Task.WhenAny` combin
 `Task<T>` overloads** — the synchronous `Task.Wait()`/`WaitAll`/`WaitAny(Task[])` waits, the
 blocking generic `Task<T>.Result` accessor, the `TaskExtensions.Unwrap` extension methods, and
 `Task.ContinueWith(Action<Task>)` to
-`Clockwork.Runtime.Tasks.ControlledTask`. Synchronous waits and blocking `Task<T>.Result` reads
+`Clockwork.Shims.System.Threading.Tasks.ControlledTask`. Synchronous waits and blocking `Task<T>.Result` reads
 **pump the coordinator loop until completion instead of blocking a physical thread**, so they never
 deadlock the scheduler, then delegate to the real API for its exact `AggregateException` semantics.
 

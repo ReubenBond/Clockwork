@@ -31,7 +31,7 @@ public static class RewriteEngine
 
     /// <summary>
     /// The simple name of the shim assembly that declares the exception-hardening guard
-    /// (<c>Clockwork.Runtime.ControlledExceptionGuard</c>). The caller must include the Clockwork assembly in
+    /// (<c>Clockwork.Runtime.SimulationExceptionGuard</c>). The caller must include the Clockwork assembly in
     /// <see cref="RewriteOptions.ReplacementAssemblyPaths"/> when
     /// <see cref="RewriteOptions.HardenExceptionHandlers"/> is enabled.
     /// </summary>

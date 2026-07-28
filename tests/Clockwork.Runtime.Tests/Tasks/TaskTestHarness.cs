@@ -6,7 +6,7 @@ namespace Clockwork.Runtime.Tests.Tasks;
 
 /// <summary>
 /// Test helpers for driving the controlled task machinery under a simulation scheduler and node,
-/// so <see cref="ControlledTaskRuntime"/> takes its controlled path.
+/// so <see cref="SimulationTaskRuntime"/> takes its controlled path.
 /// </summary>
 internal static class TaskTestHarness
 {

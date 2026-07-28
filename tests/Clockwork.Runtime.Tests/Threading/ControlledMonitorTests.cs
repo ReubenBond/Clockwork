@@ -255,7 +255,7 @@ public sealed class ControlledMonitorTests
 
             // No other strand can ever pulse, so the parked wait can never make progress. On the single
             // logical thread that is recognised immediately as a deadlock instead of a real-time hang.
-            Assert.Throws<ControlledSynchronousWaitDeadlockException>(() => ControlledMonitor.Wait(mon));
+            Assert.Throws<SimulationSynchronousWaitDeadlockException>(() => ControlledMonitor.Wait(mon));
         });
     }
 
@@ -282,7 +282,7 @@ public sealed class ControlledMonitorTests
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            var ex = Assert.Throws<ControlledApiException>(
+            var ex = Assert.Throws<SimulationApiException>(
                 () => ControlledMonitor.LockContentionCount());
             Assert.Equal("System.Threading.Monitor.LockContentionCount", ex.ApiName);
         });

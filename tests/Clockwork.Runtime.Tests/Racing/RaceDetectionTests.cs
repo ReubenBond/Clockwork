@@ -4,7 +4,7 @@ using Clockwork.Runtime.Scheduling;
 using Clockwork.Runtime.Scheduling.Strategies;
 using Clockwork.Runtime.Tests.Scheduling;
 using Clockwork.Runtime.Tasks;
-using Clockwork.Runtime.Tasks.CompilerServices;
+using Clockwork.Shims.System.Runtime.CompilerServices;
 using Clockwork.Runtime.Threading;
 
 namespace Clockwork.Runtime.Tests.Racing;
@@ -338,9 +338,9 @@ public sealed class RaceDetectionTests
         long nestedStrand = 0;
         scheduler.Schedule("identity", () =>
         {
-            schedulerStrand = ControlledSynchronizationFlow.CurrentId;
-            ControlledSynchronizationFlow.RunAsNewStrand(
-                () => nestedStrand = ControlledSynchronizationFlow.CurrentId);
+            schedulerStrand = SimulationSynchronizationFlow.CurrentId;
+            SimulationSynchronizationFlow.RunAsNewStrand(
+                () => nestedStrand = SimulationSynchronizationFlow.CurrentId);
         });
         scheduler.Drain();
 

@@ -1,0 +1,6 @@
+global using Clockwork.Shims.System;
+global using Clockwork.Shims.System.Diagnostics;
+global using Clockwork.Shims.System.Runtime.CompilerServices;
+global using Clockwork.Shims.System.Security.Cryptography;
+global using Clockwork.Shims.System.Threading;
+global using Clockwork.Shims.System.Threading.Tasks;

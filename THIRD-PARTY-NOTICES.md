@@ -100,7 +100,7 @@ must be updated in the same change with:
   the atomic wait/pulse condition-variable protocol, and max-count enforcement). **No Coyote
   source was copied verbatim into these files:** unlike Coyote's scheduler-backed wrappers,
   Clockwork's primitives are built on the cooperative logical-thread coordinator
-  (`ControlledTaskRuntime`) with an ambient logical-strand identity, model "blocking" as loop
+  (`SimulationTaskRuntime`) with an ambient logical-strand identity, model "blocking" as loop
   pumping via `DrainUntil`, and associate per-object state through a weak-keyed
   `ConditionalWeakTable`. Because the approach — not literal source — was adapted, these files
   do not carry a Coyote copyright header; this entry records the design lineage. The per-member
@@ -120,7 +120,7 @@ must be updated in the same change with:
   read-modify-write, acquire/release volatile intent, and cooperative spin yielding). **No Coyote
   source was copied verbatim into these files:** as with the other controlled synchronization
   primitives, Clockwork's implementations are built on
-  the cooperative logical-thread coordinator (`ControlledTaskRuntime`) with weak-keyed
+  the cooperative logical-thread coordinator (`SimulationTaskRuntime`) with weak-keyed
   `ConditionalWeakTable` side state and virtual-time deadlines rather than Coyote's scheduler-backed
   wrappers, so they carry no Coyote copyright header; this entry records the design lineage. The
   per-member parity ledger (every Coyote event/`WaitHandle`/`Interlocked`/`Volatile`/`SpinWait` entry

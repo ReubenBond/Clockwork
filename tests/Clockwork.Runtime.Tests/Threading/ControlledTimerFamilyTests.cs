@@ -16,7 +16,7 @@ public sealed class ControlledTimerFamilyTests
         var elapsed = new List<System.Timers.ElapsedEventArgs>();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            using var timer = new ControlledTimersTimer(TimeSpan.FromMilliseconds(25))
+            using var timer = new Clockwork.Shims.System.Timers.ControlledTimer(TimeSpan.FromMilliseconds(25))
             {
                 AutoReset = false,
             };
@@ -40,7 +40,7 @@ public sealed class ControlledTimerFamilyTests
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            using var timer = new ControlledTimersTimer(10);
+            using var timer = new Clockwork.Shims.System.Timers.ControlledTimer(10);
             timer.Elapsed += (_, _) => count++;
             timer.Start();
             timer.Stop();
@@ -61,8 +61,8 @@ public sealed class ControlledTimerFamilyTests
         var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            using var timer = new ControlledTimersTimer();
-            Assert.Throws<ControlledApiException>(
+            using var timer = new Clockwork.Shims.System.Timers.ControlledTimer();
+            Assert.Throws<SimulationApiException>(
                 () => timer.SynchronizingObject = new SynchronizingObjectStub());
         });
     }
@@ -76,7 +76,7 @@ public sealed class ControlledTimerFamilyTests
         var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(
             coordinator,
-            () => Assert.Throws<ArgumentException>(() => new ControlledTimersTimer(interval)));
+            () => Assert.Throws<ArgumentException>(() => new Clockwork.Shims.System.Timers.ControlledTimer(interval)));
     }
 
     [Fact]

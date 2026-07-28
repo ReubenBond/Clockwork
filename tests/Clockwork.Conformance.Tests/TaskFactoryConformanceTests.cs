@@ -117,7 +117,7 @@ public sealed class TaskFactoryConformanceTests : IDisposable
                     Task.Factory.StartNew(() => { }, TaskCreationOptions.AttachedToParent);
                     return Task.FromResult(false);
                 }
-                catch (Exception ex) when (ex.GetType().Name == "ControlledApiException")
+                catch (Exception ex) when (ex.GetType().Name == "SimulationApiException")
                 {
                     return Task.FromResult(true);
                 }
@@ -135,7 +135,7 @@ public sealed class TaskFactoryConformanceTests : IDisposable
                         schedulers.ExclusiveScheduler);
                     return Task.FromResult(false);
                 }
-                catch (Exception ex) when (ex.GetType().Name == "ControlledApiException")
+                catch (Exception ex) when (ex.GetType().Name == "SimulationApiException")
                 {
                     return Task.FromResult(true);
                 }
@@ -198,12 +198,12 @@ public sealed class TaskFactoryConformanceTests : IDisposable
         using var host = new SimulationHost(Start);
         var task = (Task<long[]>)host.Invoke(
             Method("Identity", optimize),
-            (Func<long>)(() => Clockwork.Runtime.Threading.ControlledSynchronizationFlow.CurrentId))!;
+            (Func<long>)(() => Clockwork.Runtime.Threading.SimulationSynchronizationFlow.CurrentId))!;
         long[] values = Result<long[]>(task);
 
         Assert.Equal(values[0], values[2]);
-        Assert.NotEqual(Clockwork.Runtime.Threading.ControlledSynchronizationFlow.None, values[1]);
-        Assert.NotEqual(Clockwork.Runtime.Threading.ControlledSynchronizationFlow.None, values[3]);
+        Assert.NotEqual(Clockwork.Runtime.Threading.SimulationSynchronizationFlow.None, values[1]);
+        Assert.NotEqual(Clockwork.Runtime.Threading.SimulationSynchronizationFlow.None, values[3]);
         Assert.NotEqual(values[1], values[3]);
     }
 

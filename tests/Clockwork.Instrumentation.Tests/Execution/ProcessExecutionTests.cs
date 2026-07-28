@@ -43,10 +43,10 @@ public sealed class ProcessExecutionTests
             staged.ExitCode == 0,
             $"Staged process failed ({staged.ExitCode}):\n{staged.StandardOutput}\n{staged.StandardError}");
         Assert.Contains("monitor=rejected", staged.Output);
-        Assert.Contains("lock=Clockwork.Runtime.Threading.ControlledLock", staged.Output);
+        Assert.Contains("lock=Clockwork.Shims.System.Threading.ControlledLock", staged.Output);
         Assert.Contains("semaphore=signaled", staged.Output);
         Assert.Contains("delays=6", staged.Output);
-        Assert.Contains("timer=Clockwork.Runtime.Threading.ControlledTimer", staged.Output);
+        Assert.Contains("timer=Clockwork.Shims.System.Threading.ControlledTimer", staged.Output);
     }
 
     [Fact]

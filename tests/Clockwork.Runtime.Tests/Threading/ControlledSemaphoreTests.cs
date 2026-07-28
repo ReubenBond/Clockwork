@@ -215,14 +215,14 @@ public sealed class ControlledSemaphoreTests
         var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            Assert.Throws<ControlledApiException>(() => ControlledSemaphore.CreateNamed(0, 1, "clockwork-semaphore"));
-            Assert.Throws<ControlledApiException>(() => ControlledSemaphore.CreateNamed(0, 1, "clockwork-semaphore", out _));
-            Assert.Throws<ControlledApiException>(() => ControlledSemaphore.CreateNamed(0, 1, "clockwork-semaphore", default));
-            Assert.Throws<ControlledApiException>(() => ControlledSemaphore.CreateNamed(0, 1, "clockwork-semaphore", default, out _));
-            Assert.Throws<ControlledApiException>(() => ControlledSemaphore.OpenExisting("clockwork-semaphore"));
-            Assert.Throws<ControlledApiException>(() => ControlledSemaphore.OpenExisting("clockwork-semaphore", default));
-            Assert.Throws<ControlledApiException>(() => ControlledSemaphore.TryOpenExisting("clockwork-semaphore", out _));
-            Assert.Throws<ControlledApiException>(() => ControlledSemaphore.TryOpenExisting("clockwork-semaphore", default, out _));
+            Assert.Throws<SimulationApiException>(() => ControlledSemaphore.CreateNamed(0, 1, "clockwork-semaphore"));
+            Assert.Throws<SimulationApiException>(() => ControlledSemaphore.CreateNamed(0, 1, "clockwork-semaphore", out _));
+            Assert.Throws<SimulationApiException>(() => ControlledSemaphore.CreateNamed(0, 1, "clockwork-semaphore", default));
+            Assert.Throws<SimulationApiException>(() => ControlledSemaphore.CreateNamed(0, 1, "clockwork-semaphore", default, out _));
+            Assert.Throws<SimulationApiException>(() => ControlledSemaphore.OpenExisting("clockwork-semaphore"));
+            Assert.Throws<SimulationApiException>(() => ControlledSemaphore.OpenExisting("clockwork-semaphore", default));
+            Assert.Throws<SimulationApiException>(() => ControlledSemaphore.TryOpenExisting("clockwork-semaphore", out _));
+            Assert.Throws<SimulationApiException>(() => ControlledSemaphore.TryOpenExisting("clockwork-semaphore", default, out _));
         });
     }
 

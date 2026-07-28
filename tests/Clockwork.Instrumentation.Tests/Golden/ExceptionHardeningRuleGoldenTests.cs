@@ -11,13 +11,13 @@ namespace Clockwork.Instrumentation.Tests.Golden;
 /// End-to-end golden tests for the exception-hardening pass. They rewrite a compiled
 /// fixture with several handler shapes against the real <c>Clockwork</c> assembly and assert that only
 /// broad <c>catch (Exception)</c> / <c>catch</c> blocks and exception <c>filter</c>s receive the injected
-/// <c>dup; call ControlledExceptionGuard.ThrowIfControlSignal(object)</c> guard, while narrow typed catches,
+/// <c>dup; call SimulationExceptionGuard.ThrowIfControlSignal(object)</c> guard, while narrow typed catches,
 /// finally blocks, and rethrow-only handlers are left untouched - and that the rewritten module still
 /// verifies (round-trips through <see cref="RewriteResult.EnsureSuccess"/> and reloads).
 /// </summary>
 public sealed class ExceptionHardeningRuleGoldenTests
 {
-    private const string GuardCall = "ControlledExceptionGuard::ThrowIfControlSignal";
+    private const string GuardCall = "SimulationExceptionGuard::ThrowIfControlSignal";
 
     private const string Fixture = """
         using System;
@@ -70,7 +70,7 @@ public sealed class ExceptionHardeningRuleGoldenTests
         """;
 
     private static string RuntimeAssemblyPath =>
-        typeof(Clockwork.Runtime.ControlledExceptionGuard).Assembly.Location;
+        typeof(Clockwork.Runtime.SimulationExceptionGuard).Assembly.Location;
 
     private static ModuleDefinition RewriteAndLoad(RewriteTestContext context, string assemblyName)
     {

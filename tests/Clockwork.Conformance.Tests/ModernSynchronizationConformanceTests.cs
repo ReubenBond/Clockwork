@@ -175,9 +175,9 @@ public sealed class ModernSynchronizationConformanceTests : IDisposable
         StagedProbe probe = Stage(optimize);
         using var host = new SimulationHost(Start);
 
-        Assert.Throws<ControlledApiException>(() => host.Invoke(probe.Method("NamedMutex")));
-        Assert.Throws<ControlledApiException>(() => host.Invoke(probe.Method("NamedSemaphore")));
-        Assert.Throws<ControlledApiException>(
+        Assert.Throws<SimulationApiException>(() => host.Invoke(probe.Method("NamedMutex")));
+        Assert.Throws<SimulationApiException>(() => host.Invoke(probe.Method("NamedSemaphore")));
+        Assert.Throws<SimulationApiException>(
             () => host.Invoke(probe.Method("RawSynchronizationContextWait")));
     }
 
@@ -204,7 +204,7 @@ public sealed class ModernSynchronizationConformanceTests : IDisposable
         Assert.Contains(
             closure.Methods.SelectMany(method => method.HasBody ? method.Body.Instructions : []),
             instruction => instruction.Operand is MethodReference reference
-                && reference.DeclaringType.FullName == "Clockwork.Runtime.Threading.ControlledManualResetEventSlim"
+                && reference.DeclaringType.FullName == "Clockwork.Shims.System.Threading.ControlledManualResetEventSlim"
                 && reference.Name == "Set");
     }
 

@@ -236,7 +236,8 @@ binary is not supported.
 
 The built-in simulation rule set `clockwork.bcl.deterministic` (version `2.0.0`),
 redirects the direct **static** time / identity / random BCL surface to Cecil-free runtime
-shims in the `Clockwork` assembly (namespace `Clockwork.Runtime.Shims`). The complete, exhaustive
+shims in the `Clockwork` assembly, under namespaces matching
+`Clockwork.Shims.<framework namespace>`. The complete, exhaustive
 list of controlled and rejected signatures is generated into
 [`rule-inventory.md`](rule-inventory.md) and verified against the shipped rules by a test, so
 the published inventory can never drift from the code.
@@ -255,7 +256,7 @@ Controlled entry point requires an active Clockwork simulation; without one it t
 Uninstrumented production binaries retain ordinary BCL behavior. The runtime inventory names are
 `ControlledDateTime`, `ControlledDateTimeOffset`, `ControlledStopwatch`, `ControlledEnvironment`,
 `ControlledGuid`, `ControlledRandom`, `ControlledRandomNumberGenerator`,
-`ControlledInsecureRandomNumberGenerator`, and `SimulationStableHash`.
+`SimulationInsecureRandomNumberGenerator`, and `SimulationStableHash`.
 
 Semantics: local-time clocks (`DateTime.Now`/`Today`, `DateTimeOffset.Now`) honour the
 configured simulation time zone; `Environment.TickCount`/`TickCount64` wrap with correct
@@ -288,7 +289,7 @@ verified against the shipped rules by a test.
 
 The rule set has two halves. A **member-aware type substitution** pass retargets the
 compiler-generated builder and awaiter types of an `async` state machine onto controlled
-value-type equivalents in `Clockwork.Runtime.Tasks.CompilerServices`
+value-type equivalents in `Clockwork.Shims.System.Runtime.CompilerServices`
 (`AsyncTaskMethodBuilder`(`<T>`) → `ControlledAsyncTaskMethodBuilder`(`<T>`); `TaskAwaiter`(`<T>`),
 `ConfiguredTaskAwaitable`(`<T>`)`/ConfiguredTaskAwaiter`, and `YieldAwaitable`/`YieldAwaiter` →
 their `Controlled…` counterparts), rewriting field, local, method- and field-reference, and
@@ -307,7 +308,7 @@ generic `Task<T>` overloads** (array, span, enumerable, and the `WhenAny<T>` pai
 `Task.Wait()` / `Task.WaitAll` / `Task.WaitAny(Task[])` waits, the blocking generic
 `Task<T>.Result` accessor, the `TaskExtensions.Unwrap` extension methods, and
 `Task.ContinueWith(Action<Task>)` to
-`Clockwork.Runtime.Tasks.ControlledTask`. Combinators delegate to the real BCL (their completion
+`Clockwork.Shims.System.Threading.Tasks.ControlledTask`. Combinators delegate to the real BCL (their completion
 is driven by antecedents that complete on the logical thread); synchronous waits **pump the
 coordinator loop until completion instead of blocking a physical thread**, then delegate to the
 real API to reproduce its exact `AggregateException` semantics, so a synchronous wait or a blocking
@@ -375,7 +376,7 @@ and `Parallel.Invoke`/`For`/`ForEach`.
   silently accepted. Clockwork diagnoses rather than runtime-wraps the foreign task (honest about
   what it can prove); framework-hosted I/O remains outside the instrumentation boundary.
 - **Exception-handler hardening is defence-in-depth.** With `HardenExceptionHandlers` enabled, a
-  `dup; call ControlledExceptionGuard.ThrowIfControlSignal` is injected at the start of every broad
+  `dup; call SimulationExceptionGuard.ThrowIfControlSignal` is injected at the start of every broad
   `catch (Exception)`/`catch`/filter handler so an internal scheduler control signal cannot be
   swallowed by application `catch` blocks. Finally blocks, rethrow-only handlers, and async
   state-machine `SetException` handlers are skipped, and **normal application exception handling is
@@ -429,7 +430,7 @@ physical-gate backend lands):
 - **A never-satisfiable acquire or *indefinite* wait surfaces as a deadlock diagnostic, not a hang.**
   A finite wait times out (above); an infinite one with no possible progress is reported. Instead of
   blocking a physical thread forever, an unsatisfiable contended `Enter`, `Monitor.Wait`, or
-  `SemaphoreSlim.Wait` throws the loop-model `ControlledSynchronousWaitDeadlockException`. One
+  `SemaphoreSlim.Wait` throws the loop-model `SimulationSynchronousWaitDeadlockException`. One
   consequence: a `Monitor.Wait` that deadlocks has already released the monitor to wait, so a
   compiler-generated `lock` `finally` that then runs `Monitor.Exit` would observe no ownership — the
   deadlock is a terminal diagnostic for the run, not a recoverable exception to catch inside a `lock`.
