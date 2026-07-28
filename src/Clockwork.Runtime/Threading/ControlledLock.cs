@@ -80,7 +80,7 @@ public sealed class ControlledLock
     }
 
     /// <summary>Controlled <see cref="System.Threading.Lock.TryEnter(int)"/>.</summary>
-    /// <param name="millisecondsTimeout">Zero for a non-blocking try; -1 or a finite positive value to block. Finite positive timeouts are modelled as infinite inside a simulation (virtual-time timeouts are Phase 8).</param>
+    /// <param name="millisecondsTimeout">Zero for a non-blocking try; -1 or a finite positive value to block. Finite positive timeouts are modelled as infinite inside a simulation (virtual-time timeouts are virtual-time control).</param>
     /// <returns><see langword="true"/> if the lock was acquired.</returns>
     public bool TryEnter(int millisecondsTimeout)
     {

@@ -4,7 +4,7 @@ using Clockwork.Runtime.Scheduling.Resources;
 namespace Clockwork.Runtime.Tests.Scheduling.Resources;
 
 /// <summary>
-/// Teardown/disposal coverage for the Phase 3B wait states: an operation parked on an infinite
+/// Teardown/disposal coverage for the resource/wait states: an operation parked on an infinite
 /// resource wait, one parked with a pending virtual-time timeout, and one parked with a live
 /// cancellation registration must all be reclaimed by <see cref="ControlledOperationScheduler.Dispose"/>
 /// without leaking a physical thread, a pending timeout item, or a cancellation callback.

@@ -1,20 +1,18 @@
 # Compatibility and capability contract
 
-This document describes the intended execution modes for Clockwork's deterministic
-instrumentation work and the platform/deployment contract those modes are designed
-against. It is a durable product document, not a task plan: it should stay accurate
-as the corresponding capabilities are implemented, and it should be updated (not
-duplicated) as scope firms up in later phases.
+This document describes Clockwork's supported deterministic execution modes and
+platform/deployment contract. It is a durable product document and should be updated,
+not duplicated, as supported scope changes.
 
-> **Current status:** The authoritative capability summary is
+> **Authoritative summary:** The current capability matrix is
 > [README — Current capability contract](../README.md#current-capability-contract). The kernel,
-> build/tool rewriting pipeline, analyzers, built-in BCL/task rules, and Phase 8A synchronization
-> rules described there are implemented. Phase-labelled sections in this document are historical
-> delivery records; their “not yet” statements describe that milestone, not current capability.
+> build/tool rewriting pipeline, analyzers, and built-in BCL/task/synchronization
+> rules described there are implemented. This document describes only current behavior and
+> durable limitations.
 
 ## Intended execution modes
 
-Clockwork's roadmap distinguishes four modes of running application code against
+Clockwork supports four modes of running application code against
 the deterministic kernel. They trade off fidelity, overhead, and how much of the
 application's own concurrency they can observe or control.
 
@@ -34,102 +32,24 @@ synchronization surfaces run on logical strands. Controlled code never falls thr
 or unregistered runtime service: it fails explicitly instead. Timers, delays, asynchronous timeouts,
 and timer-driven cancellation use the shared virtual-time deadline scheduler.
 
-#### Controlled-operation kernel (Phase 3A)
+#### Scheduling and resource model
 
-Controlled mode's *scheduling substrate* is the controlled-operation kernel in
-`Clockwork.Runtime/Scheduling/` (`ControlledOperation`, `ControlledOperationScheduler`).
-It establishes the one invariant every future controlled primitive depends on: **at
-most one logical operation executes system-under-test code at a time, even when
-operations run on multiple physical threads.** Each operation runs on its own
-dedicated background thread, but a single permission "baton" (handed off via wait
-handles - no busy-spin, no `Thread.Abort`) guarantees exactly-one-running. The
-scheduler - not arbitrary callers - owns every state transition
-(`Created → Runnable → Running → {Paused, Completed, Faulted, Canceled}`); illegal
-edges throw `InvalidControlledOperationTransitionException` with diagnostics rather
-than silently misbehaving. Teardown unparks paused/running operations through an
-explicit control signal and joins their threads with a timeout, so disposal cannot
-strand a thread.
+Controlled mode uses `ControlledOperationScheduler` and the logical-strand task coordinator to ensure
+that at most one logical operation executes system-under-test code at a time. Logical execution ids are
+independent of physical thread ids and flow through `SimulationExecutionContext` into decisions and
+diagnostics. The optional `SimulationTaskQueue` compatibility bridge wraps each ready user callback as a
+controlled operation without changing the default cooperative queue path.
 
-Each operation carries a logical execution identity
-(`SimulationLogicalExecutionId`) that is **distinct from
-`Environment.CurrentManagedThreadId`** - because a single logical operation may hop
-physical threads. The scheduler installs it into `SimulationExecutionContext` on the
-operation thread, so Phase 2 decision records pick it up automatically with no Phase 2
-API change.
+The reusable resource model provides stable resource identities, ownership and capacity metadata,
+deterministic waiter queues, atomic pause/wakeup, virtual-time deadlines, synchronous cancellation,
+wait-for graphs, deadlock/liveness diagnostics, and FIFO, round-robin, seeded-random, priority, and exact
+replay scheduling strategies. Release, timeout, and cancellation races resolve exactly once; equal virtual
+deadlines fire by registration order. Fairness is deliberately limited to deterministic, replayable waiter
+selection and does not claim BCL fairness.
 
-The kernel is wired into the existing `SimulationTaskQueue` as an **opt-in
-compatibility bridge**: when a scheduler is supplied, each *ready item* (one user
-callback) runs as a single controlled operation; internal bookkeeping callbacks are
-deliberately **not** wrapped, to avoid needless behavioral churn. The bridge is off by
-default - a queue built without a scheduler behaves exactly as before, so every
-existing Phase 0/1 trace snapshot stays byte-identical. The one intended difference on
-the controlled path is that item bodies observe a non-null logical execution id
-(inline items observe `None`). Always-on migration of the whole kernel to controlled
-operations is deferred until the resource model exists.
-
-**Deferred to Phase 3B (explicitly not in the kernel):** `Monitor`/`Semaphore`/
-wait-handle/synchronous-`Task`-wait shims, the resource ownership + wait-queue model,
-virtual timeout/cancellation races, deadlock detection, and fairness/priority
-selection strategies beyond the kernel's deterministic round-robin. The kernel only
-provides *generic* pause/resume primitives and pause-reason metadata sufficient for
-those primitives to be built on top; it implements none of them itself. A paused
-operation yields the baton deterministically and later becomes runnable again without
-ever introducing physical concurrency.
-
-#### Reusable resource/wait scheduler (Phase 3B)
-
-Phase 3B builds the *reusable resource and wait layer* every future controlled
-synchronization primitive needs, all inside `Clockwork.Runtime/Scheduling/` - still
-with **no public `Monitor`/`Semaphore`/`WaitHandle`/`Task` shims** (those remain Phase
-6/7; see below). It adds:
-
-- **Controlled resources** (`ControlledResource`, `ControlledResourceId`,
-  `ControlledResourceKind`): a general model with stable identity, an optional owner,
-  capacity/count support, a deterministic waiter queue ordered by enqueue sequence, and
-  rich debug metadata. The `kind` distinguishes `Monitor`, `Semaphore`, events, wait
-  handles, synchronous `Task` waits, and timers without pretending they share identical
-  semantics - specialized behavior is layered on top rather than baked in.
-- **Atomic pause/wakeup** (`WaitOnResource`/`SignalOne`/`SignalAll`): registering a wait
-  atomically transitions the running operation to *paused-on-resource*, yields the
-  permission baton, and later makes it runnable - with no lost wakeups, duplicate queue
-  entries, or stale wakeups (a waiter resolves exactly once).
-- **Virtual-time timeouts** (`ControlledVirtualClock`): zero, finite, and infinite
-  timeouts modeled entirely in virtual time. Because `Clockwork.Runtime` does not depend
-  on the `Clockwork` package, the clock mirrors `SimulationClock` semantics
-  internally instead of referencing it. Timeouts fire only during an explicit virtual-time
-  advance that happens *only when nothing is runnable*, so a pending signal deterministically
-  precedes a same-instant timeout. **No real-time delays are ever used as modeled
-  behavior** - wall-clock time only guards test/process teardown.
-- **Synchronous cancellation** integrated via `CancellationToken.Register` (never
-  `CancelAsync`, never a thread-pool hop): cancellation is observed on the cancelling
-  operation's own thread under the scheduler lock. Release/timeout/cancel races resolve to
-  exactly one terminal reason, and registrations are always disposed on the way out.
-- **Wait-for graph + deadlock detection** (`DetectDeadlock`, `DescribeLiveness`): reports
-  deterministic ownership cycles with operation ids/names, resource ids/names, owners,
-  waiter order, and originating metadata, and classifies liveness so a genuine resource
-  deadlock is distinguished from *paused-until-time*, *externally completable*, and
-  *quiescent* states. Only indefinite waits contribute deadlock edges - a timed wait is
-  always breakable by advancing modeled time. The liveness summary folds in the existing
-  operation-status snapshot, integrating with execution diagnostics.
-- **Pluggable scheduling strategies** (`IControlledSchedulingStrategy`): FIFO/legacy,
-  round-robin (the **default**, byte-for-byte the Phase 3A behavior), seeded-random (from
-  the Phase 2 `Scheduler` seed domain), priority (a crisp `ControlledOperation.Priority`
-  integer, *not* BCL thread priority), and exact replay. Every real choice among two or
-  more runnable operations is recorded as a `SchedulingOrder` decision when a decision log
-  is attached, and replay validation fails at the first divergent choice.
-
-**Fairness is defined narrowly and deliberately.** The layer makes *no* promise of BCL
-fairness. Resource waiter order is deterministic under the selected policy and replayable;
-that is the only guarantee. The strategy interface is public because choosing a scheduling
-policy is a legitimate consumer concern, but it grants no BCL-compatible fairness semantics.
-
-**Still deferred to Phase 6/7 (explicitly not in Phase 3B):** the public
-`Monitor`/`Semaphore(Slim)`/`WaitHandle`/synchronous-`Task`-wait shims themselves, and the
-Cecil/call-site rewriting that would redirect real BCL calls onto this layer. Phase 3B
-provides only the *internal* resource/wait scheduler those shims will sit on; where a
-specific future primitive needs specialized semantics, it plugs into an extensible internal
-hook (resource `kind`, owner metadata, custom strategy) rather than forcing incorrect
-one-size-fits-all behavior into the shared model.
+The built-in task and synchronization shims use this model for monitors, semaphores, wait handles,
+synchronous task waits, timers, and modern synchronization primitives. Controlled instrumentation remains
+opt-in; uninstrumented applications can continue to use cooperative mode directly.
 
 ### Race exploration mode
 
@@ -293,8 +213,8 @@ implicitly.
 
 **Configuration is data, not code.** Configuration and rule sets are JSON documents,
 validated strictly for schema, types, and signatures; **no arbitrary code is executed
-from configuration**. Multiple rule sets merge deterministically by a defined precedence -
-the mechanism future built-in, application, and third-party rules will share.
+from configuration**. Multiple rule sets merge deterministically by a defined precedence shared
+by built-in, application, and third-party rules.
 
 **Strong naming (build/tool scope).** Signed, public-signed, and delay-signed inputs are
 detected. Re-signing happens only when a key is supplied (`ClockworkStrongNamePolicy=Resign`
@@ -312,7 +232,7 @@ IL, it must run **before** crossgen/R2R publish, single-file bundling, and Nativ
 instrument first, then publish. Hooking an already-published R2R, single-file, or NativeAOT
 binary is not supported.
 
-#### First deterministic BCL rule set (Phase 5)
+#### Deterministic BCL rule set
 
 The built-in simulation rule set `clockwork.bcl.deterministic` (version `2.0.0`),
 redirects the direct **static** time / identity / random BCL surface to Cecil-free runtime
@@ -355,7 +275,7 @@ can substitute deterministic-insecure bytes - production security semantics are 
 `--builtin-strict`. The selected families are versioned and folded into the rule-set signature,
 so incremental rebuilds stay correct.
 
-#### Controlled task and async rule set (Phase 6A)
+#### Controlled task and async rule set
 
 The second built-in simulation rule set, `clockwork.tasks.controlled` (version `2.0.0`),
 controls the compiler-generated async machinery and the direct `Task` surface that ordinary
@@ -403,9 +323,9 @@ Synchronous blocking on `ValueTask`/`ValueTask<T>` remains unsupported: a value 
 consumed only once, so a blocking drain is unsafe and `await` is the supported controlled path.
 Other APIs absent from the generated rule inventory are outside the support claim.
 
-#### Threads, thread pool, Parallel, and task-parity closure (Phase 6B)
+#### Threads, thread pool, Parallel, and task parity
 
-Phase 6B extends `clockwork.tasks.controlled` so every unit of concurrent work an application
+`clockwork.tasks.controlled` ensures that every unit of concurrent work an application
 spawns — a `Thread`, a `Task.Run`/`TaskFactory.StartNew` body, a `ThreadPool.QueueUserWorkItem`
 callback, or a `Parallel` branch — is modelled as a **controlled operation scheduled on the same
 single logical thread** the async machinery already uses, instead of escaping onto a physical OS
@@ -413,24 +333,22 @@ thread or the real thread pool. The exhaustive controlled/rejected signature lis
 into [`rule-inventory.md`](rule-inventory.md); the Coyote parity matrix is
 [`coyote-parity.md`](coyote-parity.md).
 
-What is now **controlled** (was rejected or absent in Phase 6A): the full `Task.Run` family and the
-`TaskFactory`/`TaskFactory<T>.StartNew` family (the Phase 6A `Rejected` rules were replaced now that
-thread-pool work can route to the coordinator); the generic `Task<T>.ContinueWith(Action<Task<T>>)`
+Controlled surfaces include the full `Task.Run` and `TaskFactory`/
+`TaskFactory<T>.StartNew` families; the generic `Task<T>.ContinueWith(Action<Task<T>>)`
 and result-producing `Task<T>.ContinueWith<TNewResult>(Func<Task<T>,TNewResult>)` continuations;
 `Thread` construction/`Start`/`Join`/`Sleep`/`Yield`/`SpinWait`; `ThreadPool.QueueUserWorkItem` and
 `UnsafeQueueUserWorkItem` (including the generic `Action<TState>` and `IThreadPoolWorkItem` forms);
 and `Parallel.Invoke`/`For`/`ForEach`.
 
-**Deliberate deviations from real BCL semantics** (documented here, tested, and revisited when the
-physical-gate backend lands):
+**Deliberate deviations from real BCL semantics:**
 
 - **Cooperative, non-preemptive execution.** A controlled thread/threadpool/Parallel body runs as a
   single scheduling unit; it interleaves with other controlled work only at explicit yield points
   (`await`, `Task.Yield`, `Thread.Yield`, `Thread.Sleep`, `Join`, a blocking `Task` wait). This is
   faithful for the async-first concurrency Clockwork targets, but a purely synchronous CPU loop with
   no yield point does **not** interleave the way real preemptive threads would. The physical-gate
-  `ControlledOperationScheduler` (built in Phase 3, not yet wired into the live cluster) is the
-  future backend for fully-preemptive synchronous interleaving.
+  `ControlledOperationScheduler` is not the live task-loop backend; fully preemptive synchronous
+  interleaving is not supported.
 - **`Thread.Sleep` / `Thread.Join(timeout)` are virtual waits.** They yield the logical thread
   through the deterministic loop rather than consuming real wall-clock time. The same virtual-time
   scheduler now backs timers, delays, asynchronous timeouts, and timer-driven cancellation.
@@ -442,7 +360,7 @@ physical-gate backend lands):
   `Priority`/apartment-state/`Interrupt`, `Parallel` `ParallelLoopState` (break/stop) and
   thread-local overloads, and `ThreadPool.UnsafeQueueNativeOverlapped` all fail at the rewritten call
   site with a diagnostic that names the exact API. The registered-wait APIs
-  (`RegisterWaitForSingleObject`/`UnsafeRegisterWaitForSingleObject`) are **controlled as of Phase 7B**
+  (`RegisterWaitForSingleObject`/`UnsafeRegisterWaitForSingleObject`) are **controlled**
   (see below) — they depend on controlled wait handles, which now exist.
 - **Uncontrolled process/termination APIs are rejected *unconditionally*.** `Process.Start`/`Kill`/
   `WaitForExit`/`WaitForExitAsync` and `Environment.Exit`/`FailFast` throw whether or not a
@@ -461,7 +379,7 @@ physical-gate backend lands):
   swallowed by application `catch` blocks. Finally blocks, rethrow-only handlers, and async
   state-machine `SetException` handlers are skipped, and **normal application exception handling is
   unchanged** — the guard is a no-op for every object that is not the internal control signal. This
-  layers on top of Phase 6A's preference for explicit gate/state transitions over control
+  layers on top of the runtime's preference for explicit gate/state transitions over control
   exceptions.
 
 Every instrumented Controlled shim requires an active simulation: work routes through the
@@ -472,9 +390,9 @@ Each mode is intended to be strictly additive: an application written for
 cooperative mode should continue to work unmodified under controlled, race
 exploration, or deep instrumentation mode.
 
-#### Monitors, locks, and semaphores (Phase 7A)
+#### Monitors, locks, and semaphores
 
-Phase 7A puts the highest-value synchronization primitives on the same cooperative logical-thread
+The controlled rule set puts the highest-value synchronization primitives on the same cooperative logical-thread
 kernel: `System.Threading.Monitor` (and therefore every C# `lock (object)` statement),
 `System.Threading.Lock` (and the C# `lock (Lock)` statement), and `System.Threading.SemaphoreSlim`.
 The exhaustive controlled/rejected signature list is regenerated into
@@ -500,7 +418,7 @@ consuming wall-clock time. Zero timeouts stay faithful non-blocking tries and in
 indefinite. The deadline is a `PausedUntilTime` state driven by the cluster clock, so it is *not* a
 deadlock cycle edge; advancing the cluster clock fires it. Because modelled time only advances when
 nothing else is runnable, any release, pulse, or cancellation possible at the current instant beats a
-same-instant timeout (Phase 3B's deterministic first-winner policy), and ties between two deadlines at
+same-instant timeout (the scheduler's deterministic first-winner policy), and ties between two deadlines at
 the same instant resolve by registration order. Cancellation is honoured faithfully — a
 `CancellationToken` fires synchronously on the logical thread and throws `OperationCanceledException`.
 
@@ -522,7 +440,7 @@ physical-gate backend lands):
   `PulseAll`, and `SemaphoreSlim.Release` serve waiters in arrival (FIFO) order for reproducibility; the
   real BCL makes no such guarantee, so code that depends on a specific non-FIFO wakeup order is not a
   target.
-- **`SemaphoreSlim.AvailableWaitHandle` is controlled (Phase 7B).** It exposes a `WaitHandle`; the
+- **`SemaphoreSlim.AvailableWaitHandle` is controlled.** It exposes a `WaitHandle`; the
   rewritten getter hands back a bridged controlled manual-reset handle whose signalled state tracks
   `CurrentCount > 0` and follows disposal, so it composes with the controlled `WaitOne`/`WaitAny`/`WaitAll`
   surface instead of leaking an uncontrolled OS handle.
@@ -530,16 +448,16 @@ physical-gate backend lands):
   `ConditionalWeakTable` keyed weakly by the lock/semaphore object, so a controlled association never
   roots an otherwise-collectible object.
 
-Every instrumented Phase 7A/7B Controlled shim requires an active simulation. The operation routes
+Every instrumented Controlled shim requires an active simulation. The operation routes
 through the coordinator; an active simulation with no registered coordinator throws rather than
 silently escaping. Uninstrumented production binaries continue to call the ordinary BCL primitives.
-**Phase 7B** brings wait handles / events (`WaitHandle`/`EventWaitHandle`/`AutoResetEvent`/`ManualResetEvent`,
+The controlled inventory includes wait handles / events (`WaitHandle`/`EventWaitHandle`/`AutoResetEvent`/`ManualResetEvent`,
 including `WaitAny`/`WaitAll`/`SignalAndWait`), `Interlocked`, `Volatile`, `SpinWait`, the
 `SemaphoreSlim.AvailableWaitHandle` bridge, and the `ThreadPool` registered-wait APIs under control.
 
-#### Modern synchronization (Phase 8A)
+#### Modern synchronization
 
-Phase 8A expands the exact, opt-in `clockwork.tasks.controlled` inventory; the generated
+The modern synchronization rules expand the exact, opt-in `clockwork.tasks.controlled` inventory; the generated
 [`rule-inventory.md`](rule-inventory.md) is the complete controlled/rejected signature list. The
 following behavior applies only to instrumented closure binaries under an active simulation.
 Uninstrumented production binaries keep ordinary BCL behavior; an inactive simulation or a missing
@@ -628,52 +546,38 @@ cancels all remaining registrations without invoking user callbacks.
   `async Task`/`async ValueTask` machinery and the direct `Task`/`Task<T>` combinator (non-generic
   and generic `WhenAll`/`WhenAny`), synchronous-wait, blocking `Task<T>.Result`, and continuation
   surface (including the generic `Task<T>.ContinueWith` and result-producing
-  `ContinueWith<TNewResult>` added in Phase 6B) enumerated in [`rule-inventory.md`](rule-inventory.md),
-  routing `async`/`await` and synchronous waits through the simulation coordinator. Phase 6B also
-  brings `Task.Run`, all 24 .NET 10 `TaskFactory`/`TaskFactory<T>.StartNew` signatures, `Thread`, `ThreadPool`
+  `ContinueWith<TNewResult>`) enumerated in [`rule-inventory.md`](rule-inventory.md),
+  routing `async`/`await` and synchronous waits through the simulation coordinator. The inventory
+  also controls `Task.Run`, all 24 .NET 10 `TaskFactory`/`TaskFactory<T>.StartNew` signatures, `Thread`, `ThreadPool`
   (`QueueUserWorkItem`/`UnsafeQueueUserWorkItem`), and `Parallel` under control (see the Coyote
   parity matrix, [`coyote-parity.md`](coyote-parity.md)). Control is claimed **only** for those
   exact signatures, including virtual timers, all `Task.Delay`/`Task.WaitAsync` overloads, and
   timer-driven cancellation; synchronous `ValueTask` blocking remains a documented hole.
-  **Phase 7A** additionally brings `Monitor` (and the C# `lock (object)`
+  The inventory additionally includes `Monitor` (and the C# `lock (object)`
   statement), `System.Threading.Lock` (and the C# `lock (Lock)` statement), and `SemaphoreSlim` under
-  control. **Phase 7B** completes the synchronization surface: `Interlocked`, `Volatile`, `SpinWait`,
+  control. The synchronization surface also includes `Interlocked`, `Volatile`, `SpinWait`,
   the wait-handle / event family (`WaitHandle`/`EventWaitHandle`/`AutoResetEvent`/`ManualResetEvent`
   with `WaitOne`/`WaitAny`/`WaitAll`/`SignalAndWait`), the `SemaphoreSlim.AvailableWaitHandle` bridge,
   and the `ThreadPool` registered-wait APIs
   (`RegisterWaitForSingleObject`/`UnsafeRegisterWaitForSingleObject`) are all now controlled; named /
-  cross-process event APIs and raw handle accessors are rejected with tested diagnostics. **Phase 8A**
-  adds `ReaderWriterLockSlim`, `ManualResetEventSlim`, unnamed kernel `Mutex`/`Semaphore`, `SpinLock`,
+  cross-process event APIs and raw handle accessors are rejected with tested diagnostics. Modern
+  synchronization adds `ReaderWriterLockSlim`, `ManualResetEventSlim`, unnamed kernel
+  `Mutex`/`Semaphore`, `SpinLock`,
   `ExecutionContext`, `SynchronizationContext`, `Barrier`, and `CountdownEvent`; their exact surfaces
   are described above and in the generated inventory. Their waits use virtual time and controlled loop
   pumping, never a busy spin or OS block.
 - **ReadyToRun inputs** are detected by the build/tool path: the default policy rejects them, while
   `StripToIL` produces an IL-only staged output. Instrument before publishing R2R.
 
-### Deferred / not yet supported
+### Limitations
 
-The following are explicitly **not** supported yet, and are called out here so that
-future work sets expectations correctly rather than discovering the limitation as a
-surprise:
-
-- **Single-file deployment.** Deep instrumentation that rewrites assemblies at build
-  time or hooks module loading at runtime is expected to need adaptation for
-  single-file bundles, where assemblies are embedded rather than present as
-  discrete files on disk. The Phase 4B build/tool path addresses this only by ordering:
-  instrument the IL closure *before* single-file bundling, never after.
-- **Trimming.** IL trimming can remove members that instrumentation depends on
-  reflecting over or rewriting; deep instrumentation and any reflection-based
-  redirection in controlled mode will need explicit trimming annotations or to be
-  incompatible with trimming until those annotations exist.
-- **NativeAOT.** Build-time IL rewriting after NativeAOT's own compilation step, or
-  runtime hooking of a NativeAOT binary (no JIT, no standard profiling APIs in the
-  same form), is out of scope until deep instrumentation's design is settled. As with
-  R2R and single-file, Phase 4B's build path must run before AOT compilation.
-- **Signed (strong-named) assemblies.** Build-time IL rewriting invalidates existing
-  assembly signatures. The Phase 4B build/tool path implements an explicit strong-name
-  policy (fail, or re-sign with a supplied key, verifying public-key-token consistency
-  across the rewritten closure) and detects but does not re-apply Authenticode. What
-  remains deferred is *product-mode* (runtime/load-time) handling of signed assemblies.
+- **Single-file, trimming, and NativeAOT ordering.** Clockwork rewrites managed assemblies, not
+  completed bundles or native images. Instrument the resolved IL closure before single-file
+  bundling, trimming, crossgen/ReadyToRun, or NativeAOT. Rewriting an already bundled, trimmed,
+  ReadyToRun, or NativeAOT output is unsupported.
+- **Signed assemblies.** Rewriting invalidates existing signatures. The build/tool path can fail or
+  re-sign a strong-named closure with a supplied key and verifies public-key-token consistency.
+  Authenticode is detected but not re-applied; consumers must apply it after instrumentation.
 - **Nondeterministic BCL surface beyond the rule inventory.** Only the exact signatures in
   [`rule-inventory.md`](rule-inventory.md) are rewritten. Documented holes include `Stopwatch`
   instance APIs and `GetElapsedTime(long, long)`; generic crypto helpers `GetItems<T>`/`Shuffle<T>`
@@ -681,14 +585,12 @@ surprise:
   parse/format/convert helpers. Timer limitations are unrecognized custom `TimeProvider`
   implementations, non-null `System.Timers.Timer.SynchronizingObject`/designer integration, and
   `Timer.Dispose(WaitHandle)` with a handle outside Clockwork's controlled event surface.
-- **Profiler conflicts.** Deep instrumentation that uses the .NET profiling APIs
-  (ICorProfilerCallback) cannot coexist with other profilers (coverage tools, APM
-  agents, debuggers attaching a profiler) without explicit multi-profiler
-  coordination, which most profiling APIs do not support natively.
+- **No runtime interception.** Clockwork intentionally provides no CLR profiler/ReJIT component,
+  startup hook, `AssemblyLoadContext` rewriting, or native detours. Instrumentation is build-time
+  and out-of-place, avoiding profiler conflicts with coverage and APM tools.
 
-These limitations apply only to controlled-mode auto-redirection and deep
-instrumentation. Cooperative mode has no such constraints beyond what the .NET
-runtime itself imposes, because it requires no rewriting or hooking at all.
+These limitations apply only to controlled-mode build-time redirection. Cooperative mode requires
+no rewriting or hooking and has no additional deployment constraints.
 
 ## Project layout
 
@@ -706,5 +608,4 @@ The implemented package boundaries under `src/` map to the modes above:
 `Clockwork.Testing` remains a separate helper package. Application hosting and transport models are
 consumer-owned and outside the Clockwork core; consumers compose them over `SimulationNetwork` and
 the generic application-composition APIs, and no dedicated hosting or HTTP packages ship. Exact
-shipped interception behavior is defined by [`rule-inventory.md`](rule-inventory.md), not by
-historical phase prose.
+shipped interception behavior is defined by [`rule-inventory.md`](rule-inventory.md).

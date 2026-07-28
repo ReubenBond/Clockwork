@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 namespace Clockwork.Conformance.Tests;
 
 /// <summary>
-/// End-to-end semantic conformance for the Phase&#160;6A controlled <c>ValueTask</c>/<c>ValueTask&lt;T&gt;</c>
+/// End-to-end semantic conformance for the controlled <c>ValueTask</c>/<c>ValueTask&lt;T&gt;</c>
 /// machinery. Ordinary <c>async ValueTask</c> source is compiled (Debug and Release, whose lowered state
 /// machines differ), rewritten so the compiler-generated <c>AsyncValueTaskMethodBuilder</c>,
 /// <c>ValueTaskAwaiter</c>, and <c>ConfiguredValueTaskAwaitable</c> types are retargeted onto Clockwork's

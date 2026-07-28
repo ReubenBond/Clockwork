@@ -17,7 +17,7 @@ namespace Clockwork.Runtime.Tests.Threading;
 /// modelled on the cooperative logical thread, a contended synchronous <c>Wait</c> pumps the loop until
 /// a permit is released, <c>WaitAsync</c> completes when a permit is released, max-count is enforced,
 /// cancellation is honoured, and <c>AvailableWaitHandle</c> is bridged to a controlled manual-reset handle
-/// that tracks count &gt; 0 (Phase 7B).
+/// that tracks count &gt; 0.
 /// </summary>
 public sealed class ControlledSemaphoreSlimTests
 {

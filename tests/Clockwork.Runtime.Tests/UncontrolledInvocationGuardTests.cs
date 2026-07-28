@@ -1,7 +1,7 @@
 namespace Clockwork.Runtime.Tests;
 
 /// <summary>
-/// Tests for the uncontrolled-invocation rejection shim (Phase 6B slice 7). The instrumentation rule set
+/// Tests for the uncontrolled-invocation rejection shim. The instrumentation rule set
 /// rewrites process-control and abrupt-termination call sites to invoke
 /// <see cref="UncontrolledInvocationGuard.Reject(string)"/> before the original call; the guard always
 /// throws an <see cref="UncontrolledInvocationException"/> that names the exact API, so a rewritten

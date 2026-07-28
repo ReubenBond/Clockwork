@@ -8,7 +8,7 @@ namespace Clockwork.Instrumentation.Configuration;
 
 /// <summary>
 /// Reads and writes a <see cref="RewriteRuleSet"/> as a strict, declarative JSON document. This is
-/// the mechanism by which future built-in Clockwork rule sets, and user/application/third-party rule
+/// the mechanism by which built-in Clockwork rules and user/application/third-party rule
 /// sets, are supplied to the build task and CLI: rules are <em>pure data</em>, so loading a rule set
 /// never compiles or executes arbitrary code. Every field is validated (unknown enum values, missing
 /// required members, malformed signatures, and duplicate rule ids are hard errors) so that authoring

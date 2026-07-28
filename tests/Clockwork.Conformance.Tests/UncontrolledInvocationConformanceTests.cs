@@ -3,7 +3,7 @@ using System.Reflection;
 namespace Clockwork.Conformance.Tests;
 
 /// <summary>
-/// End-to-end conformance for the uncontrolled-invocation rejection surface (Phase 6B slice 7). Once a
+/// End-to-end conformance for the uncontrolled-invocation rejection surface. Once a
 /// fixture is rewritten with the controlled-task rule set, real <see cref="System.Diagnostics.Process"/>
 /// and <see cref="System.Environment"/> control call sites throw a
 /// <see cref="Clockwork.Runtime.UncontrolledInvocationException"/> that names the exact API - the rewriter

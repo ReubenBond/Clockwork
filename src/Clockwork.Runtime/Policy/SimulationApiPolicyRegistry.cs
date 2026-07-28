@@ -16,9 +16,8 @@ namespace Clockwork.Runtime.Policy;
 /// intentional per-assembly or per-API override.
 /// </para>
 /// <para>
-/// This is a policy data model only in Phase 2 - nothing here intercepts calls. It exists so a
-/// future interception layer (Phase 3+) has one deterministic place to ask "what should happen for
-/// this API?" instead of hard-coding per-call-site logic.
+/// The registry is the deterministic source of policy decisions for rewrite configuration and
+/// diagnostics; it does not itself perform interception.
 /// </para>
 /// </summary>
 public sealed class SimulationApiPolicyRegistry

@@ -59,7 +59,7 @@ public sealed class SimulationTaskQueue
     /// <para>
     /// Optional controlled-operation kernel (see
     /// <see cref="Clockwork.Runtime.Scheduling.ControlledOperationScheduler"/>). This is the opt-in
-    /// Phase 3A compatibility bridge: when both this and <paramref name="ambientContext"/> are
+    /// controlled-operation kernel compatibility bridge: when both this and <paramref name="ambientContext"/> are
     /// supplied, <see cref="RunOnce"/> runs each ready item as a single controlled operation instead
     /// of invoking it inline, so the item body executes under the kernel's permission baton and
     /// carries a logical execution identity. It is <see langword="null"/> by default, so the queue's
@@ -71,8 +71,8 @@ public sealed class SimulationTaskQueue
     /// callback), not one per internal bookkeeping call (enqueue/remove/peek), to give a meaningful
     /// operation boundary without churning behavior. The kernel's single-baton guarantee makes the
     /// controlled path observably equivalent to the inline path for callbacks that enqueue further
-    /// work and return; re-entrantly driving the queue from within a running item (a synchronous
-    /// pump) is a resource-wait scenario deferred to Phase 3B.
+    /// work and return. Re-entrantly driving the queue from within a running item is not supported by
+    /// this compatibility bridge because it requires a synchronous resource wait.
     /// </para>
     /// </param>
     public SimulationTaskQueue(SimulationClock clock, SingleThreadedGuard guard, SimulationAmbientContextConfiguration? ambientContext = null, ControlledOperationScheduler? operationScheduler = null)
@@ -227,7 +227,7 @@ public sealed class SimulationTaskQueue
     }
 
     /// <summary>
-    /// The opt-in Phase 3A compatibility path for <see cref="RunOnce"/>: dequeues the next ready item
+    /// The opt-in controlled-operation kernel compatibility path for <see cref="RunOnce"/>: dequeues the next ready item
     /// exactly as the inline path does, then runs it as a single controlled operation on the kernel's
     /// permission baton instead of invoking it inline. The single-threaded guard is held across the
     /// baton handoff under the scheduler's control scope, so the controlling thread and the operation

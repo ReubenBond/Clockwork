@@ -23,7 +23,7 @@ namespace Clockwork.Runtime.Threading;
 /// time rather than the caller's captured snapshot.
 /// </para>
 /// <para>
-/// <b>Registered waits (Phase 7B).</b> The <c>RegisterWaitForSingleObject</c> family and its unsafe sibling
+/// <b>Registered waits.</b> The <c>RegisterWaitForSingleObject</c> family and its unsafe sibling
 /// bind a <see cref="WaitOrTimerCallback"/> to a <see cref="WaitHandle"/>. Now that controlled wait handles
 /// exist, each factory returns a <see cref="ControlledRegisteredWaitHandle"/> whose wait loop runs as a
 /// controlled operation on the coordinator: it fires the callback with <c>timedOut: false</c> when the handle
@@ -149,7 +149,7 @@ public static class ControlledThreadPool
             "thread pool has no OS I/O completion port.");
     }
 
-    // ---- Registered waits (Phase 7B): RegisterWaitForSingleObject / UnsafeRegisterWaitForSingleObject
+    // ---- Registered waits: RegisterWaitForSingleObject / UnsafeRegisterWaitForSingleObject
     // bind a WaitOrTimerCallback to a controlled event. Each of the two families has four timeout overloads
     // (UInt32/Int32/Int64/TimeSpan). The safe family flows the caller's ExecutionContext; the unsafe family
     // does not. The registration runs as a controlled operation. ----

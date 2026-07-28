@@ -62,7 +62,7 @@ public static class RewriteDiagnosticIds
     /// A rewritten call into an uncontrolled (non-rewritten, non-BCL, non-shim) assembly returns a
     /// <see cref="System.Threading.Tasks.Task"/>/<see cref="System.Threading.Tasks.ValueTask"/> or other
     /// awaitable whose continuation could escape the deterministic scheduler. The escape is surfaced rather
-    /// than silently accepted (Phase 6B cross-assembly enforcement).
+    /// than silently accepted (cross-assembly controlled-task enforcement).
     /// </summary>
     public const string UncontrolledTaskReturn = "CWR0200";
 

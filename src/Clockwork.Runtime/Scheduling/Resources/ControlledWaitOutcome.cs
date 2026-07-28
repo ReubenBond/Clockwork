@@ -5,7 +5,7 @@ namespace Clockwork.Runtime.Scheduling.Resources;
 /// <c>ControlledOperationScheduler.WaitOnResource</c>. Exactly one of these describes every
 /// completed wait; the value is decided deterministically by the first of signal / virtual-timeout /
 /// cancellation to resolve the waiter under the scheduler lock (see the scheduler's race-resolution
-/// rules). Higher-level shims (Phase 6/7) translate these into BCL-shaped results - e.g.
+/// rules). Higher-level shims (controlled synchronization) translate these into BCL-shaped results - e.g.
 /// <see cref="Signaled"/> vs <see cref="TimedOut"/> becomes a <c>Monitor.Wait</c> /
 /// <c>SemaphoreSlim.Wait(timeout)</c> boolean, and <see cref="Canceled"/> becomes an
 /// <see cref="System.OperationCanceledException"/>.

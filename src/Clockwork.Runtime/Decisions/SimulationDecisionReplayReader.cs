@@ -2,11 +2,9 @@ namespace Clockwork.Runtime.Decisions;
 
 /// <summary>
 /// <para>
-/// The contract a future replay engine (Phase 3+) will implement to feed previously-recorded
-/// decisions back for comparison against a live re-run. Phase 2 defines this contract and a
-/// simple in-memory implementation (<see cref="SimulationInMemoryDecisionReplayReader"/>) for
-/// testing the contract itself - it deliberately does not implement a full scheduler replay
-/// engine (that requires the Phase 3 controlled-operation scheduler, which does not exist yet).
+/// Supplies previously recorded decisions for comparison against a live replay. The in-memory
+/// implementation (<see cref="SimulationInMemoryDecisionReplayReader"/>) is used by replay scheduling
+/// and contract tests.
 /// </para>
 /// <para>
 /// Readers are expected to be stateful, single-pass, forward-only enumerations - exactly mirroring
@@ -26,8 +24,8 @@ public interface ISimulationDecisionReplayReader
 /// <summary>
 /// A simple <see cref="ISimulationDecisionReplayReader"/> backed by an in-memory list of
 /// previously-recorded decisions (typically <see cref="ISimulationDecisionLog.Records"/> from a
-/// prior run). Intended for tests and for small in-process replay scenarios; a future
-/// file/stream-backed reader can implement the same interface without changing any consumer.
+/// prior run). Intended for tests and small in-process replay scenarios; file/stream-backed readers
+/// can implement the same interface without changing consumers.
 /// </summary>
 /// <param name="records">The previously-recorded decisions, in their original order.</param>
 public sealed class SimulationInMemoryDecisionReplayReader(IReadOnlyList<SimulationDecisionRecord> records) : ISimulationDecisionReplayReader

@@ -20,7 +20,7 @@ must be updated in the same change with:
 - **Repository:** https://github.com/microsoft/coyote
 - **Why it's relevant:** Coyote implements systematic concurrency testing
   (controlled scheduling, race exploration) for .NET, overlapping with Clockwork's
-  planned "controlled mode" and "race exploration mode" (see
+  "controlled mode" and "race exploration mode" (see
   [docs/compatibility.md](docs/compatibility.md)). Its test suite is also a useful
   reference for characterizing scheduler edge cases.
 - **Adaptation policy:** MIT permits reuse with attribution and retention of the
@@ -29,7 +29,7 @@ must be updated in the same change with:
   document, referencing the file) and note the adaptation here. Wholesale copying
   without attribution is not permitted; substantial adaptation should credit Coyote
   in code comments at the adaptation site as well.
-- **Adapted material (Phase 4A):** The following files in
+- **Adapted rewrite-engine material:** The following files in
   `src/Clockwork.Instrumentation/Rewriting/` adapt portions of Coyote's Mono.Cecil
   rewriting engine and carry Coyote's copyright/license header at the top of the
   file, per the policy above:
@@ -46,7 +46,7 @@ must be updated in the same change with:
   Clockwork-specific changes are noted in each file header and are developed in
   commits separate from the mechanical adaptation.
 
-- **Adapted material (Phase 6A):** Phase 6A's controlled task/async machinery
+- **Adapted controlled task/async material:** The controlled task/async machinery
   (`src/Clockwork.Runtime/Tasks/` and `.../Tasks/CompilerServices/`, and the
   member-aware substitution pass in `src/Clockwork.Instrumentation/Rewriting/`) is a
   **design-level adaptation** of Coyote's controlled-task model — its
@@ -68,7 +68,7 @@ must be updated in the same change with:
   for the exact signatures enumerated in
   [docs/rule-inventory.md](docs/rule-inventory.md), not for Coyote's full surface.
 
-- **Adapted material (Phase 6B):** Phase 6B's exception-handler hardening pass,
+- **Adapted exception-hardening material:** The exception-handler hardening pass,
   `src/Clockwork.Instrumentation/Rewriting/ExceptionHardeningRewritingPass.cs`, is a
   **source-level adaptation** of Coyote's
   `Source/Test/Rewriting/Passes/Rewriting/ExceptionFilterRewritingPass.cs` and carries a
@@ -84,14 +84,14 @@ must be updated in the same change with:
   than Coyote's `ExecutionCanceledException`/`ThreadInterruptedException`; the
   async-state-machine detection also recognises Clockwork's substituted controlled
   builder types; and every hardened handler is recorded as a manifest transformation.
-  The parity comparison of Clockwork's Phase 6B thread/thread-pool/task/Parallel surface
+  The parity comparison of Clockwork's thread/thread-pool/task/Parallel surface
   against Coyote is enumerated in [docs/coyote-parity.md](docs/coyote-parity.md). The
   cross-assembly uncontrolled-task detection pass
   (`CrossAssemblyTaskDetectionPass.cs`) and the controlled `Thread`, `Task.Run`,
   `TaskFactory`, `ThreadPool`, and `Parallel` runtime surfaces are original Clockwork
   code informed by Coyote's model but not copied from its source.
 
-- **Adapted material (Phase 7A):** Phase 7A's controlled `Monitor`, `System.Threading.Lock`,
+- **Adapted monitor/lock/semaphore material:** Clockwork's controlled `Monitor`, `System.Threading.Lock`,
   and `SemaphoreSlim` runtime surfaces
   (`src/Clockwork.Runtime/Threading/ControlledMonitor.cs`, `ControlledLock.cs`,
   `ControlledSemaphoreSlim.cs`) are a **design-level adaptation** of Coyote's controlled
@@ -109,7 +109,7 @@ must be updated in the same change with:
   [docs/coyote-parity.md](docs/coyote-parity.md); the exact controlled/rejected signature list
   is in [docs/rule-inventory.md](docs/rule-inventory.md).
 
-- **Adapted material (Phase 7B):** Phase 7B's controlled event / wait-handle, atomic, and spin
+- **Adapted wait-handle/atomic/spin material:** Clockwork's controlled event / wait-handle, atomic, and spin
   surfaces (`src/Clockwork.Runtime/Threading/ControlledWaitHandle.cs`,
   `ControlledEventWaitHandle.cs`, `ControlledRegisteredWaitHandle.cs`, `ControlledInterlocked.cs`,
   `ControlledVolatile.cs`, `ControlledSpinWait.cs`) are a **design-level adaptation** of Coyote's
@@ -118,7 +118,8 @@ must be updated in the same change with:
   `SpinWait` wrappers and their tests informed the surface (auto- vs manual-reset consumption, the
   multi-handle `WaitAny`/`WaitAll`/`SignalAndWait` registration protocol, indivisible atomic
   read-modify-write, acquire/release volatile intent, and cooperative spin yielding). **No Coyote
-  source was copied verbatim into these files:** as with Phase 7A, Clockwork's primitives are built on
+  source was copied verbatim into these files:** as with the other controlled synchronization
+  primitives, Clockwork's implementations are built on
   the cooperative logical-thread coordinator (`ControlledTaskRuntime`) with weak-keyed
   `ConditionalWeakTable` side state and virtual-time deadlines rather than Coyote's scheduler-backed
   wrappers, so they carry no Coyote copyright header; this entry records the design lineage. The
@@ -206,7 +207,7 @@ Mono.Cecil license:
 - **Repository:** https://github.com/apple/foundationdb
 - **Why it's relevant:** FoundationDB's deterministic simulation testing approach
   (a simulated network/clock driving the same binary used in production) is a
-  direct architectural precedent for Clockwork's kernel and its planned
+  direct architectural precedent for Clockwork's kernel and supported
   instrumentation modes.
 - **Adaptation policy:** Apache-2.0 requires: retaining copyright/license/NOTICE
   text, stating any changes made to adapted files, and including a copy of the
@@ -221,7 +222,7 @@ Mono.Cecil license:
 
 ## General policy
 
-- Phase 4A adds the `Mono.Cecil` (0.11.6, MIT) package dependency to
+- Clockwork uses the `Mono.Cecil` (0.11.6, MIT) package dependency in
   `Clockwork.Instrumentation`, and the `Microsoft.CodeAnalysis.CSharp` (Roslyn, MIT)
   package to `Clockwork.Instrumentation.Tests` (used only to compile fixture
   assemblies at test time). It also adapts two Coyote source files as recorded above.

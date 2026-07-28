@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>Deterministic instrumentation engine (Phase 4A, internal/experimental): a generic Mono.Cecil-based IL rewrite engine - a versioned rewrite rule model, a deterministic pass pipeline, portable-PDB/sequence-point preservation, assembly-level idempotence markers, and a deterministic instrumentation manifest. This phase builds only the transformation core and its golden tests; MSBuild/CLI activation, strong-name re-signing, package workflow, and concrete BCL shims are deferred to Phase 4B. See docs/compatibility.md.</Description>
+    <Description>Deterministic Mono.Cecil-based instrumentation engine with versioned rewrite rules, portable-PDB preservation, idempotence markers, deterministic manifests, and built-in BCL and concurrency rule sets. See docs/compatibility.md.</Description>
     <RootNamespace>Clockwork.Instrumentation</RootNamespace>
     <IsPackable>false</IsPackable>
   </PropertyGroup>

@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 namespace Clockwork.Conformance.Tests;
 
 /// <summary>
-/// End-to-end semantic conformance for the Phase&#160;6A controlled async machinery: ordinary
+/// End-to-end semantic conformance for the controlled async machinery: ordinary
 /// <c>async</c>/<c>await</c> source is compiled (in both Debug and Release, whose lowered state machines
 /// differ materially), rewritten with the controlled-task rule set so the compiler-generated builder and
 /// awaiter types are retargeted onto Clockwork's controlled equivalents, and then executed inside a live

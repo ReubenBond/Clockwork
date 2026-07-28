@@ -16,7 +16,7 @@ namespace Clockwork.Runtime.Random;
 /// instead hashes <c>(RootSeed, domain, stableId)</c> directly: the result depends only on the
 /// domain and the caller-supplied stable identity (e.g. a node's network address), not on when or
 /// how many times it - or any other id - was derived. This is "stable per-node/per-site
-/// derivation" as required by the roadmap: renaming, reordering, or adding unrelated nodes never
+/// derivation" as required by the design: renaming, reordering, or adding unrelated nodes never
 /// perturbs an existing node's seed.
 /// </para>
 /// <para>

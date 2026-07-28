@@ -7,7 +7,7 @@ namespace Clockwork.Runtime.Threading;
 /// ignoring the call (which would change observable behaviour) or letting it reach the real OS (which is
 /// non-deterministic and, for several of these, throws
 /// <see cref="System.PlatformNotSupportedException"/> on modern .NET anyway), the rewritten call site
-/// rejects it precisely with the reason and the phase that would own it, if any.
+/// rejects it precisely with the reason and the unsupported capability, if any.
 /// </summary>
 public sealed class ControlledThreadUnsupportedException : InvalidOperationException
 {
@@ -27,9 +27,9 @@ public sealed class ControlledThreadUnsupportedException : InvalidOperationExcep
 /// <summary>
 /// Thrown when an application invokes a <see cref="System.Threading.ThreadPool"/> operation that
 /// Clockwork's controlled thread-pool surface cannot model faithfully inside a simulation - the native
-/// I/O family (<c>UnsafeQueueNativeOverlapped</c>) and, until Phase 7 provides controlled wait handles,
+/// I/O family (<c>UnsafeQueueNativeOverlapped</c>) and, until wait-handle control provides controlled wait handles,
 /// the registered-wait family (<c>RegisterWaitForSingleObject</c> and its unsafe variant). The rewritten
-/// call site rejects these precisely with the reason and the phase that would own them, rather than
+/// call site rejects these precisely with the unsupported capability and reason, rather than
 /// silently ignoring the call or letting it reach uncontrolled native/OS machinery.
 /// </summary>
 public sealed class ControlledThreadPoolUnsupportedException : InvalidOperationException

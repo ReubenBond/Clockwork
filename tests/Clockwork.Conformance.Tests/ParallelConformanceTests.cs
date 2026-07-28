@@ -4,8 +4,8 @@ using System.Threading.Tasks;
 namespace Clockwork.Conformance.Tests;
 
 /// <summary>
-/// End-to-end conformance for the controlled <see cref="System.Threading.Tasks.Parallel"/> surface (Phase
-/// 6B). Once a fixture is rewritten with the controlled-task rule set, <c>Parallel.Invoke</c>/<c>For</c>/
+/// End-to-end conformance for the controlled <see cref="System.Threading.Tasks.Parallel"/> surface.
+/// Once a fixture is rewritten with the controlled-task rule set, <c>Parallel.Invoke</c>/<c>For</c>/
 /// <c>ForEach</c> decompose their branches into controlled operations on the coordinator and drain the
 /// deterministic cluster drive until all complete, so every branch runs on the single logical thread;
 /// faults aggregate into an <see cref="AggregateException"/>; and the break/stop (<c>ParallelLoopState</c>)

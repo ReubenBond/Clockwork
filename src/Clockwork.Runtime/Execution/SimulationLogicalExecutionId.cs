@@ -2,13 +2,10 @@ namespace Clockwork.Runtime.Execution;
 
 /// <summary>
 /// <para>
-/// A placeholder for the current "logical execution" identity - the unit of scheduling that a
-/// future controlled-operation scheduler (Phase 3) will assign to each independently-interleavable
-/// strand of simulated work (roughly: one simulated "fiber"/task chain). Phase 2 does not implement
-/// a scheduler, so this type carries no scheduling semantics yet; it exists so that
-/// <see cref="SimulationExecutionContext"/> and the decision-log model
-/// (<see cref="Clockwork.Runtime.Decisions.SimulationDecisionRecord"/>) have a stable slot to record
-/// against today, without churn when the real scheduler lands.
+/// Identifies one independently interleavable strand of simulated work (roughly one simulated
+/// fiber/task chain). Controlled schedulers install it in <see cref="SimulationExecutionContext"/>,
+/// and the decision-log model records it in
+/// <see cref="Clockwork.Runtime.Decisions.SimulationDecisionRecord"/>.
 /// </para>
 /// <para>
 /// <see cref="None"/> is the value observed outside any explicitly-entered logical execution scope.

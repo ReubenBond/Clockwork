@@ -4,8 +4,8 @@ using System.Threading.Tasks;
 namespace Clockwork.Conformance.Tests;
 
 /// <summary>
-/// End-to-end conformance for the controlled <see cref="System.Threading.Interlocked"/> surface (Phase
-/// 7B). The rule set redirects every <c>Increment</c>/<c>Decrement</c>/<c>Add</c>/<c>And</c>/<c>Or</c>/
+/// End-to-end conformance for the controlled <see cref="System.Threading.Interlocked"/> surface. The
+/// rule set redirects every <c>Increment</c>/<c>Decrement</c>/<c>Add</c>/<c>And</c>/<c>Or</c>/
 /// <c>Exchange</c>/<c>CompareExchange</c>/<c>Read</c> call site to a controlled shim with the identical
 /// <c>ref</c>-first signature. Because Clockwork runs on a single cooperative logical thread each
 /// read-modify-write is indivisible under simulation; outside simulation, rewritten calls fail before

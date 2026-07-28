@@ -1,6 +1,6 @@
-# Coyote parity matrix — controlled concurrency and Phase 8A synchronization
+# Coyote parity matrix — controlled concurrency and modern synchronization
 
-This document is the explicit parity ledger for Clockwork's Phase 6A/6B/7A/7B controlled-concurrency
+This document is the explicit parity ledger for Clockwork's controlled-concurrency
 surface against **[Microsoft Coyote](https://github.com/microsoft/coyote)** (MIT-licensed prior
 art). Coyote's controlled rewriting types live under
 [`Source/Test/Rewriting/Types/Threading`](https://github.com/microsoft/coyote/tree/main/Source/Test/Rewriting/Types/Threading)
@@ -96,18 +96,18 @@ underlying real `Thread` object each controlled operation runs on), matching Coy
 
 ## `System.Threading.Tasks.Task` static surface
 
-The direct `Task` call-site surface is split across Phase 6A (combinators, waits, `Result`,
-continuations, async machinery, `Yield`) and Phase 6B (`Run`). All are controlled.
+The direct `Task` call-site surface controls combinators, waits, `Result`, continuations,
+async machinery, `Yield`, and `Run`.
 
 | Coyote surface | Clockwork status | Rule / family |
 | --- | --- | --- |
-| `Task.Run` (8 overloads: `Action`/`Func<TResult>`/`Func<Task>`/`Func<Task<TResult>>`, ± `CancellationToken`) | ✅ Controlled **(Phase 6B)** | `clockwork.tasks.run.*` (TaskScheduling family) |
+| `Task.Run` (8 overloads: `Action`/`Func<TResult>`/`Func<Task>`/`Func<Task<TResult>>`, ± `CancellationToken`) | ✅ Controlled | `clockwork.tasks.run.*` (TaskScheduling family) |
 | `Task.WhenAll` / `Task.WhenAny` (array, span, pair, enumerable; non-generic + generic) | ✅ Controlled | `clockwork.tasks.whenall.*` / `whenany.*` (TaskCombinators) |
 | `Task.Wait()` / `WaitAll(Task[])` / `WaitAny(Task[])` | ✅ Controlled | `clockwork.tasks.wait.*` (TaskSynchronization) |
 | `Task<T>.Result` (blocking get) | ✅ Controlled | `clockwork.tasks.result.generic` |
 | `Task.ContinueWith(Action<Task>)` | ✅ Controlled | `clockwork.tasks.continuewith.action` |
-| `Task<T>.ContinueWith(Action<Task<T>>)` | ✅ Controlled **(Phase 6B gap-closure)** | `clockwork.tasks.continuewith.generic.action` |
-| `Task<T>.ContinueWith<TNewResult>(Func<Task<T>,TNewResult>)` | ✅ Controlled **(Phase 6B gap-closure)** | `clockwork.tasks.continuewith.generic.func` |
+| `Task<T>.ContinueWith(Action<Task<T>>)` | ✅ Controlled | `clockwork.tasks.continuewith.generic.action` |
+| `Task<T>.ContinueWith<TNewResult>(Func<Task<T>,TNewResult>)` | ✅ Controlled | `clockwork.tasks.continuewith.generic.func` |
 | `Task.Yield()` | ✅ Controlled | `clockwork.tasks.yield.call` (AsyncMachinery) |
 | `async` builder + awaiter types (`AsyncTaskMethodBuilder`, `TaskAwaiter`, `ConfiguredTaskAwaitable`, `YieldAwaitable`, generic + non-generic) | ✅ Controlled | AsyncMachinery family (type substitution) |
 | `Task.Delay` (all 6 .NET 10 overloads: `int`/`TimeSpan`, cancellation, and `TimeProvider`) | ✅ Controlled | `clockwork.tasks.delay.*` — virtual deadlines, no wall clock |
@@ -219,7 +219,7 @@ not — matching the BCL contract exactly, and covered by conformance tests.
 
 ---
 
-## `System.Threading.Monitor` — Coyote `…Types.Threading.Monitor` (Phase 7A)
+## `System.Threading.Monitor` — Coyote `…Types.Threading.Monitor`
 
 Coyote's controlled `Monitor` mirrors the synchronization surface (`Enter`, `Exit`, `IsEntered`,
 `TryEnter`, `Wait`, `Pulse`, `PulseAll`) on its scheduler. Clockwork classifies the **entire** .NET 10
@@ -263,7 +263,7 @@ associations are held in a `ConditionalWeakTable` (weak keys) so lock objects ar
 
 ---
 
-## `System.Threading.Lock` — **beyond Coyote** (Phase 7A)
+## `System.Threading.Lock` — **beyond Coyote**
 
 `System.Threading.Lock` is the .NET 9+ dedicated lock type; it postdates Coyote's rewriter and has **no
 Coyote equivalent**. Clockwork controls it by **type substitution**: the type and its nested `Scope` ref
@@ -284,7 +284,7 @@ surface is safely representable by type substitution.
 
 ---
 
-## `System.Threading.SemaphoreSlim` — Coyote `…Types.Threading.SemaphoreSlim` (Phase 7A)
+## `System.Threading.SemaphoreSlim` — Coyote `…Types.Threading.SemaphoreSlim`
 
 Coyote wraps `SemaphoreSlim` to control its waits on the scheduler. Clockwork models the permit count and
 waiter set on the cooperative logical thread. `SemaphoreSlim` is `sealed`, so the controlled handle **is**
@@ -311,7 +311,7 @@ constructors redirect to `Create` factories and every instance member is a recei
 | `Release()` | ✅ Controlled | `clockwork.semaphoreslim.release` |
 | `Release(int)` | ✅ Controlled | `clockwork.semaphoreslim.release.count` |
 | `Dispose()` | ✅ Controlled | `clockwork.semaphoreslim.dispose` |
-| `SemaphoreSlim.AvailableWaitHandle` | ✅ Controlled | `clockwork.semaphoreslim.get_availablewaithandle` — bridged to a controlled manual-reset wait handle (Phase 7B) tracking count > 0 |
+| `SemaphoreSlim.AvailableWaitHandle` | ✅ Controlled | `clockwork.semaphoreslim.get_availablewaithandle` — bridged to a controlled manual-reset wait handle tracking count > 0 |
 
 **Semantics:** a synchronous `Wait` with no permit pumps the loop until a permit is released; `WaitAsync`
 returns a task completed when a permit is released (driven by the controlled awaiter when awaited);
@@ -324,12 +324,12 @@ permit and it composes with `WaitAny`/`WaitAll`, and it faults after the semapho
 **Timeouts:** zero timeouts are
 faithful non-blocking tries; a finite positive timeout (sync `Wait` or async `WaitAsync`) completes with
 `false` on a **simulated** deadline driven by the cluster clock — a same-instant release or cancellation
-wins over the timeout (Phase 3B first-winner), no wall-clock time is used; a never-satisfiable *infinite*
+wins over the timeout (the scheduler's first-winner), no wall-clock time is used; a never-satisfiable *infinite*
 `Wait` surfaces as the loop-model deadlock diagnostic.
 
 ---
 
-## `System.Threading.Interlocked` — Coyote `…Types.Threading.Interlocked` (Phase 7B)
+## `System.Threading.Interlocked` — Coyote `…Types.Threading.Interlocked`
 
 Coyote controls the interlocked surface so that under its scheduler each atomic read-modify-write is
 observed as an indivisible operation. Clockwork mirrors the **full .NET 10 `Interlocked` surface** by
@@ -338,7 +338,7 @@ a **single cooperative logical thread** the operation can never be interleaved m
 delegates straight to the real primitive — preserving exact atomic return, overflow, and reference-write
 semantics under the active simulation. The **documented exploration policy** injects **no**
 mid-operation scheduling point (unlike Coyote, whose real preemptible threads require one); an atomic
-operation is never split. The single delegation site is the future Phase 9 race-hook attachment point.
+operation is never split. The single delegation site is the race-exploration access-tracking attachment point.
 
 | .NET 10 member | Posture | Rule id |
 | --- | --- | --- |
@@ -360,14 +360,14 @@ reference assemblies; no applicable `Interlocked` overload is left uncontrolled.
 
 ---
 
-## `System.Threading.Volatile` — Coyote `…Types.Threading.Volatile` (Phase 7B)
+## `System.Threading.Volatile` — Coyote `…Types.Threading.Volatile`
 
 Coyote controls the volatile surface so a read/write and its fence are observed atomically under its
 scheduler. Clockwork mirrors the **full .NET 10 `Volatile` surface** by redirecting every call site to a
 shim with the identical `ref`-first signature. On the single cooperative logical thread a volatile access
 is an indivisible step, so each shim delegates to the real primitive — preserving the exact value together
-with the acquire (read) / release (write) fence intent. The single delegation site is the future Phase 9
-race-hook attachment point.
+with the acquire (read) / release (write) fence intent. The single delegation site is the
+race-exploration access-tracking attachment point.
 
 | .NET 10 member | Posture | Rule id |
 | --- | --- | --- |
@@ -385,7 +385,7 @@ left uncontrolled.
 
 ---
 
-## `System.Threading.SpinWait` — Coyote `…Types.Threading.SpinWait` (Phase 7B)
+## `System.Threading.SpinWait` — Coyote `…Types.Threading.SpinWait`
 
 `SpinWait` is a **value type**, so — exactly like `System.Threading.Lock` — it is retargeted by
 **whole-type substitution** rather than per-member call redirects. Every local/field/parameter typed
@@ -415,7 +415,7 @@ instance methods, 3 static `SpinUntil` overloads); no applicable `SpinWait` memb
 
 ---
 
-## `System.Threading.WaitHandle` / `EventWaitHandle` / `AutoResetEvent` / `ManualResetEvent` — Coyote `…Types.Threading` events (Phase 7B)
+## `System.Threading.WaitHandle` / `EventWaitHandle` / `AutoResetEvent` / `ManualResetEvent` — Coyote `…Types.Threading` events
 
 `AutoResetEvent`, `ManualResetEvent` and `EventWaitHandle` are **concrete sealed classes**, so — exactly
 like the controlled `SemaphoreSlim` — the real object is retained as an **identity handle** while its
@@ -483,18 +483,18 @@ kernel object outside the scheduler) and are likewise rejected.
 
 ---
 
-## Phase 8A modern synchronization — beyond this Coyote attribution ledger
+## Modern synchronization — beyond this Coyote attribution ledger
 
-Phase 8A is an addition to Clockwork's implemented inventory, not a claim that these exact
+Modern synchronization is part of Clockwork's implemented inventory, not a claim that these exact
 implementations were adapted from Coyote. The runtime source comments retain explicit Coyote/MIT
-attribution where it applies: the Phase 7B controlled wait-handle model says it is adapted from
+attribution where it applies: the controlled wait-handle model says it is adapted from
 Microsoft Coyote, and the earlier task/lock entries above retain their existing attribution. The new
-Phase 8A runtime type comments describe their own controlled models; they do not claim Coyote source
+Modern synchronization runtime type comments describe their own controlled models; they do not claim Coyote source
 adaptation. The overlap is deliberate: unnamed `Mutex` and `Semaphore`, plus
 `ManualResetEventSlim`/`CountdownEvent` bridges, use the existing controlled wait-handle kernel, so
-they compose with the Coyote-attributed Phase 7B event operations without exposing OS handles.
+they compose with the Coyote-attributed controlled event operations without exposing OS handles.
 
-| Phase 8A .NET surface | Clockwork status | Exact posture |
+| .NET surface | Clockwork status | Exact posture |
 | --- | --- | --- |
 | `ReaderWriterLockSlim` | ✅ Controlled | All public constructors/properties/enter/try-enter/exit/`Dispose` members are receiver-first shims. Read, upgradeable-read, and write ownership/recursion are logical-strand state; contended entries pump the scheduler and finite timeouts use virtual time. |
 | `ManualResetEventSlim` | ✅ Controlled | Constructors, properties, `Set`/`Reset`, all waits, `WaitHandle`, and `Dispose` are receiver-first shims. `SpinCount` remains observable metadata, but the model never busy-spins; the bridge is a controlled manual-reset handle. |
@@ -507,7 +507,7 @@ they compose with the Coyote-attributed Phase 7B event operations without exposi
 | Named mutex/semaphore forms and `OpenExisting`/`TryOpenExisting` | ⛔ Rejected | Non-null names are cross-process kernel state. Null-name constructor forms are the controlled unnamed case. |
 | `WaitHandle.WaitAll` containing a `Mutex` | ⛔ Rejected | The shared kernel does not claim atomic multi-mutex acquisition. Other controlled-handle `WaitAll` cases validate arrays and consume auto-reset handles atomically. |
 
-All Phase 8A controlled entry points are simulation-only: a missing simulation or runtime service fails
+All modern synchronization controlled entry points are simulation-only: a missing simulation or runtime service fails
 before a BCL operation can run, so there is no inactive pass-through. Waits pump deterministic work;
 finite timeouts are virtual-time deadlines, not OS blocking or CPU spinning. Raw
 `Handle`/`SafeWaitHandle` accessors, unmanaged/unregistered wait handles, and named/cross-process
@@ -539,27 +539,26 @@ are rejected precisely.
   overloads rejected with tested diagnostics.
 - **`ThreadPool`:** modelled by Clockwork **beyond Coyote**; the registered-wait APIs
   (`RegisterWaitForSingleObject`/`UnsafeRegisterWaitForSingleObject`, all four timeout overloads) are
-  controlled (Phase 7B) as passive event-driven waits and `UnsafeQueueNativeOverlapped` is rejected.
+  controlled as passive event-driven waits and `UnsafeQueueNativeOverlapped` is rejected.
 - **Coyote `Monitor`:** all 18 .NET 10 declared members classified: 17 synchronization methods
   controlled and process-wide `LockContentionCount` rejected; C# `lock (object)` is controlled in
   both Debug and Release lowering.
-- **`System.Threading.Lock`:** controlled by type substitution **beyond Coyote** (Phase 7A), covering the
+- **`System.Threading.Lock`:** controlled by type substitution **beyond Coyote**, covering the
   C# `lock (Lock)` scope lowering; nothing rejected.
 - **Coyote `SemaphoreSlim`:** every constructor, `CurrentCount`, sync `Wait`, async `WaitAsync`,
-  `Release`, and `Dispose` controlled (Phase 7A); `AvailableWaitHandle` bridged to a controlled manual-reset
-  wait handle tracking count > 0 (Phase 7B).
-- **Coyote `Interlocked`:** full .NET 10 surface controlled (Phase 7B) — every `Increment`/`Decrement`/
+  `Release`, and `Dispose` controlled; `AvailableWaitHandle` bridged to a controlled manual-reset
+  wait handle tracking count > 0.
+- **Coyote `Interlocked`:** full .NET 10 surface controlled — every `Increment`/`Decrement`/
   `Add`/`And`/`Or`/`Exchange`/`CompareExchange`/`Read` overload plus the memory barriers, each delegating
   to the real primitive since a cooperative logical thread makes the read-modify-write indivisible.
-- **Coyote `Volatile`:** full .NET 10 surface controlled (Phase 7B) — every `Read`/`Write` overload plus
+- **Coyote `Volatile`:** full .NET 10 surface controlled — every `Read`/`Write` overload plus
   the `ReadBarrier`/`WriteBarrier` fences, delegating to the real primitive with acquire/release intent
   preserved.
-- **Coyote `SpinWait`:** the `SpinWait` value type controlled (Phase 7B) by type substitution — `Count`,
+- **Coyote `SpinWait`:** the `SpinWait` value type controlled by type substitution — `Count`,
   `NextSpinWillYield`, `Reset`, both `SpinOnce` overloads and all three static `SpinUntil` overloads; a
   controlled spin yields to the deterministic loop instead of burning CPU, and finite `SpinUntil` uses a
   first-winner virtual-time deadline.
-- **Coyote events (`AutoResetEvent`/`ManualResetEvent`/`EventWaitHandle`/`WaitHandle`):** controlled
-  (Phase 7B) — ctors redirect to `Create` factories, the five `WaitOne` overloads plus `Dispose`/`Close`
+- **Coyote events (`AutoResetEvent`/`ManualResetEvent`/`EventWaitHandle`/`WaitHandle`):** controlled — ctors redirect to `Create` factories, the five `WaitOne` overloads plus `Dispose`/`Close`
   and `Set`/`Reset` are receiver-first shims over a modelled signalled state and deterministic FIFO waiter
   set (auto-reset wakes exactly one waiter, manual-reset releases all and stays signalled), finite timeouts
   use a virtual-time deadline; the static `WaitAny` (lowest-index signalled), `WaitAll` (all-signalled,
@@ -567,12 +566,12 @@ are rejected precisely.
   full array validation; named/cross-process open APIs and the raw `Handle`/`SafeWaitHandle` accessors are
   rejected with tested diagnostics.
 - **`ThreadPool` registered waits (`RegisterWaitForSingleObject`/`UnsafeRegisterWaitForSingleObject`):**
-  controlled (Phase 7B) — a passive event-driven waiter on the target handle's modelled signalled state
+  controlled — a passive event-driven waiter on the target handle's modelled signalled state
   that never blocks the logical thread; fires `timedOut:false` on a signal (auto-reset consumes exactly
   one) or `timedOut:true` on the virtual-time deadline, honours `executeOnlyOnce`/re-arm, flows
   `ExecutionContext` for the safe family only, and substitutes the returned `RegisteredWaitHandle` so
   `Unregister` stops the wait and signals its completion event.
-- **Phase 8A additions beyond this Coyote attribution ledger:** `ReaderWriterLockSlim`,
+- **Modern synchronization additions beyond this Coyote attribution ledger:** `ReaderWriterLockSlim`,
   `ManualResetEventSlim`, unnamed `Mutex`/`Semaphore`, `SpinLock`, `ExecutionContext`,
   `SynchronizationContext`, `Barrier`, and `CountdownEvent` are controlled with logical-strand
   ownership, virtual time, and no OS blocking; named/cross-process forms and raw context waits are

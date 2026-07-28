@@ -2,12 +2,9 @@ namespace Clockwork.Runtime.Policy;
 
 /// <summary>
 /// <para>
-/// Classifies how a specific API (or an entire assembly's worth of APIs) should be treated by a
-/// future interception layer while a simulation is active. This is a policy <em>data model</em>
-/// only in Phase 2 - nothing in this project intercepts calls yet (no Cecil rewriting, no IL
-/// weaving, no runtime hooking). <see cref="SimulationApiPolicyRegistry"/> exists so that future
-/// interception (Phase 3+) has a stable, testable place to ask "what should happen here?" without
-/// hard-coding the answer at every call site.
+/// Classifies how a specific API (or an entire assembly's worth of APIs) is treated while a simulation
+/// is active. Rewrite rules and manifests use this stable policy model instead of hard-coding behavior
+/// at every call site.
 /// </para>
 /// </summary>
 public enum SimulationApiPolicy

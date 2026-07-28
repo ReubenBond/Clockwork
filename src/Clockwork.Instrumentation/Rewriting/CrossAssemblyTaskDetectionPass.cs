@@ -6,7 +6,7 @@ using Mono.Cecil.Cil;
 namespace Clockwork.Instrumentation.Rewriting;
 
 /// <summary>
-/// Read-only rewriting pass that enforces cross-assembly task control (Phase 6B). It flags every call site
+/// Read-only rewriting pass that enforces cross-assembly task control. It flags every call site
 /// that invokes a method in an <em>uncontrolled</em> assembly - one that is neither the assembly being
 /// rewritten, nor part of the BCL (<c>System.*</c> / <c>mscorlib</c> / <c>netstandard</c>), nor the
 /// Clockwork runtime shim - and returns a <see cref="System.Threading.Tasks.Task"/>,
@@ -16,8 +16,8 @@ namespace Clockwork.Instrumentation.Rewriting;
 /// precise <see cref="RewriteDiagnosticIds.UncontrolledTaskReturn"/> warning naming the callee and the
 /// call-site method/IL offset (and source line when symbols are present) so the escape is never silently
 /// accepted. The pass runs last, after controlled BCL calls have already been redirected onto the shim, so
-/// controlled surfaces are not re-flagged. HttpClient-specific control is deferred to Phase 10, so
-/// <c>System.*</c> callees are intentionally not flagged.
+/// controlled surfaces are not re-flagged. Framework-hosted I/O, including <c>HttpClient</c>, remains outside
+/// this diagnostic boundary, so <c>System.*</c> callees are intentionally not flagged.
 /// </summary>
 internal sealed class CrossAssemblyTaskDetectionPass : RewritePass
 {
@@ -96,8 +96,8 @@ internal sealed class CrossAssemblyTaskDetectionPass : RewritePass
             return false;
         }
 
-        // The BCL is either controlled through explicit rules (already redirected before this pass) or is a
-        // benign framework primitive; HttpClient-style control of System.* is deferred to Phase 10.
+        // The BCL is either controlled through explicit rules (already redirected before this pass) or is
+        // outside this diagnostic boundary.
         return !IsFrameworkAssembly(assembly);
     }
 

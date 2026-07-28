@@ -16,11 +16,11 @@ namespace Clockwork.Runtime.Scheduling;
 /// The controlled-operation kernel: the single authority that registers
 /// <see cref="ControlledOperation"/>s, chooses exactly one runnable operation at a time, grants and
 /// revokes the permission baton, drives every legal state transition, and performs terminal
-/// cleanup. This is the foundational scheduling layer future controlled <c>Monitor</c>, semaphore,
-/// wait-handle, and synchronous <see cref="Task"/> waits (Phase 3B) will build on. It owns the
+/// cleanup. Controlled <c>Monitor</c>, semaphore, wait-handle, and synchronous <see cref="Task"/>
+/// waits build on this scheduling layer. It owns the
 /// reusable controlled-resource model, atomic resource waits with virtual-time timeouts, and the
 /// modeled clock those timeouts fire against; cancellation-token races and deadlock detection are
-/// layered on in later Phase 3B increments.
+/// layered on in later resource/wait scheduler increments.
 /// </para>
 /// <para>
 /// <b>Physical-thread gating.</b> Each operation runs on its own dedicated physical thread, but the
@@ -113,7 +113,7 @@ public sealed class ControlledOperationScheduler : IDisposable
 
     /// <summary>
     /// Gets or sets the policy that chooses which runnable operation runs next. Defaults to
-    /// <see cref="RoundRobinSchedulingStrategy"/> - the Phase 3A behavior - so existing simulations are
+    /// <see cref="RoundRobinSchedulingStrategy"/> - the controlled-operation scheduler behavior - so existing simulations are
     /// unaffected. Assigning a strategy takes effect on the next selection. Set this before driving the
     /// scheduler for a reproducible schedule.
     /// </summary>
@@ -441,8 +441,8 @@ public sealed class ControlledOperationScheduler : IDisposable
     /// Creates a new <see cref="ControlledResource"/> owned by this scheduler, with a stable,
     /// monotonically-assigned <see cref="ControlledResourceId"/>. The resource starts unowned, with no
     /// waiters; acquire/release policy and waits are layered on top by callers via the scheduler's
-    /// wait/signal primitives and the resource's own bookkeeping fields. This is the entry point a
-    /// future controlled primitive (Phase 6/7) uses to obtain the resource backing one sync object.
+    /// wait/signal primitives and the resource's own bookkeeping fields. Controlled synchronization
+    /// primitives use this entry point to obtain the resource backing one synchronization object.
     /// </summary>
     /// <param name="kind">The diagnostic classification of the primitive the resource models.</param>
     /// <param name="name">A short, stable, human-readable name for diagnostics.</param>
@@ -476,7 +476,7 @@ public sealed class ControlledOperationScheduler : IDisposable
 
     /// <summary>
     /// Records (or clears) the operation that owns <paramref name="resource"/>. Ownership is the raw
-    /// metadata the wait-for graph reads to draw a "waiter -&gt; owner" edge and the hook a future
+    /// metadata the wait-for graph reads to draw a "waiter -&gt; owner" edge and the hook a
     /// controlled <c>Monitor</c> or synchronous <c>Task</c> wait sets when it acquires a resource; this
     /// method deliberately performs no acquire/release policy of its own (it does not block or count),
     /// so each primitive composes its own semantics on top. Must be given operations/resources that
@@ -532,8 +532,8 @@ public sealed class ControlledOperationScheduler : IDisposable
     /// runnable id when none is greater. When no operation ever yields (the compatibility case) this
     /// is identical to strict registration order - each operation runs to completion before the next
     /// starts - so legacy deterministic ordering is preserved; when operations yield it gives every
-    /// operation a turn instead of starving all but the lowest id. Fairness/priority strategies beyond
-    /// this fixed rotation are deferred to Phase 3B.
+    /// operation a turn instead of starving all but the lowest id. Alternative scheduling policies are
+    /// selected through <see cref="SchedulingStrategy"/>.
     /// </para>
     /// </summary>
     /// <returns><see langword="true"/> if an operation ran; <see langword="false"/> if none was runnable.</returns>
@@ -829,7 +829,7 @@ public sealed class ControlledOperationScheduler : IDisposable
     /// within a running operation body of this scheduler. When the operation is later torn down while
     /// paused, this method's park unwinds cooperatively.
     /// </summary>
-    /// <param name="reason">Why the operation is pausing. Recorded for diagnostics and Phase 3B resource waits.</param>
+    /// <param name="reason">Why the operation is pausing. Recorded for diagnostics and resource waits.</param>
     public void Pause(ControlledOperationPauseReason reason)
     {
         ArgumentNullException.ThrowIfNull(reason);
@@ -1689,7 +1689,7 @@ public sealed class ControlledOperationScheduler : IDisposable
     {
         // Collect the runnable operations in ascending id order (_operations is a SortedDictionary),
         // then delegate the choice to the pluggable strategy. The default RoundRobinSchedulingStrategy
-        // reproduces the Phase 3A behavior exactly.
+        // reproduces the controlled-operation scheduler behavior exactly.
         List<ControlledOperation>? runnable = null;
         foreach (var operation in _operations.Values)
         {

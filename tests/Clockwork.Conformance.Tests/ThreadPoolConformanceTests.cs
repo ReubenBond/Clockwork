@@ -5,11 +5,11 @@ namespace Clockwork.Conformance.Tests;
 
 /// <summary>
 /// End-to-end conformance for the controlled <see cref="System.Threading.ThreadPool"/> queueing surface
-/// (Phase 6B, beyond Coyote). Once a fixture is rewritten with the controlled-task rule set,
+/// (beyond Coyote). Once a fixture is rewritten with the controlled-task rule set,
 /// <c>ThreadPool.QueueUserWorkItem</c> / <c>UnsafeQueueUserWorkItem</c> queue their callback as a fresh
 /// controlled operation that runs deterministically on the single logical thread under the cluster drive,
 /// callbacks run in FIFO order with exactly one running at a time, and the safe-vs-unsafe
-/// <c>ExecutionContext</c> flow distinction is observable at real call sites. Phase 7B additionally
+/// <c>ExecutionContext</c> flow distinction is observable at real call sites. wait-handle and atomic control additionally
 /// controls the registered-wait factories (<c>RegisterWaitForSingleObject</c>/<c>Unsafe…</c>): the
 /// callback fires with <c>timedOut:false</c> on a signal and <c>timedOut:true</c> on the virtual-time
 /// deadline, honours <c>executeOnlyOnce</c>/re-arm, and stops on <c>Unregister</c>.

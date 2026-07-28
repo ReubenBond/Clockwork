@@ -1,7 +1,7 @@
 namespace Clockwork.Runtime.Scheduling.Strategies;
 
 /// <summary>
-/// The default policy, identical to the Phase 3A scheduler: run the runnable operation whose id is
+/// The default policy, identical to the controlled-operation scheduler: run the runnable operation whose id is
 /// the smallest strictly greater than the last-selected id, wrapping to the smallest runnable id when
 /// none is greater. This rotates fairly through concurrently-runnable operations without starving any
 /// of them, and is fully deterministic given the runnable set and last-selected id, so it needs no

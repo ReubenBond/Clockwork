@@ -3,7 +3,7 @@ using System.Reflection;
 namespace Clockwork.Conformance.Tests;
 
 /// <summary>
-/// End-to-end conformance for exception-handler hardening (Phase 6B slice 7). Every fixture in this suite is
+/// End-to-end conformance for exception-handler hardening. Every fixture in this suite is
 /// rewritten with <c>HardenExceptionHandlers</c> enabled, so a guard is injected at the start of each broad
 /// <c>catch</c> / exception <c>filter</c>. These tests prove the guard is transparent to ordinary
 /// application exception handling: a rewritten broad <c>catch (Exception)</c>, a filtered catch, a

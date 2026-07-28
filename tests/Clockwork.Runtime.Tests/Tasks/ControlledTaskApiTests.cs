@@ -7,7 +7,7 @@ namespace Clockwork.Runtime.Tests.Tasks;
 /// <summary>
 /// Tests for the <see cref="ControlledTask"/> static shims: combinator determinism, synchronous waits
 /// that pump instead of block (and surface deadlock), continuations routed through the loop, and the
-/// explicit rejection of timer/thread-pool APIs deferred to later phases.
+/// explicit rejection of APIs outside this shim's inventory.
 /// </summary>
 public sealed class ControlledTaskApiTests
 {

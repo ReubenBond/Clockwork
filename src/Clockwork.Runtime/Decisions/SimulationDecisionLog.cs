@@ -1,12 +1,9 @@
 namespace Clockwork.Runtime.Decisions;
 
 /// <summary>
-/// Records deterministic decisions in a monotonically ordered, append-only log. This is a data
-/// model and recording contract only - it is not wired into any scheduler yet (there is no
-/// scheduler in Phase 2), and nothing calls <see cref="Record"/> automatically. Future controlled
-/// interception (Phase 3+) is expected to call <see cref="Record"/> at each point it makes a
-/// decision that must be reproducible, and to feed <see cref="Records"/> to a
-/// <see cref="SimulationDecisionReplayValidator"/> on replay.
+/// Records deterministic decisions in a monotonically ordered, append-only log. Scheduling and
+/// resource components call <see cref="Record"/> at reproducible choice points; replay consumes
+/// <see cref="Records"/> through <see cref="SimulationDecisionReplayValidator"/>.
 /// </summary>
 public interface ISimulationDecisionLog
 {

@@ -5,9 +5,9 @@ namespace Clockwork.Runtime.Scheduling.Resources;
 
 /// <summary>
 /// <para>
-/// The reusable, scheduler-owned model of one waitable resource - the substrate every future
+/// The reusable, scheduler-owned model of one waitable resource - the substrate every
 /// controlled <c>Monitor</c>, <c>SemaphoreSlim</c>, event, wait handle, synchronous <c>Task</c>
-/// wait, and timer (Phase 6/7 shims) builds on. A resource carries a stable identity
+/// wait, and timer (controlled synchronization shims) builds on. A resource carries a stable identity
 /// (<see cref="Id"/>), a diagnostic <see cref="Kind"/> and <see cref="Name"/>, an optional
 /// <see cref="Owner"/> with reentrancy metadata (<see cref="RecursionCount"/>), counting/capacity
 /// state (<see cref="CurrentCount"/>/<see cref="MaximumCount"/>), an event-style
@@ -100,7 +100,7 @@ public sealed class ControlledResource
     public bool IsSignaled { get; internal set; }
 
     /// <summary>
-    /// Gets or sets an optional, opaque specialization hook a future primitive can attach when it
+    /// Gets or sets an optional, opaque specialization hook a primitive can attach when it
     /// needs state or behaviour the core fields do not model (e.g. a fairness sub-policy, a condition
     /// predicate, or a task reference). The core never interprets it; it exists so specialized
     /// semantics can be layered on without changing this type. Kept deterministic is the caller's

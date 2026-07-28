@@ -176,7 +176,7 @@ public sealed class RuleInventoryDocumentTests
     }
 
     [Fact]
-    public void Phase8AReceiverFirstRulesClassifyEveryNet10DeclaredMember()
+    public void ModernSynchronizationReceiverFirstRulesClassifyEveryNet10DeclaredMember()
     {
         AssertFamilyMatchesPublicMembers(typeof(ReaderWriterLockSlim), BuiltInRuleFamily.ReaderWriterLockSlim, includeConstructors: true);
         AssertFamilyMatchesPublicMembers(typeof(ManualResetEventSlim), BuiltInRuleFamily.ManualResetEventSlim, includeConstructors: true);
@@ -187,7 +187,7 @@ public sealed class RuleInventoryDocumentTests
     }
 
     [Fact]
-    public void Phase8AWholeTypeSubstitutionsUseControlledRuntimeTypes()
+    public void ModernSynchronizationWholeTypeSubstitutionsUseControlledRuntimeTypes()
     {
         (string Target, string Replacement)[] expected =
         [

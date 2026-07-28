@@ -165,7 +165,7 @@ public static class RuleInventoryDocument
             "terminal task state, and never consume wall-clock time.",
         BuiltInRuleFamily.TaskScheduling =>
             "`Task.Run` (all `Action`/`Func<TResult>`/`Func<Task>`/`Func<Task<TResult>>` overloads, with and " +
-            "without a `CancellationToken`) offloads work that Phase 6A left uncontrolled onto the thread pool. " +
+            "without a `CancellationToken`) redirects thread-pool scheduling into controlled operations. " +
             "Each overload redirects to a controlled equivalent that schedules the delegate as a controlled " +
             "operation on the simulation coordinator, preserving cancellation and unwrap semantics.",
         BuiltInRuleFamily.AsyncMachinery =>
@@ -249,15 +249,15 @@ public static class RuleInventoryDocument
             "(never split, never interleaved mid-operation), so the shim delegates to the real primitive and " +
             "preserves exact atomic return, overflow, and reference-write semantics under the active " +
             "simulation. The exploration policy injects no mid-operation scheduling point; the single " +
-            "delegation site is the future Phase 9 race-hook attachment point.",
+            "delegation site is the race-exploration access-tracking attachment point.",
         BuiltInRuleFamily.Volatile =>
             "The full .NET 10 `Volatile` surface - `Read`/`Write` (every primitive, native-int, " +
             "floating-point, and generic reference overload) and the `ReadBarrier`/`WriteBarrier` fences - " +
             "redirects each call site to a shim with the identical `ref`-first signature. Under the " +
             "cooperative single-logical-thread scheduler a volatile access is an indivisible step, so the " +
             "shim delegates to the real primitive and preserves the exact value read/written together with " +
-            "the acquire (read) / release (write) fence intent. The single delegation site is the future " +
-            "Phase 9 race-hook attachment point.",
+            "the acquire (read) / release (write) fence intent. The single delegation site is the " +
+            "race-exploration access-tracking attachment point.",
         BuiltInRuleFamily.SpinWait =>
             "`System.Threading.SpinWait` is a value type retargeted by whole-type substitution (like " +
             "`System.Threading.Lock`): every local/field/parameter typed `SpinWait`, each `new SpinWait()`/" +

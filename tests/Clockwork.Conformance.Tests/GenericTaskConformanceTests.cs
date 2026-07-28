@@ -53,7 +53,7 @@ public sealed class GenericTaskConformanceTests : IDisposable
                 return sum;
             }
 
-            // ---- TaskFactory scheduling is controlled under simulation (Phase 6B) ----
+            // ---- TaskFactory scheduling is controlled under simulation ----
             public static Task<int> FactoryStartNew() => System.Threading.Tasks.Task.Factory.StartNew(() => 5);
 
             // ---- TaskExtensions.Unwrap: inner+outer both complete on the logical thread ----
