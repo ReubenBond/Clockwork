@@ -142,14 +142,17 @@ public static class InstrumentationRunner
             assemblyResults.Add(ProcessAssembly(asset, stagingDirectory, configuration, request.RuleSet, options, key));
         }
 
-        if (configuration.Mode == InstrumentationMode.RaceExploration &&
-            !File.Exists(Path.Combine(stagingDirectory, "Clockwork.Runtime.dll")))
+        if (configuration.Mode == InstrumentationMode.RaceExploration)
         {
+            const string runtimeAsset = "Clockwork.Runtime.dll";
             File.Copy(
                 typeof(Runtime.Racing.RaceInstrumentation).Assembly.Location,
-                Path.Combine(stagingDirectory, "Clockwork.Runtime.dll"),
+                Path.Combine(stagingDirectory, runtimeAsset),
                 overwrite: true);
-            copied.Add("Clockwork.Runtime.dll");
+            if (!copied.Contains(runtimeAsset, StringComparer.Ordinal))
+            {
+                copied.Add(runtimeAsset);
+            }
         }
 
         bool succeeded = topLevel.All(d => !d.IsError) && !assemblyResults.SelectMany(a => a.Errors).Any();
@@ -314,10 +317,7 @@ public static class InstrumentationRunner
 
             if (configuration.Mode == InstrumentationMode.RaceExploration)
             {
-                string sourceRuntime = Path.Combine(sourceDirectory, "Clockwork.Runtime.dll");
-                paths.Add(File.Exists(sourceRuntime)
-                    ? sourceRuntime
-                    : typeof(Runtime.Racing.RaceInstrumentation).Assembly.Location);
+                paths.Add(typeof(Runtime.Racing.RaceInstrumentation).Assembly.Location);
             }
         }
 
@@ -390,6 +390,12 @@ public static class InstrumentationRunner
         canonical.Append("r2r=").Append(configuration.ReadyToRunPolicy).Append('\n');
         canonical.Append("sn=").Append(configuration.StrongNamePolicy).Append('\n');
         canonical.Append("key=").Append(key is null ? "none" : HashBytes(key.Blob)).Append('\n');
+        if (configuration.Mode == InstrumentationMode.RaceExploration)
+        {
+            canonical.Append("raceRuntime=")
+                .Append(TryHashFile(typeof(Runtime.Racing.RaceInstrumentation).Assembly.Location) ?? "missing")
+                .Append('\n');
+        }
 
         foreach (ClosureAsset asset in plan.Assets)
         {

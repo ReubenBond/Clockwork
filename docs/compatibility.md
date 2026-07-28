@@ -170,6 +170,8 @@ from arbitrary managed pointers are not assigned tracked locations. They remain 
 IL opcode is identifiable. Concurrent collections are interleaving points but are not themselves
 reported as data races. Collection coverage is direct-member call coverage, not whole-type substitution;
 members reached only through `ICollection<T>`/`IDictionary<TKey,TValue>` are outside the inventory.
+Tail-prefixed collection calls are left intact because the CLI requires `tail.` adjacency and a direct
+call-to-return flow; injecting after such a call would invalidate the method.
 This capability does not add broad schedule-search/minimization commands, profiler/native detours, or
 runtime hosting/transport interception.
 

@@ -62,6 +62,12 @@ internal sealed class ControlledResourceWaiter
     public CancellationTokenRegistration CancellationRegistration { get; set; }
 
     /// <summary>
+    /// The exact vector clock published by the operation that resolved this waiter as signaled.
+    /// Kept on the waiter so a later signal on the same resource cannot replace its happens-before edge.
+    /// </summary>
+    internal Dictionary<long, long>? RaceReleaseClock { get; set; }
+
+    /// <summary>
     /// Attempts to assign the first (and only) resolution to this waiter. The first of
     /// signal/timeout/cancel to call this wins; every later attempt observes an already-resolved
     /// waiter and returns <see langword="false"/>, which is exactly how the scheduler makes

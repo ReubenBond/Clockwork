@@ -1,5 +1,6 @@
 using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Shims;
+using Clockwork.Runtime.Racing;
 using Clockwork.Runtime.Threading;
 
 namespace Clockwork.Runtime.Tasks;
@@ -49,10 +50,17 @@ public static class ControlledTaskRuntime
         ArgumentNullException.ThrowIfNull(continuation);
         var snapshot = SimulationRuntimeDispatch.RequireActiveSimulation(apiName);
         ExecutionContext? context = flowExecutionContext ? ExecutionContext.Capture() : null;
+        var predecessor = new object();
+        RaceSynchronization.Signal(predecessor);
         _ = coordinator.ScheduleWhenReady(
             node,
             () => antecedent.IsCompleted,
-            () => RunScheduledWork(snapshot, context, continuation));
+            () =>
+            {
+                RaceSynchronization.Wait(predecessor);
+                RaceSynchronization.Wait(antecedent);
+                RunScheduledWork(snapshot, context, continuation);
+            });
     }
 
     internal static IControlledWorkRegistration ScheduleCancelableContinuation(
@@ -64,10 +72,17 @@ public static class ControlledTaskRuntime
         ArgumentNullException.ThrowIfNull(antecedent);
         ArgumentNullException.ThrowIfNull(continuation);
         SimulationExecutionSnapshot snapshot = SimulationRuntimeDispatch.RequireActiveSimulation(apiName);
+        var predecessor = new object();
+        RaceSynchronization.Signal(predecessor);
         return coordinator.ScheduleWhenReady(
             node,
             () => antecedent.IsCompleted,
-            () => RunScheduledWork(snapshot, null, continuation));
+            () =>
+            {
+                RaceSynchronization.Wait(predecessor);
+                RaceSynchronization.Wait(antecedent);
+                RunScheduledWork(snapshot, null, continuation);
+            });
     }
 
     /// <summary>

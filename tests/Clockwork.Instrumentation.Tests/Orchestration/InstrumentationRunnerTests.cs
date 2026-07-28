@@ -6,6 +6,7 @@ using Clockwork.Instrumentation.Orchestration;
 using Clockwork.Instrumentation.Rules;
 using Clockwork.Instrumentation.Signing;
 using Clockwork.Instrumentation.Tests.Infrastructure;
+using Clockwork.Runtime.Racing;
 using Mono.Cecil;
 
 namespace Clockwork.Instrumentation.Tests.Orchestration;
@@ -110,6 +111,27 @@ public sealed class InstrumentationRunnerTests : IDisposable
         Assert.True(second.Succeeded);
         Assert.False(second.WasIncrementalHit);
         Assert.Contains("\"mode\": \"RaceExploration\"", File.ReadAllText(second.ManifestPath));
+    }
+
+    [Fact]
+    public void RaceModeStagesTheExactRuntimeUsedByTheRewriter()
+    {
+        BuildMinimalApp();
+        FixtureCompiler.Compile(
+            "Clockwork.Runtime",
+            "namespace Clockwork.Runtime { public static class LegacyRuntime { } }",
+            _source,
+            FixtureSymbols.None,
+            optimize: true);
+
+        InstrumentationResult result = Run(
+            new InstrumentationConfiguration { Mode = InstrumentationMode.RaceExploration },
+            EmptyRuleSet());
+
+        Assert.True(result.Succeeded, string.Join("\n", result.Errors));
+        Assert.Equal(
+            File.ReadAllBytes(typeof(RaceInstrumentation).Assembly.Location),
+            File.ReadAllBytes(Path.Combine(_staging, "Clockwork.Runtime.dll")));
     }
 
     [Theory]

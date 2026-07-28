@@ -32,10 +32,12 @@ internal sealed class RaceTracker
         ImmutableArray<long> HeldSynchronization);
 
     private readonly ConditionalWeakTable<object, WeakIdentity> _objectIdentities = new();
-    private readonly ConditionalWeakTable<object, WeakIdentity> _synchronizationIdentities = new();
+    private readonly ConditionalWeakTable<object, WeakIdentity> _lockIdentities = new();
+    private readonly ConditionalWeakTable<object, WeakIdentity> _signalIdentities = new();
     private readonly Dictionary<long, OperationState> _operations = [];
     private readonly Dictionary<RaceMemoryLocation, AccessState> _locations = [];
-    private readonly Dictionary<long, Dictionary<long, long>> _synchronizationClocks = [];
+    private readonly Dictionary<long, Dictionary<long, long>> _lockClocks = [];
+    private readonly Dictionary<long, Dictionary<long, long>> _signalClocks = [];
     private long _nextObjectIdentity;
     private long _nextSynchronizationIdentity;
 
@@ -65,7 +67,7 @@ internal sealed class RaceTracker
             return null;
         }
 
-        if (kind == RaceMemoryLocationKind.StaticField)
+        if (kind == RaceMemoryLocationKind.StaticField && target is null)
         {
             return new RaceMemoryLocation(kind.Value, 0, member);
         }
@@ -141,8 +143,8 @@ internal sealed class RaceTracker
     public void EnterSynchronization(ControlledOperation operation, object synchronization)
     {
         OperationState state = StateOf(operation);
-        long id = SynchronizationId(synchronization);
-        if (_synchronizationClocks.TryGetValue(id, out Dictionary<long, long>? releaseClock))
+        long id = SynchronizationId(_lockIdentities, synchronization);
+        if (_lockClocks.TryGetValue(id, out Dictionary<long, long>? releaseClock))
         {
             Merge(state.Clock, releaseClock);
         }
@@ -155,14 +157,14 @@ internal sealed class RaceTracker
     public void ExitSynchronization(ControlledOperation operation, object synchronization)
     {
         OperationState state = StateOf(operation);
-        long id = SynchronizationId(synchronization);
+        long id = SynchronizationId(_lockIdentities, synchronization);
         if (!state.HeldSynchronization.TryGetValue(id, out int recursion))
         {
             return;
         }
 
         Tick(operation.Id.Value, state.Clock);
-        _synchronizationClocks[id] = new Dictionary<long, long>(state.Clock);
+        _lockClocks[id] = new Dictionary<long, long>(state.Clock);
         if (recursion == 1)
         {
             state.HeldSynchronization.Remove(id);
@@ -177,19 +179,41 @@ internal sealed class RaceTracker
     {
         OperationState state = StateOf(operation);
         Tick(operation.Id.Value, state.Clock);
-        _synchronizationClocks[SynchronizationId(synchronization)] = new Dictionary<long, long>(state.Clock);
+        long synchronizationId = SynchronizationId(_signalIdentities, synchronization);
+        if (_signalClocks.TryGetValue(synchronizationId, out Dictionary<long, long>? aggregate))
+        {
+            Merge(aggregate, state.Clock);
+        }
+        else
+        {
+            _signalClocks[synchronizationId] = new Dictionary<long, long>(state.Clock);
+        }
     }
 
     public void WaitSynchronization(ControlledOperation operation, object synchronization)
     {
         OperationState state = StateOf(operation);
-        if (_synchronizationClocks.TryGetValue(
-            SynchronizationId(synchronization),
+        if (_signalClocks.TryGetValue(
+            SynchronizationId(_signalIdentities, synchronization),
             out Dictionary<long, long>? releaseClock))
         {
             Merge(state.Clock, releaseClock);
         }
 
+        Tick(operation.Id.Value, state.Clock);
+    }
+
+    public Dictionary<long, long> CaptureRelease(ControlledOperation operation)
+    {
+        OperationState state = StateOf(operation);
+        Tick(operation.Id.Value, state.Clock);
+        return new Dictionary<long, long>(state.Clock);
+    }
+
+    public void ConsumeRelease(ControlledOperation operation, Dictionary<long, long> releaseClock)
+    {
+        OperationState state = StateOf(operation);
+        Merge(state.Clock, releaseClock);
         Tick(operation.Id.Value, state.Clock);
     }
 
@@ -220,8 +244,10 @@ internal sealed class RaceTracker
             ? state
             : throw new ControlledOperationException($"Race state for {operation.Id} was not registered.");
 
-    private long SynchronizationId(object synchronization) =>
-        _synchronizationIdentities.GetValue(
+    private long SynchronizationId(
+        ConditionalWeakTable<object, WeakIdentity> identities,
+        object synchronization) =>
+        identities.GetValue(
             synchronization,
             _ => new WeakIdentity { Value = ++_nextSynchronizationIdentity }).Value;
 

@@ -706,7 +706,7 @@ This inventory is enabled only when instrumentation mode is `RaceExploration`; `
 | `List<T>`, `Dictionary<TKey,TValue>`, `HashSet<T>` direct concrete members | Read/write/iteration point after the original call | Weak collection identity |
 | `ConcurrentBag<T>`, `ConcurrentDictionary<TKey,TValue>`, `ConcurrentQueue<T>`, `ConcurrentStack<T>` direct concrete members | Interleaving point after the original call | Not reported as a race |
 
-Limits: constructors and property accessors are excluded; generated `MoveNext` methods are visited, with generated value-type state fields schedule-only. Multidimensional arrays, interface-typed collection calls, reflection/dynamic dispatch, spans, unmanaged memory, and arbitrary pointer offsets are not assigned tracked locations.
+Limits: constructors and property accessors are excluded; generated `MoveNext` methods are visited, with generated value-type state fields schedule-only. Multidimensional arrays, interface-typed and tail-prefixed collection calls, reflection/dynamic dispatch, spans, unmanaged memory, and arbitrary pointer offsets are not assigned tracked locations.
 
 ## Documented holes (not rewritten in these rule sets)
 

@@ -4,6 +4,8 @@ using Clockwork.Runtime.Scheduling;
 using Clockwork.Runtime.Scheduling.Strategies;
 using Clockwork.Runtime.Tests.Scheduling;
 using Clockwork.Runtime.Tasks;
+using Clockwork.Runtime.Tasks.CompilerServices;
+using Clockwork.Runtime.Threading;
 
 namespace Clockwork.Runtime.Tests.Racing;
 
@@ -63,6 +65,28 @@ public sealed class RaceDetectionTests
         RaceReport race = Assert.IsType<RaceReport>(scheduler.FirstRace);
         Assert.Equal(RaceMemoryLocationKind.InstanceField, race.FirstAccess.Location.Kind);
         Assert.True(race.FirstAccess.Location.ObjectId > 0);
+    }
+
+    [Fact]
+    public void ClosedGenericStaticFieldsUseDistinctLocations()
+    {
+        using ControlledOperationScheduler scheduler = RunPair(
+            () => RaceInstrumentation.WriteStaticField(
+                typeof(GenericStatic<int>).TypeHandle,
+                "GenericStatic`1::Value",
+                "A",
+                1,
+                null,
+                -1),
+            () => RaceInstrumentation.WriteStaticField(
+                typeof(GenericStatic<string>).TypeHandle,
+                "GenericStatic`1::Value",
+                "B",
+                2,
+                null,
+                -1));
+
+        Assert.Null(scheduler.FirstRace);
     }
 
     [Fact]
@@ -168,6 +192,163 @@ public sealed class RaceDetectionTests
     }
 
     [Fact]
+    public void ControlledTaskAwaitConsumesCompletionHappensBeforeEdge()
+    {
+        ControlledTaskCompletionSource? completion = null;
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        scheduler.Schedule("producer", () =>
+        {
+            completion = new ControlledTaskCompletionSource();
+            RaceInstrumentation.WriteStatic("Fx.State::Value", "producer", 1, null, -1);
+            completion.SetResult();
+        });
+        scheduler.Drain();
+        scheduler.Schedule("consumer", () =>
+        {
+            new ControlledTaskAwaiter(completion!.Task).GetResult();
+            RaceInstrumentation.ReadStatic("Fx.State::Value", "consumer", 2, null, -1);
+        });
+        scheduler.Drain();
+
+        Assert.Null(scheduler.FirstRace);
+    }
+
+    [Fact]
+    public void ControlledTaskProxyPropagatesAntecedentHappensBeforeEdges()
+    {
+        ControlledTaskCompletionSource? first = null;
+        ControlledTaskCompletionSource? second = null;
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        scheduler.Schedule("producer", () =>
+        {
+            first = new ControlledTaskCompletionSource();
+            second = new ControlledTaskCompletionSource();
+            RaceInstrumentation.WriteStatic("Fx.State::Value", "producer", 1, null, -1);
+            first.SetResult();
+            second.SetResult();
+        });
+        scheduler.Drain();
+        scheduler.Schedule("consumer", () =>
+        {
+            Task proxy = ControlledTask.WhenAll(first!.Task, second!.Task);
+            new ControlledTaskAwaiter(proxy).GetResult();
+            RaceInstrumentation.ReadStatic("Fx.State::Value", "consumer", 2, null, -1);
+        });
+        scheduler.Drain();
+
+        Assert.Null(scheduler.FirstRace);
+    }
+
+    [Fact]
+    public void SharedReaderLocksDoNotSuppressWriteRace()
+    {
+        ReaderWriterLockSlim? rwLock = null;
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        scheduler.Schedule("setup", () => rwLock = ControlledReaderWriterLockSlim.Create());
+        scheduler.Drain();
+        scheduler.Schedule("first", () => WriteUnderReadLock(rwLock!));
+        scheduler.Schedule("second", () => WriteUnderReadLock(rwLock!));
+        scheduler.Drain();
+
+        Assert.NotNull(scheduler.FirstRace);
+    }
+
+    [Fact]
+    public void ReaderReleasesAggregateBeforeWriterAcquires()
+    {
+        ReaderWriterLockSlim? rwLock = null;
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        scheduler.Schedule("setup", () => rwLock = ControlledReaderWriterLockSlim.Create());
+        scheduler.Drain();
+        scheduler.Schedule("first-reader", () => ReadUnderReadLock(rwLock!));
+        scheduler.Schedule("second-reader", () => ReadUnderReadLock(rwLock!));
+        scheduler.Drain();
+        scheduler.Schedule("writer", () =>
+        {
+            ControlledReaderWriterLockSlim.EnterWriteLock(rwLock!);
+            try
+            {
+                RaceInstrumentation.WriteStatic("Fx.State::Value", "writer", 3, null, -1);
+            }
+            finally
+            {
+                ControlledReaderWriterLockSlim.ExitWriteLock(rwLock!);
+            }
+        });
+        scheduler.Drain();
+
+        Assert.Null(scheduler.FirstRace);
+    }
+
+    [Fact]
+    public void LockAndSignalOnSameObjectUseDifferentSynchronizationDomains()
+    {
+        Task synchronization = Task.CompletedTask;
+        using ControlledOperationScheduler scheduler = RunPair(
+            () =>
+            {
+                RaceSynchronization.Enter(synchronization);
+                try
+                {
+                    RaceInstrumentation.WriteStatic("Fx.State::Value", "lock", 1, null, -1);
+                }
+                finally
+                {
+                    RaceSynchronization.Exit(synchronization);
+                }
+            },
+            () =>
+            {
+                RaceSynchronization.Wait(synchronization);
+                RaceInstrumentation.ReadStatic("Fx.State::Value", "task", 2, null, -1);
+            });
+
+        Assert.NotNull(scheduler.FirstRace);
+    }
+
+    [Fact]
+    public void ImmediateAsyncSemaphoreWaitPropagatesReleaseClock()
+    {
+        SemaphoreSlim? semaphore = null;
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        scheduler.Schedule("setup", () => semaphore = ControlledSemaphoreSlim.Create(0, 1));
+        scheduler.Drain();
+        scheduler.Schedule("producer", () =>
+        {
+            RaceInstrumentation.WriteStatic("Fx.State::Value", "producer", 1, null, -1);
+            ControlledSemaphoreSlim.Release(semaphore!);
+        });
+        scheduler.Drain();
+        scheduler.Schedule("consumer", () =>
+        {
+            Task<bool> wait = ControlledSemaphoreSlim.WaitAsync(semaphore!, Timeout.Infinite);
+            Assert.True(new ControlledTaskAwaiter<bool>(wait).GetResult());
+            RaceInstrumentation.ReadStatic("Fx.State::Value", "consumer", 2, null, -1);
+        });
+        scheduler.Drain();
+
+        Assert.Null(scheduler.FirstRace);
+    }
+
+    [Fact]
+    public void SchedulerAndNestedStrandIdentitiesUseDisjointRanges()
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        long schedulerStrand = 0;
+        long nestedStrand = 0;
+        scheduler.Schedule("identity", () =>
+        {
+            schedulerStrand = ControlledSynchronizationFlow.CurrentId;
+            ControlledSynchronizationFlow.RunAsNewStrand(
+                () => nestedStrand = ControlledSynchronizationFlow.CurrentId);
+        });
+        scheduler.Drain();
+
+        Assert.True(schedulerStrand < 0);
+        Assert.True(nestedStrand > 0);
+    }
+
+    [Fact]
     public void ControlledResourceSignalCreatesHappensBeforeEdge()
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();
@@ -188,6 +369,34 @@ public sealed class RaceDetectionTests
         scheduler.Drain();
 
         Assert.Null(scheduler.FirstRace);
+    }
+
+    [Fact]
+    public void ResourceWaitConsumesClockFromItsResolvingSignal()
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        scheduler.SchedulingStrategy = new Clockwork.Runtime.Scheduling.Strategies.PrioritySchedulingStrategy();
+        var resource = scheduler.CreateResource(
+            Clockwork.Runtime.Scheduling.Resources.ControlledResourceKind.ManualResetEvent,
+            "clocked-event");
+        scheduler.Schedule("consumer", () =>
+        {
+            scheduler.WaitOnResource(resource, ControlledOperationPauseReason.ResourceWait("clocked-event"));
+            RaceInstrumentation.ReadStatic("Fx.State::Y", "consumer", 4, null, -1);
+        });
+        Assert.True(scheduler.RunStep());
+
+        scheduler.Schedule("first-signal", () => scheduler.SignalOne(resource), priority: 5);
+        Assert.True(scheduler.RunStep());
+
+        scheduler.Schedule("later-signal", () =>
+        {
+            RaceInstrumentation.WriteStatic("Fx.State::Y", "later", 3, null, -1);
+            scheduler.SignalOne(resource);
+        }, priority: 10);
+        scheduler.Drain();
+
+        Assert.NotNull(scheduler.FirstRace);
     }
 
     [Fact]
@@ -246,6 +455,32 @@ public sealed class RaceDetectionTests
         }
     }
 
+    private static void WriteUnderReadLock(ReaderWriterLockSlim rwLock)
+    {
+        ControlledReaderWriterLockSlim.EnterReadLock(rwLock);
+        try
+        {
+            RaceInstrumentation.WriteStatic("Fx.State::Value", "reader", 1, null, -1);
+        }
+        finally
+        {
+            ControlledReaderWriterLockSlim.ExitReadLock(rwLock);
+        }
+    }
+
+    private static void ReadUnderReadLock(ReaderWriterLockSlim rwLock)
+    {
+        ControlledReaderWriterLockSlim.EnterReadLock(rwLock);
+        try
+        {
+            RaceInstrumentation.ReadStatic("Fx.State::Value", "reader", 1, null, -1);
+        }
+        finally
+        {
+            ControlledReaderWriterLockSlim.ExitReadLock(rwLock);
+        }
+    }
+
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static WeakReference AccessTemporaryTarget()
     {
@@ -273,5 +508,9 @@ public sealed class RaceDetectionTests
         scheduler.Schedule("second", () => AccessStatic(RaceAccessKind.Read, "B"));
         scheduler.Drain();
         return Assert.IsType<RaceReport>(scheduler.FirstRace).ToDetailedString();
+    }
+
+    private static class GenericStatic<T>
+    {
     }
 }

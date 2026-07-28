@@ -492,7 +492,10 @@ public static class ControlledSemaphoreSlim
             if (state.Count > 0)
             {
                 state.Count--;
-                return Task.FromResult(true);
+                RaceSynchronization.Wait(instance);
+                Task<bool> completed = Task.FromResult(true);
+                RaceSynchronization.Signal(completed);
+                return completed;
             }
 
             if (millisecondsTimeout == 0)
@@ -654,6 +657,8 @@ public static class ControlledSemaphoreSlim
                 cleanup.Waiter.Completion.TrySetException(new ObjectDisposedException(nameof(SemaphoreSlim)));
                 break;
         }
+
+        RaceSynchronization.Signal(cleanup.Waiter.Completion.Task);
     }
 
     private static void ThrowIfDisposed(State state)

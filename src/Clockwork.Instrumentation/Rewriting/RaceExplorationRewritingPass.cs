@@ -36,8 +36,8 @@ internal sealed class RaceExplorationRewritingPass : RewritePass
         ModuleDefinition module = session.TargetModule;
         _readInstance = Import(module, nameof(RaceInstrumentation.ReadInstance));
         _writeInstance = Import(module, nameof(RaceInstrumentation.WriteInstance));
-        _readStatic = Import(module, nameof(RaceInstrumentation.ReadStatic));
-        _writeStatic = Import(module, nameof(RaceInstrumentation.WriteStatic));
+        _readStatic = Import(module, nameof(RaceInstrumentation.ReadStaticField));
+        _writeStatic = Import(module, nameof(RaceInstrumentation.WriteStaticField));
         _readArray = Import(module, nameof(RaceInstrumentation.ReadArray));
         _writeArray = Import(module, nameof(RaceInstrumentation.WriteArray));
         _untrackedMemory = Import(module, nameof(RaceInstrumentation.InterleaveUntrackedMemory));
@@ -146,7 +146,7 @@ internal sealed class RaceExplorationRewritingPass : RewritePass
 
     private void InstrumentInstanceField(Instruction instruction, FieldReference field, bool isWrite)
     {
-        if (field.DeclaringType.IsValueType || instruction.Previous?.OpCode == OpCodes.Volatile)
+        if (field.DeclaringType.IsValueType || HasPrefix(instruction, OpCodes.Volatile))
         {
             InstrumentUntracked(instruction, field.FullName);
             return;
@@ -155,7 +155,7 @@ internal sealed class RaceExplorationRewritingPass : RewritePass
         List<Instruction> injected = [];
         if (isWrite)
         {
-            VariableDefinition value = AddVariable(Module!.ImportReference(field.FieldType));
+            VariableDefinition value = AddVariable(Module!.ImportReference(InflateFieldType(field.FieldType, field)));
             injected.Add(Instruction.Create(OpCodes.Stloc, value));
             injected.Add(Instruction.Create(OpCodes.Dup));
             AppendMemberMetadata(injected, field.FullName, instruction);
@@ -175,13 +175,14 @@ internal sealed class RaceExplorationRewritingPass : RewritePass
 
     private void InstrumentStaticField(Instruction instruction, FieldReference field, bool isWrite)
     {
-        if (instruction.Previous?.OpCode == OpCodes.Volatile)
+        if (HasPrefix(instruction, OpCodes.Volatile))
         {
             InstrumentUntracked(instruction, field.FullName + " (volatile)");
             return;
         }
 
         List<Instruction> injected = [];
+        injected.Add(Instruction.Create(OpCodes.Ldtoken, Module!.ImportReference(field.DeclaringType)));
         AppendMemberMetadata(injected, field.FullName, instruction);
         MethodReference target = isWrite ? _writeStatic : _readStatic;
         injected.Add(Instruction.Create(OpCodes.Call, target));
@@ -248,10 +249,28 @@ internal sealed class RaceExplorationRewritingPass : RewritePass
 
     private void InsertAtAccess(Instruction instruction, IReadOnlyList<Instruction> injected)
     {
-        Instruction anchor = instruction.Previous?.OpCode == OpCodes.Volatile
-            ? instruction.Previous
-            : instruction;
+        Instruction anchor = instruction;
+        while (anchor.Previous is { } prefix && prefix.OpCode.OpCodeType == OpCodeType.Prefix)
+        {
+            anchor = prefix;
+        }
+
         InsertBeforeAndRetarget(anchor, injected);
+    }
+
+    private static bool HasPrefix(Instruction instruction, OpCode expected)
+    {
+        for (Instruction? prefix = instruction.Previous;
+             prefix is not null && prefix.OpCode.OpCodeType == OpCodeType.Prefix;
+             prefix = prefix.Previous)
+        {
+            if (prefix.OpCode == expected)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private VariableDefinition AddVariable(TypeReference type)
@@ -273,6 +292,64 @@ internal sealed class RaceExplorationRewritingPass : RewritePass
         Code.Stelem_Any => Module!.ImportReference((TypeReference)instruction.Operand),
         _ => throw new InvalidOperationException($"Unsupported array store opcode '{instruction.OpCode}'."),
     };
+
+    private static TypeReference InflateFieldType(TypeReference type, FieldReference field)
+    {
+        if (type is GenericParameter parameter &&
+            parameter.Type == GenericParameterType.Type &&
+            field.DeclaringType is GenericInstanceType genericType &&
+            parameter.Position < genericType.GenericArguments.Count)
+        {
+            return genericType.GenericArguments[parameter.Position];
+        }
+
+        if (type is ByReferenceType byReference)
+        {
+            return new ByReferenceType(InflateFieldType(byReference.ElementType, field));
+        }
+
+        if (type is PointerType pointer)
+        {
+            return new PointerType(InflateFieldType(pointer.ElementType, field));
+        }
+
+        if (type is PinnedType pinned)
+        {
+            return new PinnedType(InflateFieldType(pinned.ElementType, field));
+        }
+
+        if (type is RequiredModifierType required)
+        {
+            return new RequiredModifierType(
+                InflateFieldType(required.ModifierType, field),
+                InflateFieldType(required.ElementType, field));
+        }
+
+        if (type is OptionalModifierType optional)
+        {
+            return new OptionalModifierType(
+                InflateFieldType(optional.ModifierType, field),
+                InflateFieldType(optional.ElementType, field));
+        }
+
+        if (type is ArrayType array)
+        {
+            return new ArrayType(InflateFieldType(array.ElementType, field), array.Rank);
+        }
+
+        if (type is GenericInstanceType instance)
+        {
+            var inflated = new GenericInstanceType(instance.ElementType);
+            foreach (TypeReference argument in instance.GenericArguments)
+            {
+                inflated.GenericArguments.Add(InflateFieldType(argument, field));
+            }
+
+            return inflated;
+        }
+
+        return type;
+    }
 
     private void AppendMemberMetadata(List<Instruction> instructions, string member, Instruction site)
     {

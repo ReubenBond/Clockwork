@@ -46,7 +46,32 @@ public static class RaceSynchronization
         ArgumentNullException.ThrowIfNull(synchronization);
         if (ControlledOperationScheduler.TryGetExecutingOperation(out ControlledOperationScheduler? scheduler, out _))
         {
-            scheduler.WaitRaceSynchronization(synchronization);
+            if (synchronization is Task task)
+            {
+                ConsumeTask(scheduler, task, new HashSet<Task>(ReferenceEqualityComparer.Instance));
+            }
+            else
+            {
+                scheduler.WaitRaceSynchronization(synchronization);
+            }
         }
+    }
+
+    private static void ConsumeTask(
+        ControlledOperationScheduler scheduler,
+        Task task,
+        HashSet<Task> visited)
+    {
+        if (!visited.Add(task))
+        {
+            return;
+        }
+
+        foreach (Task dependency in RaceTaskDependencies.Resolve(task))
+        {
+            ConsumeTask(scheduler, dependency, visited);
+        }
+
+        scheduler.WaitRaceSynchronization(task);
     }
 }

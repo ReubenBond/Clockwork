@@ -35,7 +35,10 @@ public readonly record struct RaceMemoryLocation(
     /// <inheritdoc />
     public override string ToString() => Kind switch
     {
-        RaceMemoryLocationKind.StaticField => Member,
+        RaceMemoryLocationKind.StaticField when ObjectId == 0 => Member,
+        RaceMemoryLocationKind.StaticField => string.Create(
+            CultureInfo.InvariantCulture,
+            $"static#{ObjectId}:{Member}"),
         RaceMemoryLocationKind.ArrayElement => string.Create(
             CultureInfo.InvariantCulture,
             $"array#{ObjectId}[{ElementIndex}]"),

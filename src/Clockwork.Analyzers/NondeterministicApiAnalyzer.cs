@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Linq;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Operations;
 
@@ -257,6 +258,15 @@ public sealed class NondeterministicApiAnalyzer : DiagnosticAnalyzer
             containingType == "string" &&
             method.Name == "Join";
         if (!orderSensitiveLinq && !deterministicText)
+        {
+            return false;
+        }
+
+        if (method.Name == "SequenceEqual" &&
+            operation.Arguments.Length >= 2 &&
+            SyntaxFactory.AreEquivalent(
+                Unwrap(operation.Arguments[0].Value).Syntax,
+                Unwrap(operation.Arguments[1].Value).Syntax))
         {
             return false;
         }

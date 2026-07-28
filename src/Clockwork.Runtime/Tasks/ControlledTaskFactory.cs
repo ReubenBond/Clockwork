@@ -1,6 +1,7 @@
 using System.Threading;
 using System.Threading.Tasks;
 using Clockwork.Runtime.Shims;
+using Clockwork.Runtime.Racing;
 
 namespace Clockwork.Runtime.Tasks;
 
@@ -473,48 +474,68 @@ public static class ControlledTaskFactory
 
     private static void RunAction(Action action, TaskCompletionSource tcs, CancellationToken cancellationToken)
     {
-        if (cancellationToken.IsCancellationRequested)
-        {
-            tcs.TrySetCanceled(cancellationToken);
-            return;
-        }
-
         try
         {
-            action();
-            tcs.TrySetResult();
+            if (cancellationToken.IsCancellationRequested)
+            {
+                tcs.TrySetCanceled(cancellationToken);
+                return;
+            }
+
+            try
+            {
+                action();
+                tcs.TrySetResult();
+            }
+            catch (OperationCanceledException oce)
+                when (cancellationToken.IsCancellationRequested && oce.CancellationToken == cancellationToken)
+            {
+                tcs.TrySetCanceled(cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                tcs.TrySetException(ex);
+            }
         }
-        catch (OperationCanceledException oce)
-            when (cancellationToken.IsCancellationRequested && oce.CancellationToken == cancellationToken)
+        finally
         {
-            tcs.TrySetCanceled(cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            tcs.TrySetException(ex);
+            if (tcs.Task.IsCompleted)
+            {
+                RaceSynchronization.Signal(tcs.Task);
+            }
         }
     }
 
     private static void RunFunc<TResult>(Func<TResult> function, TaskCompletionSource<TResult> tcs, CancellationToken cancellationToken)
     {
-        if (cancellationToken.IsCancellationRequested)
-        {
-            tcs.TrySetCanceled(cancellationToken);
-            return;
-        }
-
         try
         {
-            tcs.TrySetResult(function());
+            if (cancellationToken.IsCancellationRequested)
+            {
+                tcs.TrySetCanceled(cancellationToken);
+                return;
+            }
+
+            try
+            {
+                tcs.TrySetResult(function());
+            }
+            catch (OperationCanceledException oce)
+                when (cancellationToken.IsCancellationRequested && oce.CancellationToken == cancellationToken)
+            {
+                tcs.TrySetCanceled(cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                tcs.TrySetException(ex);
+            }
         }
-        catch (OperationCanceledException oce)
-            when (cancellationToken.IsCancellationRequested && oce.CancellationToken == cancellationToken)
+        finally
         {
-            tcs.TrySetCanceled(cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            tcs.TrySetException(ex);
+            if (tcs.Task.IsCompleted)
+            {
+                RaceSynchronization.Signal(tcs.Task);
+            }
         }
     }
 

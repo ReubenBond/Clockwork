@@ -237,6 +237,7 @@ public sealed class NondeterministicApiAnalyzerTests
     [InlineData("var values = new System.Collections.Generic.HashSet<int>(); values.Add(1); _ = values.Contains(1);")]
     [InlineData("var values = new System.Collections.Generic.Dictionary<int, int>(); _ = System.Linq.Enumerable.First(System.Linq.Enumerable.OrderBy(values, pair => pair.Key));")]
     [InlineData("var values = new System.Collections.Generic.List<int>(); values.Add(1); _ = values[0];")]
+    [InlineData("var values = new System.Collections.Generic.HashSet<int>(); _ = System.Linq.Enumerable.SequenceEqual(values, values);")]
     public async Task DoesNotBlanketWarnForCollectionUsage(string source)
     {
         ImmutableArray<Diagnostic> diagnostics = await AnalyzeAsync("class Probe { void M() { " + source + " } }");

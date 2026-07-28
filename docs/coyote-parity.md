@@ -47,7 +47,7 @@ source/IL metadata, and manifest records.
 | `ldelem.*` / `stelem.*` | Tracked by weak array identity + index | Multidimensional helper calls are not recognized |
 | field address / indirect / object IL | Schedule-only | Arbitrary managed/native pointer offsets have no safe logical identity |
 | `brtrue` / `brfalse` | Control-flow scheduling point | Other branch opcodes are not injected, matching Coyote's pass |
-| `List<T>` / `Dictionary<TKey,TValue>` / `HashSet<T>` | Direct concrete reads, writes, and enumeration are tracked | Interface/reflection/dynamic calls are outside coverage |
+| `List<T>` / `Dictionary<TKey,TValue>` / `HashSet<T>` | Direct concrete reads, writes, and enumeration are tracked | Interface/reflection/dynamic and `tail.`-prefixed calls are outside coverage |
 | four `System.Collections.Concurrent` types | Direct concrete calls are scheduling points | Thread-safe collection access is not reported as a race |
 
 Unlike Coyote's wrapper subclasses for generic collections, Clockwork spills and restores the receiver

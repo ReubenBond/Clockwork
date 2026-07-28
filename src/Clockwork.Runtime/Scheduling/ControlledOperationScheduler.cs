@@ -1045,7 +1045,10 @@ public sealed class ControlledOperationScheduler : IDisposable
         {
             lock (_gate)
             {
-                _raceTracker.WaitSynchronization(operation, resource);
+                if (waiter.RaceReleaseClock is { } releaseClock)
+                {
+                    _raceTracker.ConsumeRelease(operation, releaseClock);
+                }
             }
         }
 
@@ -1119,14 +1122,14 @@ public sealed class ControlledOperationScheduler : IDisposable
             lock (_gate)
             {
                 ThrowIfDisposed();
-                if (t_currentOperation is { } signaler && ReferenceEquals(signaler.Scheduler, this))
-                {
-                    _raceTracker.SignalSynchronization(signaler, resource);
-                }
-
                 var next = resource.PeekNextPending();
                 if (next is not null && next.TryResolve(ControlledWaitOutcome.Signaled))
                 {
+                    if (t_currentOperation is { } signaler && ReferenceEquals(signaler.Scheduler, this))
+                    {
+                        next.RaceReleaseClock = _raceTracker.CaptureRelease(signaler);
+                    }
+
                     RecordWaitResolution(next, ControlledWaitOutcome.Signaled);
                     registration = DetachWaiterRegistrationsUnderLock(next);
                     resource.RemoveWaiter(next);
@@ -1165,11 +1168,6 @@ public sealed class ControlledOperationScheduler : IDisposable
             lock (_gate)
             {
                 ThrowIfDisposed();
-                if (t_currentOperation is { } signaler && ReferenceEquals(signaler.Scheduler, this))
-                {
-                    _raceTracker.SignalSynchronization(signaler, resource);
-                }
-
                 pending = resource.SnapshotPendingWaiters();
             }
 
@@ -1181,6 +1179,11 @@ public sealed class ControlledOperationScheduler : IDisposable
                 {
                     if (waiter.TryResolve(ControlledWaitOutcome.Signaled))
                     {
+                        if (t_currentOperation is { } signaler && ReferenceEquals(signaler.Scheduler, this))
+                        {
+                            waiter.RaceReleaseClock = _raceTracker.CaptureRelease(signaler);
+                        }
+
                         RecordWaitResolution(waiter, ControlledWaitOutcome.Signaled);
                         registration = DetachWaiterRegistrationsUnderLock(waiter);
                         resource.RemoveWaiter(waiter);
@@ -1868,7 +1871,7 @@ public sealed class ControlledOperationScheduler : IDisposable
             using (SimulationExecutionContext.EnterLogicalExecution(operation.LogicalExecutionId))
             {
                 Threading.ControlledSynchronizationFlow.RunAsStrand(
-                    operation.Id.Value,
+                    -operation.Id.Value,
                     operation.InvokeBody);
             }
         }

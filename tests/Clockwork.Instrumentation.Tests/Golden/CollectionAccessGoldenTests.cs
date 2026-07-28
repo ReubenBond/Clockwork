@@ -4,6 +4,7 @@ using Clockwork.Instrumentation.Rules;
 using Clockwork.Instrumentation.Tests.Infrastructure;
 using Clockwork.Runtime.Racing;
 using Mono.Cecil;
+using Mono.Cecil.Cil;
 
 namespace Clockwork.Instrumentation.Tests.Golden;
 
@@ -18,6 +19,16 @@ public sealed class CollectionAccessGoldenTests
 
         public static class Collections
         {
+            public static void Mutate(List<int> values)
+            {
+                values.AddRange([1, 2]);
+                values.Insert(0, 3);
+                values.InsertRange(0, [4]);
+                values.RemoveAt(0);
+                values.RemoveAll(value => value < 0);
+                values.RemoveRange(0, 1);
+            }
+
             public static int Run()
             {
                 var list = new List<int> { 1 };
@@ -105,6 +116,16 @@ public sealed class CollectionAccessGoldenTests
                     transformation.Target.StartsWith(typeName, StringComparison.Ordinal));
         }
 
+        string[] listMutators = ["AddRange", "Insert", "InsertRange", "RemoveAt", "RemoveAll", "RemoveRange"];
+        foreach (string mutator in listMutators)
+        {
+            Assert.Contains(
+                result.Manifest.Transformations,
+                transformation =>
+                    transformation.Target == $"System.Collections.Generic.List`1::{mutator}" &&
+                    transformation.Replacement!.Contains("RaceInstrumentation::WriteCollection", StringComparison.Ordinal));
+        }
+
         Assert.Contains(run.Body.Variables, variable =>
             variable.VariableType.FullName.StartsWith("System.Collections.Generic.List`1", StringComparison.Ordinal));
         Assert.DoesNotContain(module.GetTypes(), type => type.FullName.Contains("Wrapper", StringComparison.Ordinal));
@@ -132,6 +153,50 @@ public sealed class CollectionAccessGoldenTests
         Assembly assembly = Assembly.LoadFile(output);
         MethodInfo run = assembly.GetType("Fx.Collections")!.GetMethod("Run", BindingFlags.Public | BindingFlags.Static)!;
         Assert.Equal(36, Assert.IsType<int>(run.Invoke(null, null)));
+    }
+
+    [Fact]
+    public void TailPrefixedCollectionCallIsLeftIntactAndClassifiedUnsupported()
+    {
+        const string source = """
+            using System.Collections.Generic;
+            namespace Fx;
+            public static class TailCollection
+            {
+                public static int Count(List<int> values) => values.Count;
+            }
+            """;
+        using var context = RewriteTestContext.Create();
+        string input = FixtureCompiler.Compile(
+            "Fx.TailCollection",
+            source,
+            context.Directory,
+            FixtureSymbols.None,
+            optimize: true);
+        string modifiedInput = Path.Combine(context.Directory, "Fx.TailCollection.modified.dll");
+        using (ModuleDefinition editable = ModuleDefinition.ReadModule(input))
+        {
+            MethodDefinition count = CecilInspect.GetMethod(editable, "Fx.TailCollection", "Count");
+            Instruction call = Assert.Single(count.Body.Instructions, instruction => instruction.OpCode.Code == Code.Callvirt);
+            count.Body.GetILProcessor().InsertBefore(call, Instruction.Create(OpCodes.Tail));
+            editable.Write(modifiedInput);
+        }
+
+        string output = Path.Combine(context.Directory, "Fx.TailCollection.rewritten.dll");
+        RewriteResult result = context.Rewrite(modifiedInput, output, EmptyRules(), new RewriteOptions
+        {
+            ReplacementAssemblyPaths = [typeof(RaceInstrumentation).Assembly.Location],
+            ReferenceSearchDirectories = [context.Directory],
+            InstrumentRaceExploration = true,
+        });
+        result.EnsureSuccess();
+
+        using ModuleDefinition module = context.LoadModule(output);
+        MethodDefinition rewritten = CecilInspect.GetMethod(module, "Fx.TailCollection", "Count");
+        Instruction tail = Assert.Single(rewritten.Body.Instructions, instruction => instruction.OpCode == OpCodes.Tail);
+        Assert.True(tail.Next!.OpCode.Code is Code.Call or Code.Callvirt);
+        Assert.Equal(Code.Ret, tail.Next.Next!.OpCode.Code);
+        Assert.False(CecilInspect.CallsAnyContaining(rewritten, "RaceInstrumentation"));
     }
 
     private static RewriteRuleSet EmptyRules() => new("clockwork.collection-tests", "1.0", []);

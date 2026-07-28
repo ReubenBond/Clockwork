@@ -166,5 +166,89 @@ public sealed class RaceExplorationGoldenTests
         Assert.False(CecilInspect.CallsAnyContaining(CecilInspect.GetMethod(module, "Fx.Subject", "set_Property"), "RaceInstrumentation"));
     }
 
+    [Fact]
+    public void GenericInstanceAndStaticFieldWritesProduceValidClosedIl()
+    {
+        const string genericFixture = """
+            namespace Fx;
+
+            public sealed class GenericState<T>
+            {
+                public T? Value;
+                public static T? Shared;
+
+                public void Set(T value)
+                {
+                    Value = value;
+                    Shared = value;
+                }
+            }
+            """;
+        using var context = RewriteTestContext.Create();
+        string input = FixtureCompiler.Compile(
+            "Fx.GenericRace",
+            genericFixture,
+            context.Directory,
+            FixtureSymbols.PortableFile,
+            optimize: false);
+        string output = Path.Combine(context.Directory, "Fx.GenericRace.rewritten.dll");
+
+        RewriteResult result = context.Rewrite(input, output, EmptyRules(), new RewriteOptions
+        {
+            ReplacementAssemblyPaths = [typeof(RaceInstrumentation).Assembly.Location],
+            ReferenceSearchDirectories = [context.Directory],
+            InstrumentRaceExploration = true,
+        });
+
+        result.EnsureSuccess();
+        using ModuleDefinition module = context.LoadModule(output);
+        MethodDefinition set = CecilInspect.GetMethod(module, "Fx.GenericState`1", "Set");
+        Assert.True(CecilInspect.CallsAnyContaining(set, "RaceInstrumentation::WriteInstance"));
+        Assert.True(CecilInspect.CallsAnyContaining(set, "RaceInstrumentation::WriteStaticField"));
+    }
+
+    [Fact]
+    public void IndirectAccessInstrumentationPreservesCompletePrefixChain()
+    {
+        using var context = RewriteTestContext.Create();
+        string input = FixtureCompiler.Compile(
+            "Fx.PrefixRace",
+            "namespace Fx { public static class PrefixRace { public static int Read(ref int value) => value; } }",
+            context.Directory,
+            FixtureSymbols.None,
+            optimize: true);
+        string modifiedInput = Path.Combine(context.Directory, "Fx.PrefixRace.modified.dll");
+        using (ModuleDefinition editable = ModuleDefinition.ReadModule(input))
+        {
+            MethodDefinition read = CecilInspect.GetMethod(editable, "Fx.PrefixRace", "Read");
+            Instruction indirect = Assert.Single(read.Body.Instructions, instruction => instruction.OpCode.Code == Code.Ldind_I4);
+            ILProcessor processor = read.Body.GetILProcessor();
+            processor.InsertBefore(indirect, Instruction.Create(OpCodes.Unaligned, (byte)1));
+            processor.InsertBefore(indirect, Instruction.Create(OpCodes.Volatile));
+            editable.Write(modifiedInput);
+        }
+
+        string output = Path.Combine(context.Directory, "Fx.PrefixRace.rewritten.dll");
+        RewriteResult result = context.Rewrite(modifiedInput, output, EmptyRules(), new RewriteOptions
+        {
+            ReplacementAssemblyPaths = [typeof(RaceInstrumentation).Assembly.Location],
+            ReferenceSearchDirectories = [context.Directory],
+            InstrumentRaceExploration = true,
+        });
+
+        result.EnsureSuccess();
+        using ModuleDefinition module = context.LoadModule(output);
+        MethodDefinition rewritten = CecilInspect.GetMethod(module, "Fx.PrefixRace", "Read");
+        Instruction unaligned = Assert.Single(rewritten.Body.Instructions, instruction => instruction.OpCode == OpCodes.Unaligned);
+        Assert.Equal(OpCodes.Volatile, unaligned.Next!.OpCode);
+        Assert.Equal(Code.Ldind_I4, unaligned.Next.Next!.OpCode.Code);
+        Assert.Contains(
+            rewritten.Body.Instructions.TakeWhile(instruction => instruction != unaligned),
+            instruction =>
+                instruction.OpCode.Code == Code.Call &&
+                instruction.Operand is MethodReference method &&
+                method.Name == nameof(RaceInstrumentation.InterleaveUntrackedMemory));
+    }
+
     private static RewriteRuleSet EmptyRules() => new("clockwork.race-tests", "1.0", []);
 }

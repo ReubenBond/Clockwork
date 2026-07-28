@@ -38,6 +38,7 @@ internal sealed class CollectionAccessRewritingPass : RewritePass
     [
         "set_Item",
         "Add",
+        "AddRange",
         "AddOrUpdate",
         "Clear",
         "Dequeue",
@@ -46,9 +47,14 @@ internal sealed class CollectionAccessRewritingPass : RewritePass
         "ExceptWith",
         "GetOrAdd",
         "IntersectWith",
+        "Insert",
+        "InsertRange",
         "Pop",
         "Push",
         "Remove",
+        "RemoveAll",
+        "RemoveAt",
+        "RemoveRange",
         "RemoveWhere",
         "Reverse",
         "Sort",
@@ -93,6 +99,16 @@ internal sealed class CollectionAccessRewritingPass : RewritePass
         if (!isMutable && !isConcurrent)
         {
             return instruction;
+        }
+
+        for (Instruction? prefix = instruction.Previous;
+             prefix is not null && prefix.OpCode.OpCodeType == OpCodeType.Prefix;
+             prefix = prefix.Previous)
+        {
+            if (prefix.OpCode == OpCodes.Tail)
+            {
+                return instruction;
+            }
         }
 
         VariableDefinition receiver = AddVariable(Inflate(called.DeclaringType, called));

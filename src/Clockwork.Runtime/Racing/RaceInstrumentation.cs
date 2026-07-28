@@ -88,6 +88,44 @@ public static class RaceInstrumentation
             sourceFile,
             sourceLine);
 
+    /// <summary>Records and schedules a static-field read with closed declaring-type identity.</summary>
+    public static void ReadStaticField(
+        RuntimeTypeHandle declaringType,
+        string member,
+        string method,
+        int ilOffset,
+        string? sourceFile,
+        int sourceLine) =>
+        Interleave(
+            RaceAccessKind.Read,
+            RaceMemoryLocationKind.StaticField,
+            Type.GetTypeFromHandle(declaringType),
+            member,
+            elementIndex: null,
+            method,
+            ilOffset,
+            sourceFile,
+            sourceLine);
+
+    /// <summary>Records and schedules a static-field write with closed declaring-type identity.</summary>
+    public static void WriteStaticField(
+        RuntimeTypeHandle declaringType,
+        string member,
+        string method,
+        int ilOffset,
+        string? sourceFile,
+        int sourceLine) =>
+        Interleave(
+            RaceAccessKind.Write,
+            RaceMemoryLocationKind.StaticField,
+            Type.GetTypeFromHandle(declaringType),
+            member,
+            elementIndex: null,
+            method,
+            ilOffset,
+            sourceFile,
+            sourceLine);
+
     /// <summary>Records and schedules an array-element read.</summary>
     public static void ReadArray(
         Array? target,
