@@ -499,7 +499,7 @@ public sealed class PackageSmokeTests
         {
             AppRunResult result = ProcessAppRunner.Execute(
                 "dotnet",
-                ["pack", relativeProject, "-c", "Release", $"-p:Version={version}", "-o", feed, "--nologo"],
+                ["pack", relativeProject, "-c", "Release", $"-p:Version={version}", "-o", feed, "--nologo", "--disable-build-servers"],
                 repoRoot,
                 NuGetEnvironment(packages),
                 TimeSpan.FromSeconds(300));
