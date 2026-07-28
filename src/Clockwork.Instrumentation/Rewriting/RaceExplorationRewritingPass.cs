@@ -78,6 +78,10 @@ internal sealed class RaceExplorationRewritingPass : RewritePass
             case Code.Stsfld:
                 InstrumentStaticField(instruction, (FieldReference)instruction.Operand, isWrite: true);
                 break;
+            case Code.Ldflda:
+            case Code.Ldsflda:
+                InstrumentUntracked(instruction, ((FieldReference)instruction.Operand).FullName + " address");
+                break;
             case Code.Ldelem_Any:
             case Code.Ldelem_I:
             case Code.Ldelem_I1:
@@ -142,7 +146,7 @@ internal sealed class RaceExplorationRewritingPass : RewritePass
 
     private void InstrumentInstanceField(Instruction instruction, FieldReference field, bool isWrite)
     {
-        if (field.DeclaringType.IsValueType)
+        if (field.DeclaringType.IsValueType || instruction.Previous?.OpCode == OpCodes.Volatile)
         {
             InstrumentUntracked(instruction, field.FullName);
             return;
@@ -171,6 +175,12 @@ internal sealed class RaceExplorationRewritingPass : RewritePass
 
     private void InstrumentStaticField(Instruction instruction, FieldReference field, bool isWrite)
     {
+        if (instruction.Previous?.OpCode == OpCodes.Volatile)
+        {
+            InstrumentUntracked(instruction, field.FullName + " (volatile)");
+            return;
+        }
+
         List<Instruction> injected = [];
         AppendMemberMetadata(injected, field.FullName, instruction);
         MethodReference target = isWrite ? _writeStatic : _readStatic;

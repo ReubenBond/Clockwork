@@ -22,7 +22,16 @@ public static class RaceInstrumentation
         int ilOffset,
         string? sourceFile,
         int sourceLine) =>
-        Interleave(RaceAccessKind.Read, member, method, ilOffset, sourceFile, sourceLine);
+        Interleave(
+            RaceAccessKind.Read,
+            RaceMemoryLocationKind.InstanceField,
+            target,
+            member,
+            elementIndex: null,
+            method,
+            ilOffset,
+            sourceFile,
+            sourceLine);
 
     /// <summary>Records and schedules an instance-field write.</summary>
     public static void WriteInstance(
@@ -32,7 +41,16 @@ public static class RaceInstrumentation
         int ilOffset,
         string? sourceFile,
         int sourceLine) =>
-        Interleave(RaceAccessKind.Write, member, method, ilOffset, sourceFile, sourceLine);
+        Interleave(
+            RaceAccessKind.Write,
+            RaceMemoryLocationKind.InstanceField,
+            target,
+            member,
+            elementIndex: null,
+            method,
+            ilOffset,
+            sourceFile,
+            sourceLine);
 
     /// <summary>Records and schedules a static-field read.</summary>
     public static void ReadStatic(
@@ -41,7 +59,16 @@ public static class RaceInstrumentation
         int ilOffset,
         string? sourceFile,
         int sourceLine) =>
-        Interleave(RaceAccessKind.Read, member, method, ilOffset, sourceFile, sourceLine);
+        Interleave(
+            RaceAccessKind.Read,
+            RaceMemoryLocationKind.StaticField,
+            target: null,
+            member,
+            elementIndex: null,
+            method,
+            ilOffset,
+            sourceFile,
+            sourceLine);
 
     /// <summary>Records and schedules a static-field write.</summary>
     public static void WriteStatic(
@@ -50,7 +77,16 @@ public static class RaceInstrumentation
         int ilOffset,
         string? sourceFile,
         int sourceLine) =>
-        Interleave(RaceAccessKind.Write, member, method, ilOffset, sourceFile, sourceLine);
+        Interleave(
+            RaceAccessKind.Write,
+            RaceMemoryLocationKind.StaticField,
+            target: null,
+            member,
+            elementIndex: null,
+            method,
+            ilOffset,
+            sourceFile,
+            sourceLine);
 
     /// <summary>Records and schedules an array-element read.</summary>
     public static void ReadArray(
@@ -62,7 +98,10 @@ public static class RaceInstrumentation
         int sourceLine) =>
         Interleave(
             RaceAccessKind.Read,
-            string.Create(System.Globalization.CultureInfo.InvariantCulture, $"array[{index}]"),
+            RaceMemoryLocationKind.ArrayElement,
+            target,
+            "element",
+            index,
             method,
             ilOffset,
             sourceFile,
@@ -78,7 +117,10 @@ public static class RaceInstrumentation
         int sourceLine) =>
         Interleave(
             RaceAccessKind.Write,
-            string.Create(System.Globalization.CultureInfo.InvariantCulture, $"array[{index}]"),
+            RaceMemoryLocationKind.ArrayElement,
+            target,
+            "element",
+            index,
             method,
             ilOffset,
             sourceFile,
@@ -91,7 +133,16 @@ public static class RaceInstrumentation
         int ilOffset,
         string? sourceFile,
         int sourceLine) =>
-        Interleave(RaceAccessKind.UntrackedMemory, description, method, ilOffset, sourceFile, sourceLine);
+        Interleave(
+            RaceAccessKind.UntrackedMemory,
+            locationKind: null,
+            target: null,
+            description,
+            elementIndex: null,
+            method,
+            ilOffset,
+            sourceFile,
+            sourceLine);
 
     /// <summary>Schedules a conditional control-flow branch.</summary>
     public static void InterleaveControlFlow(
@@ -99,11 +150,23 @@ public static class RaceInstrumentation
         int ilOffset,
         string? sourceFile,
         int sourceLine) =>
-        Interleave(RaceAccessKind.ControlFlow, "conditional branch", method, ilOffset, sourceFile, sourceLine);
+        Interleave(
+            RaceAccessKind.ControlFlow,
+            locationKind: null,
+            target: null,
+            "conditional branch",
+            elementIndex: null,
+            method,
+            ilOffset,
+            sourceFile,
+            sourceLine);
 
     private static void Interleave(
         RaceAccessKind kind,
-        string location,
+        RaceMemoryLocationKind? locationKind,
+        object? target,
+        string member,
+        long? elementIndex,
         string method,
         int ilOffset,
         string? sourceFile,
@@ -120,7 +183,10 @@ public static class RaceInstrumentation
         {
             scheduler.ReachRaceSchedulingPoint(
                 kind,
-                location,
+                locationKind,
+                target,
+                member,
+                elementIndex,
                 new RaceSourceLocation(method, ilOffset, sourceFile, sourceLine));
         }
         finally
