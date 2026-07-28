@@ -48,7 +48,7 @@ public sealed class ClosureDiscoveryTests : IDisposable
     {
         BuildStandardClosure();
         ClosurePlan plan = ClosureDiscovery.Discover(
-            _directory, new InstrumentationConfiguration { RewriteDependencies = false });
+            _directory, new InstrumentationConfiguration { InstrumentDependencies = false });
 
         Assert.Equal("app.dll", plan.EntryAssemblyRelativePath);
         Assert.Equal(["app.dll"], plan.AssembliesToRewrite.Select(a => a.RelativePath));

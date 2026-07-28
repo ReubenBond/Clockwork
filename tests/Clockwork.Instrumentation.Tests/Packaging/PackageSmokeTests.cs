@@ -252,9 +252,9 @@ public sealed class PackageSmokeTests
 
         string source = Path.GetDirectoryName(consumer.OutputAppPath)!;
         string staging = Path.Combine(consumer.ProjectDirectory, "tool-staged");
-        AppRunResult rewrite = artifacts.RunTool(
-            ["rewrite", "--source", source, "--output", staging, "--builtin", BuiltInRuleSets.DeterministicBclId]);
-        Assert.True(rewrite.ExitCode == 0, $"Rewrite failed:\n{rewrite.StandardOutput}\n{rewrite.StandardError}");
+        AppRunResult instrument = artifacts.RunTool(
+            ["instrument", "--source", source, "--output", staging, "--builtin", BuiltInRuleSets.DeterministicBclId]);
+        Assert.True(instrument.ExitCode == 0, $"Instrumentation failed:\n{instrument.StandardOutput}\n{instrument.StandardError}");
 
         string stagedApp = Path.Combine(staging, "SmokeApp.dll");
         AppRunResult staged = ProcessAppRunner.Run(stagedApp);

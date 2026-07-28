@@ -84,7 +84,7 @@ public sealed record InstrumentationConfiguration
     /// rewritten too (the application/dependency closure), subject to include/exclude filtering.
     /// Defaults to <see langword="true"/>.
     /// </summary>
-    public bool RewriteDependencies { get; init; } = true;
+    public bool InstrumentDependencies { get; init; } = true;
 
     /// <summary>
     /// Gets the target runtime version rules are evaluated against (see
@@ -129,7 +129,7 @@ public sealed record InstrumentationConfiguration
         AppendList(builder, "include", IncludePatterns);
         AppendList(builder, "exclude", ExcludePatterns);
         builder.Append("excludeFramework:").Append(ExcludeFrameworkAssemblies).Append('\n');
-        builder.Append("rewriteDependencies:").Append(RewriteDependencies).Append('\n');
+        builder.Append("instrumentDependencies:").Append(InstrumentDependencies).Append('\n');
         builder.Append("targetRuntime:").Append(TargetRuntime?.ToString() ?? "*").Append('\n');
         builder.Append("r2rPolicy:").Append(ReadyToRunPolicy).Append('\n');
         builder.Append("strongNamePolicy:").Append(StrongNamePolicy).Append('\n');

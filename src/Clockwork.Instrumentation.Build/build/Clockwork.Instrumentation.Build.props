@@ -14,7 +14,7 @@
 
     <!-- Policy defaults mirror the safe library defaults. -->
     <ClockworkExcludeFrameworkAssemblies Condition="'$(ClockworkExcludeFrameworkAssemblies)' == ''">true</ClockworkExcludeFrameworkAssemblies>
-    <ClockworkRewriteDependencies Condition="'$(ClockworkRewriteDependencies)' == ''">true</ClockworkRewriteDependencies>
+    <ClockworkInstrumentDependencies Condition="'$(ClockworkInstrumentDependencies)' == ''">true</ClockworkInstrumentDependencies>
     <ClockworkReadyToRunPolicy Condition="'$(ClockworkReadyToRunPolicy)' == ''">Reject</ClockworkReadyToRunPolicy>
     <ClockworkStrongNamePolicy Condition="'$(ClockworkStrongNamePolicy)' == ''">Fail</ClockworkStrongNamePolicy>
 

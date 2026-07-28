@@ -44,7 +44,7 @@ public static class ClosureDiscovery
         FrameworkAssemblyClassifier classifier = frameworkClassifier ?? FrameworkAssemblyClassifier.Default;
 
         string? entryRelative = ResolveEntryRelativePath(root, entryAssemblyName);
-        if (!configuration.RewriteDependencies && entryRelative is null)
+        if (!configuration.InstrumentDependencies && entryRelative is null)
         {
             throw new ClosureException(
                 "Dependency rewriting is disabled but the entry assembly could not be determined. Specify the entry " +
@@ -138,7 +138,7 @@ public static class ClosureDiscovery
 
         bool isEntry = entryRelative is not null &&
             string.Equals(relative, entryRelative, StringComparison.OrdinalIgnoreCase);
-        if (!configuration.RewriteDependencies && !isEntry)
+        if (!configuration.InstrumentDependencies && !isEntry)
         {
             return Copy(file, relative, AssetKind.ManagedAssembly, "dependency rewriting disabled");
         }

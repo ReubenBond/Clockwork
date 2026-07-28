@@ -12,13 +12,13 @@ using Clockwork.Instrumentation.Signing;
 namespace Clockwork.Tool;
 
 /// <summary>
-/// The <c>rewrite</c> command: instruments an application closure from an explicit source directory
+/// The <c>instrument</c> command: instruments an application closure from an explicit source directory
 /// into an explicit output (staging) directory using the merged rule set, honoring every policy. With
 /// <c>--dry-run</c> it discovers the closure and reports the planned per-assembly transformation
 /// without writing anything. Output is deterministic text by default or JSON with <c>--json</c>, and
 /// the exit code reflects the failure class.
 /// </summary>
-internal static class RewriteCommand
+internal static class InstrumentCommand
 {
     public static ExitCode Run(IReadOnlyList<string> args, TextWriter output, TextWriter error)
     {
@@ -38,7 +38,7 @@ internal static class RewriteCommand
 
         if (string.IsNullOrWhiteSpace(source))
         {
-            throw new UsageException("The 'rewrite' command requires '--source <directory>'.");
+            throw new UsageException("The 'instrument' command requires '--source <directory>'.");
         }
 
         InstrumentationConfiguration configuration = ConfigurationFactory.Build(reader);
@@ -52,7 +52,7 @@ internal static class RewriteCommand
 
         if (string.IsNullOrWhiteSpace(outputDir))
         {
-            throw new UsageException("The 'rewrite' command requires '--output <directory>' unless '--dry-run' is set.");
+            throw new UsageException("The 'instrument' command requires '--output <directory>' unless '--dry-run' is set.");
         }
 
         var request = new InstrumentationRequest
@@ -126,7 +126,7 @@ internal static class RewriteCommand
 
             var doc = new JsonObject
             {
-                ["command"] = "rewrite",
+                ["command"] = "instrument",
                 ["dryRun"] = true,
                 ["source"] = plan.RootDirectory,
                 ["ruleSetId"] = ruleSet.Id,
@@ -149,7 +149,7 @@ internal static class RewriteCommand
                 output.WriteLine($"Built-in rule sets: {string.Join(", ", builtInIds)}");
             }
 
-            output.WriteLine($"Rewrite candidates: {rows.Count}; verbatim copies: {plan.AssetsToCopy.Count()}");
+            output.WriteLine($"Instrumentation candidates: {rows.Count}; verbatim copies: {plan.AssetsToCopy.Count()}");
             foreach (PlannedAction row in rows.OrderBy(r => r.RelativePath, StringComparer.Ordinal))
             {
                 output.WriteLine($"  {(row.IsBlocking ? "BLOCK" : "ok   ")} {row.RelativePath}: {row.Action}");
@@ -179,7 +179,7 @@ internal static class RewriteCommand
         {
             return configuration.ReadyToRunPolicy == ReadyToRunPolicy.Reject
                 ? new PlannedAction(asset.RelativePath, "reject (ReadyToRun; policy Reject)", IsBlocking: true)
-                : new PlannedAction(asset.RelativePath, "strip ReadyToRun to IL, then rewrite", IsBlocking: false);
+                : new PlannedAction(asset.RelativePath, "strip ReadyToRun to IL, then instrument", IsBlocking: false);
         }
 
         if (image.IsMixedMode)
@@ -200,10 +200,10 @@ internal static class RewriteCommand
                 return new PlannedAction(asset.RelativePath, "fail (strong-named; re-signing requires a usable key)", IsBlocking: true);
             }
 
-            return new PlannedAction(asset.RelativePath, "rewrite and re-sign", IsBlocking: false);
+            return new PlannedAction(asset.RelativePath, "instrument and re-sign", IsBlocking: false);
         }
 
-        return new PlannedAction(asset.RelativePath, "rewrite", IsBlocking: false);
+        return new PlannedAction(asset.RelativePath, "instrument", IsBlocking: false);
     }
 
     private static StrongNameKey? LoadKey(InstrumentationConfiguration configuration)
@@ -229,7 +229,7 @@ internal static class RewriteCommand
             ? $"Up to date (incremental): '{result.StagingDirectory}'"
             : $"Instrumented '{result.StagingDirectory}'");
         output.WriteLine($"Manifest: {result.ManifestPath}");
-        output.WriteLine($"Rewritten: {result.RewrittenCount}; no-ops: {result.NoOpCount}; copied assets: {result.CopiedAssets.Length}");
+        output.WriteLine($"Instrumented: {result.RewrittenCount}; no-ops: {result.NoOpCount}; copied assets: {result.CopiedAssets.Length}");
         foreach (AssemblyInstrumentationResult assembly in result.Assemblies.OrderBy(a => a.RelativePath, StringComparer.Ordinal))
         {
             foreach (RewriteDiagnostic diagnostic in assembly.Diagnostics)
@@ -254,7 +254,7 @@ internal static class RewriteCommand
             assemblies.Add(new JsonObject
             {
                 ["assembly"] = assembly.RelativePath,
-                ["rewritten"] = assembly.WasRewritten,
+                ["instrumented"] = assembly.WasRewritten,
                 ["noOp"] = assembly.WasNoOp,
                 ["reSigned"] = assembly.WasReSigned,
                 ["readyToRunStripped"] = assembly.ReadyToRunStripped,
@@ -264,12 +264,12 @@ internal static class RewriteCommand
 
         var doc = new JsonObject
         {
-            ["command"] = "rewrite",
+            ["command"] = "instrument",
             ["succeeded"] = result.Succeeded,
             ["incremental"] = result.WasIncrementalHit,
             ["stagingDirectory"] = result.StagingDirectory,
             ["manifestPath"] = result.ManifestPath,
-            ["rewrittenCount"] = result.RewrittenCount,
+            ["instrumentedCount"] = result.RewrittenCount,
             ["noOpCount"] = result.NoOpCount,
             ["copiedAssets"] = result.CopiedAssets.Length,
             ["assemblies"] = assemblies,

@@ -14,12 +14,12 @@ public sealed class ReplayCliCommandTests : IDisposable
         Guid.NewGuid().ToString("n"));
 
     [Fact]
-    public void RunReplayAndTraceShowRoundTripExplicitScenario()
+    public void RecordReplayAndTraceShowRoundTripExplicitScenario()
     {
         string artifact = Path.Combine(_root, "success.cwr.json");
 
         (ExitCode runCode, string runOutput, string runError) = Invoke(
-            "run",
+            "record",
             "--assembly", TestAssembly,
             "--scenario-type", typeof(SuccessScenario).FullName!,
             "--artifact", artifact,
@@ -48,12 +48,12 @@ public sealed class ReplayCliCommandTests : IDisposable
     }
 
     [Fact]
-    public void RunReturnsClassifiedFailureAndWritesArtifact()
+    public void RecordReturnsClassifiedFailureAndWritesArtifact()
     {
         string artifact = Path.Combine(_root, "fault.cwr.json");
 
         (ExitCode code, string output, string error) = Invoke(
-            "run",
+            "record",
             "--assembly", TestAssembly,
             "--scenario-type", typeof(FaultScenario).FullName!,
             "--artifact", artifact,
@@ -117,7 +117,7 @@ public sealed class ReplayCliCommandTests : IDisposable
     public void MissingExplicitScenarioTypeIsUsageError()
     {
         (ExitCode code, _, string error) = Invoke(
-            "run",
+            "record",
             "--assembly", TestAssembly,
             "--artifact", Path.Combine(_root, "missing.cwr.json"),
             "--seed", "1");
@@ -191,7 +191,7 @@ public sealed class ReplayCliCommandTests : IDisposable
         {
             string artifact = Path.Combine(_root, $"long-{seed}.cwr.json");
             (ExitCode code, _, _) = Invoke(
-                "run",
+                "record",
                 "--assembly", TestAssembly,
                 "--scenario-type", typeof(LongFaultScenario).FullName!,
                 "--artifact", artifact,

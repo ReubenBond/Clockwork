@@ -15,7 +15,7 @@ public sealed class InstrumentationConfigurationTests
         InstrumentationConfiguration config = InstrumentationConfigurationLoader.Parse("""{ "ruleSets": ["r.json"] }""");
 
         Assert.True(config.ExcludeFrameworkAssemblies);
-        Assert.True(config.RewriteDependencies);
+        Assert.True(config.InstrumentDependencies);
         Assert.Equal(InstrumentationMode.Controlled, config.Mode);
         Assert.Equal(ReadyToRunPolicy.Reject, config.ReadyToRunPolicy);
         Assert.Equal(StrongNamePolicy.Fail, config.StrongNamePolicy);
@@ -34,7 +34,7 @@ public sealed class InstrumentationConfigurationTests
               "include": ["App*.dll"],
               "exclude": ["*.Tests.dll"],
               "excludeFrameworkAssemblies": false,
-              "rewriteDependencies": false,
+              "instrumentDependencies": false,
               "targetRuntime": "10.0",
               "readyToRunPolicy": "StripToIL",
               "strongNamePolicy": "ReSign",
@@ -49,7 +49,7 @@ public sealed class InstrumentationConfigurationTests
         Assert.Equal(["App*.dll"], config.IncludePatterns);
         Assert.Equal(["*.Tests.dll"], config.ExcludePatterns);
         Assert.False(config.ExcludeFrameworkAssemblies);
-        Assert.False(config.RewriteDependencies);
+        Assert.False(config.InstrumentDependencies);
         Assert.Equal(new Version(10, 0), config.TargetRuntime);
         Assert.Equal(ReadyToRunPolicy.StripToIL, config.ReadyToRunPolicy);
         Assert.Equal(StrongNamePolicy.ReSign, config.StrongNamePolicy);
@@ -121,7 +121,7 @@ public sealed class InstrumentationConfigurationTests
     {
         var baseConfig = new InstrumentationConfiguration { IncludePatterns = ["A*.dll"] };
         var same = new InstrumentationConfiguration { IncludePatterns = ["A*.dll"] };
-        var different = baseConfig with { RewriteDependencies = false };
+        var different = baseConfig with { InstrumentDependencies = false };
         var raceExploration = baseConfig with { Mode = InstrumentationMode.RaceExploration };
 
         Assert.Equal(baseConfig.ComputeSignature(), same.ComputeSignature());

@@ -8,7 +8,7 @@ namespace Clockwork.Instrumentation.Tests.Cli;
 /// <summary>
 /// Verifies the <c>clockwork</c> CLI in-process by driving <see cref="Program.Run"/> with explicit
 /// streams: the <c>inspect</c> command reports the true managed/strong-name/symbol/idempotence state,
-/// the <c>rewrite</c> command stages an instrumented closure and honors <c>--dry-run</c>, and every
+/// the <c>instrument</c> command stages an instrumented closure and honors <c>--dry-run</c>, and every
 /// failure class maps to its distinct exit code. Process-level packaging execution is covered
 /// separately by the fixture and smoke tests.
 /// </summary>
@@ -78,8 +78,8 @@ public sealed class CliCommandTests : IDisposable
         foreach (string option in new[]
         {
             "--config", "--rule-set", "--builtin", "--builtin-include", "--builtin-exclude",
-            "--builtin-strict", "--include", "--exclude", "--r2r", "--strong-name", "--key",
-            "--exclude-framework", "--rewrite-dependencies", "--target-runtime", "--mode", "--json",
+            "--builtin-strict", "--include", "--exclude", "--r2r", "--strong-name", "--strong-name-key",
+            "--exclude-framework", "--instrument-dependencies", "--target-runtime", "--mode", "--json",
         })
         {
             Assert.Contains(option, output);
@@ -87,13 +87,13 @@ public sealed class CliCommandTests : IDisposable
     }
 
     [Fact]
-    public void RewriteAcceptsRaceExplorationMode()
+    public void InstrumentAcceptsRaceExplorationMode()
     {
         BuildMinimalClosure();
         string ruleSet = WriteEmptyRuleSet();
 
         (ExitCode code, _, string errors) = Invoke(
-            "rewrite", "--source", _source, "--output", _staging, "--rule-set", ruleSet,
+            "instrument", "--source", _source, "--output", _staging, "--rule-set", ruleSet,
             "--mode", "RaceExploration");
 
         Assert.Equal(ExitCode.Success, code);
@@ -102,13 +102,13 @@ public sealed class CliCommandTests : IDisposable
     }
 
     [Fact]
-    public void RewriteStagesInstrumentedClosure()
+    public void InstrumentStagesInstrumentedClosure()
     {
         BuildMinimalClosure();
         string ruleSet = WriteEmptyRuleSet();
 
         (ExitCode code, string output, string errors) = Invoke(
-            "rewrite", "--source", _source, "--output", _staging, "--rule-set", ruleSet);
+            "instrument", "--source", _source, "--output", _staging, "--rule-set", ruleSet);
 
         Assert.Equal(ExitCode.Success, code);
         Assert.True(File.Exists(Path.Combine(_staging, "app.dll")), errors);
@@ -120,46 +120,46 @@ public sealed class CliCommandTests : IDisposable
     }
 
     [Fact]
-    public void RewriteDryRunWritesNothingAndReportsPlan()
+    public void InstrumentDryRunWritesNothingAndReportsPlan()
     {
         BuildMinimalClosure();
         string ruleSet = WriteEmptyRuleSet();
 
         (ExitCode code, string output, _) = Invoke(
-            "rewrite", "--source", _source, "--rule-set", ruleSet, "--dry-run");
+            "instrument", "--source", _source, "--rule-set", ruleSet, "--dry-run");
 
         Assert.Equal(ExitCode.Success, code);
         Assert.False(Directory.Exists(_staging));
         Assert.Contains("app.dll", output);
-        Assert.Contains("rewrite", output);
+        Assert.Contains("instrument", output);
     }
 
     [Fact]
-    public void RewriteDryRunUsesBuiltInRuleSetWhenSelected()
+    public void InstrumentDryRunUsesBuiltInRuleSetWhenSelected()
     {
         BuildMinimalClosure();
 
         (ExitCode code, string output, _) = Invoke(
-            "rewrite", "--source", _source, "--builtin", "clockwork.bcl.deterministic", "--dry-run");
+            "instrument", "--source", _source, "--builtin", "clockwork.bcl.deterministic", "--dry-run");
 
         Assert.Equal(ExitCode.Success, code);
         Assert.Contains("clockwork.bcl.deterministic", output);
     }
 
     [Fact]
-    public void RewriteDryRunBuiltInAllExpandsToEveryRuleSet()
+    public void InstrumentDryRunBuiltInAllExpandsToEveryRuleSet()
     {
         BuildMinimalClosure();
 
         (ExitCode code, string output, _) = Invoke(
-            "rewrite", "--source", _source, "--builtin", "all", "--dry-run");
+            "instrument", "--source", _source, "--builtin", "all", "--dry-run");
 
         Assert.Equal(ExitCode.Success, code);
         Assert.Contains("clockwork.bcl.deterministic", output);
     }
 
     [Fact]
-    public void RewriteBuiltInStagesSimulationOnlyExecutable()
+    public void InstrumentBuiltInStagesSimulationOnlyExecutable()
     {
         BuildSimulationOnlyClosure();
 
@@ -173,7 +173,7 @@ public sealed class CliCommandTests : IDisposable
         File.Delete(sourceSideEffect);
 
         (ExitCode code, _, string errors) = Invoke(
-            "rewrite",
+            "instrument",
             "--source",
             _source,
             "--output",
@@ -191,7 +191,7 @@ public sealed class CliCommandTests : IDisposable
     }
 
     [Fact]
-    public void RewriteDryRunFlagsStrongNamedInputAsBlocking()
+    public void InstrumentDryRunFlagsStrongNamedInputAsBlocking()
     {
         string keyPath = Path.Combine(_root, "test.snk");
         File.WriteAllBytes(keyPath, StrongNameKeys.CreatePrivateKeyBlob());
@@ -202,7 +202,7 @@ public sealed class CliCommandTests : IDisposable
         string ruleSet = WriteEmptyRuleSet();
 
         (ExitCode code, string output, _) = Invoke(
-            "rewrite", "--source", _source, "--rule-set", ruleSet, "--dry-run");
+            "instrument", "--source", _source, "--rule-set", ruleSet, "--dry-run");
 
         Assert.Equal(ExitCode.InstrumentationError, code);
         Assert.Contains("strong-named", output);
@@ -224,7 +224,7 @@ public sealed class CliCommandTests : IDisposable
         string ruleSet = WriteEmptyRuleSet();
 
         (ExitCode code, _, string errors) = Invoke(
-            "rewrite", "--source", _source, "--output", _staging, "--rule-set", ruleSet, "--bogus", "x");
+            "instrument", "--source", _source, "--output", _staging, "--rule-set", ruleSet, "--bogus", "x");
 
         Assert.Equal(ExitCode.UsageError, code);
         Assert.Contains("Unknown option", errors);
@@ -234,7 +234,7 @@ public sealed class CliCommandTests : IDisposable
     public void MissingConfigFileIsConfigurationError()
     {
         (ExitCode code, _, string errors) = Invoke(
-            "rewrite", "--source", _source, "--output", _staging,
+            "instrument", "--source", _source, "--output", _staging,
             "--config", Path.Combine(_root, "does-not-exist.json"));
 
         Assert.Equal(ExitCode.ConfigurationError, code);
@@ -247,7 +247,7 @@ public sealed class CliCommandTests : IDisposable
         string ruleSet = WriteEmptyRuleSet();
 
         (ExitCode code, _, string errors) = Invoke(
-            "rewrite", "--source", Path.Combine(_root, "nope"), "--output", _staging, "--rule-set", ruleSet);
+            "instrument", "--source", Path.Combine(_root, "nope"), "--output", _staging, "--rule-set", ruleSet);
 
         Assert.Equal(ExitCode.ClosureError, code);
         Assert.Contains("not found", errors);
@@ -258,7 +258,7 @@ public sealed class CliCommandTests : IDisposable
     {
         BuildMinimalClosure();
 
-        (ExitCode code, _, string errors) = Invoke("rewrite", "--source", _source, "--output", _staging);
+        (ExitCode code, _, string errors) = Invoke("instrument", "--source", _source, "--output", _staging);
 
         Assert.Equal(ExitCode.ConfigurationError, code);
         Assert.Contains("rule-set", errors);

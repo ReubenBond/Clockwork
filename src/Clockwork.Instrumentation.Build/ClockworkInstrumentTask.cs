@@ -59,7 +59,7 @@ public sealed class ClockworkInstrumentTask : MSBuildTask
     public bool ExcludeFrameworkAssemblies { get; set; } = true;
 
     /// <summary>Gets or sets a value indicating whether managed dependencies are rewritten too. Defaults to <see langword="true"/>.</summary>
-    public bool RewriteDependencies { get; set; } = true;
+    public bool InstrumentDependencies { get; set; } = true;
 
     /// <summary>Gets or sets the ReadyToRun policy name (<c>Reject</c> or <c>StripToIL</c>).</summary>
     public string ReadyToRunPolicy { get; set; } = nameof(Configuration.ReadyToRunPolicy.Reject);
@@ -180,7 +180,7 @@ public sealed class ClockworkInstrumentTask : MSBuildTask
                 ExcludePatterns = ToPatternArray(ExcludePatterns),
                 Mode = ParseEnum<InstrumentationMode>(InstrumentationMode, nameof(InstrumentationMode)),
                 ExcludeFrameworkAssemblies = ExcludeFrameworkAssemblies,
-                RewriteDependencies = RewriteDependencies,
+                InstrumentDependencies = InstrumentDependencies,
                 TargetRuntime = ParseVersion(TargetRuntime),
                 ReadyToRunPolicy = ParseEnum<ReadyToRunPolicy>(ReadyToRunPolicy, nameof(ReadyToRunPolicy)),
                 StrongNamePolicy = ParseEnum<StrongNamePolicy>(StrongNamePolicy, nameof(StrongNamePolicy)),

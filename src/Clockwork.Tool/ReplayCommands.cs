@@ -36,7 +36,7 @@ internal static class ReplayCommands
     public static ExitCode RunRecord(string[] args, TextWriter output)
     {
         ArgumentReader reader = ArgumentReader.Parse(args, RecordValueOptions);
-        EnsureNoPositionals(reader, "run");
+        EnsureNoPositionals(reader, "record");
         string assembly = Require(reader.GetString("assembly"), "--assembly");
         string scenarioType = Require(reader.GetString("scenario-type"), "--scenario-type");
         string artifactPath = Require(reader.GetString("artifact"), "--artifact");

@@ -17,7 +17,7 @@ internal static class ConfigurationFactory
     public static readonly ImmutableArray<string> ValueOptions =
     [
         "config", "rule-set", "include", "exclude", "mode", "r2r", "strong-name",
-        "key", "target-runtime", "exclude-framework", "rewrite-dependencies",
+        "strong-name-key", "target-runtime", "exclude-framework", "instrument-dependencies",
         "builtin", "builtin-include", "builtin-exclude", "builtin-strict",
     ];
 
@@ -39,11 +39,11 @@ internal static class ConfigurationFactory
                     reader.GetString("mode"),
                     InstrumentationMode.Controlled),
                 ExcludeFrameworkAssemblies = reader.GetBool("exclude-framework", true),
-                RewriteDependencies = reader.GetBool("rewrite-dependencies", true),
+                InstrumentDependencies = reader.GetBool("instrument-dependencies", true),
                 TargetRuntime = ParseVersion(reader.GetString("target-runtime")),
                 ReadyToRunPolicy = ParseEnum<ReadyToRunPolicy>(reader.GetString("r2r"), ReadyToRunPolicy.Reject),
                 StrongNamePolicy = ParseEnum<StrongNamePolicy>(reader.GetString("strong-name"), StrongNamePolicy.Fail),
-                StrongNameKeyPath = reader.GetString("key"),
+                StrongNameKeyPath = reader.GetString("strong-name-key"),
             };
 
         IReadOnlyList<string> extraRuleSets = reader.GetMany("rule-set");
