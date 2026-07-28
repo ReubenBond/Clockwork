@@ -4,12 +4,11 @@ namespace Clockwork;
 
 /// <summary>
 /// <para>
-/// A structured, detailed outcome of a single <see cref="SimulationCluster{TNode}"/> drive-loop
-/// execution (<c>RunUntilDetailed</c>, <c>RunUntilIdleDetailed</c>, or <c>RunForDurationDetailed</c>).
+/// A structured outcome of a single <see cref="SimulationCluster{TNode}"/> drive-loop
+/// execution (<c>RunUntil</c>, <c>RunUntilIdle</c>, or <c>RunFor</c>).
 /// </para>
 /// <para>
-/// This is the richer counterpart to the boolean/int-returning <c>RunUntil</c>/<c>RunUntilIdle</c>/
-/// <c>RunForDuration</c> APIs: it always reports exactly why the loop stopped, how much simulated
+/// It reports exactly why the loop stopped, how much simulated
 /// time and work it consumed, and what (if anything) is still pending.
 /// </para>
 /// </summary>
@@ -51,7 +50,7 @@ public sealed class SimulationExecutionResult
 
     /// <summary>
     /// Gets a value indicating whether the requested condition was met.
-    /// Always <see langword="false"/> for <c>RunUntilIdle</c>/<c>RunForDuration</c>, which have no condition.
+    /// Always <see langword="false"/> for <c>RunUntilIdle</c>/<c>RunFor</c>, which have no condition.
     /// </summary>
     public bool ConditionMet => Reason == SimulationExecutionReason.ConditionMet;
 

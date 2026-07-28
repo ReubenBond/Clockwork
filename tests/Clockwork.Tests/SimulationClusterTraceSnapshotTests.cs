@@ -35,9 +35,9 @@ public sealed class SimulationClusterTraceSnapshotTests
         node.Context.TaskQueue.EnqueueAfter(() => messagesDelivered++, TimeSpan.FromSeconds(2));
         node.SuspendFor(TimeSpan.FromSeconds(1));
 
-        // RunForDuration advances time (emitting TimeAdvancing) and drains work until idle
+        // RunFor advances time (emitting TimeAdvancing) and drains work until idle
         // (emitting ReachedIdleState), covering the suspend/resume + delayed work interaction.
-        cluster.RunForDuration(TimeSpan.FromSeconds(3));
+        cluster.RunFor(TimeSpan.FromSeconds(3));
 
         // The condition is already satisfied at this point, so this only exercises the
         // ConditionMet hook without doing any further work.
@@ -61,7 +61,7 @@ public sealed class SimulationClusterTraceSnapshotTests
 
         public TracingNode AddNode(string address)
         {
-            var context = new SimulationNodeContext(Clock, Guard, CreateDerivedRandom(), TaskQueue);
+            var context = new SimulationNodeContext(Clock, Guard, ForkRandom(), TaskQueue);
             var node = new TracingNode(address, context);
             RegisterNode(node);
             return node;

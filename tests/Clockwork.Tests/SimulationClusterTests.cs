@@ -15,7 +15,7 @@ public sealed class SimulationClusterTests
 
         node.Context.TaskQueue.EnqueueAfter(() => executed = true, TimeSpan.FromSeconds(5));
 
-        Assert.True(cluster.RunUntil(() => executed));
+        Assert.Equal(SimulationExecutionReason.ConditionMet, cluster.RunUntil(() => executed).Reason);
         Assert.Equal(cluster.StartDateTime + TimeSpan.FromSeconds(5), cluster.TimeProvider.GetUtcNow());
     }
 
@@ -28,7 +28,7 @@ public sealed class SimulationClusterTests
         node.SuspendFor(TimeSpan.FromSeconds(5));
 
         Assert.True(node.IsSuspended);
-        Assert.True(cluster.RunUntil(() => !node.IsSuspended));
+        Assert.Equal(SimulationExecutionReason.ConditionMet, cluster.RunUntil(() => !node.IsSuspended).Reason);
     }
 
     [Fact]
@@ -48,16 +48,16 @@ public sealed class SimulationClusterTests
     }
 
     [Fact]
-    public async Task RunUntilReturnsFalseWhenThereIsNoPendingWork()
+    public async Task RunUntilReportsIdleWhenThereIsNoPendingWork()
     {
         await using var cluster = new TestCluster(seed: 12345);
         _ = cluster.AddNode("node-1");
 
-        Assert.False(cluster.RunUntil(() => false, maxIterations: 100));
+        Assert.Equal(SimulationExecutionReason.Idle, cluster.RunUntil(() => false, maxIterations: 100).Reason);
     }
 
     [Fact]
-    public async Task RunUntilReturnsFalseWhenTheNextDueTimeExceedsMaxSimulatedTimeAdvance()
+    public async Task RunUntilReportsWhenTheNextDueTimeExceedsMaxSimulatedTimeAdvance()
     {
         await using var cluster = new TestCluster(seed: 12345)
         {
@@ -68,11 +68,13 @@ public sealed class SimulationClusterTests
         // Schedule work far beyond the stuck-detection threshold; the condition never becomes true.
         node.Context.TaskQueue.EnqueueAfter(() => { }, TimeSpan.FromSeconds(10));
 
-        Assert.False(cluster.RunUntil(() => false, maxIterations: 100));
+        Assert.Equal(
+            SimulationExecutionReason.MaxSimulatedTimeAdvanceExceeded,
+            cluster.RunUntil(() => false, maxIterations: 100).Reason);
     }
 
     [Fact]
-    public async Task RunUntilIdleReturnsTheNumberOfTasksExecutedBeforeGoingIdle()
+    public async Task RunUntilIdleReportsTheNumberOfTasksExecutedBeforeGoingIdle()
     {
         await using var cluster = new TestCluster(seed: 12345);
         var node = cluster.AddNode("node-1");
@@ -83,30 +85,50 @@ public sealed class SimulationClusterTests
             node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => executedCount++));
         }
 
-        Assert.Equal(3, cluster.RunUntilIdle());
+        Assert.Equal(3, cluster.RunUntilIdle().StepsExecuted);
         Assert.Equal(3, executedCount);
     }
 
     [Fact]
-    public async Task RunExecutesTaskFactoryWithinActiveSimulation()
+    public async Task RunToCompletionOverloadsExecuteTaskFactoriesWithinActiveSimulation()
     {
         await using var cluster = new TestCluster(seed: 12345);
+        var budget = new AdaptiveExecutionBudget(maxTotalIterations: 1_000);
 
-        cluster.Run(() =>
+        cluster.RunToCompletion(() =>
         {
             _ = new ControlledLock();
             return Task.CompletedTask;
         });
+        cluster.RunToCompletion(
+            () =>
+            {
+                _ = new ControlledLock();
+                return Task.CompletedTask;
+            },
+            budget);
+        Assert.True(cluster.RunToCompletion(() =>
+        {
+            _ = new ControlledLock();
+            return Task.FromResult(true);
+        }));
+        Assert.True(cluster.RunToCompletion(
+            () =>
+            {
+                _ = new ControlledLock();
+                return Task.FromResult(true);
+            },
+            budget));
     }
 
     [Fact]
-    public async Task CreateDerivedRandomIsReproducibleAcrossClustersWithTheSameSeed()
+    public async Task ForkRandomIsReproducibleAcrossClustersWithTheSameSeed()
     {
         await using var first = new TestCluster(seed: 42);
         await using var second = new TestCluster(seed: 42);
 
-        var firstDerived = first.CreateDerivedRandom();
-        var secondDerived = second.CreateDerivedRandom();
+        var firstDerived = first.ForkRandom();
+        var secondDerived = second.ForkRandom();
 
         Assert.Equal(firstDerived.Next(), secondDerived.Next());
         Assert.Equal(firstDerived.NextGuid(), secondDerived.NextGuid());
@@ -147,7 +169,7 @@ public sealed class SimulationClusterTests
 
         public TestNode AddNode(string address)
         {
-            var context = new SimulationNodeContext(Clock, Guard, CreateDerivedRandom(), TaskQueue);
+            var context = new SimulationNodeContext(Clock, Guard, ForkRandom(), TaskQueue);
             var node = new TestNode(address, context);
             RegisterNode(node);
             return node;

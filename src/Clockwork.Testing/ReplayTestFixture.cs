@@ -186,7 +186,7 @@ public sealed class ReplayTestFixture
             {
                 RootSeed = artifact.RootSeed,
                 ScheduleSeed = artifact.Scheduler.ScheduleSeed ?? 0,
-                Execution = replay with { ArtifactPath = Path.GetFullPath(replayPath) },
+                Execution = replay,
                 ArtifactPath = Path.GetFullPath(replayPath),
             };
         }
@@ -198,7 +198,7 @@ public sealed class ReplayTestFixture
             ParseEnvironmentSeed(ReplayTestEnvironment.ScheduleSeed) ??
             new SimulationSeedAuthority(rootSeed).GetDomainSeed(SimulationSeedDomain.Scheduler);
         ReplayExecutionResult execution = ReplayRunner.Record(
-            new ReplayRunConfiguration
+            new ReplayRecordingOptions
             {
                 RootSeed = rootSeed,
                 SchedulingPolicy = ReplaySchedulingPolicy.SeededRandom,
@@ -227,7 +227,7 @@ public sealed class ReplayTestFixture
         {
             RootSeed = rootSeed,
             ScheduleSeed = scheduleSeed,
-            Execution = execution with { ArtifactPath = artifactPath },
+            Execution = execution,
             ArtifactPath = artifactPath,
         };
     }

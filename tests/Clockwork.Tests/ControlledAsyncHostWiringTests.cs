@@ -32,7 +32,7 @@ public sealed class ControlledAsyncHostWiringTests
             resolved = SimulationTaskCoordination.TryGet(cluster.RuntimeIdentity, out var coordinator) && coordinator is not null;
         }));
 
-        Assert.True(cluster.RunUntil(() => active));
+        Assert.Equal(SimulationExecutionReason.ConditionMet, cluster.RunUntil(() => active).Reason);
         Assert.True(active);
         Assert.True(resolved);
     }
@@ -58,7 +58,9 @@ public sealed class ControlledAsyncHostWiringTests
         // Complete the awaited task on a later queue item, on the same logical thread.
         cluster.TaskQueue.EnqueueAfter(() => gate.SetResult(21), TimeSpan.FromSeconds(1));
 
-        Assert.True(cluster.RunUntil(() => machineTask is { IsCompleted: true }));
+        Assert.Equal(
+            SimulationExecutionReason.ConditionMet,
+            cluster.RunUntil(() => machineTask is { IsCompleted: true }).Reason);
 
         Assert.Equal(42, await machineTask!);
     }
@@ -125,7 +127,7 @@ public sealed class ControlledAsyncHostWiringTests
 
         public TestNode AddNode(string address)
         {
-            var context = new SimulationNodeContext(Clock, Guard, CreateDerivedRandom(), TaskQueue);
+            var context = new SimulationNodeContext(Clock, Guard, ForkRandom(), TaskQueue);
             var node = new TestNode(address, context);
             RegisterNode(node);
             return node;

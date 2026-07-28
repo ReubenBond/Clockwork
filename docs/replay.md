@@ -46,7 +46,7 @@ or launch an arbitrary child process.
 ## Commands
 
 ```powershell
-clockwork run `
+clockwork record `
   --assembly .\tests.dll `
   --scenario-type Tests.TransferScenario `
   --artifact .\artifacts\transfer.cwr.json `
@@ -60,7 +60,7 @@ clockwork explore `
   --assembly .\tests.dll `
   --scenario-type Tests.TransferScenario `
   --output .\artifacts `
-  --seed 123 --schedule-seed 1 --count 100 --stop-on-first
+  --seed 123 --schedule-seed 1 --count 100 --max-failures 1
 
 clockwork minimize .\artifacts\transfer.cwr.json `
   --assembly .\tests.dll `
@@ -82,7 +82,7 @@ instrumentation, and I/O codes remain unchanged.
 ## Exploration and minimization
 
 Exploration is serial. The root seed remains fixed while schedule seeds increase deterministically from
-`FirstScheduleSeed`. Stop controls include iteration count, first failure, failure count, per-iteration
+`FirstScheduleSeed`. Stop controls include iteration count, failure count, per-iteration
 step bound, cancellation, and a between-iteration wall-clock safety bound. The result contains stable
 iteration ids and outcome counts and retains the smallest artifact for each failure identity.
 
@@ -111,7 +111,6 @@ runtime to either framework.
 
 ## Limits
 
-- Exploration parallelism is fixed at one.
 - CLI execution requires an explicit `IReplayScenario`; generic production-process launch is not provided.
 - Random and identity values derived solely from stable seed domains do not need individual records.
   A custom nondeterministic choice must be routed through the decision log to become replayable.

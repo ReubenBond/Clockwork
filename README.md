@@ -14,8 +14,8 @@ Clockwork is a deterministic simulation testing framework for distributed system
 - Versioned canonical replay artifacts with exact compatibility and divergence checks
 - Bounded seeded schedule exploration and deterministic failure-trace minimization
 - Stable operation/resource wait graphs, deadlock cycles, race pairs, and timer diagnostics
-- `clockwork run`, `replay`, `explore`, `minimize`, and `trace show` commands
-- Adaptive `RunUntilConverged`/`RunUntilIdleConverged` execution budgets
+- `clockwork record`, `replay`, `explore`, `minimize`, and `trace show` commands
+- Fixed and adaptive `RunUntil`/`RunUntilIdle` execution budgets
 - Stable, cross-process-safe seed derivation from strings (`SimulationSeed`)
 - Reusable rendezvous primitives (`SimulationGate`, `SimulationLatch`, `SimulationBarrier`)
 - In-memory logging for simulation diagnostics
@@ -57,7 +57,7 @@ Race exploration is a build-time opt-in separate from ordinary controlled rewrit
 <ClockworkInstrumentationMode>RaceExploration</ClockworkInstrumentationMode>
 ```
 
-The CLI equivalent is `clockwork rewrite ... --mode RaceExploration`; JSON configuration uses
+The CLI equivalent is `clockwork instrument ... --mode RaceExploration`; JSON configuration uses
 `"mode": "RaceExploration"`. The selected mode is recorded in per-assembly and closure manifests and
 participates in rewrite signatures and incremental cache keys. `Controlled` remains the default and
 does not add memory, branch, array, indirect, or collection scheduling calls.
@@ -74,7 +74,7 @@ The core API accepts an explicit controlled-scheduler scenario:
 
 ```csharp
 var recorded = ReplayRunner.Record(
-    new ReplayRunConfiguration
+    new ReplayRecordingOptions
     {
         RootSeed = 12345,
         SchedulingPolicy = ReplaySchedulingPolicy.SeededRandom,
@@ -129,7 +129,7 @@ public sealed class TestCluster : SimulationCluster<TestNode>
 
     public TestNode AddNode(string address)
     {
-        var context = new SimulationNodeContext(Clock, Guard, CreateDerivedRandom(), TaskQueue);
+        var context = new SimulationNodeContext(Clock, Guard, ForkRandom(), TaskQueue);
         var node = new TestNode(address, context);
         RegisterNode(node);
         return node;
@@ -155,7 +155,7 @@ await using var cluster = builder.Build();
 
 var handled = false;
 node1.Context.TaskQueue.EnqueueAfter(() => handled = true, TimeSpan.FromSeconds(30));
-cluster.RunUntilConverged(() => handled);
+cluster.RunUntil(() => handled, AdaptiveExecutionBudget.Default);
 
 cluster.Network.CreateBidirectionalPartition(node1.NetworkAddress, node2.NetworkAddress);
 ```
@@ -174,7 +174,7 @@ about the builder changes `SimulationCluster<TNode>`'s existing API or behavior.
 ### Registering existing node subclasses alongside plain handles
 
 `AddCustomNode<TNode>` registers an existing `SimulationNode` subclass in the same
-`BuiltSimulation`, side-by-side with plain handles - a foundation for heterogeneous node
+non-generic `SimulationCluster`, side-by-side with plain handles - a foundation for heterogeneous node
 composition:
 
 ```csharp
@@ -185,12 +185,12 @@ var counter = builder.AddNode("counter", state: 0);
 builder.AddCustomNode("worker", context => new MyWorkerNode("worker", context));
 
 await using var cluster = builder.Build();
-var worker = (MyWorkerNode)cluster.GetNodeByAddress("worker")!;
+var worker = cluster.FindNode<MyWorkerNode>("worker")!;
 ```
 
 Unlike the handle overloads, `AddCustomNode` cannot hand the constructed node back synchronously -
 `factory` needs a real `SimulationNodeContext`, which doesn't exist until `Build()` runs. Retrieve
-it afterwards via `BuiltSimulation.GetNodeByAddress(...)` or `cluster.Nodes.OfType<MyWorkerNode>()`.
+it afterwards via `cluster.FindNode<MyWorkerNode>(...)`.
 
 **What this foundation does not include yet:** there is no dependency-injection-style construction
 or startup ordering between nodes, and no per-node-type discovery beyond address lookup and
@@ -199,10 +199,10 @@ construction) is not provided. The supported foundation is the shared
 clock/guard/drive-loop across mixed node types, rather than a partial lifecycle API that would be
 misleading about what it actually guarantees.
 
-`BuiltSimulation` disposes every registered node - and, for handles, their state payload - that
+The non-generic `SimulationCluster` disposes every registered node - and, for handles, their state payload - that
 implements `IAsyncDisposable`/`IDisposable` when the cluster itself is disposed.
 
-`SimulationBuilder`/`BuiltSimulation` are deliberately small and composable plain classes with no
+`SimulationBuilder` and the non-generic `SimulationCluster` are deliberately small and composable plain classes with no
 required base class for node state. Clockwork does not provide `IHost` integration.
 
 ## Drive simulated execution
@@ -220,20 +220,18 @@ node1.Context.TaskQueue.EnqueueAfter(
 cluster.RunUntil(() => completed);
 
 cluster.Network.CreateBidirectionalPartition(node1.NetworkAddress, node2.NetworkAddress);
-cluster.RunForDuration(TimeSpan.FromMinutes(5));
+cluster.RunFor(TimeSpan.FromMinutes(5));
 cluster.Network.HealBidirectionalPartition(node1.NetworkAddress, node2.NetworkAddress);
 ```
 
-`RunUntil`, `RunUntilIdle`, and `RunForDuration` execute one queued operation at a time and advance the shared clock only when no work is ready. Internally, all three are thin wrappers around a single consolidated drive-loop engine, so their hook-firing order, time-advancement behavior, and stuck/limit detection are guaranteed to stay in sync with each other.
+`RunUntil`, `RunUntilIdle`, and `RunFor` execute one queued operation at a time and advance the shared clock only when no work is ready. All three return `SimulationExecutionResult`, including the stop reason, counters, limits, and pending-work snapshot. They share one drive-loop engine, so hook firing, time advancement, and stuck detection remain consistent.
 
-## Detailed execution results and diagnostics
+## Execution results and diagnostics
 
-Each `bool`/`int`-returning method above has a `*Detailed` counterpart that returns a
-`SimulationExecutionResult` describing exactly why the run stopped, instead of collapsing that
-information into a single boolean or count:
+Every drive method returns a `SimulationExecutionResult` describing exactly why the run stopped:
 
 ```csharp
-var result = cluster.RunUntilDetailed(() => completed, maxIterations: 10_000);
+var result = cluster.RunUntil(() => completed, maxIterations: 10_000);
 
 if (result.Reason != SimulationExecutionReason.ConditionMet)
 {
@@ -244,9 +242,9 @@ if (result.Reason != SimulationExecutionReason.ConditionMet)
 }
 ```
 
-- `RunUntilDetailed(Func<bool>, int)` - detailed counterpart to `RunUntil`.
-- `RunUntilIdleDetailed(TimeSpan?, int)` - detailed counterpart to `RunUntilIdle`.
-- `RunForDurationDetailed(TimeSpan, int)` - detailed counterpart to `RunForDuration`.
+- `RunUntil(Func<bool>, int)` - drives until the condition or another stop reason.
+- `RunUntilIdle(TimeSpan?, int)` - drains until idle or a configured bound.
+- `RunFor(TimeSpan, int)` - reaches the exact target time, then drains work due at that instant.
 
 `SimulationExecutionResult.Reason` (a `SimulationExecutionReason`) distinguishes every way a run
 can stop: `ConditionMet`, `Idle`, `IdleWithPendingWork` (idle, but a suspended node has ready work
@@ -259,32 +257,29 @@ production-code instrumentation. `SimulationCluster<TNode>.MaxConsecutiveTimeAdv
 10,000) makes the previously hardcoded stuck-detection threshold configurable and inspectable,
 alongside the existing `MaxSimulatedTimeAdvance` property.
 
-The existing `RunUntil`/`RunUntilIdle`/`RunForDuration` methods, their `protected`
-`RunUntilCore`/`RunUntilIdleCore` helpers, and every `On*` extensibility hook keep their exact
-signatures and behavior - the detailed APIs are purely additive. Prefer the detailed APIs in new
-code and in test-failure diagnostics; keep using the existing APIs anywhere you only need a
-boolean/count result.
+`RunToCompletion(Func<Task>, ...)` drives async work under the cluster synchronization context and
+controlled scheduler. Generic overloads return `Task<T>` results directly. Fixed and adaptive
+budgets are selected by argument type; an incomplete task throws `TimeoutException` containing the
+detailed execution result, while task faults propagate unchanged.
 
 ## Adaptive execution budgets
 
-`RunUntil`/`RunUntilIdle` (and their `*Detailed` counterparts) require a `maxIterations` sized to
-the scenario. `RunUntilConverged`/`RunUntilIdleConverged` remove that guesswork by escalating the
-iteration budget automatically:
+The `AdaptiveExecutionBudget` overloads escalate the iteration budget automatically:
 
 ```csharp
-// No maxIterations to guess - starts small and escalates only as needed.
-var result = cluster.RunUntilConverged(() => allNodesConverged);
-
-// Or tune the escalation curve and hard cap explicitly:
-var budget = new SimulationAdaptiveBudget(initialMaxIterations: 500, growthFactor: 8.0, maxTotalIterations: 5_000_000);
-var idleResult = cluster.RunUntilIdleConverged(budget: budget);
+var budget = new AdaptiveExecutionBudget(
+    initialMaxIterations: 500,
+    growthFactor: 8.0,
+    maxTotalIterations: 5_000_000);
+var result = cluster.RunUntil(() => allNodesConverged, budget);
+var idleResult = cluster.RunUntilIdle(budget);
 ```
 
 Both return a `SimulationExecutionResult`, combined across every batch actually run (summed
 `Iterations`/`StepsExecuted`/`TimeAdvanceCount`; `Reason`/`PendingWork`/etc. from the final batch -
-the same folding convention `RunForDurationDetailed` already uses to merge sub-calls).
+the same folding convention `RunFor` uses to merge sub-calls).
 
-**Progress heuristic, precisely:** each batch runs via `RunUntilDetailed`/`RunUntilIdleDetailed`. If
+**Progress heuristic, precisely:** each batch uses the same drive loop as fixed-budget execution. If
 a batch's `Reason` is anything other than `SimulationExecutionReason.MaxIterationsReached`,
 execution stops immediately without escalating - either the goal was reached (`ConditionMet`), or
 the simulation is genuinely stuck in a way a bigger budget cannot fix (`Idle`,
@@ -296,11 +291,11 @@ motion for a bigger budget to reach. A scenario that is truly spinning without m
 instead caught by the separate, always-enforced `MaxConsecutiveTimeAdvances` safety net, which
 surfaces as `MaxConsecutiveTimeAdvancesExceeded` rather than `MaxIterationsReached`.
 
-`SimulationAdaptiveBudget.MaxTotalIterations` (default 10,000,000) is a hard ceiling on the sum of
+`AdaptiveExecutionBudget.MaxTotalIterations` (default 10,000,000) is a hard ceiling on the sum of
 iterations across every batch - escalation never removes the safety cap that explicit
 `maxIterations` limits already provide; it just removes the need to pick a value up front.
-`SimulationAdaptiveBudget.Default` (1,000 initial iterations, 4x growth, 10,000,000 total) is used
-when no budget is supplied.
+`AdaptiveExecutionBudget.Default` supplies 1,000 initial iterations, 4x growth, and a 10,000,000
+total cap.
 
 ## Stable deterministic seeds
 
@@ -410,7 +405,7 @@ test, so the documentation cannot drift from the code.
 
 ```
 # CLI
-clockwork rewrite --input <dir-or-assembly> --output <dir> --builtin clockwork.bcl.deterministic
+clockwork instrument --source <directory> --output <dir> --builtin clockwork.bcl.deterministic
 #   --builtin all                 enable every shipped rule set
 #   --builtin-include Clock Random restrict to specific families
 #   --builtin-exclude Crypto      drop a family
@@ -446,7 +441,7 @@ schedule and never share mutable state across nodes; explicitly seeded `new Rand
 preserves the caller's seed exactly. Cryptographic randomness (`RandomNumberGenerator` static
 entropy APIs) is **rejected by default** with a precise diagnostic naming the assembly, method,
 and location; a strictly test-only opt-in,
-`SimulationBuilder.WithCryptoRandomnessPolicy(SimulationCryptoRandomnessPolicy.DeterministicInsecureForTesting)`,
+`SimulationBuilder.WithCryptoRandomnessPolicy(CryptoRandomnessPolicy.DeterministicInsecureForTesting)`,
 can substitute deterministic-insecure bytes - production security semantics are never changed and
 insecure bytes are never silently substituted.
 
@@ -469,7 +464,7 @@ logical thread instead of the physical thread pool — again with no dependency 
 wiring. It is selected independently of the BCL rule set:
 
 ```
-clockwork rewrite --input <dir-or-assembly> --output <dir> --builtin clockwork.tasks.controlled
+clockwork instrument --source <directory> --output <dir> --builtin clockwork.tasks.controlled
 #   --builtin all   enable every shipped rule set (BCL + controlled tasks)
 ```
 

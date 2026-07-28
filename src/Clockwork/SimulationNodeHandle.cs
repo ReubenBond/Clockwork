@@ -1,7 +1,7 @@
 namespace Clockwork;
 
 /// <summary>
-/// Non-generic bridge that lets <see cref="BuiltSimulation"/>'s disposal logic reach a
+/// Non-generic bridge that lets <see cref="SimulationCluster"/>'s disposal logic reach a
 /// <see cref="SimulationNodeHandle{TState}"/>'s state payload without knowing <c>TState</c>.
 /// Internal implementation detail of the <see cref="SimulationBuilder"/> composition layer.
 /// </summary>
@@ -31,7 +31,7 @@ internal interface ISimulationNodeStateHolder
 /// them in local variables for later use. However, <see cref="Context"/> and <see cref="State"/> are
 /// only usable <em>after</em> <see cref="SimulationBuilder.Build"/> has run - accessing them earlier
 /// throws <see cref="InvalidOperationException"/>, since the node's queue, clock, and random
-/// generator do not exist until the enclosing <see cref="BuiltSimulation"/> has been constructed.
+/// generator do not exist until the enclosing <see cref="SimulationCluster"/> has been constructed.
 /// </para>
 /// </summary>
 /// <typeparam name="TState">The type of the application-defined state payload for this node.</typeparam>
@@ -71,7 +71,7 @@ public sealed class SimulationNodeHandle<TState> : SimulationNode, ISimulationNo
 
     /// <summary>
     /// Attaches this handle to a real node context and state payload. Called exactly once, by
-    /// <see cref="BuiltSimulation"/>'s constructor, while materializing the nodes queued up on a
+    /// <see cref="SimulationCluster"/>'s constructor, while materializing the nodes queued up on a
     /// <see cref="SimulationBuilder"/>.
     /// </summary>
     internal void Attach(SimulationNodeContext context, TState state)

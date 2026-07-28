@@ -8,7 +8,7 @@ namespace Clockwork.Tests;
 
 /// <summary>
 /// Covers the <see cref="SimulationBuilder"/> fluent composition API and the
-/// <see cref="BuiltSimulation"/>/<see cref="SimulationNodeHandle{TState}"/> types it produces:
+/// non-generic <see cref="SimulationCluster"/>/<see cref="SimulationNodeHandle{TState}"/> types it produces:
 /// building working simulations without a hand-written <see cref="SimulationCluster{TNode}"/>/
 /// <see cref="SimulationNode"/> subclass, compatibility with existing hand-written subclasses, the
 /// heterogeneous node registration foundation, handle lifetime rules, disposal, and determinism.
@@ -190,7 +190,7 @@ public sealed class SimulationBuilderTests
         var executed = false;
         node.Context.TaskQueue.EnqueueAfter(() => executed = true, TimeSpan.FromSeconds(5));
 
-        Assert.True(cluster.RunUntil(() => executed));
+        Assert.Equal(SimulationExecutionReason.ConditionMet, cluster.RunUntil(() => executed).Reason);
         Assert.Equal(cluster.StartDateTime + TimeSpan.FromSeconds(5), cluster.TimeProvider.GetUtcNow());
     }
 
@@ -273,6 +273,30 @@ public sealed class SimulationBuilderTests
     }
 
     [Fact]
+    public async Task TimeZoneAndCryptoPolicyFlowThroughThePublicBuilderContract()
+    {
+        TimeZoneInfo timeZone = TimeZoneInfo.CreateCustomTimeZone(
+            "Clockwork/Test",
+            TimeSpan.FromHours(3),
+            "Clockwork Test",
+            "Clockwork Test");
+        var builder = new SimulationBuilder()
+            .WithSeed(1)
+            .WithTimeZone(timeZone)
+            .WithCryptoRandomnessPolicy(CryptoRandomnessPolicy.DeterministicInsecureForTesting);
+
+        await using var cluster = builder.Build();
+
+        Assert.Same(timeZone, cluster.SimulationTimeZone);
+        Assert.Equal(
+            CryptoRandomnessPolicy.DeterministicInsecureForTesting,
+            cluster.CryptoRandomnessPolicy);
+        Assert.Equal(
+            SimulationCryptoRandomnessPolicy.DeterministicInsecureForTesting,
+            cluster.RuntimeEnvironment.CryptoPolicy);
+    }
+
+    [Fact]
     public async Task CustomNodeSubclassCanBeRegisteredAlongsidePlainHandles()
     {
         var builder = new SimulationBuilder().WithSeed(1);
@@ -282,23 +306,24 @@ public sealed class SimulationBuilderTests
         await using var cluster = builder.Build();
 
         Assert.Equal(2, cluster.Nodes.Count);
-        var custom = Assert.IsType<CustomNode>(cluster.GetNodeByAddress("custom-node"));
+        var custom = Assert.IsType<CustomNode>(cluster.FindNode<CustomNode>("custom-node"));
         Assert.Equal("custom-node", custom.NetworkAddress);
         Assert.Same(custom, cluster.Nodes.OfType<CustomNode>().Single());
-        Assert.Same(handle, cluster.GetNodeByAddress("handle-node"));
+        Assert.Same(handle, cluster.FindNode("handle-node"));
 
         custom.RecordGreeting("hello");
         Assert.Equal("hello", custom.LastGreeting);
     }
 
     [Fact]
-    public async Task GetNodeByAddressReturnsNullForAnUnknownAddress()
+    public async Task FindNodeReturnsNullForAnUnknownAddressOrType()
     {
         var builder = new SimulationBuilder().WithSeed(1);
         _ = builder.AddNode("node-1");
         await using var cluster = builder.Build();
 
-        Assert.Null(cluster.GetNodeByAddress("does-not-exist"));
+        Assert.Null(cluster.FindNode("does-not-exist"));
+        Assert.Null(cluster.FindNode<CustomNode>("node-1"));
     }
 
     [Fact]
@@ -326,7 +351,7 @@ public sealed class SimulationBuilderTests
         builder.AddCustomNode("custom-node", context => new DisposableCustomNode("custom-node", context));
 
         var cluster = builder.Build();
-        var custom = (DisposableCustomNode)cluster.GetNodeByAddress("custom-node")!;
+        var custom = cluster.FindNode<DisposableCustomNode>("custom-node")!;
         var state = handle.State;
 
         await cluster.DisposeAsync();
@@ -445,14 +470,14 @@ public sealed class SimulationBuilderTests
     [Fact]
     public async Task HandWrittenSimulationClusterSubclassesContinueToWorkUnaffectedByTheBuilder()
     {
-        // The builder/BuiltSimulation are purely additive; existing hand-written
+        // The builder/non-generic SimulationCluster are purely additive; existing hand-written
         // SimulationCluster<TNode> subclasses must keep working exactly as before.
         await using var cluster = new LegacyStyleCluster(seed: 7);
         var node = cluster.AddNode("node-1");
         var executed = false;
         node.Context.TaskQueue.EnqueueAfter(() => executed = true, TimeSpan.FromSeconds(1));
 
-        Assert.True(cluster.RunUntil(() => executed));
+        Assert.Equal(SimulationExecutionReason.ConditionMet, cluster.RunUntil(() => executed).Reason);
     }
 
     private sealed class CustomNode(string address, SimulationNodeContext context) : SimulationNode
@@ -556,7 +581,7 @@ public sealed class SimulationBuilderTests
 
         public LegacyStyleNode AddNode(string address)
         {
-            var context = new SimulationNodeContext(Clock, Guard, CreateDerivedRandom(), TaskQueue);
+            var context = new SimulationNodeContext(Clock, Guard, ForkRandom(), TaskQueue);
             var node = new LegacyStyleNode(address, context);
             RegisterNode(node);
             return node;

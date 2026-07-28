@@ -1,17 +1,16 @@
 using System.Reflection;
-using Clockwork.Runtime.Shims;
 
 namespace Clockwork.Conformance.Tests;
 
 /// <summary>
-/// A minimal single- or multi-node <see cref="BuiltSimulation"/> wrapper that invokes a rewritten
+/// A minimal single- or multi-node <see cref="SimulationCluster"/> wrapper that invokes an instrumented
 /// probe method as node work (so the ambient simulation runtime and its deterministic environment are
 /// active) and returns the result, unwrapping reflection exceptions so tests can assert on the real
 /// shim exception types.
 /// </summary>
 internal sealed class SimulationHost : IDisposable
 {
-    private readonly BuiltSimulation _cluster;
+    private readonly SimulationCluster _cluster;
     private readonly Dictionary<string, SimulationNodeHandle<object?>> _nodes = new(StringComparer.Ordinal);
     private readonly string _defaultAddress;
 
@@ -19,7 +18,7 @@ internal sealed class SimulationHost : IDisposable
         DateTimeOffset start,
         int seed = 1,
         TimeZoneInfo? timeZone = null,
-        SimulationCryptoRandomnessPolicy cryptoPolicy = SimulationCryptoRandomnessPolicy.Reject,
+        CryptoRandomnessPolicy cryptoPolicy = CryptoRandomnessPolicy.Reject,
         IReadOnlyList<string>? nodeAddresses = null)
     {
         IReadOnlyList<string> addresses = nodeAddresses ?? ["node"];
@@ -31,7 +30,7 @@ internal sealed class SimulationHost : IDisposable
             .WithCryptoRandomnessPolicy(cryptoPolicy);
         if (timeZone is not null)
         {
-            builder = builder.WithSimulationTimeZone(timeZone);
+            builder = builder.WithTimeZone(timeZone);
         }
 
         foreach (string address in addresses)

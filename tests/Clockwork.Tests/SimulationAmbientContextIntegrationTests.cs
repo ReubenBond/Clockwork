@@ -5,7 +5,7 @@ namespace Clockwork.Tests;
 /// <summary>
 /// <para>
 /// Covers the runtime policy ambient-context integration wired into <see cref="SimulationCluster{TNode}"/>,
-/// <see cref="SimulationNodeContext"/>, and <see cref="SimulationBuilder"/>/<see cref="BuiltSimulation"/>:
+/// <see cref="SimulationNodeContext"/>, and <see cref="SimulationBuilder"/>/<see cref="SimulationCluster"/>:
 /// callbacks executed through an ambient-integrated <see cref="SimulationTaskQueue"/> observe the
 /// correct <see cref="SimulationExecutionContext"/> (runtime + node identity), two nodes never
 /// observe each other's identity, and the ambient context is fully torn down again once the
@@ -22,7 +22,7 @@ namespace Clockwork.Tests;
 public sealed class SimulationAmbientContextIntegrationTests
 {
     [Fact]
-    public async Task BuiltSimulationNodeCallbackObservesTheCorrectRuntimeAndNodeIdentity()
+    public async Task BuilderClusterNodeCallbackObservesTheCorrectRuntimeAndNodeIdentity()
     {
         var builder = new SimulationBuilder().WithSeed(1);
         var node = builder.AddNode("node-1");
@@ -107,7 +107,7 @@ public sealed class SimulationAmbientContextIntegrationTests
         var executed = false;
         node.Context.TaskQueue.EnqueueAfter(() => executed = true, TimeSpan.FromSeconds(1));
 
-        Assert.True(cluster.RunUntil(() => executed));
+        Assert.Equal(SimulationExecutionReason.ConditionMet, cluster.RunUntil(() => executed).Reason);
         Assert.False(SimulationExecutionContext.IsActive);
     }
 
@@ -146,7 +146,7 @@ public sealed class SimulationAmbientContextIntegrationTests
     public async Task NewBuilderCreatedNodeGetsFullAmbientIntegrationUnlikeTheLegacySubclassPattern()
     {
         // Direct contrast with the previous test: a SimulationBuilder-created node's TaskQueue *is*
-        // ambient-integrated, because BuiltSimulation explicitly passes CreateNodeAmbientContext(...)
+        // ambient-integrated, because the built cluster explicitly passes CreateNodeAmbientContext(...)
         // when constructing each node's SimulationNodeContext.
         var builder = new SimulationBuilder().WithSeed(7);
         var node = builder.AddNode("builder-node-1");
@@ -170,7 +170,7 @@ public sealed class SimulationAmbientContextIntegrationTests
         public LegacyStyleTestNode AddNode(string address)
         {
             // Deliberately mirrors the legacy pattern: no ambientContext argument at all.
-            var context = new SimulationNodeContext(Clock, Guard, CreateDerivedRandom(), TaskQueue);
+            var context = new SimulationNodeContext(Clock, Guard, ForkRandom(), TaskQueue);
             var node = new LegacyStyleTestNode(address, context);
             RegisterNode(node);
             return node;

@@ -4,7 +4,7 @@ namespace Clockwork;
 
 /// <summary>
 /// <para>
-/// The <see cref="SimulationCluster{TNode}"/> produced by <see cref="SimulationBuilder.Build"/>.
+/// The non-generic <see cref="SimulationCluster{TNode}"/> produced by <see cref="SimulationBuilder.Build"/>.
 /// Sealed and non-generic over any application type - it is a
 /// <see cref="SimulationCluster{TNode}"/> of the common <see cref="SimulationNode"/> base type, which
 /// is what lets plain <see cref="SimulationNodeHandle{TState}"/> instances and arbitrary custom
@@ -20,20 +20,19 @@ namespace Clockwork;
 /// implements either interface.
 /// </para>
 /// </summary>
-public sealed class BuiltSimulation : SimulationCluster<SimulationNode>
+public sealed class SimulationCluster : SimulationCluster<SimulationNode>
 {
     private readonly List<SimulationNode> _materializedNodes;
     private readonly HashSet<SimulationNode> _registeredNodes = new(ReferenceEqualityComparer.Instance);
     private readonly HashSet<string> _materializedAddresses = new(StringComparer.Ordinal);
 
-    internal BuiltSimulation(
+    internal SimulationCluster(
         int seed,
         DateTimeOffset? startDateTime,
         IReadOnlyList<SimulationBuilderPendingNode> pendingNodes,
         CancellationToken cancellationToken,
         TimeZoneInfo? simulationTimeZone = null,
-        Clockwork.Runtime.Shims.SimulationCryptoRandomnessPolicy cryptoRandomnessPolicy =
-            Clockwork.Runtime.Shims.SimulationCryptoRandomnessPolicy.Reject)
+        CryptoRandomnessPolicy cryptoRandomnessPolicy = CryptoRandomnessPolicy.Reject)
         : base(seed, startDateTime, simulationTimeZone, cryptoRandomnessPolicy, cancellationToken)
     {
         _materializedNodes = new List<SimulationNode>(pendingNodes.Count);
@@ -95,11 +94,18 @@ public sealed class BuiltSimulation : SimulationCluster<SimulationNode>
     /// </summary>
     /// <param name="address">The node's network address.</param>
     /// <returns>The matching node, or <see langword="null"/> if none is registered under that address.</returns>
-    public SimulationNode? GetNodeByAddress(string address)
+    public SimulationNode? FindNode(string address)
     {
         ArgumentException.ThrowIfNullOrEmpty(address);
         return Nodes.FirstOrDefault(n => string.Equals(n.NetworkAddress, address, StringComparison.Ordinal));
     }
+
+    /// <summary>
+    /// Finds a node with the given network address and type, or returns <see langword="null"/>.
+    /// </summary>
+    public TNode? FindNode<TNode>(string address)
+        where TNode : SimulationNode =>
+        FindNode(address) as TNode;
 
     /// <inheritdoc />
     protected override async ValueTask DisposeAsyncCore()

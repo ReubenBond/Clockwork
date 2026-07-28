@@ -3,7 +3,7 @@ namespace Clockwork;
 /// <summary>
 /// A queued-up node registration produced by <see cref="SimulationBuilder"/>, materialized into a
 /// real <see cref="SimulationNode"/> once <see cref="SimulationBuilder.Build"/> constructs the
-/// enclosing <see cref="BuiltSimulation"/> and its shared clock/guard/queue/random exist.
+/// enclosing non-generic <see cref="SimulationCluster"/> and its shared clock/guard/queue/random exist.
 /// </summary>
 /// <param name="Address">The node's network address, used for uniqueness checks and diagnostics.</param>
 /// <param name="Materialize">Creates the real node given its freshly-constructed context.</param>
@@ -13,7 +13,7 @@ internal sealed record SimulationBuilderPendingNode(string Address, Func<Simulat
 /// <para>
 /// Fluent composition API for building a working <see cref="SimulationCluster{TNode}"/> without
 /// hand-writing a trivial <see cref="SimulationCluster{TNode}"/>/<see cref="SimulationNode"/>
-/// subclass for common cases. <see cref="Build"/> produces a <see cref="BuiltSimulation"/> - a
+/// subclass for common cases. <see cref="Build"/> produces a non-generic <see cref="SimulationCluster"/> - a
 /// small, sealed <see cref="SimulationCluster{TNode}"/> over the common <see cref="SimulationNode"/>
 /// base type - wired up with a deterministic seed, clock, per-node queues, and an auto-created
 /// <see cref="SimulationNetwork"/>.
@@ -31,12 +31,12 @@ internal sealed record SimulationBuilderPendingNode(string Address, Func<Simulat
 /// unaffected by this type's existence.
 /// </para>
 /// <para>
-/// <b>Heterogeneous node foundation and its limits:</b> because <see cref="BuiltSimulation"/> is a
+/// <b>Heterogeneous node foundation and its limits:</b> because the non-generic <see cref="SimulationCluster"/> is a
 /// <see cref="SimulationCluster{TNode}"/> over the <see cref="SimulationNode"/> base type, plain
 /// handles and arbitrary custom subclasses can be registered together and share the same clock,
 /// guard, and drive loop. The supported surface does <em>not</em> include
 /// there is no dependency-injection-style construction or startup ordering between nodes, no
-/// per-node-type discovery beyond <see cref="BuiltSimulation.GetNodeByAddress(string)"/>/<c>Nodes.OfType&lt;T&gt;()</c>,
+/// per-node-type discovery beyond <see cref="SimulationCluster.FindNode(string)"/>,
 /// and custom nodes registered via <see cref="AddCustomNode{TNode}(string, Func{SimulationNodeContext, TNode})"/>
 /// are not returned synchronously (they can only be retrieved after <see cref="Build"/> - see that
 /// method's remarks). Clockwork does not provide dependency-injection-based heterogeneous lifecycle management.
@@ -51,8 +51,7 @@ public sealed class SimulationBuilder
     private CancellationToken _cancellationToken;
     private TimeZoneInfo? _simulationTimeZone;
     private int _buildStarted;
-    private Clockwork.Runtime.Shims.SimulationCryptoRandomnessPolicy _cryptoRandomnessPolicy =
-        Clockwork.Runtime.Shims.SimulationCryptoRandomnessPolicy.Reject;
+    private CryptoRandomnessPolicy _cryptoRandomnessPolicy = CryptoRandomnessPolicy.Reject;
 
     /// <summary>
     /// Sets the seed used for the built simulation's deterministic random number generation. This
@@ -97,7 +96,7 @@ public sealed class SimulationBuilder
     /// </summary>
     /// <param name="timeZone">The local time zone simulated nodes observe.</param>
     /// <returns>This builder, for chaining.</returns>
-    public SimulationBuilder WithSimulationTimeZone(TimeZoneInfo timeZone)
+    public SimulationBuilder WithTimeZone(TimeZoneInfo timeZone)
     {
         ArgumentNullException.ThrowIfNull(timeZone);
         _simulationTimeZone = timeZone;
@@ -106,14 +105,14 @@ public sealed class SimulationBuilder
 
     /// <summary>
     /// Sets the cryptographic-randomness policy the deterministic crypto shims enforce. Defaults to
-    /// <see cref="Clockwork.Runtime.Shims.SimulationCryptoRandomnessPolicy.Reject"/>. Choosing
-    /// <see cref="Clockwork.Runtime.Shims.SimulationCryptoRandomnessPolicy.DeterministicInsecureForTesting"/>
+    /// <see cref="CryptoRandomnessPolicy.Reject"/>. Choosing
+    /// <see cref="CryptoRandomnessPolicy.DeterministicInsecureForTesting"/>
     /// substitutes deterministic <b>non-cryptographic</b> bytes and must only ever be used in tests -
     /// never a production security decision.
     /// </summary>
     /// <param name="policy">The cryptographic-randomness policy for the built simulation.</param>
     /// <returns>This builder, for chaining.</returns>
-    public SimulationBuilder WithCryptoRandomnessPolicy(Clockwork.Runtime.Shims.SimulationCryptoRandomnessPolicy policy)
+    public SimulationBuilder WithCryptoRandomnessPolicy(CryptoRandomnessPolicy policy)
     {
         _cryptoRandomnessPolicy = policy;
         return this;
@@ -172,7 +171,8 @@ public sealed class SimulationBuilder
     /// Unlike the handle-returning overloads, the constructed node cannot be handed back
     /// synchronously - <paramref name="factory"/> needs a real <see cref="SimulationNodeContext"/>,
     /// which does not exist until <see cref="Build"/> constructs the cluster. Retrieve the node
-    /// afterwards via <see cref="BuiltSimulation.GetNodeByAddress(string)"/> or by filtering
+    /// afterwards via <see cref="SimulationCluster.FindNode(string)"/> or
+    /// <see cref="SimulationCluster.FindNode{TNode}(string)"/>.
     /// <see cref="SimulationCluster{TNode}.Nodes"/> with <c>OfType&lt;TNode&gt;()</c>.
     /// </para>
     /// </summary>
@@ -192,7 +192,7 @@ public sealed class SimulationBuilder
     }
 
     /// <summary>
-    /// Constructs the <see cref="BuiltSimulation"/>: creates the shared clock, guard, and random
+    /// Constructs the non-generic <see cref="SimulationCluster"/>: creates the shared clock, guard, and random
     /// generator, then materializes every node queued up via <c>AddNode</c> (in registration order)
     /// and attaches each returned handle to its real context and state. A builder is single-use once
     /// materialization starts, including when materialization fails.
@@ -201,7 +201,7 @@ public sealed class SimulationBuilder
     /// <exception cref="InvalidOperationException">
     /// Thrown if <see cref="WithSeed"/> was never called or this builder has already started a build.
     /// </exception>
-    public BuiltSimulation Build()
+    public SimulationCluster Build()
     {
         if (_seed is not { } seed)
         {
@@ -215,7 +215,7 @@ public sealed class SimulationBuilder
                 "This SimulationBuilder has already started building a simulation and cannot be reused.");
         }
 
-        return new BuiltSimulation(
+        return new SimulationCluster(
             seed,
             _startDateTime,
             _pendingNodes,

@@ -81,7 +81,7 @@ public static class InstrumentationConfigurationLoader
             ImmutableArray<string> include = GetStringArray(root, "include", origin);
             ImmutableArray<string> exclude = GetStringArray(root, "exclude", origin);
             bool excludeFramework = GetOptionalBool(root, "excludeFrameworkAssemblies", origin) ?? true;
-            bool rewriteDependencies = GetOptionalBool(root, "rewriteDependencies", origin) ?? true;
+            bool instrumentDependencies = GetOptionalBool(root, "instrumentDependencies", origin) ?? true;
             Version? targetRuntime = GetOptionalVersion(root, "targetRuntime", origin);
             ReadyToRunPolicy r2r = GetOptionalEnum<ReadyToRunPolicy>(root, "readyToRunPolicy", origin) ?? ReadyToRunPolicy.Reject;
             StrongNamePolicy strongName = GetOptionalEnum<StrongNamePolicy>(root, "strongNamePolicy", origin) ?? StrongNamePolicy.Fail;
@@ -108,7 +108,7 @@ public static class InstrumentationConfigurationLoader
                 IncludePatterns = include,
                 ExcludePatterns = exclude,
                 ExcludeFrameworkAssemblies = excludeFramework,
-                RewriteDependencies = rewriteDependencies,
+                InstrumentDependencies = instrumentDependencies,
                 TargetRuntime = targetRuntime,
                 ReadyToRunPolicy = r2r,
                 StrongNamePolicy = strongName,

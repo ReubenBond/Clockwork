@@ -166,7 +166,7 @@ public sealed class SimulationClusterSchedulerFairnessTests
 
         public FairnessTestNode AddNode(string address)
         {
-            var context = new SimulationNodeContext(Clock, Guard, CreateDerivedRandom(), TaskQueue);
+            var context = new SimulationNodeContext(Clock, Guard, ForkRandom(), TaskQueue);
             var node = new FairnessTestNode(address, context);
             RegisterNode(node);
             return node;

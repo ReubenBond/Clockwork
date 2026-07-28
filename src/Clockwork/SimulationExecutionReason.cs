@@ -2,7 +2,7 @@ namespace Clockwork;
 
 /// <summary>
 /// Describes why a <see cref="SimulationCluster{TNode}"/> drive-loop execution
-/// (<c>RunUntil</c>, <c>RunUntilIdle</c>, or <c>RunForDuration</c>) stopped.
+/// (<c>RunUntil</c>, <c>RunUntilIdle</c>, or <c>RunFor</c>) stopped.
 /// </summary>
 public enum SimulationExecutionReason
 {

@@ -10,7 +10,7 @@ public sealed class ReplayDiagnosticsTests
     public void DeadlockTraceRendersStableWaitGraphAndCanonicalJson()
     {
         ReplayExecutionResult execution = ReplayRunner.Record(
-            new ReplayRunConfiguration
+            new ReplayRecordingOptions
             {
                 RootSeed = 88,
                 SchedulingPolicy = ReplaySchedulingPolicy.RoundRobin,
@@ -35,7 +35,7 @@ public sealed class ReplayDiagnosticsTests
     public void DefaultDiagnosticsExcludeCallerDescriptionsAndSourcePaths()
     {
         ReplayExecutionResult execution = ReplayRunner.Record(
-            new ReplayRunConfiguration
+            new ReplayRecordingOptions
             {
                 RootSeed = 89,
                 SchedulingPolicy = ReplaySchedulingPolicy.RoundRobin,

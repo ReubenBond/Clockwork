@@ -179,7 +179,7 @@ public abstract class ChaosInjector<TNode, TCluster>(TCluster cluster)
             }
 
             // Advance time and run simulation until idle
-            Cluster.RunForDuration(interval);
+            Cluster.RunFor(interval);
         }
 
         return faultsInjected;

@@ -4,8 +4,9 @@ namespace Clockwork;
 
 /// <summary>
 /// <para>
-/// Configures the escalating iteration budget used by <see cref="SimulationCluster{TNode}.RunUntilConverged"/>
-/// and <see cref="SimulationCluster{TNode}.RunUntilIdleConverged"/>. These adaptive entry points spare
+/// Configures the escalating iteration budget used by the adaptive
+/// <see cref="SimulationCluster{TNode}.RunUntil(Func{bool}, AdaptiveExecutionBudget)"/> and
+/// <see cref="SimulationCluster{TNode}.RunUntilIdle(AdaptiveExecutionBudget, TimeSpan?)"/> overloads. These entry points spare
 /// callers from having to pick a <c>maxIterations</c> value sized to their specific scenario:
 /// instead of one fixed budget, the drive loop is run in successive batches, starting at
 /// <see cref="InitialMaxIterations"/> and multiplying by <see cref="GrowthFactor"/> after each
@@ -18,10 +19,10 @@ namespace Clockwork;
 /// value up front.
 /// </para>
 /// </summary>
-public sealed class SimulationAdaptiveBudget
+public sealed class AdaptiveExecutionBudget
 {
     /// <summary>
-    /// Initializes a new instance of the <see cref="SimulationAdaptiveBudget"/> class.
+    /// Initializes a new instance of the <see cref="AdaptiveExecutionBudget"/> class.
     /// </summary>
     /// <param name="initialMaxIterations">The iteration budget for the first batch. Defaults to 1,000.</param>
     /// <param name="growthFactor">
@@ -33,7 +34,7 @@ public sealed class SimulationAdaptiveBudget
     /// The hard ceiling on the total number of iterations across every batch, regardless of how
     /// many rounds of escalation occur. Defaults to 10,000,000.
     /// </param>
-    public SimulationAdaptiveBudget(int initialMaxIterations = 1_000, double growthFactor = 4.0, int maxTotalIterations = 10_000_000)
+    public AdaptiveExecutionBudget(int initialMaxIterations = 1_000, double growthFactor = 4.0, int maxTotalIterations = 10_000_000)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(initialMaxIterations, 1);
         if (growthFactor <= 1.0)
@@ -52,7 +53,7 @@ public sealed class SimulationAdaptiveBudget
     /// Gets the default adaptive budget: an initial batch of 1,000 iterations, escalating by 4x
     /// each round it is exhausted, up to a hard ceiling of 10,000,000 total iterations.
     /// </summary>
-    public static SimulationAdaptiveBudget Default { get; } = new();
+    public static AdaptiveExecutionBudget Default { get; } = new();
 
     /// <summary>
     /// Gets the iteration budget for the first batch.
