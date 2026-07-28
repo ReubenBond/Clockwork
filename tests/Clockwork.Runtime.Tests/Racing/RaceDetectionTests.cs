@@ -3,6 +3,7 @@ using Clockwork.Runtime.Racing;
 using Clockwork.Runtime.Scheduling;
 using Clockwork.Runtime.Scheduling.Strategies;
 using Clockwork.Runtime.Tests.Scheduling;
+using Clockwork.Runtime.Tasks;
 
 namespace Clockwork.Runtime.Tests.Racing;
 
@@ -138,6 +139,51 @@ public sealed class RaceDetectionTests
         {
             RaceSynchronization.Wait(signal);
             RaceInstrumentation.ReadStatic("Fx.State::Value", "consumer", 2, null, -1);
+        });
+        scheduler.Drain();
+
+        Assert.Null(scheduler.FirstRace);
+    }
+
+    [Fact]
+    public void ControlledTaskCompletionCreatesHappensBeforeEdge()
+    {
+        ControlledTaskCompletionSource? completion = null;
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        scheduler.Schedule("producer", () =>
+        {
+            completion = new ControlledTaskCompletionSource();
+            RaceInstrumentation.WriteStatic("Fx.State::Value", "producer", 1, null, -1);
+            completion.SetResult();
+        });
+        scheduler.Drain();
+        scheduler.Schedule("consumer", () =>
+        {
+            ControlledTask.Wait(completion!.Task);
+            RaceInstrumentation.ReadStatic("Fx.State::Value", "consumer", 2, null, -1);
+        });
+        scheduler.Drain();
+
+        Assert.Null(scheduler.FirstRace);
+    }
+
+    [Fact]
+    public void ControlledResourceSignalCreatesHappensBeforeEdge()
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        var resource = scheduler.CreateResource(
+            Clockwork.Runtime.Scheduling.Resources.ControlledResourceKind.ManualResetEvent,
+            "race-event");
+        scheduler.Schedule("consumer", () =>
+        {
+            scheduler.WaitOnResource(resource, ControlledOperationPauseReason.ResourceWait("race-event"));
+            RaceInstrumentation.ReadStatic("Fx.State::Value", "consumer", 2, null, -1);
+        });
+        Assert.True(scheduler.RunStep());
+        scheduler.Schedule("producer", () =>
+        {
+            RaceInstrumentation.WriteStatic("Fx.State::Value", "producer", 1, null, -1);
+            scheduler.SignalOne(resource);
         });
         scheduler.Drain();
 

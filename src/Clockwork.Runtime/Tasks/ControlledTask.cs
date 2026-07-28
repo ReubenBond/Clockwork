@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Threading.Tasks;
+using Clockwork.Runtime.Racing;
 using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks.CompilerServices;
 using Clockwork.Runtime.Threading;
@@ -184,6 +185,7 @@ public static class ControlledTask
         ArgumentNullException.ThrowIfNull(task);
         ControlledTaskRuntime.DrainUntilCompleted(task, "System.Threading.Tasks.Task.Wait");
         task.Wait();
+        RaceSynchronization.Wait(task);
     }
 
     /// <summary>
@@ -199,7 +201,9 @@ public static class ControlledTask
         SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task`1.get_Result");
         ArgumentNullException.ThrowIfNull(task);
         ControlledTaskRuntime.DrainUntilCompleted(task, "System.Threading.Tasks.Task`1.get_Result");
-        return task.Result;
+        TResult result = task.Result;
+        RaceSynchronization.Wait(task);
+        return result;
     }
 
     /// <summary>Controlled <c>Task.WaitAll(Task[])</c>: pumps until all complete, then delegates.</summary>
@@ -211,6 +215,10 @@ public static class ControlledTask
         ValidateNoNullTasks(tasks);
         ControlledTaskRuntime.DrainUntil(() => AllCompleted(tasks), "System.Threading.Tasks.Task.WaitAll");
         Task.WaitAll(tasks);
+        foreach (Task task in tasks)
+        {
+            RaceSynchronization.Wait(task);
+        }
     }
 
     /// <summary>Controlled <c>Task.WaitAny(Task[])</c>: pumps until at least one completes, then delegates.</summary>
@@ -222,7 +230,9 @@ public static class ControlledTask
         ArgumentNullException.ThrowIfNull(tasks);
         ValidateNoNullTasks(tasks);
         ControlledTaskRuntime.DrainUntil(() => AnyCompleted(tasks), "System.Threading.Tasks.Task.WaitAny");
-        return Task.WaitAny(tasks);
+        int winner = Task.WaitAny(tasks);
+        RaceSynchronization.Wait(tasks[winner]);
+        return winner;
     }
 
     /// <summary>

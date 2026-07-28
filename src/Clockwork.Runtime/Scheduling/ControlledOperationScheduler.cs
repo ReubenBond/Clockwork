@@ -1040,7 +1040,16 @@ public sealed class ControlledOperationScheduler : IDisposable
         DisposeRegistration(detachedRegistration);
         HandBackAndPark(operation);
 
-        return FinishWait(operation, waiter);
+        ControlledWaitOutcome outcome = FinishWait(operation, waiter);
+        if (outcome == ControlledWaitOutcome.Signaled)
+        {
+            lock (_gate)
+            {
+                _raceTracker.WaitSynchronization(operation, resource);
+            }
+        }
+
+        return outcome;
     }
 
     /// <summary>
@@ -1110,6 +1119,11 @@ public sealed class ControlledOperationScheduler : IDisposable
             lock (_gate)
             {
                 ThrowIfDisposed();
+                if (t_currentOperation is { } signaler && ReferenceEquals(signaler.Scheduler, this))
+                {
+                    _raceTracker.SignalSynchronization(signaler, resource);
+                }
+
                 var next = resource.PeekNextPending();
                 if (next is not null && next.TryResolve(ControlledWaitOutcome.Signaled))
                 {
@@ -1151,6 +1165,11 @@ public sealed class ControlledOperationScheduler : IDisposable
             lock (_gate)
             {
                 ThrowIfDisposed();
+                if (t_currentOperation is { } signaler && ReferenceEquals(signaler.Scheduler, this))
+                {
+                    _raceTracker.SignalSynchronization(signaler, resource);
+                }
+
                 pending = resource.SnapshotPendingWaiters();
             }
 
