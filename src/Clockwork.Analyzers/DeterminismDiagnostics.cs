@@ -46,4 +46,17 @@ public static class DeterminismDiagnostics
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
         description: "Cryptographic randomness cannot be made deterministic without weakening security. Under an active simulation these members are rejected with a precise diagnostic. A test-only opt-in can substitute deterministic-insecure bytes; production security semantics are never changed.");
+
+    /// <summary>
+    /// <c>CW1003</c>: unordered dictionary or hash-set enumeration is consumed by an operation whose
+    /// result depends on element position.
+    /// </summary>
+    public static readonly DiagnosticDescriptor UnstableCollectionOrdering = new(
+        id: "CW1003",
+        title: "Unordered collection enumeration influences deterministic logic",
+        messageFormat: "'{0}' consumes Dictionary/HashSet enumeration order; apply an explicit OrderBy with a stable comparer before this operation",
+        category: Category,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "Dictionary and HashSet enumeration order is not a deterministic ordering contract. Clockwork reports only position-sensitive consumers such as First, Last, ElementAt, SequenceEqual, and string.Join; ordinary membership and keyed access are not reported.");
 }
