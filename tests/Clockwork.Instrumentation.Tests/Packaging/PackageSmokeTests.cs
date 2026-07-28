@@ -98,6 +98,25 @@ public sealed class PackageSmokeTests
     }
 
     [Fact]
+    public void BuildPackageSupportsExplicitRaceExplorationMode()
+    {
+        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        ConsumerProject consumer = Artifacts.Value.ScaffoldConsumer(
+            "RaceExplorationApp",
+            instrumentationEnabled: true,
+            mode: InstrumentationMode.RaceExploration);
+
+        AppRunResult build = consumer.Build();
+
+        Assert.True(build.ExitCode == 0, $"Build failed:\n{build.StandardOutput}\n{build.StandardError}");
+        Assert.Contains("\"mode\": \"RaceExploration\"", File.ReadAllText(consumer.ManifestPath));
+        Assert.True(File.Exists(Path.Combine(consumer.StagingDirectory, "Clockwork.Runtime.dll")));
+        AppRunResult staged = ProcessAppRunner.Run(consumer.StagedAppPath);
+        Assert.Equal(0, staged.ExitCode);
+        Assert.Contains("ticks=999", staged.Output);
+    }
+
+    [Fact]
     public void BuildPackageRetriesUnchangedFailedInstrumentation()
     {
         Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
@@ -311,7 +330,8 @@ public sealed class PackageSmokeTests
             string name,
             bool instrumentationEnabled,
             bool signEntryAssembly = false,
-            bool useBuiltInRules = false)
+            bool useBuiltInRules = false,
+            InstrumentationMode mode = InstrumentationMode.Controlled)
         {
             string rootDir = Path.Combine(Root, name);
             string appDir = Path.Combine(rootDir, "app");
@@ -408,6 +428,7 @@ public sealed class PackageSmokeTests
                     <ImplicitUsings>enable</ImplicitUsings>
                     <AssemblyName>SmokeApp</AssemblyName>
                     <ClockworkInstrumentationEnabled>{enabled}</ClockworkInstrumentationEnabled>
+                    <ClockworkInstrumentationMode>{mode}</ClockworkInstrumentationMode>
                     <ClockworkUseBuiltInRules>{builtIn}</ClockworkUseBuiltInRules>
                 {signingProperties}
                   </PropertyGroup>

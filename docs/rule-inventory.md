@@ -691,6 +691,23 @@ Policy: **Rejected**. Process control and abrupt-termination APIs (`Process.Star
 | `clockwork.environment.failfast.message` | `System.Environment::FailFast(System.String)` | `Clockwork.Runtime!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
 | `clockwork.environment.failfast.exception` | `System.Environment::FailFast(System.String,System.Exception)` | `Clockwork.Runtime!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
 
+# Race exploration instrumentation inventory
+
+This inventory is enabled only when instrumentation mode is `RaceExploration`; `Controlled` mode injects none of these calls.
+
+| Surface | Instrumentation | Tracked identity |
+| --- | --- | --- |
+| `ldfld` / `stfld` on reference types | Read/write scheduling point | Weak object identity + field member |
+| `ldsfld` / `stsfld` | Read/write scheduling point | Static field member |
+| volatile field access | Schedule-only point before the `volatile.` prefix | Not race-tracked |
+| `ldelem.*` / `stelem.*` vector arrays | Read/write scheduling point | Weak array identity + element index |
+| field-address, indirect/object, and `ldelema` access | Schedule-only point | Not race-tracked |
+| `brtrue` / `brfalse` | Control-flow scheduling point | n/a |
+| `List<T>`, `Dictionary<TKey,TValue>`, `HashSet<T>` direct concrete members | Read/write/iteration point after the original call | Weak collection identity |
+| `ConcurrentBag<T>`, `ConcurrentDictionary<TKey,TValue>`, `ConcurrentQueue<T>`, `ConcurrentStack<T>` direct concrete members | Interleaving point after the original call | Not reported as a race |
+
+Limits: constructors and property accessors are excluded; generated `MoveNext` methods are visited, with generated value-type state fields schedule-only. Multidimensional arrays, interface-typed collection calls, reflection/dynamic dispatch, spans, unmanaged memory, and arbitrary pointer offsets are not assigned tracked locations.
+
 ## Documented holes (not rewritten in these rule sets)
 
 These nondeterministic or entropy-drawing surfaces are intentionally **not** covered and

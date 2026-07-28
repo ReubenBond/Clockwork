@@ -1,10 +1,8 @@
 # Third-party notices
 
 This file documents third-party material referenced by, or under evaluation for
-adaptation into, Clockwork, and the licensing policy for each. As of this writing,
-**no third-party source code has been copied into this repository.** This document
-exists ahead of that work so the policy is settled before any adaptation happens,
-per the roadmap described in [docs/compatibility.md](docs/compatibility.md).
+adaptation into Clockwork and the licensing policy for each. Adapted material is listed below with
+its source and modification summary.
 
 If and when code or tests are adapted from any of the projects below, this file
 must be updated in the same change with:
@@ -128,6 +126,41 @@ must be updated in the same change with:
   classified controlled, rejected with a tested reason, or non-applicable on .NET 10) is enumerated in
   [docs/coyote-parity.md](docs/coyote-parity.md); the exact controlled/rejected signature list is in
   [docs/rule-inventory.md](docs/rule-inventory.md).
+
+- **Adapted race-exploration material:** `RaceExplorationRewritingPass.cs` adapts instruction
+  selection, volatile-prefix placement, and constructor/property exclusions from Coyote
+  `Source/Test/Rewriting/Passes/Rewriting/MemoryAccessRewritingPass.cs` at commit
+  `f2c135d201341ee5eff3d82cac62bdb85b25139f`. Clockwork adds static fields, vector arrays,
+  indirect-access classification, stack spilling, exact source/IL metadata, state-machine handling,
+  exception/branch boundary repair, and manifest records. `RaceInstrumentation.cs` and the
+  scheduler integration are design-level adaptations of Coyote
+  `Source/Core/Runtime/Scheduling/SchedulingPoint.cs`. `CollectionAccessRewritingPass.cs` is a
+  design-level adaptation of Coyote's collection type-rewriting inventory and collection interception
+  types under `Source/Test/Rewriting/Types/Collections`; Clockwork preserves the original BCL types
+  instead of copying Coyote's wrapper subclasses. Race tests are original tests informed by Coyote's
+  `Tests/Tests.BugFinding/DataRaceChecking` coverage.
+
+Microsoft Coyote license:
+
+> Copyright (c) Microsoft Corporation.
+>
+> Permission is hereby granted, free of charge, to any person obtaining a copy
+> of this software and associated documentation files (the "Software"), to deal
+> in the Software without restriction, including without limitation the rights
+> to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+> copies of the Software, and to permit persons to whom the Software is
+> furnished to do so, subject to the following conditions:
+>
+> The above copyright notice and this permission notice shall be included in all
+> copies or substantial portions of the Software.
+>
+> THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+> IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+> FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+> AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+> LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+> OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+> SOFTWARE.
 
 ### Mono.Cecil
 

@@ -46,6 +46,24 @@ public static class RuleInventoryDocument
             BuiltInRuleSets.ControlledTasksVersion,
             BuiltInRuleSets.ControlledTasksInventory);
 
+        Line("# Race exploration instrumentation inventory");
+        Line();
+        Line("This inventory is enabled only when instrumentation mode is `RaceExploration`; `Controlled` mode injects none of these calls.");
+        Line();
+        Line("| Surface | Instrumentation | Tracked identity |");
+        Line("| --- | --- | --- |");
+        Line("| `ldfld` / `stfld` on reference types | Read/write scheduling point | Weak object identity + field member |");
+        Line("| `ldsfld` / `stsfld` | Read/write scheduling point | Static field member |");
+        Line("| volatile field access | Schedule-only point before the `volatile.` prefix | Not race-tracked |");
+        Line("| `ldelem.*` / `stelem.*` vector arrays | Read/write scheduling point | Weak array identity + element index |");
+        Line("| field-address, indirect/object, and `ldelema` access | Schedule-only point | Not race-tracked |");
+        Line("| `brtrue` / `brfalse` | Control-flow scheduling point | n/a |");
+        Line("| `List<T>`, `Dictionary<TKey,TValue>`, `HashSet<T>` direct concrete members | Read/write/iteration point after the original call | Weak collection identity |");
+        Line("| `ConcurrentBag<T>`, `ConcurrentDictionary<TKey,TValue>`, `ConcurrentQueue<T>`, `ConcurrentStack<T>` direct concrete members | Interleaving point after the original call | Not reported as a race |");
+        Line();
+        Line("Limits: constructors and property accessors are excluded; generated `MoveNext` methods are visited, with generated value-type state fields schedule-only. Multidimensional arrays, interface-typed collection calls, reflection/dynamic dispatch, spans, unmanaged memory, and arbitrary pointer offsets are not assigned tracked locations.");
+        Line();
+
         Line("## Documented holes (not rewritten in these rule sets)");
         Line();
         Line("These nondeterministic or entropy-drawing surfaces are intentionally **not** covered and");

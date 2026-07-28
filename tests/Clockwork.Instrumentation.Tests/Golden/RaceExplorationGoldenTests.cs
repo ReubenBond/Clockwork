@@ -132,6 +132,14 @@ public sealed class RaceExplorationGoldenTests
         result.EnsureSuccess();
         using ModuleDefinition module = context.LoadModule(output);
         Assert.False(CecilInspect.AnyMethodCallsContaining(module, "RaceInstrumentation"));
+        using ModuleDefinition original = context.LoadModule(input);
+        int originalInstructions = original.GetTypes().SelectMany(type => type.Methods)
+            .Where(method => method.HasBody)
+            .Sum(method => method.Body.Instructions.Count);
+        int rewrittenInstructions = module.GetTypes().SelectMany(type => type.Methods)
+            .Where(method => method.HasBody)
+            .Sum(method => method.Body.Instructions.Count);
+        Assert.Equal(originalInstructions, rewrittenInstructions);
         Assert.DoesNotContain(
             result.Manifest.Transformations,
             transformation => transformation.RuleId == "clockwork.race-exploration.scheduling-point");
