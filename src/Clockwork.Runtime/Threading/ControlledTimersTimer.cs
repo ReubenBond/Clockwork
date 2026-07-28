@@ -243,12 +243,15 @@ public class ControlledTimersTimer : Component, ISupportInitialize
     /// <inheritdoc />
     protected override void Dispose(bool disposing)
     {
-        RequireRuntime("Dispose");
-        if (disposing && !_disposed)
+        if (disposing)
         {
-            _disposed = true;
-            _enabled = false;
-            _registration.Dispose();
+            RequireRuntime("Dispose");
+            if (!_disposed)
+            {
+                _disposed = true;
+                _enabled = false;
+                _registration.Dispose();
+            }
         }
 
         base.Dispose(disposing);
