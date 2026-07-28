@@ -1,5 +1,6 @@
 using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks;
+using Clockwork.Runtime.Threading;
 
 namespace Clockwork.Tests;
 
@@ -84,6 +85,18 @@ public sealed class SimulationClusterTests
 
         Assert.Equal(3, cluster.RunUntilIdle());
         Assert.Equal(3, executedCount);
+    }
+
+    [Fact]
+    public async Task RunExecutesTaskFactoryWithinActiveSimulation()
+    {
+        await using var cluster = new TestCluster(seed: 12345);
+
+        cluster.Run(() =>
+        {
+            _ = new ControlledLock();
+            return Task.CompletedTask;
+        });
     }
 
     [Fact]
