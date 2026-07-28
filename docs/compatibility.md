@@ -204,24 +204,32 @@ caller work descriptions, and source paths by default. Caller descriptions/sourc
 explicitly retained through the API. Per-field, decision, race-point, assembly, and total-byte limits
 are enforced before use.
 
-### Optional deep instrumentation mode
+### Build-time instrumentation boundary
 
-The most invasive mode: build-time IL rewriting (`Clockwork.Instrumentation.Build`)
-or runtime profiling hooks intercept nondeterministic operations that cannot be
-caught cooperatively or via analyzers - for example, calls made by third-party
-libraries that do not route through `TimeProvider` or accept an injected scheduler.
-The build package and CLI implement this mode today using Mono.Cecil; see
-[Third-party notices](../THIRD-PARTY-NOTICES.md). Rewriting is opt-in and out-of-place.
+Clockwork's deepest supported instrumentation is opt-in, out-of-place caller rewriting performed
+by `Clockwork.Instrumentation.Build` or `Clockwork.Tool` before execution. It can rewrite
+application and selected dependency assemblies, including third-party managed callers, but does
+not rewrite framework assemblies, mixed-mode/native code, or calls originating inside excluded
+vendor binaries. Those boundaries require an explicit Clockwork model, rejection, or consumer
+adapter when they affect simulation behavior.
 
-#### Rewrite-engine core (Phase 4A)
+Clockwork does not provide a CLR profiler/ReJIT component, startup-hook or
+`AssemblyLoadContext` load-time rewriting, or native detours. Runtime interception is explicitly
+out of scope: it would compete with coverage and APM profilers, add platform-specific native
+deployment and security burden, and still not cover NativeAOT or unmanaged behavior. The current
+consumer evidence does not show a determinism blocker that would justify those costs.
 
-Phase 4A adds the **generic IL rewrite-engine core** to `Clockwork.Instrumentation`
-(`Mono.Cecil` 0.11.6). It is **internal and experimental**: a deterministic,
+The build package and CLI use Mono.Cecil; see
+[Third-party notices](../THIRD-PARTY-NOTICES.md).
+
+#### Rewrite engine
+
+The **generic IL rewrite engine** in `Clockwork.Instrumentation` uses Mono.Cecil 0.11.6. It is a deterministic,
 rule-driven Cecil transformation pipeline plus an extensive golden test corpus, and
-nothing else. The engine (`RewriteEngine.Rewrite`) takes a caller-supplied, versioned
+does not perform runtime interception. The engine (`RewriteEngine.Rewrite`) takes a caller-supplied, versioned
 `RewriteRuleSet` and a set of replacement ("shim") assemblies, applies an ordered set
 of passes to the input assembly, validates the result by reading it back, and emits a
-deterministic `InstrumentationManifest`. The rule model integrates the Phase 2 API
+deterministic `InstrumentationManifest`. The rule model integrates the simulation API
 policy classification (`Controlled`/`Rejected`/`PassThrough`) without the engine
 referencing any concrete shim by identity.
 
@@ -251,20 +259,14 @@ referencing any concrete shim by identity.
 - strict resolution — a targeted member whose replacement cannot be resolved is a hard
   failure (`CWR0001`); a targeted call is never silently skipped.
 
-**Explicitly not in Phase 4A (deferred to Phase 4B or later):** MSBuild target/task
-activation and CLI rewrite commands; recursive publish-output rewriting; strong-name
-re-signing and Authenticode; load-time `AssemblyLoadContext` hooks (the in-process
-execution *tests* load rewritten fixtures only as a test mechanism); any concrete BCL
-deterministic shim; the Phase 6/7 `Monitor`/`Semaphore`/`WaitHandle`/`Task` shims and
-Coyote-style task/lock type substitutions; `Buggify`; Generic Host / HTTP integration;
-and profiler/native detours. Mixed-mode (native) assemblies are rejected (`CWR0011`).
-The engine performs the IL transformation mechanics only; it is wired to no build or
-deployment step yet.
+**Engine boundary:** load-time `AssemblyLoadContext` hooks, profiler/native detours, mixed-mode
+rewriting, Authenticode re-signing, application hosting, and transport interception are not
+provided. Mixed-mode assemblies are rejected (`CWR0011`). The engine supplies IL transformation
+mechanics; build and CLI orchestration remain separate opt-in entry points.
 
-#### Build and tool integration (Phase 4B)
+#### Build and tool integration
 
-Phase 4B wires the Phase 4A engine to a build and a command line. It adds **no BCL shim
-rules** - it is generic, strictly opt-in plumbing that fails explicitly rather than
+The build and command-line entry points are generic, strictly opt-in plumbing that fails explicitly rather than
 silently degrading. It ships two packages: `Clockwork.Instrumentation.Build` (an MSBuild
 task with `build/` props and targets, a development dependency) and `Clockwork.Tool`
 (the `clockwork` CLI).
@@ -307,8 +309,8 @@ instrumentation.
 policy fails rather than emit stale native code; the opt-in `StripToIL` policy round-trips
 through Cecil to produce IL-only staged output. Because instrumentation rewrites managed
 IL, it must run **before** crossgen/R2R publish, single-file bundling, and Native AOT -
-instrument first, then publish. Runtime/product-mode hooking of an already-published R2R or
-single-file binary remains deferred (see below).
+instrument first, then publish. Hooking an already-published R2R, single-file, or NativeAOT
+binary is not supported.
 
 #### First deterministic BCL rule set (Phase 5)
 
@@ -452,7 +454,7 @@ physical-gate backend lands):
   `Task`/`Task<T>`/`ValueTask`/`ValueTask<T>` or a custom awaitable is flagged with the `CWR0200`
   warning at the exact call site, so a task whose continuation could escape the coordinator is never
   silently accepted. Clockwork diagnoses rather than runtime-wraps the foreign task (honest about
-  what it can prove); HttpClient-specific control remains **Phase 10**.
+  what it can prove); framework-hosted I/O remains outside the instrumentation boundary.
 - **Exception-handler hardening is defence-in-depth.** With `HardenExceptionHandlers` enabled, a
   `dup; call ControlledExceptionGuard.ThrowIfControlSignal` is injected at the start of every broad
   `catch (Exception)`/`catch`/filter handler so an internal scheduler control signal cannot be
