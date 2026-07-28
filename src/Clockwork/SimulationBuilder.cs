@@ -34,12 +34,12 @@ internal sealed record SimulationBuilderPendingNode(string Address, Func<Simulat
 /// <b>Heterogeneous node foundation and its limits:</b> because <see cref="BuiltSimulation"/> is a
 /// <see cref="SimulationCluster{TNode}"/> over the <see cref="SimulationNode"/> base type, plain
 /// handles and arbitrary custom subclasses can be registered together and share the same clock,
-/// guard, and drive loop - this is the foundation this PR ships. What is <em>not</em> included yet:
+/// guard, and drive loop. The supported surface does <em>not</em> include
 /// there is no dependency-injection-style construction or startup ordering between nodes, no
 /// per-node-type discovery beyond <see cref="BuiltSimulation.GetNodeByAddress(string)"/>/<c>Nodes.OfType&lt;T&gt;()</c>,
 /// and custom nodes registered via <see cref="AddCustomNode{TNode}(string, Func{SimulationNodeContext, TNode})"/>
 /// are not returned synchronously (they can only be retrieved after <see cref="Build"/> - see that
-/// method's remarks). Full heterogeneous lifecycle support is deferred to a future phase.
+/// method's remarks). Clockwork does not provide dependency-injection-based heterogeneous lifecycle management.
 /// </para>
 /// </summary>
 public sealed class SimulationBuilder

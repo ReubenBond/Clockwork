@@ -9,7 +9,7 @@ namespace Clockwork.Instrumentation.Tests.Infrastructure;
 /// Builds a complete, runnable application closure on disk - a console <em>application</em> plus a
 /// third-party dependency, the controlled-API assembly, and the shim assembly - then stages an
 /// instrumented copy with the real <see cref="InstrumentationRunner"/> so both the original and the
-/// instrumented executables can be launched as separate processes. This is what lets Phase&#160;4B
+/// instrumented executables can be launched as separate processes. This is what lets build/tool integration
 /// prove honestly that an <em>enabled staged executable dispatches to the test shim</em> while a
 /// <em>normal executable does not</em>: only an independent host resolving the staged closure from
 /// disk can demonstrate that end to end.

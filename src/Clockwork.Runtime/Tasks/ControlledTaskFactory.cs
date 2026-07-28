@@ -15,7 +15,7 @@ namespace Clockwork.Runtime.Tasks;
 /// </para>
 /// <para>
 /// <see cref="TaskFactory.StartNew(System.Action)"/> and its counterparts schedule work onto a
-/// <see cref="TaskScheduler"/> - by default the thread pool. Phase 6B controls that scheduling by
+/// <see cref="TaskScheduler"/> - by default the thread pool. The controlled runtime handles that scheduling by
 /// queuing the delegate body as a fresh controlled operation on the simulation coordinator (exactly as
 /// <see cref="ControlledTask.Run(System.Action)"/> does), so the work runs deterministically on the
 /// single logical thread with the factory's (or the call's) cancellation token honoured. The

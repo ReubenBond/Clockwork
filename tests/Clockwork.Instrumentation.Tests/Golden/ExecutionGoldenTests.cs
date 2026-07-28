@@ -9,7 +9,7 @@ namespace Clockwork.Instrumentation.Tests.Golden;
 /// Focused in-process execution tests that load a rewritten fixture into a collectible
 /// <see cref="AssemblyLoadContext"/> and invoke its methods, proving the redirected/rejected sites
 /// actually dispatch to the shim at runtime. This is a test mechanism only - the engine itself never
-/// loads or executes rewritten code (load-time hooks are out of scope for Phase 4A).
+/// loads or executes rewritten code (load-time hooks are out of scope for the rewrite engine).
 /// </summary>
 public sealed class ExecutionGoldenTests
 {

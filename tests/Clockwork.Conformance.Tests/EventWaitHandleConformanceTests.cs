@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 namespace Clockwork.Conformance.Tests;
 
 /// <summary>
-/// End-to-end conformance for the controlled event / wait-handle surface (Phase 7B). The rule set redirects
+/// End-to-end conformance for the controlled event / wait-handle surface. The rule set redirects
 /// <c>new AutoResetEvent</c> / <c>new ManualResetEvent</c> / <c>new EventWaitHandle</c> to controlled Create
 /// factories, the inherited <see cref="System.Threading.WaitHandle.WaitOne()"/> overloads and
 /// <c>Dispose</c>/<c>Close</c> to the controlled wait kernel, and <c>Set</c>/<c>Reset</c> to controlled

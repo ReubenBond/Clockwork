@@ -11,15 +11,15 @@ namespace Clockwork.Runtime.Random;
 /// </para>
 /// <para>
 /// The specific domains here correspond to the major independent sources of decision-making
-/// identified by the Phase 2 roadmap: scheduling order, simulated network behavior, application/node
+/// identified by the runtime policy design: scheduling order, simulated network behavior, application/node
 /// -level randomness (what application code sees via <c>SimulationRandom</c>), stable identity
 /// generation (e.g. deterministic GUIDs), fault injection ("Buggify"), and model-level exploration
-/// (e.g. a future race-exploration search strategy).
+/// (e.g. schedule exploration).
 /// </para>
 /// </summary>
 public enum SimulationSeedDomain
 {
-    /// <summary>Decisions made by the (future) scheduler about execution order/interleaving.</summary>
+    /// <summary>Decisions made by the scheduler about execution order/interleaving.</summary>
     Scheduler,
 
     /// <summary>Decisions made by the simulated network (delay, loss, jitter, partitioning).</summary>

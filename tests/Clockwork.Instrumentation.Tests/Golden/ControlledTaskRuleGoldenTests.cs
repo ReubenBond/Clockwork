@@ -346,8 +346,8 @@ public sealed class ControlledTaskRuleGoldenTests
             Assert.False(CecilInspect.CallsAnyContaining(method, "Threading.Tasks.TaskFactory::StartNew"), methodName);
         }
 
-        // Phase 6B controls the TaskFactory scheduling surface (queued as a controlled operation on the
-        // coordinator, like Task.Run), superseding the Phase 6A rejection.
+        // The controlled runtime handles the TaskFactory scheduling surface (queued as a controlled operation on the
+        // coordinator, like Task.Run), superseding the controlled async rejection.
         ImmutableArray<ManifestTransformation> transformations = result.Manifest.Transformations;
         Assert.Contains(transformations, t =>
             t.RuleId == "clockwork.tasks.factory.startnew.action" && t.Policy == SimulationApiPolicy.Controlled);

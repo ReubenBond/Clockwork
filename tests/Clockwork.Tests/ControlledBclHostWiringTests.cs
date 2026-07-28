@@ -4,7 +4,7 @@ namespace Clockwork.Tests;
 
 /// <summary>
 /// <para>
-/// Proves the Phase 5 host wiring: <see cref="SimulationCluster{TNode}"/> registers a
+/// Proves the deterministic BCL rules host wiring: <see cref="SimulationCluster{TNode}"/> registers a
 /// <see cref="SimulationRuntimeEnvironment"/> for its runtime so ordinary code whose direct BCL
 /// calls have been redirected to the deterministic shims observes virtual, per-node-isolated,
 /// replayable time/identity/randomness while the cluster's ambient runtime is active - without any

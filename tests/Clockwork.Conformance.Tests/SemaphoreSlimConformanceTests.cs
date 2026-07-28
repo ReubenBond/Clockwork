@@ -4,12 +4,12 @@ using System.Threading.Tasks;
 namespace Clockwork.Conformance.Tests;
 
 /// <summary>
-/// End-to-end conformance for the controlled <see cref="System.Threading.SemaphoreSlim"/> surface (Phase
-/// 7A). The rule set redirects the constructors to the controlled <c>Create</c> factories and every
+/// End-to-end conformance for the controlled <see cref="System.Threading.SemaphoreSlim"/> surface. The
+/// rule set redirects the constructors to the controlled <c>Create</c> factories and every
 /// instance member (<c>CurrentCount</c>, the synchronous <c>Wait</c> overloads, the asynchronous
 /// <c>WaitAsync</c> overloads, <c>Release</c>, <c>Dispose</c>) to receiver-first controlled shims whose
 /// permit count and waiter set live on the single logical thread. <c>AvailableWaitHandle</c> is bridged
-/// (Phase 7B) to a controlled manual-reset handle that tracks count &gt; 0.
+/// to a controlled manual-reset handle that tracks count &gt; 0.
 /// </summary>
 public sealed class SemaphoreSlimConformanceTests : IDisposable
 {

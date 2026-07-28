@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 namespace Clockwork.Conformance.Tests;
 
 /// <summary>
-/// End-to-end conformance for the controlled <see cref="Task.Run(System.Action)"/> family (Phase 6B):
+/// End-to-end conformance for the controlled <see cref="Task.Run(System.Action)"/> family:
 /// once a fixture is rewritten with the controlled-task rule set, <c>Task.Run</c> queues its body as a
 /// fresh controlled operation on the simulation coordinator rather than an uncontrolled physical
 /// thread-pool thread, so the work runs deterministically on the single logical thread with correct
@@ -232,7 +232,7 @@ public sealed class TaskRunConformanceTests : IDisposable
         innerCancellation.Cancel();
         using var host = new SimulationHost(Start);
 
-        var task = (Task)host.Invoke(Phase4Method("RunCanceledInner"), innerCancellation.Token)!;
+        var task = (Task)host.Invoke(EdgeCaseMethod("RunCanceledInner"), innerCancellation.Token)!;
 
         AssertCanceledTaskCarriesToken(task, innerCancellation.Token);
     }
@@ -245,13 +245,13 @@ public sealed class TaskRunConformanceTests : IDisposable
         using var host = new SimulationHost(Start);
 
         var task = (Task<int>)host.Invoke(
-            Phase4Method("RunCanceledGenericInner"),
+            EdgeCaseMethod("RunCanceledGenericInner"),
             innerCancellation.Token)!;
 
         AssertCanceledTaskCarriesToken(task, innerCancellation.Token);
     }
 
-    private const string Phase4Source = """
+    private const string EdgeCaseSource = """
         using System.Threading;
         using System.Threading.Tasks;
         namespace Conf { public static class RunCanceledInnerProbe {
@@ -263,13 +263,13 @@ public sealed class TaskRunConformanceTests : IDisposable
         } }
         """;
 
-    private StagedProbe? _phase4Probe;
+    private StagedProbe? _edgeCaseProbe;
 
-    private MethodInfo Phase4Method(string name) =>
-        (_phase4Probe ??= _fixture.StageControlledTasks(
+    private MethodInfo EdgeCaseMethod(string name) =>
+        (_edgeCaseProbe ??= _fixture.StageControlledTasks(
             "Conf.TaskRunCanceledInner",
             "Conf.RunCanceledInnerProbe",
-            Phase4Source,
+            EdgeCaseSource,
             optimize: true)).Method(name);
 
     private static void AssertCanceledTaskCarriesToken(Task task, CancellationToken expectedToken)

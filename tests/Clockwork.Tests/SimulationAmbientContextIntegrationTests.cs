@@ -4,7 +4,7 @@ namespace Clockwork.Tests;
 
 /// <summary>
 /// <para>
-/// Covers the Phase 2 ambient-context integration wired into <see cref="SimulationCluster{TNode}"/>,
+/// Covers the runtime policy ambient-context integration wired into <see cref="SimulationCluster{TNode}"/>,
 /// <see cref="SimulationNodeContext"/>, and <see cref="SimulationBuilder"/>/<see cref="BuiltSimulation"/>:
 /// callbacks executed through an ambient-integrated <see cref="SimulationTaskQueue"/> observe the
 /// correct <see cref="SimulationExecutionContext"/> (runtime + node identity), two nodes never
@@ -114,7 +114,7 @@ public sealed class SimulationAmbientContextIntegrationTests
     [Fact]
     public async Task OldHandWrittenSubclassGetsClusterLevelAmbientContextButNotNodeLevel()
     {
-        // TestCluster/TestNode mirror the pre-Phase-2 hand-written subclass pattern (see
+        // TestCluster/TestNode mirror the legacy hand-written subclass pattern (see
         // SimulationClusterTests.TestCluster): they build their own SimulationNodeContext directly
         // and never pass an ambient-context configuration, exactly as existing production
         // subclasses in this repository do today. This must keep behaving exactly as before.
@@ -169,7 +169,7 @@ public sealed class SimulationAmbientContextIntegrationTests
 
         public LegacyStyleTestNode AddNode(string address)
         {
-            // Deliberately mirrors the pre-Phase-2 pattern: no ambientContext argument at all.
+            // Deliberately mirrors the legacy pattern: no ambientContext argument at all.
             var context = new SimulationNodeContext(Clock, Guard, CreateDerivedRandom(), TaskQueue);
             var node = new LegacyStyleTestNode(address, context);
             RegisterNode(node);

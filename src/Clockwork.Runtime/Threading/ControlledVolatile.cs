@@ -20,7 +20,7 @@ namespace Clockwork.Runtime.Threading;
 /// controlled volatile surface) the active-simulation shim delegates straight to the real
 /// <see cref="System.Threading.Volatile"/> primitive, which additionally preserves the exact value and
 /// memory-order semantics. The single delegation point is where a
-/// future Phase 9 race-access hook attaches; it is intentionally left as a direct delegation today.
+/// race-exploration access tracking attaches; it is intentionally left as a direct delegation today.
 /// </para>
 /// </summary>
 public static class ControlledVolatile

@@ -40,7 +40,7 @@ public sealed class BuiltInSelectionTests
     }
 
     [Fact]
-    public void ControlledTaskSelectionParsesAndActivatesPhase8AFamilies()
+    public void ControlledTaskSelectionParsesAndActivatesModernSynchronizationFamilies()
     {
         RewriteRuleSet resolved = Assert.Single(RuleSetMerge.ResolveBuiltIns(
             WithBuiltIns(ids: [BuiltInRuleSets.ControlledTasksId], include: ["ReaderWriterLockSlim"])));

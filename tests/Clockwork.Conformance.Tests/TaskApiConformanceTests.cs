@@ -6,7 +6,7 @@ namespace Clockwork.Conformance.Tests;
 /// <summary>
 /// End-to-end conformance for the ordinary <see cref="Task"/> surface that application code calls
 /// directly (combinators, synchronous waits, continuations) once rewritten with the controlled-task
-/// rule set, plus the cross-cutting guarantees the phase must hold: multiple awaiters on one antecedent,
+/// rule set, plus its cross-cutting guarantees: multiple awaiters on one antecedent,
 /// deterministic <c>WhenAny</c> ordering, fault propagation through <c>WhenAll</c>, synchronous waits
 /// that pump the loop instead of dead-locking, per-node isolation, and simulation-only execution for
 /// rewritten assemblies.
@@ -264,7 +264,7 @@ public sealed class TaskApiConformanceTests : IDisposable
             ? antecedent.SetResult
             : () => genericAntecedent.SetResult(21);
         var task = (Task)host.InvokeWithWork(
-            Phase4Method(methodName),
+            EdgeCaseMethod(methodName),
             [antecedentTask, thrown],
             completeAntecedent)!;
 
@@ -278,7 +278,7 @@ public sealed class TaskApiConformanceTests : IDisposable
     {
         using var host = new SimulationHost(Start);
 
-        var error = Assert.Throws<ArgumentException>(() => host.Invoke(Phase4Method("WaitAllNullFirst")));
+        var error = Assert.Throws<ArgumentException>(() => host.Invoke(EdgeCaseMethod("WaitAllNullFirst")));
 
         Assert.Equal("tasks", error.ParamName);
     }
@@ -288,12 +288,12 @@ public sealed class TaskApiConformanceTests : IDisposable
     {
         using var host = new SimulationHost(Start);
 
-        var error = Assert.Throws<ArgumentException>(() => host.Invoke(Phase4Method("WaitAnyNullFirst")));
+        var error = Assert.Throws<ArgumentException>(() => host.Invoke(EdgeCaseMethod("WaitAnyNullFirst")));
 
         Assert.Equal("tasks", error.ParamName);
     }
 
-    private const string Phase4Source = """
+    private const string EdgeCaseSource = """
         using System;
         using System.Threading.Tasks;
         namespace Conf { public static class TaskOceAndWaitProbe {
@@ -314,13 +314,13 @@ public sealed class TaskApiConformanceTests : IDisposable
         } }
         """;
 
-    private StagedProbe? _phase4Probe;
+    private StagedProbe? _edgeCaseProbe;
 
-    private MethodInfo Phase4Method(string name) =>
-        (_phase4Probe ??= _fixture.StageControlledTasks(
+    private MethodInfo EdgeCaseMethod(string name) =>
+        (_edgeCaseProbe ??= _fixture.StageControlledTasks(
             "Conf.TaskOceAndWait",
             "Conf.TaskOceAndWaitProbe",
-            Phase4Source,
+            EdgeCaseSource,
             optimize: true)).Method(name);
 
     private static void AssertOceFault(Task task, OperationCanceledException thrown)

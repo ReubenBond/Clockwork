@@ -6,7 +6,7 @@ namespace Clockwork.Conformance.Tests;
 /// <summary>
 /// End-to-end conformance for the controlled <see cref="TaskFactory"/> / <see cref="TaskFactory{TResult}"/>
 /// <c>StartNew</c> family and the generic <c>Task&lt;TResult&gt;.ContinueWith&lt;TNewResult&gt;</c> closure
-/// (Phase 6B, task-gap slice). Once a fixture is rewritten with the controlled-task rule set,
+/// . Once a fixture is rewritten with the controlled-task rule set,
 /// <c>Task.Factory.StartNew</c> queues its body as a fresh controlled operation and the generic
 /// continuation runs on the single logical thread — proving the rewriter's combined
 /// generic-method-on-generic-type binding resolves correctly at a real call site.
@@ -354,7 +354,7 @@ public sealed class TaskFactoryConformanceTests : IDisposable
             ? "StartOceAction"
             : "StartOceFunction";
         var task = (Task)host.Invoke(
-            Phase4Method(methodName),
+            EdgeCaseMethod(methodName),
             (int)oceCase,
             associatedSource,
             thrown)!;
@@ -364,7 +364,7 @@ public sealed class TaskFactoryConformanceTests : IDisposable
         AssertOceTaskCompletion(task, thrown, shouldCancel);
     }
 
-    private const string Phase4Source = """
+    private const string EdgeCaseSource = """
         using System;
         using System.Threading;
         using System.Threading.Tasks;
@@ -401,13 +401,13 @@ public sealed class TaskFactoryConformanceTests : IDisposable
         } }
         """;
 
-    private StagedProbe? _phase4Probe;
+    private StagedProbe? _edgeCaseProbe;
 
-    private MethodInfo Phase4Method(string name) =>
-        (_phase4Probe ??= _fixture.StageControlledTasks(
+    private MethodInfo EdgeCaseMethod(string name) =>
+        (_edgeCaseProbe ??= _fixture.StageControlledTasks(
             "Conf.TaskFactoryOce",
             "Conf.FactoryOceProbe",
-            Phase4Source,
+            EdgeCaseSource,
             optimize: true)).Method(name);
 
     private static void AssertOceTaskCompletion(

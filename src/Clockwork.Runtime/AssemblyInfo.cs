@@ -8,6 +8,6 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("Clockwork.Runtime.Tests")]
 
 // The Clockwork test project is allowed to mint activation tokens so it can exercise the
-// opt-in Phase 3A controlled-operation compatibility bridge in SimulationTaskQueue directly (which
+// opt-in controlled-operation compatibility bridge in SimulationTaskQueue directly (which
 // requires a real ambient-context configuration) without routing through a full cluster.
 [assembly: InternalsVisibleTo("Clockwork.Tests")]

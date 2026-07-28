@@ -5,7 +5,7 @@ using Clockwork.Runtime.Shims;
 namespace Clockwork.Runtime;
 
 /// <summary>
-/// The runtime half of Clockwork's exception-handler hardening (Phase 6B). The instrumentation's
+/// The runtime half of Clockwork's exception-handler hardening. The instrumentation's
 /// exception-hardening pass injects a call to <see cref="ThrowIfControlSignal(object)"/> at the start of
 /// every broad user <c>catch (Exception)</c> / <c>catch</c> block and every exception <c>filter</c> in a
 /// rewritten assembly. When the caught object is the scheduler's internal control-flow unwinding signal the
@@ -14,7 +14,7 @@ namespace Clockwork.Runtime;
 /// untouched, so normal application exception handling is unchanged.
 /// </summary>
 /// <remarks>
-/// This is defence-in-depth layered on top of Phase 6A's explicit gate/state model: the scheduler already
+/// This is defence-in-depth layered on top of the controlled task runtime's explicit gate/state model: the scheduler already
 /// re-raises the signal on the next park and joins physical threads with a bounded timeout, so a swallowed
 /// signal cannot permanently strand the kernel. The guard makes the intent explicit at the exact call site
 /// and mirrors Microsoft Coyote's <c>ExceptionProvider.ThrowIfExecutionCanceledException</c> mechanism.

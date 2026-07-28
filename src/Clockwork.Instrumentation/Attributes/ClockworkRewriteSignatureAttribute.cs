@@ -8,7 +8,7 @@ namespace Clockwork.Instrumentation.Attributes;
 /// <see cref="Rules.RewriteRuleSet.ComputeSignature"/>), and the semantic rewrite-options fingerprint.
 /// </para>
 /// <para>
-/// This marker is the basis of the engine's idempotence contract (Phase 4A requirement 6): running
+/// This marker is the basis of the engine's idempotence contract (idempotence requirement): running
 /// the engine again over an already-rewritten assembly with the <em>same</em> rule-set signature and
 /// options is a verified no-op, while a <em>different, incompatible</em> request fails clearly instead
 /// of double-rewriting. The engine never inspects the CLR type at runtime - it reads the attribute's

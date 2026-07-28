@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 namespace Clockwork.Conformance.Tests;
 
 /// <summary>
-/// End-to-end conformance for the controlled <see cref="System.Threading.SpinWait"/> value type (Phase 7B).
+/// End-to-end conformance for the controlled <see cref="System.Threading.SpinWait"/> value type.
 /// The rule set substitutes <see cref="System.Threading.SpinWait"/> wholesale, so <c>new SpinWait()</c>,
 /// locals typed <c>SpinWait</c>, the instance members (<c>Count</c>/<c>NextSpinWillYield</c>/<c>Reset</c>/
 /// <c>SpinOnce</c>) and the static <c>SpinUntil</c> overloads all resolve onto the controlled struct. A

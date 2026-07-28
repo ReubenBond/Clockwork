@@ -5,7 +5,7 @@ namespace Clockwork.Conformance.Tests;
 
 /// <summary>
 /// End-to-end conformance for the controlled <see cref="System.Threading.Monitor"/> surface and therefore
-/// the C# <c>lock (object)</c> statement (Phase 7A). Once a fixture is rewritten with the controlled-task
+/// the C# <c>lock (object)</c> statement. Once a fixture is rewritten with the controlled-task
 /// rule set, every <c>lock</c> (which the compiler lowers to <c>Monitor.Enter(obj, ref bool)</c> +
 /// <c>finally Monitor.Exit(obj)</c>) and every explicit <c>Monitor</c> call resolves onto the controlled
 /// monitor kernel, which models ownership, reentrancy, and condition waits on the single logical thread.

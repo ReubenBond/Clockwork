@@ -7,7 +7,7 @@ namespace Clockwork.Runtime.Scheduling.Strategies;
 /// <para>
 /// Picks uniformly at random among the runnable operations using a deterministic, seeded stream. The
 /// same seed always produces the same schedule (making a race reproducible), while different seeds
-/// explore different interleavings (making a race findable). The seed comes from the Phase 2
+/// explore different interleavings (making a race findable). The seed comes from the runtime policy
 /// <see cref="SimulationSeedDomain.Scheduler"/> domain via <see cref="ForRuntime"/>, so scheduling
 /// randomness is independent of application/network randomness and stable per root seed.
 /// </para>

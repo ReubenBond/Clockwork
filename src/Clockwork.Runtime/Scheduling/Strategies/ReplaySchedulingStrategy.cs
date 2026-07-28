@@ -15,7 +15,7 @@ namespace Clockwork.Runtime.Scheduling.Strategies;
 /// <para>
 /// It fails fast at the <em>first</em> divergence - if the recorded log is exhausted before the run
 /// finishes making choices, or the recorded operation is not currently runnable - by throwing
-/// <see cref="SimulationDecisionReplayMismatchException"/>, exactly as the Phase 2 replay contract
+/// <see cref="SimulationDecisionReplayMismatchException"/>, exactly as the runtime policy replay contract
 /// requires. This is the scheduler-side counterpart of
 /// <see cref="SimulationDecisionReplayValidator"/>: the validator checks decisions made <em>inside</em>
 /// operations, while this drives the scheduling decisions themselves.
