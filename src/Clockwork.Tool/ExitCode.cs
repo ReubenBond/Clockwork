@@ -23,4 +23,13 @@ internal enum ExitCode
 
     /// <summary>An I/O or otherwise unexpected error occurred.</summary>
     IoError = 5,
+
+    /// <summary>The scenario executed and produced a fault, cancellation, race, deadlock, or bound failure.</summary>
+    ExecutionFailure = 6,
+
+    /// <summary>The artifact was invalid, incompatible, or diverged during replay.</summary>
+    ReplayError = 7,
+
+    /// <summary>Trace minimization could not establish or preserve the recorded failure.</summary>
+    MinimizationError = 8,
 }

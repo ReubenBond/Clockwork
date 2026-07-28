@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Clockwork.Instrumentation\Clockwork.Instrumentation.csproj" />
+    <ProjectReference Include="..\Clockwork.Runtime\Clockwork.Runtime.csproj" />
   </ItemGroup>
 
   <ItemGroup>
