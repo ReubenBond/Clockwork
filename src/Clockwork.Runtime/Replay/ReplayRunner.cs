@@ -401,10 +401,20 @@ public static class ReplayRunner
 
     private static string ComputeRaceIdentity(RaceReport race)
     {
+        string first = string.Create(
+            CultureInfo.InvariantCulture,
+            $"{race.FirstAccess.Kind}|{race.FirstAccess.Source.Method}");
+        string second = string.Create(
+            CultureInfo.InvariantCulture,
+            $"{race.SecondAccess.Kind}|{race.SecondAccess.Source.Method}");
+        if (StringComparer.Ordinal.Compare(first, second) > 0)
+        {
+            (first, second) = (second, first);
+        }
+
         string input = string.Create(
             CultureInfo.InvariantCulture,
-            $"{race.FirstAccess.Location}|{race.FirstAccess.Kind}|{race.FirstAccess.Source.Method}|" +
-            $"{race.SecondAccess.Kind}|{race.SecondAccess.Source.Method}");
+            $"{race.FirstAccess.Location}|{first}|{second}");
         return "race:" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(input)))[..16];
     }
 
