@@ -262,4 +262,7 @@ public sealed record ReplayArtifact
 
     /// <summary>Gets the terminal outcome.</summary>
     public required ReplayOutcome Outcome { get; init; }
+
+    /// <summary>Gets stable operation, resource, timer, race, and deadlock diagnostics.</summary>
+    public ReplayDiagnosticSnapshot Diagnostics { get; init; } = new();
 }

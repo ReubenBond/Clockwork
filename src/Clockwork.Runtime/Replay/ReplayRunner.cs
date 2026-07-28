@@ -325,8 +325,101 @@ public static class ReplayRunner
             Decisions = decisions.Select(static decision => ReplayDecision.FromRecord(decision)).ToArray(),
             RaceSchedulingPoints = points,
             Outcome = outcome,
+            Diagnostics = CaptureDiagnostics(
+                scheduler,
+                configuration.IncludeDiagnosticMessages,
+                configuration.IncludeSourcePaths),
         };
     }
+
+    private static ReplayDiagnosticSnapshot CaptureDiagnostics(
+        ControlledOperationScheduler scheduler,
+        bool includeUserMetadata,
+        bool includeSourcePaths)
+    {
+        ControlledDeadlockReport deadlock = scheduler.DetectDeadlock();
+        ReplayOperationDiagnostic[] operations = scheduler.CaptureStatus()
+            .Select(status => new ReplayOperationDiagnostic
+            {
+                Id = status.Id.Value,
+                ParentId = status.ParentId.Value,
+                State = status.State.ToString(),
+                Node = includeUserMetadata ? status.NodeAddress : null,
+                Description = includeUserMetadata ? status.WorkDescription : null,
+                WaitReason = includeUserMetadata ? status.PauseReason?.ToString() : null,
+            })
+            .ToArray();
+        ReplayResourceDiagnostic[] resources = scheduler.CaptureResources()
+            .Select(resource => new ReplayResourceDiagnostic
+            {
+                Id = resource.Id.Value,
+                Kind = resource.Kind.ToString(),
+                Name = includeUserMetadata ? resource.Name : null,
+                OwnerId = resource.Owner?.Id.Value,
+                Waiters = resource.SnapshotWaiters()
+                    .Where(static waiter => waiter.Resolution is null)
+                    .Select(waiter => new ReplayWaiterDiagnostic
+                    {
+                        OperationId = waiter.OperationId.Value,
+                        EnqueueSequence = waiter.EnqueueSequence,
+                        TimeoutTicks = waiter.TimeoutDueTime?.Ticks,
+                        Reason = includeUserMetadata ? waiter.Reason : null,
+                    })
+                    .ToArray(),
+            })
+            .ToArray();
+        ReplayTimerDiagnostic[] timers = scheduler.CapturePendingTimeouts()
+            .Select(static timer => new ReplayTimerDiagnostic
+            {
+                DueTicks = timer.DueTime.Ticks,
+                Sequence = timer.Sequence,
+                OperationId = timer.OperationId.Value,
+                ResourceId = timer.ResourceId.Value,
+            })
+            .ToArray();
+        ReplayDeadlockCycleDiagnostic[] cycles = deadlock.Cycles
+            .Select(static cycle => new ReplayDeadlockCycleDiagnostic
+            {
+                Edges = cycle.Entries.Select(static entry => new ReplayDeadlockEdgeDiagnostic
+                {
+                    OperationId = entry.OperationId.Value,
+                    ResourceId = entry.ResourceId.Value,
+                    OwnerId = entry.OwnerId.Value,
+                    EnqueueSequence = entry.EnqueueSequence,
+                }).ToArray(),
+            })
+            .ToArray();
+
+        return new ReplayDiagnosticSnapshot
+        {
+            Liveness = deadlock.Liveness.ToString(),
+            VirtualTimeTicks = scheduler.VirtualTime.Ticks,
+            Operations = operations,
+            Resources = resources,
+            PendingTimers = timers,
+            DeadlockCycles = cycles,
+            Race = scheduler.FirstRace is { } race
+                ? new ReplayRacePairDiagnostic
+                {
+                    First = CaptureRaceAccess(race.FirstAccess, includeSourcePaths),
+                    Second = CaptureRaceAccess(race.SecondAccess, includeSourcePaths),
+                }
+                : null,
+        };
+    }
+
+    private static ReplayRaceAccessDiagnostic CaptureRaceAccess(
+        RaceAccessRecord access,
+        bool includeSourcePaths) => new()
+    {
+        OperationId = access.OperationId.Value,
+        Kind = access.Kind.ToString(),
+        Location = access.Location.ToString(),
+        Member = access.Source.Method,
+        ILOffset = access.Source.ILOffset,
+        SourceFile = includeSourcePaths ? access.Source.SourceFile : null,
+        SourceLine = access.Source.SourceLine,
+    };
 
     private static ReplayOutcome ClassifyOutcome(
         ReplayRunConfiguration configuration,

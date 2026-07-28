@@ -281,6 +281,7 @@ public static class ReplayArtifactSerializer
         WriteDecisions(writer, artifact.Decisions);
         WriteRaceSchedulingPoints(writer, artifact.RaceSchedulingPoints);
         WriteOutcome(writer, artifact.Outcome);
+        WriteDiagnostics(writer, artifact.Diagnostics);
         writer.WriteEndObject();
     }
 
@@ -403,6 +404,135 @@ public static class ReplayArtifactSerializer
         writer.WriteString("kind", outcome.Kind.ToString());
         WriteNullableString(writer, "failureIdentity", outcome.FailureIdentity);
         WriteNullableString(writer, "diagnostic", outcome.Diagnostic);
+        writer.WriteEndObject();
+    }
+
+    private static void WriteDiagnostics(Utf8JsonWriter writer, ReplayDiagnosticSnapshot diagnostics)
+    {
+        writer.WritePropertyName("diagnostics");
+        writer.WriteStartObject();
+        writer.WriteString("liveness", diagnostics.Liveness);
+        writer.WriteNumber("virtualTimeTicks", diagnostics.VirtualTimeTicks);
+        writer.WritePropertyName("operations");
+        writer.WriteStartArray();
+        foreach (ReplayOperationDiagnostic operation in diagnostics.Operations)
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("id", operation.Id);
+            writer.WriteNumber("parentId", operation.ParentId);
+            writer.WriteString("state", operation.State);
+            WriteNullableString(writer, "node", operation.Node);
+            WriteNullableString(writer, "description", operation.Description);
+            WriteNullableString(writer, "waitReason", operation.WaitReason);
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndArray();
+        writer.WritePropertyName("resources");
+        writer.WriteStartArray();
+        foreach (ReplayResourceDiagnostic resource in diagnostics.Resources)
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("id", resource.Id);
+            writer.WriteString("kind", resource.Kind);
+            WriteNullableString(writer, "name", resource.Name);
+            if (resource.OwnerId is { } ownerId)
+            {
+                writer.WriteNumber("ownerId", ownerId);
+            }
+            else
+            {
+                writer.WriteNull("ownerId");
+            }
+
+            writer.WritePropertyName("waiters");
+            writer.WriteStartArray();
+            foreach (ReplayWaiterDiagnostic waiter in resource.Waiters)
+            {
+                writer.WriteStartObject();
+                writer.WriteNumber("operationId", waiter.OperationId);
+                writer.WriteNumber("enqueueSequence", waiter.EnqueueSequence);
+                if (waiter.TimeoutTicks is { } timeoutTicks)
+                {
+                    writer.WriteNumber("timeoutTicks", timeoutTicks);
+                }
+                else
+                {
+                    writer.WriteNull("timeoutTicks");
+                }
+
+                WriteNullableString(writer, "reason", waiter.Reason);
+                writer.WriteEndObject();
+            }
+
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndArray();
+        writer.WritePropertyName("pendingTimers");
+        writer.WriteStartArray();
+        foreach (ReplayTimerDiagnostic timer in diagnostics.PendingTimers)
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("dueTicks", timer.DueTicks);
+            writer.WriteNumber("sequence", timer.Sequence);
+            writer.WriteNumber("operationId", timer.OperationId);
+            writer.WriteNumber("resourceId", timer.ResourceId);
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndArray();
+        writer.WritePropertyName("deadlockCycles");
+        writer.WriteStartArray();
+        foreach (ReplayDeadlockCycleDiagnostic cycle in diagnostics.DeadlockCycles)
+        {
+            writer.WriteStartObject();
+            writer.WritePropertyName("edges");
+            writer.WriteStartArray();
+            foreach (ReplayDeadlockEdgeDiagnostic edge in cycle.Edges)
+            {
+                writer.WriteStartObject();
+                writer.WriteNumber("operationId", edge.OperationId);
+                writer.WriteNumber("resourceId", edge.ResourceId);
+                writer.WriteNumber("ownerId", edge.OwnerId);
+                writer.WriteNumber("enqueueSequence", edge.EnqueueSequence);
+                writer.WriteEndObject();
+            }
+
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndArray();
+        writer.WritePropertyName("race");
+        if (diagnostics.Race is { } race)
+        {
+            writer.WriteStartObject();
+            writer.WritePropertyName("first");
+            WriteRaceAccess(writer, race.First);
+            writer.WritePropertyName("second");
+            WriteRaceAccess(writer, race.Second);
+            writer.WriteEndObject();
+        }
+        else
+        {
+            writer.WriteNullValue();
+        }
+
+        writer.WriteEndObject();
+    }
+
+    private static void WriteRaceAccess(Utf8JsonWriter writer, ReplayRaceAccessDiagnostic access)
+    {
+        writer.WriteStartObject();
+        writer.WriteNumber("operationId", access.OperationId);
+        writer.WriteString("kind", access.Kind);
+        writer.WriteString("location", access.Location);
+        writer.WriteString("member", access.Member);
+        writer.WriteNumber("ilOffset", access.ILOffset);
+        WriteNullableString(writer, "sourceFile", access.SourceFile);
+        writer.WriteNumber("sourceLine", access.SourceLine);
         writer.WriteEndObject();
     }
 
