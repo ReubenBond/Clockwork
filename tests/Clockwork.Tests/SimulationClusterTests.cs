@@ -14,7 +14,7 @@ public sealed class SimulationClusterTests
 
         node.Context.TaskQueue.EnqueueAfter(() => executed = true, TimeSpan.FromSeconds(5));
 
-        Assert.True(cluster.RunUntil(() => executed));
+        Assert.Equal(SimulationExecutionReason.ConditionMet, cluster.RunUntil(() => executed).Reason);
         Assert.Equal(cluster.StartDateTime + TimeSpan.FromSeconds(5), cluster.TimeProvider.GetUtcNow());
     }
 
@@ -27,7 +27,7 @@ public sealed class SimulationClusterTests
         node.SuspendFor(TimeSpan.FromSeconds(5));
 
         Assert.True(node.IsSuspended);
-        Assert.True(cluster.RunUntil(() => !node.IsSuspended));
+        Assert.Equal(SimulationExecutionReason.ConditionMet, cluster.RunUntil(() => !node.IsSuspended).Reason);
     }
 
     [Fact]
@@ -47,16 +47,16 @@ public sealed class SimulationClusterTests
     }
 
     [Fact]
-    public async Task RunUntilReturnsFalseWhenThereIsNoPendingWork()
+    public async Task RunUntilReportsIdleWhenThereIsNoPendingWork()
     {
         await using var cluster = new TestCluster(seed: 12345);
         _ = cluster.AddNode("node-1");
 
-        Assert.False(cluster.RunUntil(() => false, maxIterations: 100));
+        Assert.Equal(SimulationExecutionReason.Idle, cluster.RunUntil(() => false, maxIterations: 100).Reason);
     }
 
     [Fact]
-    public async Task RunUntilReturnsFalseWhenTheNextDueTimeExceedsMaxSimulatedTimeAdvance()
+    public async Task RunUntilReportsWhenTheNextDueTimeExceedsMaxSimulatedTimeAdvance()
     {
         await using var cluster = new TestCluster(seed: 12345)
         {
@@ -67,11 +67,13 @@ public sealed class SimulationClusterTests
         // Schedule work far beyond the stuck-detection threshold; the condition never becomes true.
         node.Context.TaskQueue.EnqueueAfter(() => { }, TimeSpan.FromSeconds(10));
 
-        Assert.False(cluster.RunUntil(() => false, maxIterations: 100));
+        Assert.Equal(
+            SimulationExecutionReason.MaxSimulatedTimeAdvanceExceeded,
+            cluster.RunUntil(() => false, maxIterations: 100).Reason);
     }
 
     [Fact]
-    public async Task RunUntilIdleReturnsTheNumberOfTasksExecutedBeforeGoingIdle()
+    public async Task RunUntilIdleReportsTheNumberOfTasksExecutedBeforeGoingIdle()
     {
         await using var cluster = new TestCluster(seed: 12345);
         var node = cluster.AddNode("node-1");
@@ -82,7 +84,7 @@ public sealed class SimulationClusterTests
             node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => executedCount++));
         }
 
-        Assert.Equal(3, cluster.RunUntilIdle());
+        Assert.Equal(3, cluster.RunUntilIdle().StepsExecuted);
         Assert.Equal(3, executedCount);
     }
 

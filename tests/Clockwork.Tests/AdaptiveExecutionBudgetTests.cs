@@ -3,14 +3,14 @@ using System.Globalization;
 namespace Clockwork.Tests;
 
 /// <summary>
-/// Covers construction validation, defaults, and formatting for <see cref="SimulationAdaptiveBudget"/>.
+/// Covers construction validation, defaults, and formatting for <see cref="AdaptiveExecutionBudget"/>.
 /// </summary>
-public sealed class SimulationAdaptiveBudgetTests
+public sealed class AdaptiveExecutionBudgetTests
 {
     [Fact]
     public void DefaultHasExpectedValues()
     {
-        var budget = SimulationAdaptiveBudget.Default;
+        var budget = AdaptiveExecutionBudget.Default;
 
         Assert.Equal(1_000, budget.InitialMaxIterations);
         Assert.Equal(4.0, budget.GrowthFactor);
@@ -20,11 +20,11 @@ public sealed class SimulationAdaptiveBudgetTests
     [Fact]
     public void ParameterlessConstructorMatchesDefault()
     {
-        var budget = new SimulationAdaptiveBudget();
+        var budget = new AdaptiveExecutionBudget();
 
-        Assert.Equal(SimulationAdaptiveBudget.Default.InitialMaxIterations, budget.InitialMaxIterations);
-        Assert.Equal(SimulationAdaptiveBudget.Default.GrowthFactor, budget.GrowthFactor);
-        Assert.Equal(SimulationAdaptiveBudget.Default.MaxTotalIterations, budget.MaxTotalIterations);
+        Assert.Equal(AdaptiveExecutionBudget.Default.InitialMaxIterations, budget.InitialMaxIterations);
+        Assert.Equal(AdaptiveExecutionBudget.Default.GrowthFactor, budget.GrowthFactor);
+        Assert.Equal(AdaptiveExecutionBudget.Default.MaxTotalIterations, budget.MaxTotalIterations);
     }
 
     [Theory]
@@ -32,7 +32,7 @@ public sealed class SimulationAdaptiveBudgetTests
     [InlineData(-1)]
     public void ConstructorRejectsNonPositiveInitialMaxIterations(int initialMaxIterations)
     {
-        Assert.Throws<ArgumentOutOfRangeException>(() => new SimulationAdaptiveBudget(initialMaxIterations: initialMaxIterations));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new AdaptiveExecutionBudget(initialMaxIterations: initialMaxIterations));
     }
 
     [Theory]
@@ -42,19 +42,19 @@ public sealed class SimulationAdaptiveBudgetTests
     [InlineData(-2.0)]
     public void ConstructorRejectsGrowthFactorAtOrBelowOne(double growthFactor)
     {
-        Assert.Throws<ArgumentOutOfRangeException>(() => new SimulationAdaptiveBudget(growthFactor: growthFactor));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new AdaptiveExecutionBudget(growthFactor: growthFactor));
     }
 
     [Fact]
     public void ConstructorRejectsMaxTotalIterationsBelowInitialMaxIterations()
     {
-        Assert.Throws<ArgumentOutOfRangeException>(() => new SimulationAdaptiveBudget(initialMaxIterations: 100, maxTotalIterations: 99));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new AdaptiveExecutionBudget(initialMaxIterations: 100, maxTotalIterations: 99));
     }
 
     [Fact]
     public void ConstructorAllowsMaxTotalIterationsEqualToInitialMaxIterations()
     {
-        var budget = new SimulationAdaptiveBudget(initialMaxIterations: 50, maxTotalIterations: 50);
+        var budget = new AdaptiveExecutionBudget(initialMaxIterations: 50, maxTotalIterations: 50);
 
         Assert.Equal(50, budget.InitialMaxIterations);
         Assert.Equal(50, budget.MaxTotalIterations);
@@ -66,7 +66,7 @@ public sealed class SimulationAdaptiveBudgetTests
         var previousCulture = CultureInfo.CurrentCulture;
         try
         {
-            var budget = new SimulationAdaptiveBudget(initialMaxIterations: 5, growthFactor: 2.5, maxTotalIterations: 500);
+            var budget = new AdaptiveExecutionBudget(initialMaxIterations: 5, growthFactor: 2.5, maxTotalIterations: 500);
 
             CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
             var invariant = budget.ToString();

@@ -3,7 +3,7 @@ namespace Clockwork;
 /// <summary>
 /// Options for a single execution of <see cref="SimulationDriveLoop"/>.
 /// Consolidates the parameters that were previously duplicated across
-/// <c>RunUntil</c>, <c>RunUntilIdle</c>, and <c>RunForDuration</c> on
+/// <c>RunUntil</c>, <c>RunUntilIdle</c>, and <c>RunFor</c> on
 /// <see cref="SimulationCluster{TNode}"/>.
 /// </summary>
 /// <param name="Condition">
@@ -26,8 +26,7 @@ internal readonly record struct SimulationDriveLoopOptions(
 /// <summary>
 /// <para>
 /// The single internal execution engine that drives a <see cref="SimulationCluster{TNode}"/>
-/// forward in time. This consolidates the loop logic that was previously duplicated across
-/// <c>RunUntilCore</c> and <c>RunUntilIdleCore</c>: round-robin task execution, time advancement
+/// forward in time. It centralizes round-robin task execution, time advancement
 /// to the next scheduled item, and all stuck/limit detection.
 /// </para>
 /// <para>

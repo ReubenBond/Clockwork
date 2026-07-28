@@ -107,7 +107,7 @@ public sealed class SimulationAmbientContextIntegrationTests
         var executed = false;
         node.Context.TaskQueue.EnqueueAfter(() => executed = true, TimeSpan.FromSeconds(1));
 
-        Assert.True(cluster.RunUntil(() => executed));
+        Assert.Equal(SimulationExecutionReason.ConditionMet, cluster.RunUntil(() => executed).Reason);
         Assert.False(SimulationExecutionContext.IsActive);
     }
 

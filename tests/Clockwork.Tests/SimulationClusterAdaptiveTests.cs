@@ -1,16 +1,15 @@
 namespace Clockwork.Tests;
 
 /// <summary>
-/// Covers the adaptive execution-budget entry points (<see cref="SimulationCluster{TNode}.RunUntilConverged"/>
-/// and <see cref="SimulationCluster{TNode}.RunUntilIdleConverged"/>): escalation across successive
+/// Covers the adaptive execution-budget overloads: escalation across successive
 /// batches, immediate termination without escalation for every non-<see cref="SimulationExecutionReason.MaxIterationsReached"/>
-/// reason, the hard <see cref="SimulationAdaptiveBudget.MaxTotalIterations"/> ceiling, and folding of
+/// reason, the hard <see cref="AdaptiveExecutionBudget.MaxTotalIterations"/> ceiling, and folding of
 /// combined counters across batches.
 /// </summary>
 public sealed class SimulationClusterAdaptiveTests
 {
     [Fact]
-    public async Task RunUntilConvergedEscalatesAcrossBatchesUntilConditionIsMet()
+    public async Task AdaptiveRunUntilEscalatesAcrossBatchesUntilConditionIsMet()
     {
         await using var cluster = new AdaptiveTestCluster(seed: 1);
         var node = cluster.AddNode("node-1");
@@ -22,10 +21,10 @@ public sealed class SimulationClusterAdaptiveTests
         }
 
         // A single batch of 2 iterations cannot possibly satisfy a condition that needs 20 steps -
-        // reaching ConditionMet here is only possible if RunUntilConverged escalated across several
+        // reaching ConditionMet here is only possible if adaptive RunUntil escalated across several
         // batches on its own.
-        var budget = new SimulationAdaptiveBudget(initialMaxIterations: 2, growthFactor: 2.0, maxTotalIterations: 1000);
-        var result = cluster.RunUntilConverged(() => counter >= stepsNeeded, budget);
+        var budget = new AdaptiveExecutionBudget(initialMaxIterations: 2, growthFactor: 2.0, maxTotalIterations: 1000);
+        var result = cluster.RunUntil(() => counter >= stepsNeeded, budget);
 
         Assert.Equal(SimulationExecutionReason.ConditionMet, result.Reason);
         Assert.True(result.ConditionMet);
@@ -35,7 +34,7 @@ public sealed class SimulationClusterAdaptiveTests
     }
 
     [Fact]
-    public async Task RunUntilConvergedStopsImmediatelyOnIdleWithoutEscalating()
+    public async Task AdaptiveRunUntilStopsImmediatelyOnIdleWithoutEscalating()
     {
         await using var cluster = new AdaptiveTestCluster(seed: 1);
         _ = cluster.AddNode("node-1");
@@ -43,8 +42,8 @@ public sealed class SimulationClusterAdaptiveTests
         // The initial batch is large enough that, if escalation happened needlessly, the result
         // would report far more than a handful of iterations. An empty, condition-never-met cluster
         // must stop at Idle well before that.
-        var budget = new SimulationAdaptiveBudget(initialMaxIterations: 1000, growthFactor: 2.0, maxTotalIterations: 1_000_000);
-        var result = cluster.RunUntilConverged(() => false, budget);
+        var budget = new AdaptiveExecutionBudget(initialMaxIterations: 1000, growthFactor: 2.0, maxTotalIterations: 1_000_000);
+        var result = cluster.RunUntil(() => false, budget);
 
         Assert.Equal(SimulationExecutionReason.Idle, result.Reason);
         Assert.False(result.ConditionMet);
@@ -54,7 +53,7 @@ public sealed class SimulationClusterAdaptiveTests
     [Theory]
     [InlineData(SimulationExecutionReason.MaxSimulatedTimeAdvanceExceeded)]
     [InlineData(SimulationExecutionReason.MaxConsecutiveTimeAdvancesExceeded)]
-    public async Task RunUntilConvergedStopsOnGenuinelyStuckReasonsWithoutEscalating(SimulationExecutionReason expectedReason)
+    public async Task AdaptiveRunUntilStopsOnGenuinelyStuckReasonsWithoutEscalating(SimulationExecutionReason expectedReason)
     {
         await using var cluster = new AdaptiveTestCluster(seed: 1);
         if (expectedReason == SimulationExecutionReason.MaxSimulatedTimeAdvanceExceeded)
@@ -76,15 +75,15 @@ public sealed class SimulationClusterAdaptiveTests
 
         // A single batch's worth of iterations (well under the initial budget) is all it should take
         // to detect the stuck condition - escalating further would not help and must not happen.
-        var budget = new SimulationAdaptiveBudget(initialMaxIterations: 1000, growthFactor: 2.0, maxTotalIterations: 1_000_000);
-        var result = cluster.RunUntilConverged(() => false, budget);
+        var budget = new AdaptiveExecutionBudget(initialMaxIterations: 1000, growthFactor: 2.0, maxTotalIterations: 1_000_000);
+        var result = cluster.RunUntil(() => false, budget);
 
         Assert.Equal(expectedReason, result.Reason);
         Assert.True(result.Iterations < budget.InitialMaxIterations);
     }
 
     [Fact]
-    public async Task RunUntilConvergedHonorsTheHardTotalIterationsCapWhenConditionNeverIsMet()
+    public async Task AdaptiveRunUntilHonorsTheHardTotalIterationsCapWhenConditionNeverIsMet()
     {
         await using var cluster = new AdaptiveTestCluster(seed: 1);
         var node = cluster.AddNode("node-1");
@@ -98,8 +97,8 @@ public sealed class SimulationClusterAdaptiveTests
 
         RunForever();
 
-        var budget = new SimulationAdaptiveBudget(initialMaxIterations: 3, growthFactor: 2.0, maxTotalIterations: 20);
-        var result = cluster.RunUntilConverged(() => false, budget);
+        var budget = new AdaptiveExecutionBudget(initialMaxIterations: 3, growthFactor: 2.0, maxTotalIterations: 20);
+        var result = cluster.RunUntil(() => false, budget);
 
         Assert.Equal(SimulationExecutionReason.MaxIterationsReached, result.Reason);
         Assert.Equal(budget.MaxTotalIterations, result.Iterations);
@@ -107,26 +106,26 @@ public sealed class SimulationClusterAdaptiveTests
     }
 
     [Fact]
-    public async Task RunUntilConvergedUsesTheDefaultBudgetWhenNoneIsSpecified()
+    public async Task AdaptiveRunUntilUsesTheExplicitDefaultBudget()
     {
         await using var cluster = new AdaptiveTestCluster(seed: 1);
         _ = cluster.AddNode("node-1");
 
-        var result = cluster.RunUntilConverged(() => true);
+        var result = cluster.RunUntil(() => true, AdaptiveExecutionBudget.Default);
 
         Assert.Equal(SimulationExecutionReason.ConditionMet, result.Reason);
         Assert.Equal(0, result.Iterations);
     }
 
     [Fact]
-    public async Task RunUntilConvergedRejectsNullCondition()
+    public async Task AdaptiveRunUntilRejectsNullCondition()
     {
         await using var cluster = new AdaptiveTestCluster(seed: 1);
-        Assert.Throws<ArgumentNullException>(() => cluster.RunUntilConverged(null!));
+        Assert.Throws<ArgumentNullException>(() => cluster.RunUntil(null!, AdaptiveExecutionBudget.Default));
     }
 
     [Fact]
-    public async Task RunUntilIdleConvergedEscalatesAcrossBatchesUntilIdle()
+    public async Task AdaptiveRunUntilIdleEscalatesAcrossBatchesUntilIdle()
     {
         await using var cluster = new AdaptiveTestCluster(seed: 1);
         var node = cluster.AddNode("node-1");
@@ -136,8 +135,8 @@ public sealed class SimulationClusterAdaptiveTests
             node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => { }));
         }
 
-        var budget = new SimulationAdaptiveBudget(initialMaxIterations: 2, growthFactor: 2.0, maxTotalIterations: 1000);
-        var result = cluster.RunUntilIdleConverged(budget: budget);
+        var budget = new AdaptiveExecutionBudget(initialMaxIterations: 2, growthFactor: 2.0, maxTotalIterations: 1000);
+        var result = cluster.RunUntilIdle(budget);
 
         Assert.Equal(SimulationExecutionReason.Idle, result.Reason);
         Assert.Equal(stepsToDrain, result.StepsExecuted);
@@ -145,7 +144,7 @@ public sealed class SimulationClusterAdaptiveTests
     }
 
     [Fact]
-    public async Task RunUntilIdleConvergedStopsImmediatelyOnTeardownCancellationWithoutEscalating()
+    public async Task AdaptiveRunUntilIdleStopsImmediatelyOnTeardownCancellationWithoutEscalating()
     {
         using var cts = new CancellationTokenSource();
         await using var cluster = new AdaptiveTestCluster(seed: 1, cancellationToken: cts.Token);
@@ -153,15 +152,15 @@ public sealed class SimulationClusterAdaptiveTests
         node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => { }));
         await cts.CancelAsync();
 
-        var budget = new SimulationAdaptiveBudget(initialMaxIterations: 1000, growthFactor: 2.0, maxTotalIterations: 1_000_000);
-        var result = cluster.RunUntilIdleConverged(budget: budget);
+        var budget = new AdaptiveExecutionBudget(initialMaxIterations: 1000, growthFactor: 2.0, maxTotalIterations: 1_000_000);
+        var result = cluster.RunUntilIdle(budget);
 
         Assert.Equal(SimulationExecutionReason.TeardownCancellationRequested, result.Reason);
         Assert.Equal(0, result.Iterations);
     }
 
     [Fact]
-    public async Task RunUntilIdleConvergedFoldsCountersAcrossEscalatedBatches()
+    public async Task AdaptiveRunUntilIdleFoldsCountersAcrossEscalatedBatches()
     {
         await using var cluster = new AdaptiveTestCluster(seed: 1);
         var node = cluster.AddNode("node-1");
@@ -176,8 +175,8 @@ public sealed class SimulationClusterAdaptiveTests
         node.Context.TaskQueue.EnqueueAfter(() => { }, TimeSpan.FromSeconds(1));
         node.Context.TaskQueue.EnqueueAfter(() => { }, TimeSpan.FromSeconds(2));
 
-        var budget = new SimulationAdaptiveBudget(initialMaxIterations: 1, growthFactor: 2.0, maxTotalIterations: 1000);
-        var result = cluster.RunUntilIdleConverged(budget: budget);
+        var budget = new AdaptiveExecutionBudget(initialMaxIterations: 1, growthFactor: 2.0, maxTotalIterations: 1000);
+        var result = cluster.RunUntilIdle(budget);
 
         // Each timer contributes one time advance (to reach its due time) plus one step (to execute
         // its callback once ready), on top of the immediate steps.
@@ -194,12 +193,12 @@ public sealed class SimulationClusterAdaptiveTests
     }
 
     [Fact]
-    public async Task RunUntilConvergedCarriesConsecutiveTimeAdvancesAcrossBatchBoundaries()
+    public async Task AdaptiveRunUntilCarriesConsecutiveTimeAdvancesAcrossBatchBoundaries()
     {
         await using var cluster = CreateClusterWithBlockedTimers();
-        var budget = new SimulationAdaptiveBudget(initialMaxIterations: 1, growthFactor: 2.0, maxTotalIterations: 100);
+        var budget = new AdaptiveExecutionBudget(initialMaxIterations: 1, growthFactor: 2.0, maxTotalIterations: 100);
 
-        var result = cluster.RunUntilConverged(() => false, budget);
+        var result = cluster.RunUntil(() => false, budget);
 
         Assert.Equal(SimulationExecutionReason.MaxConsecutiveTimeAdvancesExceeded, result.Reason);
         Assert.Equal(3, result.TimeAdvanceCount);
@@ -208,12 +207,12 @@ public sealed class SimulationClusterAdaptiveTests
     }
 
     [Fact]
-    public async Task RunUntilIdleConvergedCarriesConsecutiveTimeAdvancesAcrossBatchBoundaries()
+    public async Task AdaptiveRunUntilIdleCarriesConsecutiveTimeAdvancesAcrossBatchBoundaries()
     {
         await using var cluster = CreateClusterWithBlockedTimers();
-        var budget = new SimulationAdaptiveBudget(initialMaxIterations: 1, growthFactor: 2.0, maxTotalIterations: 100);
+        var budget = new AdaptiveExecutionBudget(initialMaxIterations: 1, growthFactor: 2.0, maxTotalIterations: 100);
 
-        var result = cluster.RunUntilIdleConverged(budget: budget);
+        var result = cluster.RunUntilIdle(budget);
 
         Assert.Equal(SimulationExecutionReason.MaxConsecutiveTimeAdvancesExceeded, result.Reason);
         Assert.Equal(3, result.TimeAdvanceCount);

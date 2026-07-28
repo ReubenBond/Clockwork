@@ -190,7 +190,7 @@ public sealed class SimulationBuilderTests
         var executed = false;
         node.Context.TaskQueue.EnqueueAfter(() => executed = true, TimeSpan.FromSeconds(5));
 
-        Assert.True(cluster.RunUntil(() => executed));
+        Assert.Equal(SimulationExecutionReason.ConditionMet, cluster.RunUntil(() => executed).Reason);
         Assert.Equal(cluster.StartDateTime + TimeSpan.FromSeconds(5), cluster.TimeProvider.GetUtcNow());
     }
 
@@ -452,7 +452,7 @@ public sealed class SimulationBuilderTests
         var executed = false;
         node.Context.TaskQueue.EnqueueAfter(() => executed = true, TimeSpan.FromSeconds(1));
 
-        Assert.True(cluster.RunUntil(() => executed));
+        Assert.Equal(SimulationExecutionReason.ConditionMet, cluster.RunUntil(() => executed).Reason);
     }
 
     private sealed class CustomNode(string address, SimulationNodeContext context) : SimulationNode

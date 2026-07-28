@@ -1,9 +1,7 @@
 namespace Clockwork;
 
 /// <summary>
-/// Adaptive execution-budget entry points for <see cref="SimulationCluster{TNode}"/>: escalating
-/// counterparts to <see cref="SimulationCluster{TNode}.RunUntil(Func{bool}, int)"/> and
-/// <see cref="SimulationCluster{TNode}.RunUntilIdle(TimeSpan?, int)"/> that spare callers from
+/// Adaptive execution-budget overloads for <see cref="SimulationCluster{TNode}"/> that spare callers from
 /// picking a size-specific <c>maxIterations</c> value.
 /// </summary>
 public abstract partial class SimulationCluster<TNode>
@@ -14,10 +12,10 @@ public abstract partial class SimulationCluster<TNode>
     /// Runs the simulation until <paramref name="condition"/> becomes true, automatically
     /// escalating the iteration budget across successive batches instead of requiring a single
     /// <c>maxIterations</c> value sized to the scenario. This is the adaptive counterpart to
-    /// <see cref="RunUntil(Func{bool}, int)"/>/<see cref="RunUntilDetailed(Func{bool}, int)"/>.
+    /// <see cref="RunUntil(Func{bool}, int)"/>.
     /// </para>
     /// <para>
-    /// <b>Progress heuristic:</b> each batch is run with <see cref="RunUntilDetailed(Func{bool}, int)"/>.
+    /// <b>Progress heuristic:</b> each batch is run with <see cref="RunUntil(Func{bool}, int)"/>.
     /// If a batch stops for any reason other than <see cref="SimulationExecutionReason.MaxIterationsReached"/>,
     /// execution stops immediately and that result is returned - the goal was met
     /// (<see cref="SimulationExecutionReason.ConditionMet"/>), or the simulation is genuinely stuck
@@ -39,12 +37,12 @@ public abstract partial class SimulationCluster<TNode>
     /// <para>
     /// Escalation never removes the hard safety cap that explicit <c>maxIterations</c> limits
     /// already provide: the total number of iterations across every batch cannot exceed
-    /// <paramref name="budget"/>'s <see cref="SimulationAdaptiveBudget.MaxTotalIterations"/>
-    /// (<see cref="SimulationAdaptiveBudget.Default"/> if omitted). If that ceiling is reached
+    /// <paramref name="budget"/>'s <see cref="AdaptiveExecutionBudget.MaxTotalIterations"/>.
+    /// If that ceiling is reached
     /// while still needing more iterations, the returned result's
     /// <see cref="SimulationExecutionResult.Reason"/> is
     /// <see cref="SimulationExecutionReason.MaxIterationsReached"/>, exactly as it would be for a
-    /// plain <see cref="RunUntilDetailed(Func{bool}, int)"/> call whose fixed budget ran out. The
+    /// plain <see cref="RunUntil(Func{bool}, int)"/> call whose fixed budget ran out. The
     /// returned <see cref="SimulationExecutionResult.Limits"/> reports this overall adaptive ceiling,
     /// not the size of the final batch.
     /// </para>
@@ -52,15 +50,16 @@ public abstract partial class SimulationCluster<TNode>
     /// <param name="condition">The condition that ends the run when it becomes true.</param>
     /// <param name="budget">
     /// The adaptive budget controlling the initial batch size, escalation factor, and hard total
-    /// iteration ceiling. Defaults to <see cref="SimulationAdaptiveBudget.Default"/>.
+    /// iteration ceiling.
     /// </param>
     /// <returns>A detailed result describing the whole (possibly multi-batch) execution.</returns>
-    public SimulationExecutionResult RunUntilConverged(Func<bool> condition, SimulationAdaptiveBudget? budget = null)
+    public SimulationExecutionResult RunUntil(Func<bool> condition, AdaptiveExecutionBudget budget)
     {
         ArgumentNullException.ThrowIfNull(condition);
+        ArgumentNullException.ThrowIfNull(budget);
         using var _ = Guard.Enter();
-        return RunConvergedCore(
-            budget ?? SimulationAdaptiveBudget.Default,
+        return RunAdaptiveCore(
+            budget,
             (batchMaxIterations, consecutiveTimeAdvances) => ExecuteDriveLoop(
                 condition,
                 MaxSimulatedTimeAdvance,
@@ -74,41 +73,42 @@ public abstract partial class SimulationCluster<TNode>
     /// Runs the simulation until it becomes idle, automatically escalating the iteration budget
     /// across successive batches instead of requiring a single <c>maxIterations</c> value sized to
     /// the scenario. This is the adaptive counterpart to
-    /// <see cref="RunUntilIdle(TimeSpan?, int)"/>/<see cref="RunUntilIdleDetailed(TimeSpan?, int)"/>.
+    /// <see cref="RunUntilIdle(TimeSpan?, int)"/>.
     /// </para>
     /// <para>
     /// Follows the same progress heuristic and hard-cap behavior as
-    /// <see cref="RunUntilConverged(Func{bool}, SimulationAdaptiveBudget?)"/> - see its remarks for
+    /// <see cref="RunUntil(Func{bool}, AdaptiveExecutionBudget)"/> - see its remarks for
     /// the precise rules governing when escalation happens and when it stops.
     /// </para>
     /// </summary>
-    /// <param name="maxSimulatedTime">The maximum simulated-time gap to jump in a single advance. Defaults to <see cref="MaxSimulatedTimeAdvance"/>.</param>
     /// <param name="budget">
     /// The adaptive budget controlling the initial batch size, escalation factor, and hard total
-    /// iteration ceiling. Defaults to <see cref="SimulationAdaptiveBudget.Default"/>.
+    /// iteration ceiling.
     /// </param>
+    /// <param name="maxTimeAdvance">The maximum simulated-time gap to jump in a single advance. Defaults to <see cref="MaxSimulatedTimeAdvance"/>.</param>
     /// <returns>A detailed result describing the whole (possibly multi-batch) execution.</returns>
-    public SimulationExecutionResult RunUntilIdleConverged(TimeSpan? maxSimulatedTime = null, SimulationAdaptiveBudget? budget = null)
+    public SimulationExecutionResult RunUntilIdle(AdaptiveExecutionBudget budget, TimeSpan? maxTimeAdvance = null)
     {
+        ArgumentNullException.ThrowIfNull(budget);
         using var _ = Guard.Enter();
-        return RunConvergedCore(
-            budget ?? SimulationAdaptiveBudget.Default,
+        return RunAdaptiveCore(
+            budget,
             (batchMaxIterations, consecutiveTimeAdvances) => ExecuteDriveLoop(
                 condition: null,
-                maxSimulatedTime ?? MaxSimulatedTimeAdvance,
+                maxTimeAdvance ?? MaxSimulatedTimeAdvance,
                 batchMaxIterations,
                 observeTeardownCancellation: true,
                 initialConsecutiveTimeAdvances: consecutiveTimeAdvances));
     }
 
     /// <summary>
-    /// Shared escalation loop for <see cref="RunUntilConverged"/> and <see cref="RunUntilIdleConverged"/>.
+    /// Shared escalation loop for the adaptive RunUntil and RunUntilIdle overloads.
     /// Runs <paramref name="runBatch"/> repeatedly with an escalating iteration budget, combining
     /// results, until a batch stops for a reason other than
     /// <see cref="SimulationExecutionReason.MaxIterationsReached"/> or the hard
-    /// <see cref="SimulationAdaptiveBudget.MaxTotalIterations"/> cap is reached.
+    /// <see cref="AdaptiveExecutionBudget.MaxTotalIterations"/> cap is reached.
     /// </summary>
-    private SimulationExecutionResult RunConvergedCore(SimulationAdaptiveBudget budget, Func<int, int, SimulationExecutionResult> runBatch)
+    private SimulationExecutionResult RunAdaptiveCore(AdaptiveExecutionBudget budget, Func<int, int, SimulationExecutionResult> runBatch)
     {
         var startTime = TimeProvider.GetUtcNow();
         var totalIterations = 0;

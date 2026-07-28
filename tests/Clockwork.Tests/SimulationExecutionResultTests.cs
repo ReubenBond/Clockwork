@@ -5,20 +5,20 @@ namespace Clockwork.Tests;
 /// <summary>
 /// Covers the structured execution outcome API (<see cref="SimulationExecutionResult"/> and
 /// friends) introduced alongside the consolidated drive-loop engine: every distinguishable
-/// termination reason, compatibility with the legacy bool/int-returning APIs, hook-firing
+/// termination reason, hook-firing
 /// behavior, pending-work diagnostics, deterministic formatting, and boundary values.
 /// </summary>
 public sealed class SimulationExecutionResultTests
 {
     [Fact]
-    public async Task RunUntilDetailedReportsConditionMetWithNoPendingWork()
+    public async Task RunUntilReportsConditionMetWithNoPendingWork()
     {
         await using var cluster = new RecordingCluster(seed: 1);
         var node = cluster.AddNode("node-1");
         var executed = false;
         node.Context.TaskQueue.EnqueueAfter(() => executed = true, TimeSpan.FromSeconds(5));
 
-        var result = cluster.RunUntilDetailed(() => executed);
+        var result = cluster.RunUntil(() => executed);
 
         Assert.Equal(SimulationExecutionReason.ConditionMet, result.Reason);
         Assert.True(result.ConditionMet);
@@ -33,12 +33,12 @@ public sealed class SimulationExecutionResultTests
     }
 
     [Fact]
-    public async Task RunUntilDetailedReportsIdleWhenConditionNeverMetAndNoPendingWork()
+    public async Task RunUntilReportsIdleWhenConditionNeverMetAndNoPendingWork()
     {
         await using var cluster = new RecordingCluster(seed: 1);
         _ = cluster.AddNode("node-1");
 
-        var result = cluster.RunUntilDetailed(() => false, maxIterations: 100);
+        var result = cluster.RunUntil(() => false, maxIterations: 100);
 
         Assert.Equal(SimulationExecutionReason.Idle, result.Reason);
         Assert.False(result.ConditionMet);
@@ -48,11 +48,11 @@ public sealed class SimulationExecutionResultTests
     }
 
     [Fact]
-    public async Task RunUntilIdleDetailedReportsIdleOnAnEmptyCluster()
+    public async Task RunUntilIdleReportsIdleOnAnEmptyCluster()
     {
         await using var cluster = new RecordingCluster(seed: 1);
 
-        var result = cluster.RunUntilIdleDetailed();
+        var result = cluster.RunUntilIdle();
 
         Assert.Equal(SimulationExecutionReason.Idle, result.Reason);
         Assert.False(result.ConditionMet);
@@ -70,7 +70,7 @@ public sealed class SimulationExecutionResultTests
         node.Suspend();
         node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => { }));
 
-        var result = cluster.RunUntilIdleDetailed();
+        var result = cluster.RunUntilIdle();
 
         Assert.Equal(SimulationExecutionReason.IdleWithPendingWork, result.Reason);
         Assert.Equal(0, result.PendingWork.RunnableCount);
@@ -103,7 +103,7 @@ public sealed class SimulationExecutionResultTests
         nodeB.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => { }));
         nodeA.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => { }));
 
-        var result = cluster.RunUntilIdleDetailed();
+        var result = cluster.RunUntilIdle();
 
         Assert.Equal(2, result.PendingWork.Items.Count);
         Assert.Equal("node-1", result.PendingWork.Items[0].QueueIdentity);
@@ -117,7 +117,7 @@ public sealed class SimulationExecutionResultTests
         var node = cluster.AddNode("node-1");
         node.Context.TaskQueue.EnqueueAfter(() => { }, TimeSpan.FromSeconds(10));
 
-        var result = cluster.RunUntilDetailed(() => false, maxIterations: 100);
+        var result = cluster.RunUntil(() => false, maxIterations: 100);
 
         Assert.Equal(SimulationExecutionReason.MaxSimulatedTimeAdvanceExceeded, result.Reason);
         Assert.Equal(TimeSpan.FromSeconds(10), result.AttemptedTimeAdvance);
@@ -138,7 +138,7 @@ public sealed class SimulationExecutionResultTests
             node.Context.TaskQueue.EnqueueAfter(() => { }, TimeSpan.FromSeconds(i));
         }
 
-        var result = cluster.RunUntilDetailed(() => false, maxIterations: 100);
+        var result = cluster.RunUntil(() => false, maxIterations: 100);
 
         Assert.Equal(SimulationExecutionReason.MaxConsecutiveTimeAdvancesExceeded, result.Reason);
         Assert.Equal(3, result.ConsecutiveTimeAdvanceCount);
@@ -153,7 +153,7 @@ public sealed class SimulationExecutionResultTests
         var node = cluster.AddNode("node-1");
         node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => { }));
 
-        var result = cluster.RunUntilDetailed(() => false, maxIterations: 1);
+        var result = cluster.RunUntil(() => false, maxIterations: 1);
 
         Assert.Equal(SimulationExecutionReason.MaxIterationsReached, result.Reason);
         Assert.Equal(1, result.Iterations);
@@ -162,7 +162,7 @@ public sealed class SimulationExecutionResultTests
     }
 
     [Fact]
-    public async Task TeardownCancellationRequestedStopsRunUntilIdleDetailedImmediately()
+    public async Task TeardownCancellationRequestedStopsRunUntilIdleImmediately()
     {
         using var cts = new CancellationTokenSource();
         await using var cluster = new RecordingCluster(seed: 1, cancellationToken: cts.Token);
@@ -170,7 +170,7 @@ public sealed class SimulationExecutionResultTests
         node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => { }));
         await cts.CancelAsync();
 
-        var result = cluster.RunUntilIdleDetailed();
+        var result = cluster.RunUntilIdle();
 
         Assert.Equal(SimulationExecutionReason.TeardownCancellationRequested, result.Reason);
         Assert.Equal(0, result.Iterations);
@@ -178,86 +178,29 @@ public sealed class SimulationExecutionResultTests
     }
 
     [Fact]
-    public async Task RunUntilDetailedDoesNotObserveTeardownCancellationJustLikeRunUntil()
+    public async Task RunUntilDoesNotObserveTeardownCancellation()
     {
-        // RunUntil/RunUntilDetailed never checked teardown cancellation in the original
+        // RunUntil never checked teardown cancellation in the original
         // implementation; only the RunUntilIdle family does. This must stay true.
         using var cts = new CancellationTokenSource();
         await using var cluster = new RecordingCluster(seed: 1, cancellationToken: cts.Token);
         await cts.CancelAsync();
 
-        var result = cluster.RunUntilDetailed(() => false, maxIterations: 5);
+        var result = cluster.RunUntil(() => false, maxIterations: 5);
 
         Assert.Equal(SimulationExecutionReason.Idle, result.Reason);
         Assert.DoesNotContain("OnTeardownCancellationRequested", cluster.HookCounts.Keys);
     }
 
     [Fact]
-    public async Task RunUntilBoolWrapperMatchesRunUntilDetailedConditionMet()
-    {
-        SimulationExecutionResult detailed;
-        bool wrapperResult;
-
-        await using (var cluster = new RecordingCluster(seed: 7))
-        {
-            var node = cluster.AddNode("node-1");
-            var executed = false;
-            node.Context.TaskQueue.EnqueueAfter(() => executed = true, TimeSpan.FromSeconds(3));
-            detailed = cluster.RunUntilDetailed(() => executed);
-        }
-
-        await using (var cluster = new RecordingCluster(seed: 7))
-        {
-            var node = cluster.AddNode("node-1");
-            var executed = false;
-            node.Context.TaskQueue.EnqueueAfter(() => executed = true, TimeSpan.FromSeconds(3));
-            wrapperResult = cluster.RunUntil(() => executed);
-        }
-
-        Assert.Equal(detailed.ConditionMet, wrapperResult);
-        Assert.True(wrapperResult);
-    }
-
-    [Fact]
-    public async Task RunUntilIdleIntWrapperMatchesRunUntilIdleDetailedIterations()
-    {
-        SimulationExecutionResult detailed;
-        int wrapperResult;
-
-        await using (var cluster = new RecordingCluster(seed: 3))
-        {
-            var node = cluster.AddNode("node-1");
-            for (var i = 0; i < 3; i++)
-            {
-                node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => { }));
-            }
-
-            detailed = cluster.RunUntilIdleDetailed();
-        }
-
-        await using (var cluster = new RecordingCluster(seed: 3))
-        {
-            var node = cluster.AddNode("node-1");
-            for (var i = 0; i < 3; i++)
-            {
-                node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => { }));
-            }
-
-            wrapperResult = cluster.RunUntilIdle();
-        }
-
-        Assert.Equal(detailed.Iterations, wrapperResult);
-    }
-
-    [Fact]
-    public async Task RunForDurationDetailedReportsIdleAfterProcessingTimerWork()
+    public async Task RunForReportsIdleAfterProcessingTimerWork()
     {
         await using var cluster = new RecordingCluster(seed: 1);
         var node = cluster.AddNode("node-1");
         var fired = false;
         node.Context.TaskQueue.EnqueueAfter(() => fired = true, TimeSpan.FromSeconds(2));
 
-        var result = cluster.RunForDurationDetailed(TimeSpan.FromSeconds(5));
+        var result = cluster.RunFor(TimeSpan.FromSeconds(5));
 
         Assert.True(fired);
         Assert.Equal(SimulationExecutionReason.Idle, result.Reason);
@@ -269,33 +212,32 @@ public sealed class SimulationExecutionResultTests
     }
 
     [Fact]
-    public async Task RunForDurationDetailedWithZeroDeltaIsANoOpJustLikeRunForDuration()
+    public async Task RunForWithZeroDurationIsANoOp()
     {
         await using var cluster = new RecordingCluster(seed: 1);
         _ = cluster.AddNode("node-1");
 
-        var result = cluster.RunForDurationDetailed(TimeSpan.Zero);
+        var result = cluster.RunFor(TimeSpan.Zero);
 
         Assert.Equal(SimulationExecutionReason.Idle, result.Reason);
         Assert.Equal(0, result.Iterations);
         Assert.Equal(0, result.TimeAdvanceCount);
         Assert.Equal(result.StartTime, result.EndTime);
         Assert.DoesNotContain("OnTimeAdvancing", cluster.HookCounts.Keys);
-        Assert.True(cluster.RunForDuration(TimeSpan.Zero));
     }
 
     [Fact]
-    public async Task RunForDurationDetailedRejectsNegativeDelta()
+    public async Task RunForRejectsNegativeDuration()
     {
         await using var cluster = new RecordingCluster(seed: 1);
-        Assert.Throws<ArgumentOutOfRangeException>(() => cluster.RunForDurationDetailed(TimeSpan.FromSeconds(-1)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => cluster.RunFor(TimeSpan.FromSeconds(-1)));
     }
 
     [Fact]
-    public async Task RunUntilDetailedRejectsNullCondition()
+    public async Task RunUntilRejectsNullCondition()
     {
         await using var cluster = new RecordingCluster(seed: 1);
-        Assert.Throws<ArgumentNullException>(() => cluster.RunUntilDetailed(null!));
+        Assert.Throws<ArgumentNullException>(() => cluster.RunUntil(null!));
     }
 
     [Fact]
@@ -304,7 +246,7 @@ public sealed class SimulationExecutionResultTests
         await using var cluster = new RecordingCluster(seed: 1);
         var conditionEvaluated = false;
 
-        var result = cluster.RunUntilDetailed(() => { conditionEvaluated = true; return true; }, maxIterations: 0);
+        var result = cluster.RunUntil(() => { conditionEvaluated = true; return true; }, maxIterations: 0);
 
         Assert.Equal(SimulationExecutionReason.MaxIterationsReached, result.Reason);
         Assert.Equal(0, result.Iterations);
@@ -318,7 +260,7 @@ public sealed class SimulationExecutionResultTests
         var node = cluster.AddNode("node-1");
         node.Context.TaskQueue.EnqueueAfter(() => { }, TimeSpan.FromSeconds(1));
 
-        var result = cluster.RunUntilDetailed(() => false, maxIterations: 100);
+        var result = cluster.RunUntil(() => false, maxIterations: 100);
 
         Assert.Equal(SimulationExecutionReason.MaxConsecutiveTimeAdvancesExceeded, result.Reason);
         Assert.Equal(1, result.ConsecutiveTimeAdvanceCount);
@@ -341,7 +283,7 @@ public sealed class SimulationExecutionResultTests
             var node = cluster.AddNode("node-1");
             node.Suspend();
             node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => { }));
-            return cluster.RunUntilIdleDetailed();
+            return cluster.RunUntilIdle();
         }
     }
 
@@ -374,7 +316,7 @@ public sealed class SimulationExecutionResultTests
             await using var cluster = new RecordingCluster(seed: 1);
             var node = cluster.AddNode("node-1");
             node.Context.TaskQueue.EnqueueAfter(() => { }, TimeSpan.FromSeconds(1.5));
-            return cluster.RunUntilIdleDetailed();
+            return cluster.RunUntilIdle();
         }
     }
 

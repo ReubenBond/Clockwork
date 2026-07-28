@@ -81,7 +81,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
         // Create time provider using cluster queue (for GetUtcNow queries)
         _timeProvider = new SimulationTimeProvider(TaskQueue, Clock);
 
-        // The single engine that drives RunUntil/RunUntilIdle/RunForDuration.
+        // The single engine that drives RunUntil/RunUntilIdle/RunFor.
         _driveLoop = new SimulationDriveLoop(
             () => _timeProvider.GetUtcNow(),
             RunOneTaskRoundRobin,
@@ -353,35 +353,11 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     /// </summary>
     /// <param name="condition">The condition that ends the run when it becomes true.</param>
     /// <param name="maxIterations">The maximum number of loop iterations to execute.</param>
-    /// <returns><see langword="true"/> if the condition was met; <see langword="false"/> for any other stopping reason.</returns>
-    public bool RunUntil(Func<bool> condition, int maxIterations = 100000)
-    {
-        ArgumentNullException.ThrowIfNull(condition);
-        return RunUntilCore(condition, maxIterations);
-    }
-
-    /// <summary>
-    /// Runs the simulation until the specified condition is met, returning a detailed result
-    /// describing exactly why the run stopped, how much work it did, and what (if anything) is
-    /// still pending. This is the detailed counterpart to <see cref="RunUntil(Func{bool}, int)"/>.
-    /// </summary>
-    /// <param name="condition">The condition that ends the run when it becomes true.</param>
-    /// <param name="maxIterations">The maximum number of loop iterations to execute.</param>
     /// <returns>A detailed result describing the execution.</returns>
-    public SimulationExecutionResult RunUntilDetailed(Func<bool> condition, int maxIterations = 100000)
+    public SimulationExecutionResult RunUntil(Func<bool> condition, int maxIterations = 100_000)
     {
         ArgumentNullException.ThrowIfNull(condition);
         return ExecuteDriveLoop(condition, MaxSimulatedTimeAdvance, maxIterations, observeTeardownCancellation: false);
-    }
-
-    /// <summary>
-    /// Core implementation of RunUntil without context installation (for internal use).
-    /// Uses round-robin execution across all non-suspended node contexts, plus the cluster queue.
-    /// </summary>
-    protected bool RunUntilCore(Func<bool> condition, int maxIterations)
-    {
-        ArgumentNullException.ThrowIfNull(condition);
-        return ExecuteDriveLoop(condition, MaxSimulatedTimeAdvance, maxIterations, observeTeardownCancellation: false).ConditionMet;
     }
 
     /// <summary>
@@ -507,112 +483,112 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     /// <summary>
     /// Runs the simulation until it becomes idle.
     /// </summary>
-    /// <returns>The number of iterations executed. Callers can compare this to maxIterations
-    /// and the current time to determine which limit was reached.</returns>
-    public int RunUntilIdle(TimeSpan? maxSimulatedTime = null, int maxIterations = 100000) => RunUntilIdleCore(maxSimulatedTime, maxIterations);
-
-    /// <summary>
-    /// Runs the simulation until it becomes idle, returning a detailed result describing exactly
-    /// why the run stopped, how much work it did, and what (if anything) is still pending. This is
-    /// the detailed counterpart to <see cref="RunUntilIdle(TimeSpan?, int)"/>.
-    /// </summary>
-    /// <param name="maxSimulatedTime">The maximum simulated-time gap to jump in a single advance. Defaults to <see cref="MaxSimulatedTimeAdvance"/>.</param>
+    /// <param name="maxTimeAdvance">The maximum simulated-time gap to jump in a single advance. Defaults to <see cref="MaxSimulatedTimeAdvance"/>.</param>
     /// <param name="maxIterations">The maximum number of loop iterations to execute.</param>
     /// <returns>A detailed result describing the execution.</returns>
-    public SimulationExecutionResult RunUntilIdleDetailed(TimeSpan? maxSimulatedTime = null, int maxIterations = 100000) =>
-        ExecuteDriveLoop(condition: null, maxSimulatedTime ?? MaxSimulatedTimeAdvance, maxIterations, observeTeardownCancellation: true);
-
-    /// <summary>
-    /// Core implementation of RunUntilIdle without context installation (for internal use).
-    /// Uses round-robin execution across all non-suspended node contexts, plus the cluster queue.
-    /// </summary>
-    /// <returns>The number of iterations executed.</returns>
-    protected int RunUntilIdleCore(TimeSpan? maxSimulatedTime, int maxIterations) => RunUntilIdleDetailed(maxSimulatedTime, maxIterations).Iterations;
+    public SimulationExecutionResult RunUntilIdle(TimeSpan? maxTimeAdvance = null, int maxIterations = 100_000) =>
+        ExecuteDriveLoop(condition: null, maxTimeAdvance ?? MaxSimulatedTimeAdvance, maxIterations, observeTeardownCancellation: true);
 
     /// <summary>
     /// Drives a task to completion by running the simulation.
     /// The task factory is invoked with the cluster's synchronization context installed,
     /// ensuring async continuations are captured on the simulation scheduler.
     /// </summary>
-    public void Run(Func<Task> taskFactory, int maxIterations = 1_000_000)
+    public void RunToCompletion(Func<Task> taskFactory, int maxIterations = 1_000_000)
     {
         ArgumentNullException.ThrowIfNull(taskFactory);
         using var lockScope = Guard.Enter();
 
-        var task = new Task<Task>(taskFactory);
-        task.Start(TaskScheduler);
-
-        if (!RunUntilCore(() => task.IsCompleted && task.Result.IsCompleted, maxIterations))
-        {
-            if (!task.IsCompleted || !task.GetAwaiter().GetResult().IsCompleted)
-            {
-                throw new TimeoutException(string.Create(CultureInfo.InvariantCulture, $"Task did not complete within {maxIterations} iterations"));
-            }
-        }
-
-        task.GetAwaiter().GetResult().GetAwaiter().GetResult();
+        Task task = StartTask(taskFactory);
+        SimulationExecutionResult result = RunUntil(() => task.IsCompleted, maxIterations);
+        EnsureTaskCompleted(task, result);
+        task.GetAwaiter().GetResult();
     }
 
     /// <summary>
-    /// Runs the simulation for the specified duration or until the maximum iterations are exceeded.
-    /// This is the preferred method for advancing time in tests, as it ensures that any
-    /// tasks triggered by timers are processed before returning.
+    /// Drives a task to completion using an adaptive execution budget.
     /// </summary>
-    /// <param name="delta">The amount of time to advance.</param>
-    /// <param name="maxIterations">Maximum iterations to run while processing tasks.</param>
-    /// <returns>True if the simulation reached an idle state; false if max iterations reached.</returns>
-    public bool RunForDuration(TimeSpan delta, int maxIterations = 100000)
+    public void RunToCompletion(Func<Task> taskFactory, AdaptiveExecutionBudget budget)
     {
-        if (delta < TimeSpan.Zero)
-        {
-            throw new ArgumentOutOfRangeException(nameof(delta), "Time delta cannot be negative");
-        }
-
-        if (delta == TimeSpan.Zero)
-        {
-            return true;
-        }
-
-        // Advance time to trigger timers, then run until idle
-        OnTimeAdvancing(delta);
-
+        ArgumentNullException.ThrowIfNull(taskFactory);
+        ArgumentNullException.ThrowIfNull(budget);
         using var lockScope = Guard.Enter();
 
-        var targetTime = Clock.UtcNow + delta;
-        var iterations = RunUntilIdleCore(maxSimulatedTime: delta, maxIterations);
-        if (Clock.UtcNow < targetTime)
-        {
-            Clock.Advance(targetTime - Clock.UtcNow);
-        }
+        Task task = StartTask(taskFactory);
+        SimulationExecutionResult result = RunUntil(() => task.IsCompleted, budget);
+        EnsureTaskCompleted(task, result);
+        task.GetAwaiter().GetResult();
+    }
 
-        // If first call didn't exhaust max iterations, it reached idle or a time limit
-        // Run again to process any remaining work
-        var remainingIterations = maxIterations - iterations;
-        if (remainingIterations == 0)
-        {
-            return false;
-        }
+    /// <summary>
+    /// Drives a task to completion and returns its result.
+    /// </summary>
+    public T RunToCompletion<T>(Func<Task<T>> taskFactory, int maxIterations = 1_000_000)
+    {
+        ArgumentNullException.ThrowIfNull(taskFactory);
+        using var lockScope = Guard.Enter();
 
-        return RunUntilIdleCore(maxSimulatedTime: null, remainingIterations) < remainingIterations;
+        Task<T> task = StartTask(taskFactory);
+        SimulationExecutionResult result = RunUntil(() => task.IsCompleted, maxIterations);
+        EnsureTaskCompleted(task, result);
+        return task.GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// Drives a task to completion using an adaptive execution budget and returns its result.
+    /// </summary>
+    public T RunToCompletion<T>(Func<Task<T>> taskFactory, AdaptiveExecutionBudget budget)
+    {
+        ArgumentNullException.ThrowIfNull(taskFactory);
+        ArgumentNullException.ThrowIfNull(budget);
+        using var lockScope = Guard.Enter();
+
+        Task<T> task = StartTask(taskFactory);
+        SimulationExecutionResult result = RunUntil(() => task.IsCompleted, budget);
+        EnsureTaskCompleted(task, result);
+        return task.GetAwaiter().GetResult();
+    }
+
+    private Task StartTask(Func<Task> taskFactory)
+    {
+        var outer = new Task<Task>(taskFactory);
+        outer.Start(TaskScheduler);
+        return outer.Unwrap();
+    }
+
+    private Task<T> StartTask<T>(Func<Task<T>> taskFactory)
+    {
+        var outer = new Task<Task<T>>(taskFactory);
+        outer.Start(TaskScheduler);
+        return outer.Unwrap();
+    }
+
+    private static void EnsureTaskCompleted(Task task, SimulationExecutionResult result)
+    {
+        if (!task.IsCompleted)
+        {
+            throw new TimeoutException(string.Create(
+                CultureInfo.InvariantCulture,
+                $"Task did not complete.{Environment.NewLine}{result.ToDetailedString()}"));
+        }
     }
 
     /// <summary>
     /// Runs the simulation for the specified duration or until the maximum iterations are
     /// exceeded, returning a detailed result describing exactly why the run stopped, how much work
-    /// it did, and what (if anything) is still pending. This is the detailed counterpart to
-    /// <see cref="RunForDuration(TimeSpan, int)"/>.
+    /// it did, and what (if anything) is still pending.
     /// </summary>
-    /// <param name="delta">The amount of time to advance.</param>
+    /// <param name="duration">The amount of time to advance.</param>
     /// <param name="maxIterations">Maximum iterations to run while processing tasks.</param>
     /// <returns>A detailed result describing the execution.</returns>
-    public SimulationExecutionResult RunForDurationDetailed(TimeSpan delta, int maxIterations = 100000)
+    public SimulationExecutionResult RunFor(TimeSpan duration, int maxIterations = 100_000)
     {
-        ArgumentOutOfRangeException.ThrowIfLessThan(delta, TimeSpan.Zero);
+        ArgumentOutOfRangeException.ThrowIfLessThan(duration, TimeSpan.Zero);
 
         using var lockScope = Guard.Enter();
         var startTime = TimeProvider.GetUtcNow();
 
-        if (delta == TimeSpan.Zero)
+        if (duration == TimeSpan.Zero)
         {
             return new SimulationExecutionResult(
                 SimulationExecutionReason.Idle,
@@ -627,10 +603,10 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
                 attemptedTimeAdvance: null);
         }
 
-        OnTimeAdvancing(delta);
+        OnTimeAdvancing(duration);
 
-        var targetTime = Clock.UtcNow + delta;
-        var first = RunUntilIdleDetailed(maxSimulatedTime: delta, maxIterations);
+        var targetTime = Clock.UtcNow + duration;
+        var first = RunUntilIdle(maxTimeAdvance: duration, maxIterations);
 
         var forcedTimeAdvance = 0;
         if (Clock.UtcNow < targetTime)
@@ -645,7 +621,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
             return CombineExecutionResults(startTime, first, second: null, forcedTimeAdvance);
         }
 
-        var second = RunUntilIdleDetailed(maxSimulatedTime: null, remainingIterations);
+        var second = RunUntilIdle(maxTimeAdvance: null, remainingIterations);
         return CombineExecutionResults(startTime, first, second, forcedTimeAdvance);
     }
 
@@ -699,9 +675,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     }
 
     /// <summary>
-    /// Fires the legacy <c>On*</c> extensibility hooks that correspond to <paramref name="result"/>,
-    /// with the same arguments and under the same circumstances as the original, un-consolidated
-    /// RunUntilCore/RunUntilIdleCore implementations.
+    /// Fires the <c>On*</c> extensibility hooks that correspond to <paramref name="result"/>.
     /// </summary>
     private void DispatchExecutionHooks(SimulationExecutionResult result, bool isConditionBased)
     {
@@ -746,7 +720,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     }
 
     /// <summary>
-    /// Combines the two RunUntilIdleDetailed passes of <see cref="RunForDurationDetailed"/> (plus the
+    /// Combines the two RunUntilIdle passes of <see cref="RunFor"/> (plus the
     /// forced advance to the target time, if any) into a single result describing the whole operation.
     /// </summary>
     private static SimulationExecutionResult CombineExecutionResults(
@@ -890,7 +864,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
 
         try
         {
-            Run(async () =>
+            RunToCompletion(async () =>
             {
                 SafeCancel(_teardownCts);
                 _taskCoordinator.Loop.CancelPendingDeadlines();
