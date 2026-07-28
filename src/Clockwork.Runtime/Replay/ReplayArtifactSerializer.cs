@@ -135,8 +135,16 @@ public static class ReplayArtifactSerializer
                 "Readers ignore unknown optional properties within a supported version; incompatible changes require a new schema version.");
         }
 
-        ArgumentNullException.ThrowIfNull(artifact.Scheduler);
+        if (artifact.Scheduler is null)
+        {
+            throw new ReplayArtifactFormatException("scheduler is required.");
+        }
         RequireString(artifact.Scheduler.Strategy, "scheduler.strategy");
+        if (artifact.Scheduler.Options is null)
+        {
+            throw new ReplayArtifactFormatException("scheduler.options is required.");
+        }
+
         if (artifact.Scheduler.Options.Count > ReplayArtifactLimits.MaxSchedulerOptions)
         {
             throw new ReplayArtifactFormatException(
@@ -149,7 +157,10 @@ public static class ReplayArtifactSerializer
             RequireString(value, $"scheduler.options['{key}']");
         }
 
-        ArgumentNullException.ThrowIfNull(artifact.Environment);
+        if (artifact.Environment is null)
+        {
+            throw new ReplayArtifactFormatException("environment is required.");
+        }
         RequireString(artifact.Environment.ClockworkRuntimeVersion, "environment.clockworkRuntimeVersion");
         RequireString(artifact.Environment.RuntimeCompatibility, "environment.runtimeCompatibility");
         RequireString(artifact.Environment.ProcessArchitecture, "environment.processArchitecture");
@@ -164,6 +175,11 @@ public static class ReplayArtifactSerializer
             RequireString(instrumentation.RuleSetVersion, "instrumentation.ruleSetVersion");
             RequireString(instrumentation.RuleSetSignature, "instrumentation.ruleSetSignature");
             RequireString(instrumentation.Mode, "instrumentation.mode");
+            if (instrumentation.Assemblies is null)
+            {
+                throw new ReplayArtifactFormatException("instrumentation.assemblies is required.");
+            }
+
             if (instrumentation.Assemblies.Count > ReplayArtifactLimits.MaxAssemblies)
             {
                 throw new ReplayArtifactFormatException(
@@ -184,6 +200,11 @@ public static class ReplayArtifactSerializer
                 previousName = assembly.Name;
                 RequireOptionalString(assembly.RuntimeCompatibility, "instrumentation.assemblies[].runtimeCompatibility");
             }
+        }
+
+        if (artifact.Decisions is null)
+        {
+            throw new ReplayArtifactFormatException("decisions is required.");
         }
 
         if (artifact.Decisions.Count > ReplayArtifactLimits.MaxDecisions)
@@ -207,6 +228,11 @@ public static class ReplayArtifactSerializer
             RequireOptionalString(decision.NodeId, "decisions[].nodeId");
         }
 
+        if (artifact.RaceSchedulingPoints is null)
+        {
+            throw new ReplayArtifactFormatException("raceSchedulingPoints is required.");
+        }
+
         if (artifact.RaceSchedulingPoints.Count > ReplayArtifactLimits.MaxRaceSchedulingPoints)
         {
             throw new ReplayArtifactFormatException(
@@ -227,7 +253,10 @@ public static class ReplayArtifactSerializer
             RequireOptionalString(point.SourceFile, "raceSchedulingPoints[].sourceFile");
         }
 
-        ArgumentNullException.ThrowIfNull(artifact.Outcome);
+        if (artifact.Outcome is null)
+        {
+            throw new ReplayArtifactFormatException("outcome is required.");
+        }
         RequireOptionalString(artifact.Outcome.FailureIdentity, "outcome.failureIdentity");
         RequireOptionalString(artifact.Outcome.Diagnostic, "outcome.diagnostic");
         if (artifact.RecordingState == ReplayRecordingState.Aborted &&
@@ -235,6 +264,78 @@ public static class ReplayArtifactSerializer
         {
             throw new ReplayArtifactFormatException("An aborted recording must have an Aborted outcome.");
         }
+
+        if (artifact.Diagnostics is null)
+        {
+            throw new ReplayArtifactFormatException("diagnostics is required.");
+        }
+
+        RequireString(artifact.Diagnostics.Liveness, "diagnostics.liveness");
+        if (artifact.Diagnostics.Operations is null ||
+            artifact.Diagnostics.Resources is null ||
+            artifact.Diagnostics.PendingTimers is null ||
+            artifact.Diagnostics.DeadlockCycles is null)
+        {
+            throw new ReplayArtifactFormatException("Diagnostic collections cannot be null.");
+        }
+
+        if (artifact.Diagnostics.Operations.Count > ReplayArtifactLimits.MaxDecisions ||
+            artifact.Diagnostics.Resources.Count > ReplayArtifactLimits.MaxDecisions ||
+            artifact.Diagnostics.PendingTimers.Count > ReplayArtifactLimits.MaxDecisions ||
+            artifact.Diagnostics.DeadlockCycles.Count > ReplayArtifactLimits.MaxDecisions)
+        {
+            throw new ReplayArtifactFormatException("A diagnostic collection exceeds the replay artifact item limit.");
+        }
+
+        foreach (ReplayOperationDiagnostic operation in artifact.Diagnostics.Operations)
+        {
+            RequireString(operation.State, "diagnostics.operations[].state");
+            RequireOptionalString(operation.Node, "diagnostics.operations[].node");
+            RequireOptionalString(operation.Description, "diagnostics.operations[].description");
+            RequireOptionalString(operation.WaitReason, "diagnostics.operations[].waitReason");
+        }
+
+        foreach (ReplayResourceDiagnostic resource in artifact.Diagnostics.Resources)
+        {
+            RequireString(resource.Kind, "diagnostics.resources[].kind");
+            RequireOptionalString(resource.Name, "diagnostics.resources[].name");
+            if (resource.Waiters is null)
+            {
+                throw new ReplayArtifactFormatException("diagnostics.resources[].waiters cannot be null.");
+            }
+
+            foreach (ReplayWaiterDiagnostic waiter in resource.Waiters)
+            {
+                RequireOptionalString(waiter.Reason, "diagnostics.resources[].waiters[].reason");
+            }
+        }
+
+        foreach (ReplayDeadlockCycleDiagnostic cycle in artifact.Diagnostics.DeadlockCycles)
+        {
+            if (cycle.Edges is null)
+            {
+                throw new ReplayArtifactFormatException("diagnostics.deadlockCycles[].edges cannot be null.");
+            }
+        }
+
+        if (artifact.Diagnostics.Race is { } race)
+        {
+            ValidateRaceAccess(race.First, "diagnostics.race.first");
+            ValidateRaceAccess(race.Second, "diagnostics.race.second");
+        }
+    }
+
+    private static void ValidateRaceAccess(ReplayRaceAccessDiagnostic? access, string field)
+    {
+        if (access is null)
+        {
+            throw new ReplayArtifactFormatException($"{field} is required.");
+        }
+
+        RequireString(access.Kind, $"{field}.kind");
+        RequireString(access.Location, $"{field}.location");
+        RequireString(access.Member, $"{field}.member");
+        RequireOptionalString(access.SourceFile, $"{field}.sourceFile");
     }
 
     private static void RequireSha256(string value, string field)

@@ -11,6 +11,10 @@ Clockwork is a deterministic simulation testing framework for distributed system
 - In-memory network partitions, isolation, loss, delay, and jitter
 - Extensible cluster and chaos-injection base classes
 - A fluent `SimulationBuilder` for common simulations that don't need a hand-written subclass
+- Versioned canonical replay artifacts with exact compatibility and divergence checks
+- Bounded seeded schedule exploration and deterministic failure-trace minimization
+- Stable operation/resource wait graphs, deadlock cycles, race pairs, and timer diagnostics
+- `clockwork run`, `replay`, `explore`, `minimize`, and `trace show` commands
 - Adaptive `RunUntilConverged`/`RunUntilIdleConverged` execution budgets
 - Stable, cross-process-safe seed derivation from strings (`SimulationSeed`)
 - Reusable rendezvous primitives (`SimulationGate`, `SimulationLatch`, `SimulationBarrier`)
@@ -35,19 +39,27 @@ are historical implementation notes.
   Explicit `RaceExploration` mode adds seeded scheduling points, weak-identity race tracking, structured
   first-race reports, and direct collection access coverage; see
   [`docs/compatibility.md`](docs/compatibility.md#race-exploration-mode).
+- Replay schema `clockwork.replay` version 1 records scheduler/resource/timer decisions, root and
+  schedule seeds, runtime and instrumentation compatibility, race scheduling points, terminal outcome,
+  and stable diagnostics. Unknown optional properties are ignored within a supported schema version;
+  incompatible schema versions fail before execution.
+- Schedule exploration varies only the schedule seed while holding model/application seeds fixed,
+  executes serially, applies iteration/failure/time bounds, and retains the smallest artifact per
+  stable failure identity. The minimizer accepts a candidate only when exact replay preserves the same
+  failure category and identity.
 - `clockwork.bcl.deterministic` controls the exact time, identity, and random signatures in
   [`docs/rule-inventory.md`](docs/rule-inventory.md).
 - `clockwork.tasks.controlled` controls async builders/awaiters, task combinators and waits,
   `Task.Run`, all 24 .NET 10 `TaskFactory`/`TaskFactory<T>.StartNew` overloads, `Thread`,
   `ThreadPool`, `Parallel`, `Monitor`, `System.Threading.Lock`, and `SemaphoreSlim`. Work executes on
   controlled logical strands; Debug and Release compiler lowering are both conformance-tested.
-- Phase 7B completes the synchronization surface: the full .NET 10 `Interlocked` and `Volatile`
+- Controlled synchronization includes the full .NET 10 `Interlocked` and `Volatile`
   surfaces, `SpinWait`/`SpinUntil`, the wait-handle / event family
   (`WaitHandle`/`EventWaitHandle`/`AutoResetEvent`/`ManualResetEvent` with
   `WaitOne`/`WaitAny`/`WaitAll`/`SignalAndWait`), the `SemaphoreSlim.AvailableWaitHandle` bridge, and
   the `ThreadPool` registered-wait APIs
   (`RegisterWaitForSingleObject`/`UnsafeRegisterWaitForSingleObject`) are all controlled.
-- **Phase 8A** adds `ReaderWriterLockSlim`, `ManualResetEventSlim`, unnamed kernel `Mutex` and
+- Modern synchronization includes `ReaderWriterLockSlim`, `ManualResetEventSlim`, unnamed kernel `Mutex` and
   `Semaphore`, struct `SpinLock`, `ExecutionContext`, `SynchronizationContext`, `Barrier`, and
   `CountdownEvent`. These are modelled on logical strands with virtual-time waits: no busy spin and no
   OS blocking. The `ManualResetEventSlim` and `CountdownEvent` bridges compose with controlled
@@ -94,6 +106,41 @@ strategy and decision/replay log, preserving the exactly-one-running baton invar
 `ControlledOperationScheduler.RaceExplorationResult`, `FirstRace`, and
 `CaptureRaceSchedulingPoints()`. A race is a distinct `RaceDetected` outcome with both operations,
 access kinds, logical location, source/IL sites, synchronization context, and the schedule trace.
+
+## Record, replay, explore, and minimize
+
+The core API accepts an explicit controlled-scheduler scenario:
+
+```csharp
+var recorded = ReplayRunner.Record(
+    new ReplayRunConfiguration
+    {
+        RootSeed = 12345,
+        SchedulingPolicy = ReplaySchedulingPolicy.SeededRandom,
+        ScheduleSeed = 17,
+    },
+    scheduler =>
+    {
+        scheduler.Schedule("worker-a", scheduler.Yield);
+        scheduler.Schedule("worker-b", () => { /* controlled work */ });
+    });
+
+ReplayArtifactSerializer.Write("failure.cwr.json", recorded.Artifact);
+
+var replayed = ReplayRunner.Replay(
+    recorded.Artifact,
+    ReplayCompatibilityRequirements.Current(),
+    scheduler =>
+    {
+        scheduler.Schedule("worker-a", scheduler.Yield);
+        scheduler.Schedule("worker-b", () => { /* same controlled scenario */ });
+    });
+```
+
+`ScheduleExplorer.Explore` runs a bounded serial seed corpus while keeping `RootSeed` unchanged.
+`ReplayTraceMinimizer.Minimize` delta-debugs scheduling/resource choices against an exact-replay
+failure predicate. See [`docs/replay.md`](docs/replay.md) for the schema, CLI, test fixture, version
+policy, compatibility rules, and limitations.
 
 ## Define a simulation
 
@@ -581,19 +628,25 @@ properties include `ClockworkConfigurationPath` (a JSON [configuration](#instrum
 The task package targets `net10.0` and requires the .NET 10 SDK: use `dotnet build` / `dotnet
 msbuild`. It cannot be loaded by .NET Framework MSBuild (classic `msbuild.exe` in Visual Studio).
 
-**CLI usage.** Install the tool and rewrite or inspect assemblies:
+**CLI usage.** Install the tool, instrument closures, or invoke an explicit replay scenario harness:
 
 ```
 dotnet tool install --global Clockwork.Tool
-clockwork rewrite --input <dir-or-assembly> --output <dir> --rules clockwork.rules.json [--config clockwork.config.json] [--dry-run]
+clockwork rewrite --source <dir> --output <dir> --rule-set clockwork.rules.json [--config clockwork.config.json] [--dry-run]
 clockwork inspect <assembly> [--json]
+clockwork run --assembly tests.dll --scenario-type Tests.TransferScenario --artifact failure.cwr.json --seed 123 --schedule-seed 7
+clockwork replay failure.cwr.json --assembly tests.dll --scenario-type Tests.TransferScenario
+clockwork explore --assembly tests.dll --scenario-type Tests.TransferScenario --output artifacts --seed 123 --schedule-seed 1 --count 100 --stop-on-first
+clockwork minimize failure.cwr.json --assembly tests.dll --scenario-type Tests.TransferScenario
+clockwork trace show failure.cwr.json [--json]
 ```
 
 `rewrite` stages a rewritten closure; `--dry-run` reports the planned transformations without
 writing. `inspect` reports managed/ReadyToRun status, strong-name state, symbol form, and prior
-Clockwork instrumentation (idempotence) markers, as deterministic text or JSON. Exit codes are
-nonzero and classified by failure kind. The `run`/`replay`/`minimize` commands are intentionally
-deferred to later replay work.
+Clockwork instrumentation (idempotence) markers, as deterministic text or JSON. Replay commands load
+only the assembly path and public `IReplayScenario` type explicitly named by the caller; they do not
+discover or launch arbitrary processes. Exit codes distinguish usage/configuration/I/O,
+scenario failures, replay incompatibility/divergence, and minimization failure.
 
 **Instrumentation configuration.** Configuration and rule sets are plain JSON documents with strict
 schema, type, and signature validation - **no arbitrary code is executed from configuration**.

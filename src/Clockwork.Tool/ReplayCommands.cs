@@ -43,6 +43,11 @@ internal static class ReplayCommands
         int rootSeed = ParseInt(Require(reader.GetString("seed"), "--seed"), "--seed");
         ReplaySchedulingPolicy policy = ParsePolicy(reader.GetString("strategy", "seeded-random")!);
         int? scheduleSeed = ParseOptionalInt(reader.GetString("schedule-seed"), "--schedule-seed");
+        if (policy != ReplaySchedulingPolicy.SeededRandom && scheduleSeed is not null)
+        {
+            throw new UsageException("--schedule-seed is only valid with --strategy seeded-random.");
+        }
+
         int maxSteps = ParsePositiveInt(reader.GetString("max-steps", "1000000")!, "--max-steps");
         ReplayInstrumentationIdentity? instrumentation = ReadOptionalManifest(reader.GetString("manifest"));
         bool json = reader.GetFlag("json");
@@ -407,41 +412,48 @@ internal static class ReplayManifestIdentityReader
             throw new ReplayArtifactFormatException("Instrumentation manifest exceeds the replay artifact size limit.");
         }
 
-        using JsonDocument document = JsonDocument.Parse(bytes);
-        JsonElement root = document.RootElement;
-        JsonElement assembliesElement = root.GetProperty("assemblies");
-        var assemblies = new List<ReplayAssemblyIdentity>();
-        foreach (JsonElement assembly in assembliesElement.EnumerateArray())
+        try
         {
-            string name = assembly.GetProperty("relativePath").GetString()
-                ?? throw new ReplayArtifactFormatException("Manifest assembly relativePath is required.");
-            string? hash = assembly.GetProperty("outputSha256").GetString()
-                ?? assembly.GetProperty("inputSha256").GetString();
-            if (hash is null)
+            using JsonDocument document = JsonDocument.Parse(bytes);
+            JsonElement root = document.RootElement;
+            JsonElement assembliesElement = root.GetProperty("assemblies");
+            var assemblies = new List<ReplayAssemblyIdentity>();
+            foreach (JsonElement assembly in assembliesElement.EnumerateArray())
             {
-                throw new ReplayArtifactFormatException($"Manifest assembly '{name}' has no content hash.");
+                string name = assembly.GetProperty("relativePath").GetString()
+                    ?? throw new ReplayArtifactFormatException("Manifest assembly relativePath is required.");
+                string? hash = assembly.GetProperty("outputSha256").GetString()
+                    ?? assembly.GetProperty("inputSha256").GetString();
+                if (hash is null)
+                {
+                    throw new ReplayArtifactFormatException($"Manifest assembly '{name}' has no content hash.");
+                }
+
+                assemblies.Add(new ReplayAssemblyIdentity
+                {
+                    Name = name,
+                    Sha256 = hash,
+                    RuntimeCompatibility = ReplayCompatibility.CurrentRuntimeCompatibility,
+                });
             }
 
-            assemblies.Add(new ReplayAssemblyIdentity
+            assemblies.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Name, right.Name));
+            return new ReplayInstrumentationIdentity
             {
-                Name = name,
-                Sha256 = hash,
-                RuntimeCompatibility = ReplayCompatibility.CurrentRuntimeCompatibility,
-            });
+                ManifestId = GetRequiredString(root, "incrementalKey"),
+                ManifestSha256 = Convert.ToHexStringLower(SHA256.HashData(bytes)),
+                EngineVersion = GetRequiredString(root, "engineVersion"),
+                RuleSetId = GetRequiredString(root, "ruleSetId"),
+                RuleSetVersion = GetRequiredString(root, "ruleSetVersion"),
+                RuleSetSignature = GetRequiredString(root, "ruleSetSignature"),
+                Mode = GetRequiredString(root, "mode"),
+                Assemblies = assemblies,
+            };
         }
-
-        assemblies.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Name, right.Name));
-        return new ReplayInstrumentationIdentity
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException or KeyNotFoundException)
         {
-            ManifestId = GetRequiredString(root, "incrementalKey"),
-            ManifestSha256 = Convert.ToHexStringLower(SHA256.HashData(bytes)),
-            EngineVersion = GetRequiredString(root, "engineVersion"),
-            RuleSetId = GetRequiredString(root, "ruleSetId"),
-            RuleSetVersion = GetRequiredString(root, "ruleSetVersion"),
-            RuleSetSignature = GetRequiredString(root, "ruleSetSignature"),
-            Mode = GetRequiredString(root, "mode"),
-            Assemblies = assemblies,
-        };
+            throw new ReplayArtifactFormatException("Instrumentation closure manifest is malformed.", exception);
+        }
     }
 
     private static string GetRequiredString(JsonElement root, string property) =>

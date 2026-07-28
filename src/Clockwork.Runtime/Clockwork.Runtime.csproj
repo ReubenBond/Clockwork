@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>Deterministic instrumentation runtime plumbing: ambient execution context, secure simulation activation, seed/decision domains, decision-log/replay contracts, and API policy classification. The deterministic simulation kernel itself (clock, task queue, scheduler, network, node lifecycle) still lives in src/Clockwork/Clockwork.csproj (packaged as Clockwork.Simulation) until it migrates here in a later phase; this project has no dependencies so the kernel can depend on it without any circularity.</Description>
+    <Description>Deterministic controlled-execution runtime with scheduling, resources, virtual deadlines, race detection, canonical replay artifacts, exact replay, bounded exploration, trace minimization, and diagnostics.</Description>
     <RootNamespace>Clockwork.Runtime</RootNamespace>
     <IsPackable>false</IsPackable>
   </PropertyGroup>

@@ -67,6 +67,7 @@ public sealed class ReplayArtifactTests : IDisposable
     [InlineData("{")]
     [InlineData("{}")]
     [InlineData("{\"format\":\"other\",\"schemaVersion\":1}")]
+    [InlineData("{\"format\":\"clockwork.replay\",\"schemaVersion\":1,\"recordingState\":\"Complete\",\"rootSeed\":1,\"scheduler\":null,\"environment\":null,\"outcome\":null}")]
     public void CorruptOrIncompleteJsonIsRejected(string json)
     {
         Assert.Throws<ReplayArtifactFormatException>(
@@ -126,6 +127,32 @@ public sealed class ReplayArtifactTests : IDisposable
             () => ReplayCompatibility.Validate(artifact, requirements));
 
         Assert.Contains("runtime compatibility mismatch", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void InstrumentationHashMismatchFailsBeforeReplay()
+    {
+        ReplayArtifact artifact = CreateArtifact() with { Instrumentation = CreateInstrumentation('a') };
+        ReplayCompatibilityRequirements requirements = ReplayCompatibilityRequirements.Current() with
+        {
+            Instrumentation = CreateInstrumentation('b'),
+        };
+
+        ReplayCompatibilityException exception = Assert.Throws<ReplayCompatibilityException>(
+            () => ReplayCompatibility.Validate(artifact, requirements));
+
+        Assert.Contains("manifest hash mismatch", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UnknownOptionalPropertiesAreForwardCompatibleWithinSchema()
+    {
+        string json = ReplayArtifactSerializer.ToJson(CreateArtifact());
+        string extended = json.Insert(json.Length - 1, ",\"futureOptional\":{\"value\":1}");
+
+        ReplayArtifact artifact = ReplayArtifactSerializer.Deserialize(Encoding.UTF8.GetBytes(extended));
+
+        Assert.Equal(ReplayArtifact.CurrentSchemaVersion, artifact.SchemaVersion);
     }
 
     [Fact]
@@ -195,5 +222,25 @@ public sealed class ReplayArtifactTests : IDisposable
         SelectedResult = "2",
         NodeId = null,
         LogicalExecutionId = 0,
+    };
+
+    private static ReplayInstrumentationIdentity CreateInstrumentation(char hash) => new()
+    {
+        ManifestId = "manifest",
+        ManifestSha256 = new string(hash, 64),
+        EngineVersion = "1.0.0",
+        RuleSetId = "rules",
+        RuleSetVersion = "1",
+        RuleSetSignature = new string('c', 64),
+        Mode = "RaceExploration",
+        Assemblies =
+        [
+            new ReplayAssemblyIdentity
+            {
+                Name = "app.dll",
+                Sha256 = new string('d', 64),
+                RuntimeCompatibility = ReplayCompatibility.CurrentRuntimeCompatibility,
+            },
+        ],
     };
 }
