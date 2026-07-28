@@ -217,6 +217,32 @@ public sealed class CliCommandTests : IDisposable
         Assert.Contains("Unknown command", errors);
     }
 
+    [Theory]
+    [InlineData("rewrite")]
+    [InlineData("run")]
+    public void RemovedCommandAliasesAreUsageErrors(string command)
+    {
+        (ExitCode code, _, string errors) = Invoke(command);
+
+        Assert.Equal(ExitCode.UsageError, code);
+        Assert.Contains("Unknown command", errors);
+    }
+
+    [Theory]
+    [InlineData("--key")]
+    [InlineData("--rewrite-dependencies")]
+    public void RemovedInstrumentationOptionAliasesAreUsageErrors(string option)
+    {
+        BuildMinimalClosure();
+        string ruleSet = WriteEmptyRuleSet();
+
+        (ExitCode code, _, string errors) = Invoke(
+            "instrument", "--source", _source, "--output", _staging, "--rule-set", ruleSet, option, "value");
+
+        Assert.Equal(ExitCode.UsageError, code);
+        Assert.Contains("Unknown option", errors);
+    }
+
     [Fact]
     public void UnknownOptionIsUsageError()
     {

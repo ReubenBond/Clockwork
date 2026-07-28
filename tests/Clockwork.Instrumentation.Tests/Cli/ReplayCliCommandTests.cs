@@ -125,6 +125,24 @@ public sealed class ReplayCliCommandTests : IDisposable
         Assert.Contains("--scenario-type", error, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("--stop-on-first")]
+    [InlineData("--parallelism")]
+    public void RemovedExplorationOptionsAreUsageErrors(string option)
+    {
+        (ExitCode code, _, string error) = Invoke(
+            "explore",
+            "--assembly", TestAssembly,
+            "--scenario-type", typeof(SuccessScenario).FullName!,
+            "--output", Path.Combine(_root, "removed-option"),
+            "--seed", "1",
+            "--schedule-seed", "1",
+            option);
+
+        Assert.Equal(ExitCode.UsageError, code);
+        Assert.Contains("Unknown option", error, StringComparison.Ordinal);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root))

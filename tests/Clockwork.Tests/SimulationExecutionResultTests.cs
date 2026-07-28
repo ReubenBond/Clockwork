@@ -212,6 +212,27 @@ public sealed class SimulationExecutionResultTests
     }
 
     [Fact]
+    public async Task RunForReachesTheExactTargetThenDrainsWorkDueAtThatInstant()
+    {
+        await using var cluster = new RecordingCluster(seed: 1);
+        var node = cluster.AddNode("node-1");
+        var events = new List<string>();
+        node.Context.TaskQueue.EnqueueAfter(
+            () =>
+            {
+                events.Add("timer");
+                node.Context.TaskQueue.Enqueue(new ScheduledActionItem(() => events.Add("continuation")));
+            },
+            TimeSpan.FromSeconds(5));
+
+        SimulationExecutionResult result = cluster.RunFor(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(["timer", "continuation"], events);
+        Assert.Equal(cluster.StartDateTime + TimeSpan.FromSeconds(5), result.EndTime);
+        Assert.Equal(SimulationExecutionReason.Idle, result.Reason);
+    }
+
+    [Fact]
     public async Task RunForWithZeroDurationIsANoOp()
     {
         await using var cluster = new RecordingCluster(seed: 1);

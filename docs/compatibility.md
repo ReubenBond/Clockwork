@@ -601,7 +601,7 @@ The implemented package boundaries under `src/` map to the modes above:
 | `Clockwork.Runtime` | *(none)* | Ambient simulation context, policy, controlled task/thread/synchronization shims, logical strands, and scheduling/resource infrastructure. |
 | `Clockwork.Instrumentation` | `Clockwork.Runtime` | Cecil rewrite engine, manifests, built-in rules, closure orchestration, and diagnostics. |
 | `Clockwork.Instrumentation.Build` | `Clockwork.Instrumentation` | Opt-in MSBuild task + targets that instrument the resolved output closure out-of-place. |
-| `Clockwork.Tool` | `Clockwork.Instrumentation` | `clockwork rewrite` / `inspect` CLI over the shared orchestrator. |
+| `Clockwork.Tool` | `Clockwork.Instrumentation` | `clockwork instrument` / `inspect` CLI over the shared orchestrator. |
 | `Clockwork.Analyzers` | *(none)* | Roslyn diagnostics aligned with controlled/rejected direct BCL usage. |
 | `Clockwork.Testing` | `Clockwork.Runtime` | Reusable test helpers and scenario builders for consumers. |
 
