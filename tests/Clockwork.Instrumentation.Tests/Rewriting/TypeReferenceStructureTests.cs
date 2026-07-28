@@ -63,6 +63,37 @@ public sealed class TypeReferenceStructureTests
         Assert.False(TypeReferenceStructure.AreEquivalent(left, null, different, null));
     }
 
+    [Fact]
+    public void InflationMemoizesCyclesAndRespectsGenericParameterOwners()
+    {
+        using ModuleDefinition module = ModuleDefinition.CreateModule("recursive", ModuleKind.Dll);
+        var ownerType = new TypeDefinition("Fx", "Owner`1", TypeAttributes.Public);
+        var ownerParameter = new GenericParameter("TOwner", ownerType);
+        ownerType.GenericParameters.Add(ownerParameter);
+        var foreignType = new TypeDefinition("Fx", "Foreign`1", TypeAttributes.Public);
+        var foreignParameter = new GenericParameter("TForeign", foreignType);
+        foreignType.GenericParameters.Add(foreignParameter);
+        var nested = new GenericInstanceType(Type(module, "Nested`1"));
+        nested.GenericArguments.Add(foreignParameter);
+        var closedOwner = new GenericInstanceType(ownerType);
+        closedOwner.GenericArguments.Add(nested);
+        var owner = new MethodReference("Read", ownerParameter, closedOwner);
+        GenericInstanceType cycle = RecursiveInstance(Type(module, "Recursive`2"), ownerParameter);
+
+        TypeReference inflatedParameter = TypeReferenceStructure.Inflate(ownerParameter, owner);
+        var inflatedCycle = Assert.IsType<GenericInstanceType>(
+            TypeReferenceStructure.Inflate(cycle, owner),
+            exactMatch: true);
+
+        var inflatedNested = Assert.IsType<GenericInstanceType>(inflatedParameter, exactMatch: true);
+        Assert.Same(foreignParameter, Assert.Single(inflatedNested.GenericArguments));
+        Assert.Same(inflatedCycle, inflatedCycle.GenericArguments[0]);
+        var nestedInCycle = Assert.IsType<GenericInstanceType>(
+            inflatedCycle.GenericArguments[1],
+            exactMatch: true);
+        Assert.Same(foreignParameter, Assert.Single(nestedInCycle.GenericArguments));
+    }
+
     private static FunctionPointerType FunctionPointer(ModuleDefinition module, int arrayRank)
     {
         TypeReference modifier = Type(module, "Modifier");

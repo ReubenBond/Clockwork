@@ -288,24 +288,81 @@ internal sealed class CallSiteRewritingPass : RewritePass
         return false;
     }
 
-    private bool IsSubstitutedTypePair(TypeReference original, TypeReference replacement)
+    private bool IsSubstitutedTypePair(TypeReference original, TypeReference replacement) =>
+        IsSubstitutedTypePair(
+            original,
+            replacement,
+            new HashSet<TypePair>(TypePairComparer.Instance));
+
+    private bool IsSubstitutedTypePair(
+        TypeReference original,
+        TypeReference replacement,
+        HashSet<TypePair> visited)
     {
-        if (original is ByReferenceType originalByReference
-            || replacement is ByReferenceType)
+        if (!visited.Add(new TypePair(original, replacement)))
+        {
+            return true;
+        }
+
+        if (original is ByReferenceType || replacement is ByReferenceType)
         {
             return original is ByReferenceType left
                 && replacement is ByReferenceType right
-                && IsSubstitutedTypePair(left.ElementType, right.ElementType);
+                && IsEquivalentTypeArgument(left.ElementType, right.ElementType, visited);
         }
 
-        if (original is ArrayType originalArray
-            || replacement is ArrayType)
+        if (original is PointerType || replacement is PointerType)
+        {
+            return original is PointerType left
+                && replacement is PointerType right
+                && IsEquivalentTypeArgument(left.ElementType, right.ElementType, visited);
+        }
+
+        if (original is ArrayType || replacement is ArrayType)
         {
             return original is ArrayType left
                 && replacement is ArrayType right
                 && left.Rank == right.Rank
                 && left.IsVector == right.IsVector
-                && IsEquivalentTypeArgument(left.ElementType, right.ElementType);
+                && DimensionsMatch(left, right)
+                && IsEquivalentTypeArgument(left.ElementType, right.ElementType, visited);
+        }
+
+        if (original is RequiredModifierType || replacement is RequiredModifierType)
+        {
+            return original is RequiredModifierType left
+                && replacement is RequiredModifierType right
+                && IsEquivalentTypeArgument(left.ModifierType, right.ModifierType, visited)
+                && IsEquivalentTypeArgument(left.ElementType, right.ElementType, visited);
+        }
+
+        if (original is OptionalModifierType || replacement is OptionalModifierType)
+        {
+            return original is OptionalModifierType left
+                && replacement is OptionalModifierType right
+                && IsEquivalentTypeArgument(left.ModifierType, right.ModifierType, visited)
+                && IsEquivalentTypeArgument(left.ElementType, right.ElementType, visited);
+        }
+
+        if (original is PinnedType || replacement is PinnedType)
+        {
+            return original is PinnedType left
+                && replacement is PinnedType right
+                && IsEquivalentTypeArgument(left.ElementType, right.ElementType, visited);
+        }
+
+        if (original is SentinelType || replacement is SentinelType)
+        {
+            return original is SentinelType left
+                && replacement is SentinelType right
+                && IsEquivalentTypeArgument(left.ElementType, right.ElementType, visited);
+        }
+
+        if (original is FunctionPointerType || replacement is FunctionPointerType)
+        {
+            return original is FunctionPointerType left
+                && replacement is FunctionPointerType right
+                && FunctionPointersMatch(left, right, visited);
         }
 
         GenericInstanceType? originalGeneric = original as GenericInstanceType;
@@ -339,13 +396,82 @@ internal sealed class CallSiteRewritingPass : RewritePass
 
         return originalGeneric.GenericArguments.Count == replacementGeneric.GenericArguments.Count
             && originalGeneric.GenericArguments
-                .Zip(replacementGeneric.GenericArguments, IsEquivalentTypeArgument)
+                .Zip(
+                    replacementGeneric.GenericArguments,
+                    (left, right) => IsEquivalentTypeArgument(left, right, visited))
                 .All(static equivalent => equivalent);
     }
 
-    private bool IsEquivalentTypeArgument(TypeReference original, TypeReference replacement) =>
-        string.Equals(original.FullName, replacement.FullName, StringComparison.Ordinal)
-        || IsSubstitutedTypePair(original, replacement);
+    private bool IsEquivalentTypeArgument(
+        TypeReference original,
+        TypeReference replacement,
+        HashSet<TypePair> visited) =>
+        TypeReferenceStructure.AreEquivalent(original, null, replacement, null)
+        || IsSubstitutedTypePair(original, replacement, visited);
+
+    private bool FunctionPointersMatch(
+        FunctionPointerType original,
+        FunctionPointerType replacement,
+        HashSet<TypePair> visited)
+    {
+        if (original.HasThis != replacement.HasThis
+            || original.ExplicitThis != replacement.ExplicitThis
+            || original.CallingConvention != replacement.CallingConvention
+            || original.GenericParameters.Count != replacement.GenericParameters.Count
+            || original.Parameters.Count != replacement.Parameters.Count
+            || !IsEquivalentTypeArgument(original.ReturnType, replacement.ReturnType, visited))
+        {
+            return false;
+        }
+
+        for (int i = 0; i < original.Parameters.Count; i++)
+        {
+            if (!IsEquivalentTypeArgument(
+                original.Parameters[i].ParameterType,
+                replacement.Parameters[i].ParameterType,
+                visited))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool DimensionsMatch(ArrayType original, ArrayType replacement)
+    {
+        if (original.Dimensions.Count != replacement.Dimensions.Count)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < original.Dimensions.Count; i++)
+        {
+            if (original.Dimensions[i].LowerBound != replacement.Dimensions[i].LowerBound
+                || original.Dimensions[i].UpperBound != replacement.Dimensions[i].UpperBound)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private readonly record struct TypePair(TypeReference Original, TypeReference Replacement);
+
+    private sealed class TypePairComparer : IEqualityComparer<TypePair>
+    {
+        public static TypePairComparer Instance { get; } = new();
+
+        public bool Equals(TypePair x, TypePair y) =>
+            ReferenceEquals(x.Original, y.Original)
+            && ReferenceEquals(x.Replacement, y.Replacement);
+
+        public int GetHashCode(TypePair obj) =>
+            HashCode.Combine(
+                System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj.Original),
+                System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj.Replacement));
+    }
 
     private void ReportContractMismatch(RewriteRule rule, int offset, string message)
     {

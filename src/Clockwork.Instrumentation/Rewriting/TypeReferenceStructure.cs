@@ -25,7 +25,13 @@ internal static class TypeReferenceStructure
     public static TypeReference Inflate(TypeReference type, MethodReference owner) =>
         Inflate(
             type,
-            owner,
+            candidate => ResolveGenericParameter(candidate, owner),
+            new Dictionary<TypeReference, TypeReference>(ReferenceEqualityComparer.Instance));
+
+    public static TypeReference Inflate(TypeReference type, FieldReference owner) =>
+        Inflate(
+            type,
+            candidate => ResolveGenericParameter(candidate, owner),
             new Dictionary<TypeReference, TypeReference>(ReferenceEqualityComparer.Instance));
 
     private static bool AreEquivalent(
@@ -295,7 +301,7 @@ internal static class TypeReferenceStructure
 
     private static TypeReference Inflate(
         TypeReference type,
-        MethodReference owner,
+        Func<TypeReference, TypeReference> resolve,
         Dictionary<TypeReference, TypeReference> memo)
     {
         if (memo.TryGetValue(type, out TypeReference? cached))
@@ -303,10 +309,10 @@ internal static class TypeReferenceStructure
             return cached;
         }
 
-        TypeReference resolved = ResolveGenericParameter(type, owner);
+        TypeReference resolved = resolve(type);
         if (!ReferenceEquals(resolved, type))
         {
-            TypeReference inflated = Inflate(resolved, owner, memo);
+            TypeReference inflated = Inflate(resolved, resolve, memo);
             memo[type] = inflated;
             return inflated;
         }
@@ -316,11 +322,11 @@ internal static class TypeReferenceStructure
         {
             case GenericInstanceType generic:
                 {
-                    var instance = new GenericInstanceType(Inflate(generic.ElementType, owner, memo));
+                    var instance = new GenericInstanceType(Inflate(generic.ElementType, resolve, memo));
                     memo[type] = instance;
                     foreach (TypeReference argument in generic.GenericArguments)
                     {
-                        instance.GenericArguments.Add(Inflate(argument, owner, memo));
+                        instance.GenericArguments.Add(Inflate(argument, resolve, memo));
                     }
 
                     return instance;
@@ -335,27 +341,27 @@ internal static class TypeReferenceStructure
                         CallingConvention = functionPointer.CallingConvention,
                     };
                     memo[type] = inflated;
-                    inflated.ReturnType = Inflate(functionPointer.ReturnType, owner, memo);
+                    inflated.ReturnType = Inflate(functionPointer.ReturnType, resolve, memo);
                     foreach (ParameterDefinition parameter in functionPointer.Parameters)
                     {
                         inflated.Parameters.Add(new ParameterDefinition(
                             parameter.Name,
                             parameter.Attributes,
-                            Inflate(parameter.ParameterType, owner, memo)));
+                            Inflate(parameter.ParameterType, resolve, memo)));
                     }
 
                     return inflated;
                 }
 
             case ByReferenceType byReference:
-                result = new ByReferenceType(Inflate(byReference.ElementType, owner, memo));
+                result = new ByReferenceType(Inflate(byReference.ElementType, resolve, memo));
                 break;
             case PointerType pointer:
-                result = new PointerType(Inflate(pointer.ElementType, owner, memo));
+                result = new PointerType(Inflate(pointer.ElementType, resolve, memo));
                 break;
             case ArrayType array:
                 {
-                    TypeReference element = Inflate(array.ElementType, owner, memo);
+                    TypeReference element = Inflate(array.ElementType, resolve, memo);
                     var inflated = array.IsVector ? new ArrayType(element) : new ArrayType(element, array.Rank);
                     for (int i = 0; i < array.Dimensions.Count; i++)
                     {
@@ -371,19 +377,19 @@ internal static class TypeReferenceStructure
 
             case RequiredModifierType modifier:
                 result = new RequiredModifierType(
-                    Inflate(modifier.ModifierType, owner, memo),
-                    Inflate(modifier.ElementType, owner, memo));
+                    Inflate(modifier.ModifierType, resolve, memo),
+                    Inflate(modifier.ElementType, resolve, memo));
                 break;
             case OptionalModifierType modifier:
                 result = new OptionalModifierType(
-                    Inflate(modifier.ModifierType, owner, memo),
-                    Inflate(modifier.ElementType, owner, memo));
+                    Inflate(modifier.ModifierType, resolve, memo),
+                    Inflate(modifier.ElementType, resolve, memo));
                 break;
             case PinnedType pinned:
-                result = new PinnedType(Inflate(pinned.ElementType, owner, memo));
+                result = new PinnedType(Inflate(pinned.ElementType, resolve, memo));
                 break;
             case SentinelType sentinel:
-                result = new SentinelType(Inflate(sentinel.ElementType, owner, memo));
+                result = new SentinelType(Inflate(sentinel.ElementType, resolve, memo));
                 break;
             default:
                 result = type;
@@ -410,6 +416,20 @@ internal static class TypeReferenceStructure
         }
 
         if (parameter.Type == GenericParameterType.Type
+            && owner.DeclaringType is GenericInstanceType genericType
+            && parameter.Position < genericType.GenericArguments.Count
+            && HasSameOwner(parameter.Owner, genericType.ElementType))
+        {
+            return genericType.GenericArguments[parameter.Position];
+        }
+
+        return type;
+    }
+
+    private static TypeReference ResolveGenericParameter(TypeReference type, FieldReference owner)
+    {
+        if (type is GenericParameter parameter
+            && parameter.Type == GenericParameterType.Type
             && owner.DeclaringType is GenericInstanceType genericType
             && parameter.Position < genericType.GenericArguments.Count
             && HasSameOwner(parameter.Owner, genericType.ElementType))
