@@ -15,47 +15,62 @@ internal static class TypeReferenceStructure
         AreEquivalent(
             left,
             leftOwner,
+            substituteLeft: true,
             right,
             rightOwner,
+            substituteRight: true,
             new HashSet<TypePair>(TypePairComparer.Instance));
 
     public static string Shape(TypeReference type, MethodReference owner) =>
-        Shape(type, owner, new Dictionary<TypeReference, int>(ReferenceEqualityComparer.Instance));
+        Shape(type, owner, allowSubstitution: true, new Dictionary<TypeNode, int>(TypeNodeComparer.Instance));
 
     public static TypeReference Inflate(TypeReference type, MethodReference owner) =>
         Inflate(
             type,
             candidate => ResolveGenericParameter(candidate, owner),
-            new Dictionary<TypeReference, TypeReference>(ReferenceEqualityComparer.Instance));
+            allowSubstitution: true,
+            new Dictionary<TypeNode, TypeReference>(TypeNodeComparer.Instance));
 
     public static TypeReference Inflate(TypeReference type, FieldReference owner) =>
         Inflate(
             type,
             candidate => ResolveGenericParameter(candidate, owner),
-            new Dictionary<TypeReference, TypeReference>(ReferenceEqualityComparer.Instance));
+            allowSubstitution: true,
+            new Dictionary<TypeNode, TypeReference>(TypeNodeComparer.Instance));
 
     private static bool AreEquivalent(
         TypeReference left,
         MethodReference? leftOwner,
+        bool substituteLeft,
         TypeReference right,
         MethodReference? rightOwner,
+        bool substituteRight,
         HashSet<TypePair> visited)
     {
-        if (ReferenceEquals(left, right) && ReferenceEquals(leftOwner, rightOwner))
+        if (ReferenceEquals(left, right)
+            && ReferenceEquals(leftOwner, rightOwner)
+            && substituteLeft == substituteRight)
         {
             return true;
         }
 
-        if (!visited.Add(new TypePair(left, right)))
+        if (!visited.Add(new TypePair(left, substituteLeft, right, substituteRight)))
         {
             return true;
         }
 
-        TypeReference resolvedLeft = ResolveGenericParameter(left, leftOwner);
-        TypeReference resolvedRight = ResolveGenericParameter(right, rightOwner);
+        TypeReference resolvedLeft = substituteLeft ? ResolveGenericParameter(left, leftOwner) : left;
+        TypeReference resolvedRight = substituteRight ? ResolveGenericParameter(right, rightOwner) : right;
         if (!ReferenceEquals(resolvedLeft, left) || !ReferenceEquals(resolvedRight, right))
         {
-            return AreEquivalent(resolvedLeft, leftOwner, resolvedRight, rightOwner, visited);
+            return AreEquivalent(
+                resolvedLeft,
+                leftOwner,
+                ReferenceEquals(resolvedLeft, left) && substituteLeft,
+                resolvedRight,
+                rightOwner,
+                ReferenceEquals(resolvedRight, right) && substituteRight,
+                visited);
         }
 
         if (left is GenericParameter || right is GenericParameter)
@@ -69,25 +84,58 @@ internal static class TypeReferenceStructure
         return (left, right) switch
         {
             (ByReferenceType l, ByReferenceType r) =>
-                AreEquivalent(l.ElementType, leftOwner, r.ElementType, rightOwner, visited),
+                AreEquivalent(
+                    l.ElementType, leftOwner, substituteLeft,
+                    r.ElementType, rightOwner, substituteRight,
+                    visited),
             (PointerType l, PointerType r) =>
-                AreEquivalent(l.ElementType, leftOwner, r.ElementType, rightOwner, visited),
+                AreEquivalent(
+                    l.ElementType, leftOwner, substituteLeft,
+                    r.ElementType, rightOwner, substituteRight,
+                    visited),
             (ArrayType l, ArrayType r) =>
-                ArraysAreEquivalent(l, leftOwner, r, rightOwner, visited),
+                ArraysAreEquivalent(
+                    l, leftOwner, substituteLeft,
+                    r, rightOwner, substituteRight,
+                    visited),
             (GenericInstanceType l, GenericInstanceType r) =>
-                GenericInstancesAreEquivalent(l, leftOwner, r, rightOwner, visited),
+                GenericInstancesAreEquivalent(
+                    l, leftOwner, substituteLeft,
+                    r, rightOwner, substituteRight,
+                    visited),
             (RequiredModifierType l, RequiredModifierType r) =>
-                AreEquivalent(l.ModifierType, leftOwner, r.ModifierType, rightOwner, visited)
-                && AreEquivalent(l.ElementType, leftOwner, r.ElementType, rightOwner, visited),
+                AreEquivalent(
+                    l.ModifierType, leftOwner, substituteLeft,
+                    r.ModifierType, rightOwner, substituteRight,
+                    visited)
+                && AreEquivalent(
+                    l.ElementType, leftOwner, substituteLeft,
+                    r.ElementType, rightOwner, substituteRight,
+                    visited),
             (OptionalModifierType l, OptionalModifierType r) =>
-                AreEquivalent(l.ModifierType, leftOwner, r.ModifierType, rightOwner, visited)
-                && AreEquivalent(l.ElementType, leftOwner, r.ElementType, rightOwner, visited),
+                AreEquivalent(
+                    l.ModifierType, leftOwner, substituteLeft,
+                    r.ModifierType, rightOwner, substituteRight,
+                    visited)
+                && AreEquivalent(
+                    l.ElementType, leftOwner, substituteLeft,
+                    r.ElementType, rightOwner, substituteRight,
+                    visited),
             (PinnedType l, PinnedType r) =>
-                AreEquivalent(l.ElementType, leftOwner, r.ElementType, rightOwner, visited),
+                AreEquivalent(
+                    l.ElementType, leftOwner, substituteLeft,
+                    r.ElementType, rightOwner, substituteRight,
+                    visited),
             (SentinelType l, SentinelType r) =>
-                AreEquivalent(l.ElementType, leftOwner, r.ElementType, rightOwner, visited),
+                AreEquivalent(
+                    l.ElementType, leftOwner, substituteLeft,
+                    r.ElementType, rightOwner, substituteRight,
+                    visited),
             (FunctionPointerType l, FunctionPointerType r) =>
-                FunctionPointersAreEquivalent(l, leftOwner, r, rightOwner, visited),
+                FunctionPointersAreEquivalent(
+                    l, leftOwner, substituteLeft,
+                    r, rightOwner, substituteRight,
+                    visited),
             (TypeSpecification, _) or (_, TypeSpecification) => false,
             _ => string.Equals(left.FullName, right.FullName, StringComparison.Ordinal),
         };
@@ -96,8 +144,10 @@ internal static class TypeReferenceStructure
     private static bool ArraysAreEquivalent(
         ArrayType left,
         MethodReference? leftOwner,
+        bool substituteLeft,
         ArrayType right,
         MethodReference? rightOwner,
+        bool substituteRight,
         HashSet<TypePair> visited)
     {
         if (left.Rank != right.Rank
@@ -118,18 +168,26 @@ internal static class TypeReferenceStructure
             }
         }
 
-        return AreEquivalent(left.ElementType, leftOwner, right.ElementType, rightOwner, visited);
+        return AreEquivalent(
+            left.ElementType, leftOwner, substituteLeft,
+            right.ElementType, rightOwner, substituteRight,
+            visited);
     }
 
     private static bool GenericInstancesAreEquivalent(
         GenericInstanceType left,
         MethodReference? leftOwner,
+        bool substituteLeft,
         GenericInstanceType right,
         MethodReference? rightOwner,
+        bool substituteRight,
         HashSet<TypePair> visited)
     {
         if (left.GenericArguments.Count != right.GenericArguments.Count
-            || !AreEquivalent(left.ElementType, leftOwner, right.ElementType, rightOwner, visited))
+            || !AreEquivalent(
+                left.ElementType, leftOwner, substituteLeft,
+                right.ElementType, rightOwner, substituteRight,
+                visited))
         {
             return false;
         }
@@ -139,8 +197,10 @@ internal static class TypeReferenceStructure
             if (!AreEquivalent(
                 left.GenericArguments[i],
                 leftOwner,
+                substituteLeft,
                 right.GenericArguments[i],
                 rightOwner,
+                substituteRight,
                 visited))
             {
                 return false;
@@ -153,8 +213,10 @@ internal static class TypeReferenceStructure
     private static bool FunctionPointersAreEquivalent(
         FunctionPointerType left,
         MethodReference? leftOwner,
+        bool substituteLeft,
         FunctionPointerType right,
         MethodReference? rightOwner,
+        bool substituteRight,
         HashSet<TypePair> visited)
     {
         if (left.HasThis != right.HasThis
@@ -162,7 +224,10 @@ internal static class TypeReferenceStructure
             || left.CallingConvention != right.CallingConvention
             || left.GenericParameters.Count != right.GenericParameters.Count
             || left.Parameters.Count != right.Parameters.Count
-            || !AreEquivalent(left.ReturnType, leftOwner, right.ReturnType, rightOwner, visited))
+            || !AreEquivalent(
+                left.ReturnType, leftOwner, substituteLeft,
+                right.ReturnType, rightOwner, substituteRight,
+                visited))
         {
             return false;
         }
@@ -172,8 +237,10 @@ internal static class TypeReferenceStructure
             if (!AreEquivalent(
                 left.Parameters[i].ParameterType,
                 leftOwner,
+                substituteLeft,
                 right.Parameters[i].ParameterType,
                 rightOwner,
+                substituteRight,
                 visited))
             {
                 return false;
@@ -186,22 +253,24 @@ internal static class TypeReferenceStructure
     private static string Shape(
         TypeReference type,
         MethodReference owner,
-        Dictionary<TypeReference, int> active)
+        bool allowSubstitution,
+        Dictionary<TypeNode, int> active)
     {
-        if (active.TryGetValue(type, out int recursionIndex))
+        TypeReference resolved = allowSubstitution ? ResolveGenericParameter(type, owner) : type;
+        if (!ReferenceEquals(resolved, type))
+        {
+            return Shape(resolved, owner, allowSubstitution: false, active);
+        }
+
+        var node = new TypeNode(type, allowSubstitution);
+        if (active.TryGetValue(node, out int recursionIndex))
         {
             return "#" + recursionIndex;
         }
 
-        active.Add(type, active.Count);
+        active.Add(node, active.Count);
         try
         {
-            TypeReference resolved = ResolveGenericParameter(type, owner);
-            if (!ReferenceEquals(resolved, type))
-            {
-                return Shape(resolved, owner, active);
-            }
-
             if (type is GenericParameter parameter)
             {
                 return GenericParameterShape(parameter);
@@ -209,39 +278,44 @@ internal static class TypeReferenceStructure
 
             return type switch
             {
-                ByReferenceType byReference => Shape(byReference.ElementType, owner, active) + "&",
-                PointerType pointer => Shape(pointer.ElementType, owner, active) + "*",
-                ArrayType array => ArrayShape(array, owner, active),
-                GenericInstanceType generic => GenericInstanceShape(generic, owner, active),
+                ByReferenceType byReference =>
+                    Shape(byReference.ElementType, owner, allowSubstitution, active) + "&",
+                PointerType pointer =>
+                    Shape(pointer.ElementType, owner, allowSubstitution, active) + "*",
+                ArrayType array => ArrayShape(array, owner, allowSubstitution, active),
+                GenericInstanceType generic => GenericInstanceShape(generic, owner, allowSubstitution, active),
                 RequiredModifierType modifier =>
-                    Shape(modifier.ElementType, owner, active)
-                    + " modreq(" + Shape(modifier.ModifierType, owner, active) + ")",
+                    Shape(modifier.ElementType, owner, allowSubstitution, active)
+                    + " modreq(" + Shape(modifier.ModifierType, owner, allowSubstitution, active) + ")",
                 OptionalModifierType modifier =>
-                    Shape(modifier.ElementType, owner, active)
-                    + " modopt(" + Shape(modifier.ModifierType, owner, active) + ")",
-                PinnedType pinned => Shape(pinned.ElementType, owner, active) + " pinned",
-                SentinelType sentinel => Shape(sentinel.ElementType, owner, active) + " sentinel",
-                FunctionPointerType functionPointer => FunctionPointerShape(functionPointer, owner, active),
+                    Shape(modifier.ElementType, owner, allowSubstitution, active)
+                    + " modopt(" + Shape(modifier.ModifierType, owner, allowSubstitution, active) + ")",
+                PinnedType pinned => Shape(pinned.ElementType, owner, allowSubstitution, active) + " pinned",
+                SentinelType sentinel => Shape(sentinel.ElementType, owner, allowSubstitution, active) + " sentinel",
+                FunctionPointerType functionPointer =>
+                    FunctionPointerShape(functionPointer, owner, allowSubstitution, active),
                 _ => type.FullName,
             };
         }
         finally
         {
-            active.Remove(type);
+            active.Remove(node);
         }
     }
 
     private static string ArrayShape(
         ArrayType array,
         MethodReference owner,
-        Dictionary<TypeReference, int> active)
+        bool allowSubstitution,
+        Dictionary<TypeNode, int> active)
     {
         if (array.IsVector)
         {
-            return Shape(array.ElementType, owner, active) + "[]";
+            return Shape(array.ElementType, owner, allowSubstitution, active) + "[]";
         }
 
-        var builder = new StringBuilder(Shape(array.ElementType, owner, active)).Append('[');
+        var builder = new StringBuilder(
+            Shape(array.ElementType, owner, allowSubstitution, active)).Append('[');
         for (int i = 0; i < array.Dimensions.Count; i++)
         {
             if (i > 0)
@@ -262,7 +336,8 @@ internal static class TypeReferenceStructure
     private static string GenericInstanceShape(
         GenericInstanceType generic,
         MethodReference owner,
-        Dictionary<TypeReference, int> active)
+        bool allowSubstitution,
+        Dictionary<TypeNode, int> active)
     {
         var builder = new StringBuilder(generic.ElementType.FullName).Append('<');
         for (int i = 0; i < generic.GenericArguments.Count; i++)
@@ -272,7 +347,7 @@ internal static class TypeReferenceStructure
                 builder.Append(',');
             }
 
-            builder.Append(Shape(generic.GenericArguments[i], owner, active));
+            builder.Append(Shape(generic.GenericArguments[i], owner, allowSubstitution, active));
         }
 
         return builder.Append('>').ToString();
@@ -281,10 +356,17 @@ internal static class TypeReferenceStructure
     private static string FunctionPointerShape(
         FunctionPointerType functionPointer,
         MethodReference owner,
-        Dictionary<TypeReference, int> active)
+        bool allowSubstitution,
+        Dictionary<TypeNode, int> active)
     {
-        var builder = new StringBuilder("method ")
-            .Append(Shape(functionPointer.ReturnType, owner, active))
+        var builder = new StringBuilder("method[")
+            .Append(functionPointer.CallingConvention)
+            .Append(";this=")
+            .Append(functionPointer.HasThis)
+            .Append(";explicit=")
+            .Append(functionPointer.ExplicitThis)
+            .Append("] ")
+            .Append(Shape(functionPointer.ReturnType, owner, allowSubstitution, active))
             .Append(" *(");
         for (int i = 0; i < functionPointer.Parameters.Count; i++)
         {
@@ -293,7 +375,11 @@ internal static class TypeReferenceStructure
                 builder.Append(',');
             }
 
-            builder.Append(Shape(functionPointer.Parameters[i].ParameterType, owner, active));
+            builder.Append(Shape(
+                functionPointer.Parameters[i].ParameterType,
+                owner,
+                allowSubstitution,
+                active));
         }
 
         return builder.Append(')').ToString();
@@ -302,18 +388,20 @@ internal static class TypeReferenceStructure
     private static TypeReference Inflate(
         TypeReference type,
         Func<TypeReference, TypeReference> resolve,
-        Dictionary<TypeReference, TypeReference> memo)
+        bool allowSubstitution,
+        Dictionary<TypeNode, TypeReference> memo)
     {
-        if (memo.TryGetValue(type, out TypeReference? cached))
+        var node = new TypeNode(type, allowSubstitution);
+        if (memo.TryGetValue(node, out TypeReference? cached))
         {
             return cached;
         }
 
-        TypeReference resolved = resolve(type);
+        TypeReference resolved = allowSubstitution ? resolve(type) : type;
         if (!ReferenceEquals(resolved, type))
         {
-            TypeReference inflated = Inflate(resolved, resolve, memo);
-            memo[type] = inflated;
+            TypeReference inflated = Inflate(resolved, resolve, allowSubstitution: false, memo);
+            memo[node] = inflated;
             return inflated;
         }
 
@@ -322,11 +410,12 @@ internal static class TypeReferenceStructure
         {
             case GenericInstanceType generic:
                 {
-                    var instance = new GenericInstanceType(Inflate(generic.ElementType, resolve, memo));
-                    memo[type] = instance;
+                    var instance = new GenericInstanceType(
+                        Inflate(generic.ElementType, resolve, allowSubstitution, memo));
+                    memo[node] = instance;
                     foreach (TypeReference argument in generic.GenericArguments)
                     {
-                        instance.GenericArguments.Add(Inflate(argument, resolve, memo));
+                        instance.GenericArguments.Add(Inflate(argument, resolve, allowSubstitution, memo));
                     }
 
                     return instance;
@@ -340,28 +429,30 @@ internal static class TypeReferenceStructure
                         ExplicitThis = functionPointer.ExplicitThis,
                         CallingConvention = functionPointer.CallingConvention,
                     };
-                    memo[type] = inflated;
-                    inflated.ReturnType = Inflate(functionPointer.ReturnType, resolve, memo);
+                    memo[node] = inflated;
+                    inflated.ReturnType = Inflate(
+                        functionPointer.ReturnType, resolve, allowSubstitution, memo);
                     foreach (ParameterDefinition parameter in functionPointer.Parameters)
                     {
                         inflated.Parameters.Add(new ParameterDefinition(
                             parameter.Name,
                             parameter.Attributes,
-                            Inflate(parameter.ParameterType, resolve, memo)));
+                            Inflate(parameter.ParameterType, resolve, allowSubstitution, memo)));
                     }
 
                     return inflated;
                 }
 
             case ByReferenceType byReference:
-                result = new ByReferenceType(Inflate(byReference.ElementType, resolve, memo));
+                result = new ByReferenceType(
+                    Inflate(byReference.ElementType, resolve, allowSubstitution, memo));
                 break;
             case PointerType pointer:
-                result = new PointerType(Inflate(pointer.ElementType, resolve, memo));
+                result = new PointerType(Inflate(pointer.ElementType, resolve, allowSubstitution, memo));
                 break;
             case ArrayType array:
                 {
-                    TypeReference element = Inflate(array.ElementType, resolve, memo);
+                    TypeReference element = Inflate(array.ElementType, resolve, allowSubstitution, memo);
                     var inflated = array.IsVector ? new ArrayType(element) : new ArrayType(element, array.Rank);
                     for (int i = 0; i < array.Dimensions.Count; i++)
                     {
@@ -377,26 +468,27 @@ internal static class TypeReferenceStructure
 
             case RequiredModifierType modifier:
                 result = new RequiredModifierType(
-                    Inflate(modifier.ModifierType, resolve, memo),
-                    Inflate(modifier.ElementType, resolve, memo));
+                    Inflate(modifier.ModifierType, resolve, allowSubstitution, memo),
+                    Inflate(modifier.ElementType, resolve, allowSubstitution, memo));
                 break;
             case OptionalModifierType modifier:
                 result = new OptionalModifierType(
-                    Inflate(modifier.ModifierType, resolve, memo),
-                    Inflate(modifier.ElementType, resolve, memo));
+                    Inflate(modifier.ModifierType, resolve, allowSubstitution, memo),
+                    Inflate(modifier.ElementType, resolve, allowSubstitution, memo));
                 break;
             case PinnedType pinned:
-                result = new PinnedType(Inflate(pinned.ElementType, resolve, memo));
+                result = new PinnedType(Inflate(pinned.ElementType, resolve, allowSubstitution, memo));
                 break;
             case SentinelType sentinel:
-                result = new SentinelType(Inflate(sentinel.ElementType, resolve, memo));
+                result = new SentinelType(
+                    Inflate(sentinel.ElementType, resolve, allowSubstitution, memo));
                 break;
             default:
                 result = type;
                 break;
         }
 
-        memo[type] = result;
+        memo[node] = result;
         return result;
     }
 
@@ -452,9 +544,7 @@ internal static class TypeReferenceStructure
             (TypeReference left, TypeReference right) =>
                 string.Equals(left.FullName, right.FullName, StringComparison.Ordinal),
             (MethodReference left, MethodReference right) =>
-                string.Equals(left.Name, right.Name, StringComparison.Ordinal)
-                && string.Equals(left.DeclaringType.FullName, right.DeclaringType.FullName, StringComparison.Ordinal)
-                && left.GenericParameters.Count == right.GenericParameters.Count,
+                string.Equals(left.FullName, right.FullName, StringComparison.Ordinal),
             _ => false,
         };
     }
@@ -462,16 +552,40 @@ internal static class TypeReferenceStructure
     private static string GenericParameterShape(GenericParameter parameter) =>
         (parameter.Type == GenericParameterType.Method ? "!!" : "!") + parameter.Position;
 
-    private readonly record struct TypePair(TypeReference Left, TypeReference Right);
+    private readonly record struct TypeNode(TypeReference Type, bool AllowSubstitution);
+
+    private readonly record struct TypePair(
+        TypeReference Left,
+        bool SubstituteLeft,
+        TypeReference Right,
+        bool SubstituteRight);
+
+    private sealed class TypeNodeComparer : IEqualityComparer<TypeNode>
+    {
+        public static TypeNodeComparer Instance { get; } = new();
+
+        public bool Equals(TypeNode x, TypeNode y) =>
+            ReferenceEquals(x.Type, y.Type) && x.AllowSubstitution == y.AllowSubstitution;
+
+        public int GetHashCode(TypeNode obj) =>
+            HashCode.Combine(RuntimeHelpers.GetHashCode(obj.Type), obj.AllowSubstitution);
+    }
 
     private sealed class TypePairComparer : IEqualityComparer<TypePair>
     {
         public static TypePairComparer Instance { get; } = new();
 
         public bool Equals(TypePair x, TypePair y) =>
-            ReferenceEquals(x.Left, y.Left) && ReferenceEquals(x.Right, y.Right);
+            ReferenceEquals(x.Left, y.Left)
+            && x.SubstituteLeft == y.SubstituteLeft
+            && ReferenceEquals(x.Right, y.Right)
+            && x.SubstituteRight == y.SubstituteRight;
 
         public int GetHashCode(TypePair obj) =>
-            HashCode.Combine(RuntimeHelpers.GetHashCode(obj.Left), RuntimeHelpers.GetHashCode(obj.Right));
+            HashCode.Combine(
+                RuntimeHelpers.GetHashCode(obj.Left),
+                obj.SubstituteLeft,
+                RuntimeHelpers.GetHashCode(obj.Right),
+                obj.SubstituteRight);
     }
 }
