@@ -30,12 +30,15 @@ public sealed class NondeterministicApiAnalyzerTests
     [InlineData("_ = System.Random.Shared;", "CW1001")]
     [InlineData("_ = new System.Random();", "CW1001")]
     [InlineData("_ = new System.Random(42);", "CW1001")]
-    [InlineData("_ = System.Threading.Tasks.Task.Delay(1);", "CW1002")]
-    [InlineData("_ = System.Threading.Tasks.Task.Delay(System.TimeSpan.Zero);", "CW1002")]
-    [InlineData("_ = System.Threading.Tasks.Task.Delay(1, default);", "CW1002")]
-    [InlineData("_ = System.Threading.Tasks.Task.Delay(System.TimeSpan.Zero, default(System.Threading.CancellationToken));", "CW1002")]
-    [InlineData("_ = System.Threading.Tasks.Task.Delay(System.TimeSpan.Zero, System.TimeProvider.System);", "CW1002")]
-    [InlineData("_ = System.Threading.Tasks.Task.Delay(System.TimeSpan.Zero, System.TimeProvider.System, default);", "CW1002")]
+    [InlineData("_ = System.Threading.Tasks.Task.Delay(1);", "CW1001")]
+    [InlineData("_ = System.Threading.Tasks.Task.Delay(System.TimeSpan.Zero);", "CW1001")]
+    [InlineData("_ = System.Threading.Tasks.Task.Delay(1, default);", "CW1001")]
+    [InlineData("_ = System.Threading.Tasks.Task.Delay(System.TimeSpan.Zero, default(System.Threading.CancellationToken));", "CW1001")]
+    [InlineData("_ = System.Threading.Tasks.Task.Delay(System.TimeSpan.Zero, System.TimeProvider.System);", "CW1001")]
+    [InlineData("_ = System.Threading.Tasks.Task.Delay(System.TimeSpan.Zero, System.TimeProvider.System, default);", "CW1001")]
+    [InlineData("using var timer = new System.Threading.Timer(_ => { });", "CW1001")]
+    [InlineData("using var timer = new System.Threading.PeriodicTimer(System.TimeSpan.FromSeconds(1));", "CW1001")]
+    [InlineData("using var source = new System.Threading.CancellationTokenSource(1);", "CW1001")]
     [InlineData("_ = System.Security.Cryptography.RandomNumberGenerator.GetBytes(16);", "CW1002")]
     [InlineData("_ = System.Security.Cryptography.RandomNumberGenerator.GetInt32(100);", "CW1002")]
     [InlineData("System.Security.Cryptography.RandomNumberGenerator.Fill(System.Span<byte>.Empty);", "CW1002")]
@@ -168,11 +171,13 @@ public sealed class NondeterministicApiAnalyzerTests
             BuiltInRuleFamily.TaskCombinators,
             BuiltInRuleFamily.TaskSynchronization,
             BuiltInRuleFamily.TaskContinuations,
-            BuiltInRuleFamily.TaskDeferred,
+            BuiltInRuleFamily.TaskTime,
             BuiltInRuleFamily.TaskScheduling,
             BuiltInRuleFamily.TaskFactory,
             BuiltInRuleFamily.Thread,
             BuiltInRuleFamily.ThreadPool,
+            BuiltInRuleFamily.Timers,
+            BuiltInRuleFamily.CancellationTimers,
             BuiltInRuleFamily.Parallel,
             BuiltInRuleFamily.Monitor,
             BuiltInRuleFamily.Lock,

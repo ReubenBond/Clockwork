@@ -50,11 +50,10 @@ public enum BuiltInRuleFamily
     TaskContinuations,
 
     /// <summary>
-    /// Task surfaces deferred to later phases: <c>Task.Delay</c> (virtual timers, Phase 8). Classified
-    /// <c>Rejected</c>: the shim fails the call with a precise diagnostic under simulation rather than
-    /// silently using wall time. The instrumented entry point requires an active simulation.
+    /// Virtual-time task APIs: every .NET 10 <c>Task.Delay</c> and <c>Task.WaitAsync</c> overload,
+    /// including cancellation and <see cref="System.TimeProvider"/> forms.
     /// </summary>
-    TaskDeferred,
+    TaskTime,
 
     /// <summary>
     /// Task thread-pool scheduling: the <c>Task.Run</c> family (every <c>Action</c>/<c>Func&lt;TResult&gt;</c>/
@@ -123,6 +122,19 @@ public enum BuiltInRuleFamily
     /// controlled task types.
     /// </summary>
     ThreadPool,
+
+    /// <summary>
+    /// Virtual timer types and provider bridges: <see cref="System.Threading.Timer"/>,
+    /// <see cref="System.Timers.Timer"/>, <see cref="System.Threading.PeriodicTimer"/>, and
+    /// <see cref="System.TimeProvider"/> timer creation.
+    /// </summary>
+    Timers,
+
+    /// <summary>
+    /// Timer-driven <see cref="System.Threading.CancellationTokenSource"/> construction,
+    /// <c>CancelAfter</c>, reset, cancellation, and disposal.
+    /// </summary>
+    CancellationTimers,
 
     /// <summary>
     /// <see cref="System.Threading.Tasks.Parallel"/> surface. The simple-body overloads -

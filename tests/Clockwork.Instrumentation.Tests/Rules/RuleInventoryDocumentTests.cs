@@ -54,15 +54,56 @@ public sealed class RuleInventoryDocumentTests
             .Order(StringComparer.Ordinal)
             .ToArray();
         string[] classifiedOverloads = BuiltInRuleSets.ControlledTasksInventory
-            .Where(entry => entry.Family == BuiltInRuleFamily.TaskDeferred)
+            .Where(entry => entry.Family == BuiltInRuleFamily.TaskTime && entry.Rule.Target.MemberName == "Delay")
             .Select(entry => string.Join(",", entry.Rule.Target.ParameterTypeFullNames))
             .Order(StringComparer.Ordinal)
             .ToArray();
 
         Assert.Equal(frameworkOverloads, classifiedOverloads);
         Assert.All(
-            BuiltInRuleSets.ControlledTasksInventory.Where(entry => entry.Family == BuiltInRuleFamily.TaskDeferred),
-            entry => Assert.Equal(Clockwork.Runtime.Policy.SimulationApiPolicy.Rejected, entry.Rule.Policy));
+            BuiltInRuleSets.ControlledTasksInventory.Where(
+                entry => entry.Family == BuiltInRuleFamily.TaskTime && entry.Rule.Target.MemberName == "Delay"),
+            entry => Assert.Equal(Clockwork.Runtime.Policy.SimulationApiPolicy.Controlled, entry.Rule.Policy));
+    }
+
+    [Fact]
+    public void TaskWaitAsyncRulesClassifyEveryNet10Overload()
+    {
+        int frameworkOverloads =
+            typeof(Task).GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+                .Count(method => method.Name == nameof(Task.WaitAsync)) +
+            typeof(Task<>).GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+                .Count(method => method.Name == nameof(Task.WaitAsync));
+        RewriteRule[] classified = BuiltInRuleSets.ControlledTasksInventory
+            .Where(entry => entry.Family == BuiltInRuleFamily.TaskTime && entry.Rule.Target.MemberName == "WaitAsync")
+            .Select(entry => entry.Rule)
+            .ToArray();
+
+        Assert.Equal(10, frameworkOverloads);
+        Assert.Equal(frameworkOverloads, classified.Length);
+        Assert.All(classified, rule =>
+            Assert.Equal(Clockwork.Runtime.Policy.SimulationApiPolicy.Controlled, rule.Policy));
+    }
+
+    [Fact]
+    public void TimerTypesUseControlledWholeTypeSubstitutions()
+    {
+        (string Target, string Replacement)[] expected =
+        [
+            ("System.Threading.Timer", "Clockwork.Runtime.Threading.ControlledTimer"),
+            ("System.Timers.Timer", "Clockwork.Runtime.Threading.ControlledTimersTimer"),
+            ("System.Threading.PeriodicTimer", "Clockwork.Runtime.Threading.ControlledPeriodicTimer"),
+        ];
+
+        foreach ((string target, string replacement) in expected)
+        {
+            RewriteRule rule = Assert.Single(BuiltInRuleSets.ControlledTasksInventory
+                .Where(entry => entry.Family == BuiltInRuleFamily.Timers)
+                .Select(entry => entry.Rule),
+                rule => rule.Target.DeclaringTypeFullName == target);
+            Assert.Equal(RewriteOperationKind.SubstituteType, rule.Operation);
+            Assert.Equal(replacement, rule.Replacement.DeclaringTypeFullName);
+        }
     }
 
     [Fact]

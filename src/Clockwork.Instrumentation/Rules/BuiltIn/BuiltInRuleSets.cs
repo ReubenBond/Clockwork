@@ -39,7 +39,7 @@ public static class BuiltInRuleSets
     public const string ControlledTasksId = "clockwork.tasks.controlled";
 
     /// <summary>The version of the controlled task rule set.</summary>
-    public const string ControlledTasksVersion = "2.0.0";
+    public const string ControlledTasksVersion = "3.0.0";
 
     /// <summary>The simple name of the assembly declaring every built-in shim.</summary>
     public const string ShimAssemblyName = "Clockwork.Runtime";
@@ -66,6 +66,8 @@ public static class BuiltInRuleSets
     private const string KernelSemaphoreShim = "Clockwork.Runtime.Threading.ControlledSemaphore";
     private const string ExecutionContextShim = "Clockwork.Runtime.Threading.ControlledExecutionContext";
     private const string SynchronizationContextShim = "Clockwork.Runtime.Threading.ControlledSynchronizationContext";
+    private const string TimeProviderShim = "Clockwork.Runtime.Threading.ControlledTimeProvider";
+    private const string CancellationTokenSourceShim = "Clockwork.Runtime.Threading.ControlledCancellationTokenSource";
 
     // Cecil full names for the exact overload parameters (from the net10 reference assemblies).
     private const string Int32 = "System.Int32";
@@ -128,6 +130,8 @@ public static class BuiltInRuleSets
     // replacement); Func<Task>/Func<Task<TResult>> carry the unwrap overloads.
     private const string CancellationToken = "System.Threading.CancellationToken";
     private const string TimeProvider = "System.TimeProvider";
+    private const string TimerCallbackType = "System.Threading.TimerCallback";
+    private const string ITimerType = "System.Threading.ITimer";
     private const string FuncOfTask = "System.Func`1<System.Threading.Tasks.Task>";
     private const string FuncOfTaskResult = "System.Func`1<System.Threading.Tasks.Task`1<!!0>>";
     private const string FuncOfTaskResultDecl = "System.Func`1<System.Threading.Tasks.Task`1<TResult>>";
@@ -148,6 +152,13 @@ public static class BuiltInRuleSets
 
     // Cecil full names for the controlled System.Threading.Thread surface (Phase 6B).
     private const string ThreadType = "System.Threading.Thread";
+    private const string TimerType = "System.Threading.Timer";
+    private const string ControlledTimerType = "Clockwork.Runtime.Threading.ControlledTimer";
+    private const string TimersTimerType = "System.Timers.Timer";
+    private const string ControlledTimersTimerType = "Clockwork.Runtime.Threading.ControlledTimersTimer";
+    private const string PeriodicTimerType = "System.Threading.PeriodicTimer";
+    private const string ControlledPeriodicTimerType = "Clockwork.Runtime.Threading.ControlledPeriodicTimer";
+    private const string CancellationTokenSourceType = "System.Threading.CancellationTokenSource";
     private const string ThreadStart = "System.Threading.ThreadStart";
     private const string ParameterizedThreadStart = "System.Threading.ParameterizedThreadStart";
     private const string ObjectType = "System.Object";
@@ -376,13 +387,15 @@ public static class BuiltInRuleSets
         BuiltInRuleFamily.TaskCombinators,
         BuiltInRuleFamily.TaskSynchronization,
         BuiltInRuleFamily.TaskContinuations,
-        BuiltInRuleFamily.TaskDeferred,
+        BuiltInRuleFamily.TaskTime,
         BuiltInRuleFamily.TaskScheduling,
         BuiltInRuleFamily.AsyncMachinery,
         BuiltInRuleFamily.ValueTaskMachinery,
         BuiltInRuleFamily.TaskFactory,
         BuiltInRuleFamily.Thread,
         BuiltInRuleFamily.ThreadPool,
+        BuiltInRuleFamily.Timers,
+        BuiltInRuleFamily.CancellationTimers,
         BuiltInRuleFamily.Parallel,
         BuiltInRuleFamily.Monitor,
         BuiltInRuleFamily.Lock,
@@ -528,38 +541,48 @@ public static class BuiltInRuleSets
         TaskRule(builder, BuiltInRuleFamily.TaskContinuations, "clockwork.tasks.continuewith.generic.func",
             MemberSignature.Method(TaskTType, "ContinueWith", FuncOfTaskTAndNewResult), Shim(TaskShim, "ContinueWith", TaskTDecl, FuncOfTaskTAndNewResultDecl));
 
-        // ---- Deferred: Task.Delay (Phase 8 timers) rejected. The shim rejects under simulation with a
-        // precise diagnostic and runs the real BCL API outside. ----
-        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.TaskDeferred, RewriteRule.RedirectCall(
-            "clockwork.tasks.delay.milliseconds",
-            MemberSignature.Method(Task, "Delay", Int32),
-            Shim(TaskShim, "Delay", Int32),
-            SimulationApiPolicy.Rejected)));
-        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.TaskDeferred, RewriteRule.RedirectCall(
-            "clockwork.tasks.delay.timespan",
-            MemberSignature.Method(Task, "Delay", TimeSpan),
-            Shim(TaskShim, "Delay", TimeSpan),
-            SimulationApiPolicy.Rejected)));
-        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.TaskDeferred, RewriteRule.RedirectCall(
-            "clockwork.tasks.delay.milliseconds.cancellationtoken",
-            MemberSignature.Method(Task, "Delay", Int32, CancellationToken),
-            Shim(TaskShim, "Delay", Int32, CancellationToken),
-            SimulationApiPolicy.Rejected)));
-        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.TaskDeferred, RewriteRule.RedirectCall(
-            "clockwork.tasks.delay.timespan.cancellationtoken",
-            MemberSignature.Method(Task, "Delay", TimeSpan, CancellationToken),
-            Shim(TaskShim, "Delay", TimeSpan, CancellationToken),
-            SimulationApiPolicy.Rejected)));
-        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.TaskDeferred, RewriteRule.RedirectCall(
-            "clockwork.tasks.delay.timespan.timeprovider",
-            MemberSignature.Method(Task, "Delay", TimeSpan, TimeProvider),
-            Shim(TaskShim, "Delay", TimeSpan, TimeProvider),
-            SimulationApiPolicy.Rejected)));
-        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.TaskDeferred, RewriteRule.RedirectCall(
-            "clockwork.tasks.delay.timespan.timeprovider.cancellationtoken",
+        // ---- Virtual-time task delays and asynchronous timeout races. ----
+        TaskRule(builder, BuiltInRuleFamily.TaskTime, "clockwork.tasks.delay.milliseconds",
+            MemberSignature.Method(Task, "Delay", Int32), Shim(TaskShim, "Delay", Int32));
+        TaskRule(builder, BuiltInRuleFamily.TaskTime, "clockwork.tasks.delay.timespan",
+            MemberSignature.Method(Task, "Delay", TimeSpan), Shim(TaskShim, "Delay", TimeSpan));
+        TaskRule(builder, BuiltInRuleFamily.TaskTime, "clockwork.tasks.delay.milliseconds.cancellationtoken",
+            MemberSignature.Method(Task, "Delay", Int32, CancellationToken), Shim(TaskShim, "Delay", Int32, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.TaskTime, "clockwork.tasks.delay.timespan.cancellationtoken",
+            MemberSignature.Method(Task, "Delay", TimeSpan, CancellationToken), Shim(TaskShim, "Delay", TimeSpan, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.TaskTime, "clockwork.tasks.delay.timespan.timeprovider",
+            MemberSignature.Method(Task, "Delay", TimeSpan, TimeProvider), Shim(TaskShim, "Delay", TimeSpan, TimeProvider));
+        TaskRule(builder, BuiltInRuleFamily.TaskTime, "clockwork.tasks.delay.timespan.timeprovider.cancellationtoken",
             MemberSignature.Method(Task, "Delay", TimeSpan, TimeProvider, CancellationToken),
-            Shim(TaskShim, "Delay", TimeSpan, TimeProvider, CancellationToken),
-            SimulationApiPolicy.Rejected)));
+            Shim(TaskShim, "Delay", TimeSpan, TimeProvider, CancellationToken));
+
+        TaskRule(builder, BuiltInRuleFamily.TaskTime, "clockwork.tasks.waitasync.cancellationtoken",
+            MemberSignature.Method(Task, "WaitAsync", CancellationToken), Shim(TaskShim, "WaitAsync", Task, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.TaskTime, "clockwork.tasks.waitasync.timespan",
+            MemberSignature.Method(Task, "WaitAsync", TimeSpan), Shim(TaskShim, "WaitAsync", Task, TimeSpan));
+        TaskRule(builder, BuiltInRuleFamily.TaskTime, "clockwork.tasks.waitasync.timespan.timeprovider",
+            MemberSignature.Method(Task, "WaitAsync", TimeSpan, TimeProvider), Shim(TaskShim, "WaitAsync", Task, TimeSpan, TimeProvider));
+        TaskRule(builder, BuiltInRuleFamily.TaskTime, "clockwork.tasks.waitasync.timespan.cancellationtoken",
+            MemberSignature.Method(Task, "WaitAsync", TimeSpan, CancellationToken),
+            Shim(TaskShim, "WaitAsync", Task, TimeSpan, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.TaskTime, "clockwork.tasks.waitasync.timespan.timeprovider.cancellationtoken",
+            MemberSignature.Method(Task, "WaitAsync", TimeSpan, TimeProvider, CancellationToken),
+            Shim(TaskShim, "WaitAsync", Task, TimeSpan, TimeProvider, CancellationToken));
+
+        TaskRule(builder, BuiltInRuleFamily.TaskTime, "clockwork.tasks.generic.waitasync.cancellationtoken",
+            MemberSignature.Method(TaskTType, "WaitAsync", CancellationToken),
+            Shim(TaskShim, "WaitAsync", TaskTDecl, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.TaskTime, "clockwork.tasks.generic.waitasync.timespan",
+            MemberSignature.Method(TaskTType, "WaitAsync", TimeSpan), Shim(TaskShim, "WaitAsync", TaskTDecl, TimeSpan));
+        TaskRule(builder, BuiltInRuleFamily.TaskTime, "clockwork.tasks.generic.waitasync.timespan.timeprovider",
+            MemberSignature.Method(TaskTType, "WaitAsync", TimeSpan, TimeProvider),
+            Shim(TaskShim, "WaitAsync", TaskTDecl, TimeSpan, TimeProvider));
+        TaskRule(builder, BuiltInRuleFamily.TaskTime, "clockwork.tasks.generic.waitasync.timespan.cancellationtoken",
+            MemberSignature.Method(TaskTType, "WaitAsync", TimeSpan, CancellationToken),
+            Shim(TaskShim, "WaitAsync", TaskTDecl, TimeSpan, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.TaskTime, "clockwork.tasks.generic.waitasync.timespan.timeprovider.cancellationtoken",
+            MemberSignature.Method(TaskTType, "WaitAsync", TimeSpan, TimeProvider, CancellationToken),
+            Shim(TaskShim, "WaitAsync", TaskTDecl, TimeSpan, TimeProvider, CancellationToken));
 
         // ---- Scheduling: Task.Run (Phase 6B) controlled. The body is queued as a fresh controlled
         // operation on the coordinator instead of a physical thread-pool thread. The generic overloads are
@@ -761,6 +784,53 @@ public static class BuiltInRuleSets
             "clockwork.threadpool.unsafequeuenativeoverlapped",
             MemberSignature.Method(ThreadPoolType, "UnsafeQueueNativeOverlapped", NativeOverlappedPtr),
             Shim(ThreadPoolShim, "RejectNativeOverlapped", String))));
+
+        // ---- Timer types and TimeProvider bridge. Whole-type substitutions ensure constructors,
+        // properties, events, and instance methods cannot bypass the controlled timer implementations. ----
+        Sub(builder, BuiltInRuleFamily.Timers, "clockwork.timer.threading.type", TimerType, ControlledTimerType);
+        Sub(builder, BuiltInRuleFamily.Timers, "clockwork.timer.component.type", TimersTimerType, ControlledTimersTimerType);
+        Sub(builder, BuiltInRuleFamily.Timers, "clockwork.timer.periodic.type", PeriodicTimerType, ControlledPeriodicTimerType);
+        TaskRule(builder, BuiltInRuleFamily.Timers, "clockwork.timeprovider.system",
+            MemberSignature.Method(TimeProvider, "get_System"), Shim(TimeProviderShim, "get_System"));
+        TaskRule(builder, BuiltInRuleFamily.Timers, "clockwork.timeprovider.createtimer",
+            MemberSignature.Method(TimeProvider, "CreateTimer", TimerCallbackType, ObjectType, TimeSpan, TimeSpan),
+            Shim(TimeProviderShim, "CreateTimer", TimeProvider, TimerCallbackType, ObjectType, TimeSpan, TimeSpan));
+
+        // ---- CancellationTokenSource timer construction and lifecycle. The object remains the BCL
+        // identity; receiver-first shims own only the virtual timer registration. ----
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.CancellationTimers, RewriteRule.RedirectNewObj(
+            "clockwork.cancellationtokensource.ctor.milliseconds",
+            MemberSignature.Constructor(CancellationTokenSourceType, Int32),
+            Shim(CancellationTokenSourceShim, "Create", Int32))));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.CancellationTimers, RewriteRule.RedirectNewObj(
+            "clockwork.cancellationtokensource.ctor.timespan",
+            MemberSignature.Constructor(CancellationTokenSourceType, TimeSpan),
+            Shim(CancellationTokenSourceShim, "Create", TimeSpan))));
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.CancellationTimers, RewriteRule.RedirectNewObj(
+            "clockwork.cancellationtokensource.ctor.timespan.timeprovider",
+            MemberSignature.Constructor(CancellationTokenSourceType, TimeSpan, TimeProvider),
+            Shim(CancellationTokenSourceShim, "Create", TimeSpan, TimeProvider))));
+        TaskRule(builder, BuiltInRuleFamily.CancellationTimers, "clockwork.cancellationtokensource.cancelafter.milliseconds",
+            MemberSignature.Method(CancellationTokenSourceType, "CancelAfter", Int32),
+            Shim(CancellationTokenSourceShim, "CancelAfter", CancellationTokenSourceType, Int32));
+        TaskRule(builder, BuiltInRuleFamily.CancellationTimers, "clockwork.cancellationtokensource.cancelafter.timespan",
+            MemberSignature.Method(CancellationTokenSourceType, "CancelAfter", TimeSpan),
+            Shim(CancellationTokenSourceShim, "CancelAfter", CancellationTokenSourceType, TimeSpan));
+        TaskRule(builder, BuiltInRuleFamily.CancellationTimers, "clockwork.cancellationtokensource.cancel",
+            MemberSignature.Method(CancellationTokenSourceType, "Cancel"),
+            Shim(CancellationTokenSourceShim, "Cancel", CancellationTokenSourceType));
+        TaskRule(builder, BuiltInRuleFamily.CancellationTimers, "clockwork.cancellationtokensource.cancel.throw",
+            MemberSignature.Method(CancellationTokenSourceType, "Cancel", Boolean),
+            Shim(CancellationTokenSourceShim, "Cancel", CancellationTokenSourceType, Boolean));
+        TaskRule(builder, BuiltInRuleFamily.CancellationTimers, "clockwork.cancellationtokensource.cancelasync",
+            MemberSignature.Method(CancellationTokenSourceType, "CancelAsync"),
+            Shim(CancellationTokenSourceShim, "CancelAsync", CancellationTokenSourceType));
+        TaskRule(builder, BuiltInRuleFamily.CancellationTimers, "clockwork.cancellationtokensource.tryreset",
+            MemberSignature.Method(CancellationTokenSourceType, "TryReset"),
+            Shim(CancellationTokenSourceShim, "TryReset", CancellationTokenSourceType));
+        TaskRule(builder, BuiltInRuleFamily.CancellationTimers, "clockwork.cancellationtokensource.dispose",
+            MemberSignature.Method(CancellationTokenSourceType, "Dispose"),
+            Shim(CancellationTokenSourceShim, "Dispose", CancellationTokenSourceType));
 
         // ---- Registered waits (Phase 7B): RegisterWaitForSingleObject / UnsafeRegisterWaitForSingleObject
         // bind a WaitOrTimerCallback to a controlled event, which the coordinator now models. RegisteredWaitHandle

@@ -46,7 +46,10 @@ public interface ISimulationTaskCoordinator
     /// <param name="node">The node the continuation is scoped to, or <see langword="null"/> for cluster-level work.</param>
     /// <param name="isReady">The readiness predicate, typically <c>() =&gt; awaitedTask.IsCompleted</c>.</param>
     /// <param name="continuation">The continuation to run once ready.</param>
-    void ScheduleWhenReady(SimulationNodeIdentity? node, Func<bool> isReady, Action continuation);
+    IControlledWorkRegistration ScheduleWhenReady(
+        SimulationNodeIdentity? node,
+        Func<bool> isReady,
+        Action continuation);
 
     /// <summary>Runs at most one currently-ready continuation without advancing virtual time.</summary>
     /// <param name="node">The node the yield is scoped to, or <see langword="null"/> for cluster-level work.</param>

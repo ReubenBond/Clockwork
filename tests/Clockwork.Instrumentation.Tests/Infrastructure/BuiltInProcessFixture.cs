@@ -38,7 +38,7 @@ internal sealed class BuiltInProcessFixture : IDisposable
                     {
                         slim.Wait();
                         slim.Release();
-                        // AvailableWaitHandle is controlled (Phase 7B), not rejected: a permit is available
+                        // AvailableWaitHandle is controlled: a permit is available
                         // (count == 1) so the bridged handle is signalled in both source and staged runs.
                         WaitHandle h = slim.AvailableWaitHandle;
                         semaphore = h.WaitOne(0) ? "signaled" : "unsignaled";
@@ -53,14 +53,14 @@ internal sealed class BuiltInProcessFixture : IDisposable
                         () => Task.Delay(TimeSpan.Zero, TimeProvider.System),
                         () => Task.Delay(TimeSpan.Zero, TimeProvider.System, CancellationToken.None),
                     ];
-                    int rejectedDelays = 0;
+                    int completedDelays = 0;
                     foreach (Func<Task> delay in delays)
                     {
-                        try { _ = delay(); }
-                        catch (Exception ex) when (ex.GetType().Name == "ControlledTaskUnsupportedException") { rejectedDelays++; }
+                        if (delay().IsCompletedSuccessfully) { completedDelays++; }
                     }
 
-                    return $"monitor={monitor};lock={dedicated.GetType().FullName};semaphore={semaphore};delays={rejectedDelays}";
+                    using var timer = new Timer(_ => { });
+                    return $"monitor={monitor};lock={dedicated.GetType().FullName};semaphore={semaphore};delays={completedDelays};timer={timer.GetType().FullName}";
                 }
             }
         }

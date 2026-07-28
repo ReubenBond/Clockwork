@@ -795,6 +795,28 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
             CollectQueueDiagnostics(node.NetworkAddress, node.Context.TaskQueue, node.Context.State == SimulationNodeState.Suspended);
         }
 
+        foreach (Clockwork.Runtime.Tasks.ControlledTaskDeadlineInfo deadline in
+            _taskCoordinator.Loop.CapturePendingDeadlines())
+        {
+            DateTimeOffset dueTime = StartDateTime + deadline.DueTime;
+            bool isReady = dueTime <= now;
+            diagnostics.Add(new SimulationScheduledItemDiagnostic(
+                "controlled-task-loop",
+                "PausedUntilTime",
+                dueTime,
+                deadline.Sequence,
+                isReady,
+                IsBlocked: false));
+            if (isReady)
+            {
+                runnableCount++;
+            }
+            else
+            {
+                waitingCount++;
+            }
+        }
+
         var orderedDiagnostics = diagnostics
             .OrderBy(static d => d.DueTime)
             .ThenBy(static d => d.SequenceNumber)
@@ -872,6 +894,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
             Run(async () =>
             {
                 SafeCancel(_teardownCts);
+                _taskCoordinator.Loop.CancelPendingDeadlines();
                 await DisposeAsyncCore();
             });
         }
@@ -895,6 +918,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
         // the missing-service path is exercised correctly until it registers its own.
         try
         {
+            _taskCoordinator.Dispose();
             _taskCoordinatorRegistration.Dispose();
         }
         catch (Exception exception)

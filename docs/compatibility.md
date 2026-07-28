@@ -31,8 +31,8 @@ nondeterminism through Clockwork APIs.
 Clockwork verifies usage with shipped Roslyn diagnostics and redirects the exact built-in rule
 inventory through opt-in IL rewriting. Controlled async/task/thread/thread-pool/Parallel and modern
 synchronization surfaces run on logical strands. Controlled code never falls through to an inactive
-or unregistered runtime service: it fails explicitly instead. Every .NET 10 `Task.Delay` overload is
-rejected until virtual delays exist.
+or unregistered runtime service: it fails explicitly instead. Timers, delays, asynchronous timeouts,
+and timer-driven cancellation use the shared virtual-time deadline scheduler.
 
 #### Controlled-operation kernel (Phase 3A)
 
@@ -323,23 +323,17 @@ is driven by antecedents that complete on the logical thread); synchronous waits
 coordinator loop until completion instead of blocking a physical thread**, then delegate to the
 real API to reproduce its exact `AggregateException` semantics, so a synchronous wait or a blocking
 `Task<T>.Result` read on incomplete controlled work never deadlocks the scheduler.
-At the Phase 6A milestone, `Task.Run` and `TaskFactory.StartNew` were rejected rather than allowed to
-escape. Phase 6B replaced those guards with controlled scheduling; only `Task.Delay` remains rejected.
+`Task.Run` and `TaskFactory.StartNew` queue controlled operations instead of escaping, while
+`Task.Delay` and `Task.WaitAsync` register virtual deadlines.
 
 The redirect obeys the same simulation-only invariant as the BCL rule set: instrumented Controlled
 builders, awaiters, and shims require an active Clockwork simulation. Continuations and waits route
 through the coordinator; if that active simulation has no registered task coordinator, the shim
 throws `ControlledTaskServiceMissingException` rather than silently escaping to the thread pool.
 
-**Historical Phase 6A boundary (closed by Phase 6B):** `Thread`/`ThreadPool`/`Parallel`,
-`Monitor`/semaphore/wait-handle public shims, timers and the `Task.Delay` implementation,
-cancellation timers, synchronous blocking on `ValueTask`/`ValueTask<T>` (a value task may be
-consumed only once, so a blocking drain is unsafe — `await` is the supported controlled path),
-generic `Task<T>.ContinueWith<TNewResult>` overloads, `TaskCompletionSource`/`TaskFactory` surfaces
-beyond the rejected `StartNew` sites, cross-assembly enforcement, and hardening of exception
-filters/handlers against swallowing scheduler-control flow. Phase 6A already prefers explicit
-gate/state transitions over control exceptions, so a user `catch` cannot swallow the scheduler; the
-remaining filter-level hardening was delivered in Phase 6B.
+Synchronous blocking on `ValueTask`/`ValueTask<T>` remains unsupported: a value task may be
+consumed only once, so a blocking drain is unsafe and `await` is the supported controlled path.
+Other APIs absent from the generated rule inventory are outside the support claim.
 
 #### Threads, thread pool, Parallel, and task-parity closure (Phase 6B)
 
@@ -370,8 +364,8 @@ physical-gate backend lands):
   `ControlledOperationScheduler` (built in Phase 3, not yet wired into the live cluster) is the
   future backend for fully-preemptive synchronous interleaving.
 - **`Thread.Sleep` / `Thread.Join(timeout)` are virtual waits.** They yield the logical thread
-  through the deterministic loop rather than consuming real wall-clock time. (`Thread.Sleep` is the
-  one timer-shaped surface intentionally in Phase 6B scope; every other timer remains Phase 8B.)
+  through the deterministic loop rather than consuming real wall-clock time. The same virtual-time
+  scheduler now backs timers, delays, asynchronous timeouts, and timer-driven cancellation.
 - **Safe vs. unsafe `ExecutionContext` flow is modelled.** `QueueUserWorkItem` captures and flows
   the caller's `ExecutionContext`; `UnsafeQueueUserWorkItem` does not — matching the BCL contract —
   so `AsyncLocal` values observed by the callback differ between the two exactly as they do on the
@@ -404,9 +398,7 @@ physical-gate backend lands):
 
 Every instrumented Controlled shim requires an active simulation: work routes through the
 coordinator, and an active simulation with no registered coordinator throws rather than silently
-escaping. Phase 7A subsequently delivered `Monitor`, `System.Threading.Lock`, and `SemaphoreSlim`;
-Phase 7B delivered general controlled wait handles; Phase 8A additions and the Phase 8B timer boundary
-are recorded below.
+escaping. The synchronization and virtual-timer capabilities delivered since then are recorded below.
 
 Each mode is intended to be strictly additive: an application written for
 cooperative mode should continue to work unmodified under controlled, race
@@ -522,10 +514,36 @@ deadlines, and an unsatisfiable indefinite wait reports the controlled deadlock 
 marks controlled state disposed and faults/blocks subsequent use according to the controlled surface;
 ownership is logical-strand rather than physical-thread ownership.
 
-**Phase 8B boundary.** `System.Threading.Timer`, `System.Timers.Timer`, `PeriodicTimer`,
-`Task.Delay`, `CancellationTokenSource.CancelAfter`, and timer-driven cancellation remain deferred.
-`Task.Delay` is explicitly rejected under simulation; the other timer surfaces are not implemented by
-this inventory. Phase 9 race instrumentation is excluded.
+### Virtual timer and deadline contract
+
+The controlled rule set classifies the exact .NET 10 timer surface:
+
+- `System.Threading.Timer`: constructors `(TimerCallback)`, and
+  `(TimerCallback, object?, int|long|uint|TimeSpan, int|long|uint|TimeSpan)`; all four matching
+  `Change` overloads; `ActiveCount`; `Dispose()`, `Dispose(WaitHandle)`, and `DisposeAsync()`.
+- `System.Timers.Timer`: constructors `()`, `(double)`, and `(TimeSpan)`; `AutoReset`, `Enabled`,
+  `Interval`, `Elapsed`, `Start`, `Stop`, `Close`, and disposal. Non-null `SynchronizingObject` and
+  designer `Site` integration are rejected because they can marshal work outside the scheduler.
+- `PeriodicTimer`: constructors `(TimeSpan)` and `(TimeSpan, TimeProvider)`, mutable `Period`,
+  `WaitForNextTickAsync(CancellationToken)`, and `Dispose()`.
+- `Task.Delay`: all six `int`/`TimeSpan`, cancellation, and `TimeProvider` overloads.
+- `Task.WaitAsync` and `Task<T>.WaitAsync`: all five overloads on each type (cancellation,
+  `TimeSpan`, and `TimeProvider` combinations).
+- `CancellationTokenSource`: timed constructors `(int)`, `(TimeSpan)`, and
+  `(TimeSpan, TimeProvider)`; both `CancelAfter` overloads; cancellation, reset, and disposal paths
+  which must invalidate a pending timer generation.
+- `TimeProvider.System` and `TimeProvider.CreateTimer(TimerCallback, object?, TimeSpan, TimeSpan)`.
+  The returned object implements the standard `ITimer`; interface `Change` and disposal dispatch to
+  the controlled timer. Unrecognized custom providers reject instead of allocating an OS timer.
+
+Finite deadlines advance only when no work is runnable. Work already queued at the current virtual
+instant therefore wins before time advances. Equal deadlines fire in registration order; timer
+callbacks are then appended to the controlled ready queue. Periodic schedules are based on successive
+virtual due instants, callbacks never overlap physically, and `PeriodicTimer` coalesces unconsumed
+ticks. Generation checks suppress stale firings after reentrant `Change`, stop, reset, or disposal.
+Applicable timer callbacks restore the construction-time user `ExecutionContext` while executing on a
+fresh logical strand. Pending deadlines appear in diagnostics as `PausedUntilTime`, and teardown
+cancels all remaining registrations without invoking user callbacks.
 
 ## Platform and deployment contract
 
@@ -547,8 +565,9 @@ this inventory. Phase 9 race instrumentation is excluded.
   brings `Task.Run`, all 24 .NET 10 `TaskFactory`/`TaskFactory<T>.StartNew` signatures, `Thread`, `ThreadPool`
   (`QueueUserWorkItem`/`UnsafeQueueUserWorkItem`), and `Parallel` under control (see the Coyote
   parity matrix, [`coyote-parity.md`](coyote-parity.md)). Control is claimed **only** for those
-  exact signatures; all six .NET 10 `Task.Delay` overloads stay rejected, synchronous `ValueTask` blocking remains
-  a documented hole. **Phase 7A** additionally brings `Monitor` (and the C# `lock (object)`
+  exact signatures, including virtual timers, all `Task.Delay`/`Task.WaitAsync` overloads, and
+  timer-driven cancellation; synchronous `ValueTask` blocking remains a documented hole.
+  **Phase 7A** additionally brings `Monitor` (and the C# `lock (object)`
   statement), `System.Threading.Lock` (and the C# `lock (Lock)` statement), and `SemaphoreSlim` under
   control. **Phase 7B** completes the synchronization surface: `Interlocked`, `Volatile`, `SpinWait`,
   the wait-handle / event family (`WaitHandle`/`EventWaitHandle`/`AutoResetEvent`/`ManualResetEvent`
@@ -591,10 +610,9 @@ surprise:
   [`rule-inventory.md`](rule-inventory.md) are rewritten. Documented holes include `Stopwatch`
   instance APIs and `GetElapsedTime(long, long)`; generic crypto helpers `GetItems<T>`/`Shuffle<T>`
   and unlisted `GetString`/`GetHexString` overloads; and `DateTime`/`DateTimeOffset`
-  parse/format/convert helpers. Timer-driven APIs remain outside the inventory: `System.Threading.Timer`,
-  `System.Timers.Timer`, `PeriodicTimer`, `CancellationTokenSource.CancelAfter`, and timer-driven
-  cancellation are Phase 8B work; `Task.Delay` is instead explicitly rejected. Phase 9 race
-  instrumentation is also outside this support claim.
+  parse/format/convert helpers. Timer limitations are unrecognized custom `TimeProvider`
+  implementations, non-null `System.Timers.Timer.SynchronizingObject`/designer integration, and
+  `Timer.Dispose(WaitHandle)` with a handle outside Clockwork's controlled event surface.
 - **Profiler conflicts.** Deep instrumentation that uses the .NET profiling APIs
   (ICorProfilerCallback) cannot coexist with other profilers (coverage tools, APM
   agents, debuggers attaching a profiler) without explicit multi-profiler

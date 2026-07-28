@@ -56,7 +56,7 @@ public static class RuleInventoryDocument
         Line("- `DateTime`/`DateTimeOffset` parsing/formatting and any culture-, timezone-, or kind-conversion helpers other than the `Now`/`UtcNow`/`Today` clocks above.");
         Line("- Synchronous blocking on `ValueTask`/`ValueTask<T>` (`.Result`/`.GetResult()` outside an awaiter): a value task may be consumed only once, so a blocking drain is unsafe. `await` is the supported controlled path.");
         Line("- Named/cross-process synchronization (named `EventWaitHandle`/`Mutex`/`Semaphore` and their `OpenExisting`/`TryOpenExisting` APIs): a single-process simulation cannot model kernel-object sharing, so these are rejected.");
-        Line("- **Phase 8B timer boundary:** `System.Threading.Timer`, `System.Timers.Timer`, `PeriodicTimer`, `CancellationTokenSource.CancelAfter`, and timer-driven cancellation remain unrewritten. The delay API listed above remains explicitly Rejected under simulation rather than allowed to use wall time. Phase 9 race instrumentation is outside these rule sets.");
+        Line("- Custom `TimeProvider` implementations are rejected by timer-consuming controlled APIs unless Clockwork explicitly recognizes them. `System.Timers.Timer` rejects non-null `SynchronizingObject` and designer `Site` integration because those paths can marshal callbacks to uncontrolled UI or native threads. `Timer.Dispose(WaitHandle)` accepts controlled event handles only.");
         Line();
         Line("Determinism is claimed **only** for the exact rules tabulated above.");
 
@@ -142,9 +142,9 @@ public static class RuleInventoryDocument
             "`Task.ContinueWith(Action<Task>)`, `Task<T>.ContinueWith(Action<Task<T>>)`, and the result-producing " +
             "`Task<T>.ContinueWith<TNewResult>(Func<Task<T>,TNewResult>)` redirect so the continuation is " +
             "scheduled on the controlled coordinator and runs on the logical thread after the antecedent completes.",
-        BuiltInRuleFamily.TaskDeferred =>
-            "`Task.Delay` (virtual timers, Phase 8B) is rejected under simulation with a precise diagnostic " +
-            "rather than silently using wall time. The instrumented entry point requires an active simulation.",
+        BuiltInRuleFamily.TaskTime =>
+            "`Task.Delay` and `Task.WaitAsync` use controlled virtual deadlines, preserve cancellation and " +
+            "terminal task state, and never consume wall-clock time.",
         BuiltInRuleFamily.TaskScheduling =>
             "`Task.Run` (all `Action`/`Func<TResult>`/`Func<Task>`/`Func<Task<TResult>>` overloads, with and " +
             "without a `CancellationToken`) offloads work that Phase 6A left uncontrolled onto the thread pool. " +
@@ -192,6 +192,13 @@ public static class RuleInventoryDocument
             "`RegisteredWaitHandle` is substituted with the controlled handle so `Unregister` stops the wait " +
             "and signals its completion event. `UnsafeQueueNativeOverlapped` depends on native I/O and is " +
             "rejected with a precise diagnostic.",
+        BuiltInRuleFamily.Timers =>
+            "`System.Threading.Timer`, `System.Timers.Timer`, and `PeriodicTimer` are substituted with " +
+            "controlled virtual-time implementations. `TimeProvider.System` and `CreateTimer` bridge to " +
+            "the same scheduler; unsupported provider and designer marshaling paths reject precisely.",
+        BuiltInRuleFamily.CancellationTimers =>
+            "`CancellationTokenSource` timed constructors and `CancelAfter` use resettable virtual deadlines. " +
+            "Manual cancellation, reset, and disposal remove stale registrations before they can fire.",
         BuiltInRuleFamily.Parallel =>
             "`Parallel.Invoke`, `Parallel.For` (`int`/`long`, with and without `ParallelOptions`), and " +
             "`Parallel.ForEach(IEnumerable<T>)` run their bodies as controlled operations on the simulation " +

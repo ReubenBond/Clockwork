@@ -19,7 +19,7 @@ namespace Clockwork.Runtime.Tasks;
 /// logical drive thread.
 /// </para>
 /// </summary>
-public sealed class ControlledTaskLoopCoordinator : ISimulationTaskCoordinator
+public sealed class ControlledTaskLoopCoordinator : ISimulationTaskCoordinator, IDisposable
 {
     private readonly ControlledTaskLoop _loop;
 
@@ -45,7 +45,10 @@ public sealed class ControlledTaskLoopCoordinator : ISimulationTaskCoordinator
         _loop.Schedule(continuation);
 
     /// <inheritdoc />
-    public void ScheduleWhenReady(SimulationNodeIdentity? node, Func<bool> isReady, Action continuation) =>
+    public IControlledWorkRegistration ScheduleWhenReady(
+        SimulationNodeIdentity? node,
+        Func<bool> isReady,
+        Action continuation) =>
         _loop.ScheduleWhenReady(isReady, continuation);
 
     /// <inheritdoc />
@@ -58,4 +61,7 @@ public sealed class ControlledTaskLoopCoordinator : ISimulationTaskCoordinator
     /// <inheritdoc />
     public IControlledTimeout RegisterTimeout(SimulationNodeIdentity? node, TimeSpan delay, Action? onElapsed) =>
         _loop.RegisterDeadline(delay, onElapsed);
+
+    /// <summary>Cancels every pending controlled continuation and deadline.</summary>
+    public void Dispose() => _loop.Dispose();
 }

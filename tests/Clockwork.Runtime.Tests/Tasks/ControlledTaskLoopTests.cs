@@ -331,4 +331,37 @@ public sealed class ControlledTaskLoopTests
             }
         }
     }
+
+    [Fact]
+    public void PendingDeadlineDiagnosticsAreOrderedAndDisposeClearsThem()
+    {
+        var loop = new ControlledTaskLoop();
+        loop.RegisterDeadline(TimeSpan.FromMilliseconds(20));
+        loop.RegisterDeadline(TimeSpan.FromMilliseconds(10));
+
+        ControlledTaskDeadlineInfo[] pending = [.. loop.CapturePendingDeadlines()];
+        Assert.Equal(
+            [TimeSpan.FromMilliseconds(10), TimeSpan.FromMilliseconds(20)],
+            pending.Select(static deadline => deadline.DueTime));
+
+        loop.Dispose();
+
+        Assert.Empty(loop.CapturePendingDeadlines());
+        Assert.Null(loop.NextDeadlineDue());
+        Assert.True(loop.IsIdle);
+    }
+
+    [Fact]
+    public void CanceledReadinessRegistrationDoesNotRemainPending()
+    {
+        var loop = new ControlledTaskLoop();
+        IControlledWorkRegistration registration =
+            loop.ScheduleWhenReady(static () => false, static () => { });
+        Assert.Equal(1, loop.WaitingCount);
+
+        registration.Cancel();
+
+        Assert.Equal(0, loop.WaitingCount);
+        Assert.True(loop.IsIdle);
+    }
 }

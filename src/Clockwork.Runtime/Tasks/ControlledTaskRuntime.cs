@@ -49,10 +49,25 @@ public static class ControlledTaskRuntime
         ArgumentNullException.ThrowIfNull(continuation);
         var snapshot = SimulationRuntimeDispatch.RequireActiveSimulation(apiName);
         ExecutionContext? context = flowExecutionContext ? ExecutionContext.Capture() : null;
-        coordinator.ScheduleWhenReady(
+        _ = coordinator.ScheduleWhenReady(
             node,
             () => antecedent.IsCompleted,
             () => RunScheduledWork(snapshot, context, continuation));
+    }
+
+    internal static IControlledWorkRegistration ScheduleCancelableContinuation(
+        System.Threading.Tasks.Task antecedent,
+        Action continuation,
+        string apiName)
+    {
+        var (coordinator, node) = RequireCoordinator(apiName);
+        ArgumentNullException.ThrowIfNull(antecedent);
+        ArgumentNullException.ThrowIfNull(continuation);
+        SimulationExecutionSnapshot snapshot = SimulationRuntimeDispatch.RequireActiveSimulation(apiName);
+        return coordinator.ScheduleWhenReady(
+            node,
+            () => antecedent.IsCompleted,
+            () => RunScheduledWork(snapshot, null, continuation));
     }
 
     /// <summary>
@@ -176,7 +191,7 @@ public static class ControlledTaskRuntime
     internal static void ParkIndefinitely(string apiName)
     {
         var (coordinator, node) = RequireCoordinator(apiName);
-        coordinator.ScheduleWhenReady(node, static () => false, static () => { });
+        _ = coordinator.ScheduleWhenReady(node, static () => false, static () => { });
     }
 
     /// <summary>
@@ -191,6 +206,40 @@ public static class ControlledTaskRuntime
     {
         var (coordinator, node) = RequireCoordinator(apiName);
         return coordinator.RegisterTimeout(node, delay, onElapsed);
+    }
+
+    internal static IControlledTimeout RegisterTimeout(
+        SimulationExecutionSnapshot snapshot,
+        TimeSpan delay,
+        Action? onElapsed,
+        string apiName)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (!SimulationTaskCoordination.TryGet(snapshot.Runtime, out var coordinator) || coordinator is null)
+        {
+            throw new ControlledTaskServiceMissingException(snapshot.Runtime, apiName);
+        }
+
+        return coordinator.RegisterTimeout(snapshot.Node, delay, onElapsed);
+    }
+
+    internal static void QueueCapturedWork(
+        SimulationExecutionSnapshot snapshot,
+        ExecutionContext? context,
+        Action work,
+        string apiName)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentNullException.ThrowIfNull(work);
+        if (!SimulationTaskCoordination.TryGet(snapshot.Runtime, out var coordinator) || coordinator is null)
+        {
+            throw new ControlledTaskServiceMissingException(snapshot.Runtime, apiName);
+        }
+
+        coordinator.Schedule(
+            snapshot.Node,
+            () => ControlledSynchronizationFlow.RunAsNewStrand(
+                () => RunScheduledWork(snapshot, context, work)));
     }
 
     private static void RunScheduledWork(

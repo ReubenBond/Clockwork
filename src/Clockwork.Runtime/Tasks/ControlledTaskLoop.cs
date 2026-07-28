@@ -20,7 +20,7 @@ using Clockwork.Runtime.Scheduling.Resources;
 /// drive loop; the controlled shims resolve it through an <see cref="ISimulationTaskCoordinator"/>.
 /// </para>
 /// </summary>
-public sealed class ControlledTaskLoop
+public sealed class ControlledTaskLoop : IDisposable
 {
     private readonly Queue<Action> _ready = new();
     private readonly List<WaitEntry> _waits = [];
@@ -37,7 +37,7 @@ public sealed class ControlledTaskLoop
     public int ReadyCount => _ready.Count;
 
     /// <summary>Gets the number of readiness-gated continuations still waiting to become runnable.</summary>
-    public int WaitingCount => _waits.Count;
+    public int WaitingCount => _waits.Count(static entry => !entry.IsCanceled);
 
     /// <summary>
     /// Gets the loop's modelled time measured from the start of the simulation. It advances only when the
@@ -55,7 +55,7 @@ public sealed class ControlledTaskLoop
     }
 
     /// <summary>Gets a value indicating whether the loop has no ready and no waiting work left.</summary>
-    public bool IsIdle => _ready.Count == 0 && _waits.Count == 0;
+    public bool IsIdle => _ready.Count == 0 && WaitingCount == 0;
 
     /// <summary>Enqueues a continuation that is runnable immediately, ordered after existing ready work.</summary>
     /// <param name="continuation">The continuation to enqueue.</param>
@@ -72,11 +72,13 @@ public sealed class ControlledTaskLoop
     /// </summary>
     /// <param name="isReady">The readiness predicate.</param>
     /// <param name="continuation">The continuation to run once ready.</param>
-    public void ScheduleWhenReady(Func<bool> isReady, Action continuation)
+    public IControlledWorkRegistration ScheduleWhenReady(Func<bool> isReady, Action continuation)
     {
         ArgumentNullException.ThrowIfNull(isReady);
         ArgumentNullException.ThrowIfNull(continuation);
-        _waits.Add(new WaitEntry(isReady, continuation));
+        var entry = new WaitEntry(isReady, continuation);
+        _waits.Add(entry);
+        return entry;
     }
 
     /// <summary>
@@ -141,6 +143,35 @@ public sealed class ControlledTaskLoop
             }
 
             return earliest;
+        }
+    }
+
+    /// <summary>Captures live virtual deadlines in deterministic due-time and registration order.</summary>
+    public IReadOnlyList<ControlledTaskDeadlineInfo> CapturePendingDeadlines()
+    {
+        lock (_deadlineGate)
+        {
+            return
+            [
+                .. _deadlines
+                    .OrderBy(static deadline => deadline.Due)
+                    .ThenBy(static deadline => deadline.Sequence)
+                    .Select(static deadline => new ControlledTaskDeadlineInfo(deadline.Due, deadline.Sequence)),
+            ];
+        }
+    }
+
+    /// <summary>Cancels every pending virtual deadline without removing ordinary ready work.</summary>
+    public void CancelPendingDeadlines()
+    {
+        lock (_deadlineGate)
+        {
+            foreach (Deadline deadline in _deadlines)
+            {
+                deadline.TryCancel();
+            }
+
+            _deadlines.Clear();
         }
     }
 
@@ -291,7 +322,11 @@ public sealed class ControlledTaskLoop
         // continuation becomes runnable on the very next iteration.
         for (var i = 0; i < _waits.Count;)
         {
-            if (_waits[i].IsReady())
+            if (_waits[i].IsCanceled)
+            {
+                _waits.RemoveAt(i);
+            }
+            else if (_waits[i].IsReady())
             {
                 var entry = _waits[i];
                 _waits.RemoveAt(i);
@@ -304,7 +339,26 @@ public sealed class ControlledTaskLoop
         }
     }
 
-    private readonly record struct WaitEntry(Func<bool> IsReady, Action Continuation);
+    /// <summary>Cancels and removes every pending continuation and virtual deadline.</summary>
+    public void Dispose()
+    {
+        _ready.Clear();
+        _waits.Clear();
+        CancelPendingDeadlines();
+    }
+
+    private sealed class WaitEntry(Func<bool> isReady, Action continuation) : IControlledWorkRegistration
+    {
+        private int _canceled;
+
+        public Func<bool> IsReady { get; } = isReady;
+
+        public Action Continuation { get; } = continuation;
+
+        public bool IsCanceled => Volatile.Read(ref _canceled) != 0;
+
+        public void Cancel() => Interlocked.Exchange(ref _canceled, 1);
+    }
 
     /// <summary>
     /// A pending virtual-time deadline. Immutable except for its elapsed flag; the owning loop removes it
@@ -354,3 +408,6 @@ public sealed class ControlledTaskLoop
         private Action<Deadline>? _canceller;
     }
 }
+
+/// <summary>Diagnostic information for one pending controlled-task virtual deadline.</summary>
+public sealed record ControlledTaskDeadlineInfo(TimeSpan DueTime, long Sequence);
