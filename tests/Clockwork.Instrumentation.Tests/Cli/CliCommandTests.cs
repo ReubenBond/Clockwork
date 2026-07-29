@@ -79,7 +79,7 @@ public sealed class CliCommandTests : IDisposable
         foreach (string option in new[]
         {
             "--config", "--rule-set", "--builtin", "--builtin-include", "--builtin-exclude",
-            "--include", "--exclude", "--strong-name-key", "--target-runtime", "--mode", "--json",
+            "--include", "--exclude", "--target-runtime", "--mode", "--json",
         })
         {
             Assert.Contains(option, output);
@@ -226,7 +226,7 @@ public sealed class CliCommandTests : IDisposable
     }
 
     [Fact]
-    public void InstrumentDryRunFlagsStrongNamedInputAsBlocking()
+    public void InstrumentDryRunReportsAutomaticStrongNameStripping()
     {
         string keyPath = Path.Combine(_root, "test.snk");
         File.WriteAllBytes(keyPath, StrongNameKeys.CreatePrivateKeyBlob());
@@ -239,96 +239,8 @@ public sealed class CliCommandTests : IDisposable
         (ExitCode code, string output, _) = Invoke(
             "instrument", "--source", _source, "--rule-set", ruleSet, "--dry-run");
 
-        Assert.Equal(ExitCode.InstrumentationError, code);
-        Assert.Contains("strong-named", output);
-    }
-
-    [Fact]
-    public void InstrumentDryRunInfersReSigningFromKeyMaterial()
-    {
-        string keyPath = Path.Combine(_root, "test.snk");
-        File.WriteAllBytes(keyPath, StrongNameKeys.CreatePrivateKeyBlob());
-        FixtureCompiler.Compile(
-            "app", "namespace App { public static class A { public static int Go() => 1; } }",
-            _source, FixtureSymbols.PortableFile, optimize: false, strongNameKeyFile: keyPath);
-        File.WriteAllText(Path.Combine(_source, "app.runtimeconfig.json"), "{}");
-        string ruleSet = WriteEmptyRuleSet();
-
-        (ExitCode code, string output, _) = Invoke(
-            "instrument", "--source", _source, "--rule-set", ruleSet,
-            "--strong-name-key", keyPath, "--dry-run");
-
         Assert.Equal(ExitCode.Success, code);
-        Assert.Contains("instrument and re-sign", output);
-    }
-
-    [Fact]
-    public void InstrumentDryRunRejectsSigningKeyWhichChangesIdentity()
-    {
-        string inputKeyPath = Path.Combine(_root, "input.snk");
-        File.WriteAllBytes(inputKeyPath, StrongNameKeys.CreatePrivateKeyBlob());
-        FixtureCompiler.Compile(
-            "app", "namespace App { public static class A { public static int Go() => 1; } }",
-            _source, FixtureSymbols.PortableFile, optimize: false, strongNameKeyFile: inputKeyPath);
-        File.WriteAllText(Path.Combine(_source, "app.runtimeconfig.json"), "{}");
-        string otherKeyPath = Path.Combine(_root, "other.snk");
-        File.WriteAllBytes(otherKeyPath, StrongNameKeys.CreatePrivateKeyBlob());
-        string ruleSet = WriteEmptyRuleSet();
-
-        (ExitCode code, string output, _) = Invoke(
-            "instrument", "--source", _source, "--rule-set", ruleSet,
-            "--strong-name-key", otherKeyPath, "--dry-run");
-
-        Assert.Equal(ExitCode.InstrumentationError, code);
-        Assert.Contains("changes public-key token", output);
-    }
-
-    [Theory]
-    [InlineData("missing")]
-    [InlineData("invalid")]
-    [InlineData("empty")]
-    public void InstrumentDryRunRejectsConfiguredUnusableSigningKey(string keyKind)
-    {
-        BuildMinimalClosure();
-        string keyPath = Path.Combine(_root, "configured.snk");
-        if (keyKind == "invalid")
-        {
-            File.WriteAllText(keyPath, "not a strong-name key");
-        }
-
-        string configuredPath = keyKind == "empty" ? string.Empty : keyPath;
-        string ruleSet = WriteEmptyRuleSet();
-        (ExitCode code, string output, _) = Invoke(
-            "instrument", "--source", _source, "--rule-set", ruleSet,
-            "--strong-name-key", configuredPath, "--dry-run");
-
-        Assert.Equal(ExitCode.InstrumentationError, code);
-        Assert.Contains(RewriteDiagnosticIds.StrongNameReSignRequired, output, StringComparison.Ordinal);
-        Assert.Contains($"Failed to load strong-name key '{configuredPath}'", output, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void InstrumentDryRunAndRealRunBothRejectTruncatedPrivateKey()
-    {
-        BuildMinimalClosure();
-        string keyPath = Path.Combine(_root, "truncated.snk");
-        byte[] privateKey = StrongNameKeys.CreatePrivateKeyBlob();
-        File.WriteAllBytes(keyPath, privateKey[..^1]);
-        string ruleSet = WriteEmptyRuleSet();
-
-        (ExitCode dryRunCode, string dryRunOutput, _) = Invoke(
-            "instrument", "--source", _source, "--rule-set", ruleSet,
-            "--strong-name-key", keyPath, "--dry-run");
-        (ExitCode realRunCode, string realRunOutput, _) = Invoke(
-            "instrument", "--source", _source, "--rule-set", ruleSet,
-            "--strong-name-key", keyPath, "--output", _staging);
-
-        Assert.Equal(ExitCode.InstrumentationError, dryRunCode);
-        Assert.Equal(ExitCode.InstrumentationError, realRunCode);
-        Assert.Contains(RewriteDiagnosticIds.StrongNameReSignRequired, dryRunOutput);
-        Assert.Contains(RewriteDiagnosticIds.StrongNameReSignRequired, realRunOutput);
-        Assert.Contains("truncated", dryRunOutput, StringComparison.Ordinal);
-        Assert.Contains("truncated", realRunOutput, StringComparison.Ordinal);
+        Assert.Contains("strip strong-name identity", output);
     }
 
     [Fact]

@@ -115,5 +115,12 @@ internal static class CecilInspect
 
     /// <summary>Returns <see langword="true"/> if the assembly carries the idempotence signature marker.</summary>
     public static bool HasRewriteSignature(ModuleDefinition module) =>
-        module.Assembly.CustomAttributes.Any(a => a.AttributeType.Name == "ClockworkRewriteSignatureAttribute");
+        module.Assembly.CustomAttributes.Any(attribute =>
+            attribute.AttributeType.Name == "ClockworkRewriteSignatureAttribute" ||
+            attribute.AttributeType.FullName == "System.Reflection.AssemblyMetadataAttribute" &&
+            attribute.ConstructorArguments.Count == 2 &&
+            string.Equals(
+                attribute.ConstructorArguments[0].Value as string,
+                "Clockwork.RewriteSignature",
+                StringComparison.Ordinal));
 }

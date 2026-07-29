@@ -181,18 +181,14 @@ public sealed class ProcessExecutionTests
     }
 
     [Fact]
-    public void SignedClosureExecutesAfterReSigning()
+    public void SignedClosureExecutesAfterIdentityStripping()
     {
         using var fixture = ExecutionClosureFixture.Create(strongName: true);
 
-        var configuration = new InstrumentationConfiguration
-        {
-            StrongNameKeyPath = fixture.StrongNameKeyPath,
-        };
-        InstrumentationResult result = fixture.Instrument(configuration);
+        InstrumentationResult result = fixture.Instrument();
         Assert.True(result.Succeeded, string.Join("\n", result.Errors));
 
-        // A re-signed strong-named closure with consistent public-key tokens loads and runs.
+        Assert.All(result.Assemblies, assembly => Assert.False(assembly.WasReSigned));
         AppRunResult staged = fixture.RunStaged();
         Assert.Equal(0, staged.ExitCode);
         Assert.Contains("app.ticks=999", staged.Output);

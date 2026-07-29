@@ -15,7 +15,7 @@ namespace Clockwork.Instrumentation.Orchestration;
 /// <summary>
 /// The deterministic orchestrator that turns an application output/publish directory into an
 /// instrumented closure staged in a separate directory. It discovers the closure, strips ReadyToRun
-/// inputs to IL, re-signs signed inputs when key material is available, rewrites managed IL with the
+/// inputs to IL, strips rewritten strong-name identities consistently, rewrites managed IL with the
 /// <see cref="RewriteEngine"/>, copies every non-rewritten asset verbatim, emits a deterministic
 /// closure manifest, and maintains an incremental cache keyed by every input's content hash plus the
 /// engine, rule-set, and configuration signatures. The source directory is never modified.
@@ -92,32 +92,12 @@ public static class InstrumentationRunner
             cachePath,
             configuration);
 
-        StrongNameKeyLoadResult keyLoad =
-            StrongNameKeyLoader.LoadConfigured(configuration.StrongNameKeyPath);
-        StrongNameKey? key = keyLoad.Key;
         var topLevel = new List<RewriteDiagnostic>();
-        if (keyLoad.Diagnostic is { } keyDiagnostic)
-        {
-            topLevel.Add(keyDiagnostic);
-        }
-
-        if (topLevel.Count > 0)
-        {
-            DeleteIfExists(request.CachePath);
-            return new InstrumentationResult
-            {
-                Succeeded = false,
-                WasIncrementalHit = false,
-                StagingDirectory = stagingDirectory,
-                ManifestPath = request.ManifestPath,
-                Diagnostics = [.. topLevel],
-            };
-        }
 
         string incrementalKey;
         try
         {
-            incrementalKey = ComputeIncrementalKey(plan, configuration, request.RuleSet, key);
+            incrementalKey = ComputeIncrementalKey(plan, configuration, request.RuleSet);
         }
         catch (ClosureException)
         {
@@ -145,6 +125,27 @@ public static class InstrumentationRunner
 
         DeleteIfExists(request.CachePath);
 
+        ImmutableArray<string> replacementPaths =
+            ResolveReplacementAssemblies(sourceDirectory, request.RuleSet, configuration);
+        HashSet<string> replacementNames = ResolveReplacementClosureNames(sourceDirectory, replacementPaths);
+        ImmutableArray<string> strongNameAssemblyNames =
+            DiscoverRewrittenStrongNameAssemblyNames(plan, replacementNames);
+        topLevel.AddRange(ValidateCopiedAssemblyReferences(
+            plan,
+            replacementNames,
+            strongNameAssemblyNames.ToHashSet(StringComparer.Ordinal)));
+        if (topLevel.Any(diagnostic => diagnostic.IsError))
+        {
+            return new InstrumentationResult
+            {
+                Succeeded = false,
+                WasIncrementalHit = false,
+                StagingDirectory = stagingDirectory,
+                ManifestPath = request.ManifestPath,
+                Diagnostics = [.. topLevel],
+            };
+        }
+
         PrepareStagingDirectory(stagingDirectory);
 
         var copied = new List<string>();
@@ -156,9 +157,6 @@ public static class InstrumentationRunner
             copied.Add(asset.RelativePath);
         }
 
-        ImmutableArray<string> replacementPaths =
-            ResolveReplacementAssemblies(sourceDirectory, request.RuleSet, configuration);
-        HashSet<string> replacementNames = ResolveReplacementClosureNames(sourceDirectory, replacementPaths);
         bool containsControlledTaskRules = BuiltInRuleSets.ContainsControlledTaskRules(request.RuleSet);
         var options = new RewriteOptions
         {
@@ -167,6 +165,7 @@ public static class InstrumentationRunner
             TargetRuntime = configuration.TargetRuntime,
             HardenExceptionHandlers = containsControlledTaskRules,
             InstrumentRaceExploration = configuration.Mode == InstrumentationMode.RaceExploration,
+            StrongNameAssemblyNames = strongNameAssemblyNames,
         };
 
         var assemblyResults = new List<AssemblyInstrumentationResult>();
@@ -191,8 +190,7 @@ public static class InstrumentationRunner
                 request.CachePath,
                 configuration,
                 request.RuleSet,
-                options,
-                key));
+                options));
         }
 
         if (configuration.Mode == InstrumentationMode.RaceExploration)
@@ -249,8 +247,7 @@ public static class InstrumentationRunner
         string cachePath,
         InstrumentationConfiguration configuration,
         Rules.RewriteRuleSet ruleSet,
-        RewriteOptions options,
-        StrongNameKey? key)
+        RewriteOptions options)
     {
         string inputPath = asset.SourcePath;
         string outputPath = ToStagingPath(stagingDirectory, asset.RelativePath);
@@ -329,26 +326,11 @@ public static class InstrumentationRunner
             }
 
             StrongNameInfo strongName = StrongNameInspector.Inspect(inputPath);
-            bool willReSign = false;
             if (strongName.HasPublicKey)
             {
-                if (key is null)
-                {
-                    diagnostics.Add(RewriteDiagnostic.Error(
-                        RewriteDiagnosticIds.StrongNameReSignRequired,
-                        $"'{asset.RelativePath}' is strong-named ({strongName.Status}, token {strongName.PublicKeyToken}) but no usable signing key is available for re-signing."));
-                    return new AssemblyInstrumentationResult(asset.RelativePath, false, false, false, readyToRunStripped, null, [.. diagnostics]);
-                }
-
-                if (!string.Equals(strongName.PublicKeyToken, key.PublicKeyToken, StringComparison.Ordinal))
-                {
-                    diagnostics.Add(RewriteDiagnostic.Error(
-                        RewriteDiagnosticIds.StrongNameReSignRequired,
-                        $"'{asset.RelativePath}' has public-key token {strongName.PublicKeyToken}, but the configured signing key produces {key.PublicKeyToken}. An identity-preserving key is required."));
-                    return new AssemblyInstrumentationResult(asset.RelativePath, false, false, false, readyToRunStripped, null, [.. diagnostics]);
-                }
-
-                willReSign = true;
+                diagnostics.Add(RewriteDiagnostic.Info(
+                    RewriteDiagnosticIds.StrongNameStripped,
+                    $"'{asset.RelativePath}' is strong-named ({strongName.Status}, token {strongName.PublicKeyToken}); its rewritten test identity and closure references are stripped automatically."));
             }
 
             RewriteResult rewrite = RewriteEngine.Rewrite(
@@ -362,40 +344,9 @@ public static class InstrumentationRunner
                     asset.RelativePath, rewrite.WasWritten, rewrite.WasNoOp, false, readyToRunStripped, rewrite.Manifest, [.. diagnostics]);
             }
 
-            bool wasReSigned = false;
-            if (willReSign && key is not null && File.Exists(engineOutput))
-            {
-                try
-                {
-                    StrongNameSigner.ReSign(engineOutput, key);
-                    StrongNameInfo outputStrongName = StrongNameInspector.Inspect(engineOutput);
-                    if (outputStrongName.Status != StrongNameStatus.StrongNameSigned
-                        || !string.Equals(
-                            key.PublicKeyToken,
-                            outputStrongName.PublicKeyToken,
-                            StringComparison.Ordinal))
-                    {
-                        throw new SigningException(
-                            $"Re-signing failed to restore public-key token '{key.PublicKeyToken}' " +
-                            $"(output token '{outputStrongName.PublicKeyToken ?? "<none>"}').");
-                    }
-
-                    wasReSigned = true;
-                    diagnostics.Add(RewriteDiagnostic.Info(
-                        RewriteDiagnosticIds.StrongNameReSigned,
-                        $"'{asset.RelativePath}' was re-signed and retained public-key token {key.PublicKeyToken}."));
-                }
-                catch (SigningException ex)
-                {
-                    diagnostics.Add(RewriteDiagnostic.Error(
-                        RewriteDiagnosticIds.StrongNameReSignRequired,
-                        $"Failed to re-sign '{asset.RelativePath}': {ex.Message}"));
-                }
-            }
-
             CopyReadyToRunOutputIntoStaging(engineOutput, outputPath, temporaryDirectory);
             return new AssemblyInstrumentationResult(
-                asset.RelativePath, rewrite.WasWritten, rewrite.WasNoOp, wasReSigned, readyToRunStripped, rewrite.Manifest, [.. diagnostics]);
+                asset.RelativePath, rewrite.WasWritten, rewrite.WasNoOp, false, readyToRunStripped, rewrite.Manifest, [.. diagnostics]);
         }
         finally
         {
@@ -428,6 +379,69 @@ public static class InstrumentationRunner
         }
 
         return [.. paths];
+    }
+
+    private static ImmutableArray<string> DiscoverRewrittenStrongNameAssemblyNames(
+        ClosurePlan plan,
+        HashSet<string> replacementNames)
+    {
+        var names = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (ClosureAsset asset in plan.AssembliesToRewrite)
+        {
+            string fileName = Path.GetFileNameWithoutExtension(asset.RelativePath);
+            if (replacementNames.Contains(fileName))
+            {
+                continue;
+            }
+
+            using AssemblyDefinition definition = AssemblyDefinition.ReadAssembly(
+                asset.SourcePath,
+                new ReaderParameters { ReadSymbols = false, InMemory = true });
+            if (definition.Name.HasPublicKey)
+            {
+                names.Add(definition.Name.Name);
+            }
+        }
+
+        return [.. names];
+    }
+
+    private static ImmutableArray<RewriteDiagnostic> ValidateCopiedAssemblyReferences(
+        ClosurePlan plan,
+        HashSet<string> replacementNames,
+        HashSet<string> strippedAssemblyNames)
+    {
+        var diagnostics = ImmutableArray.CreateBuilder<RewriteDiagnostic>();
+        foreach (ClosureAsset asset in plan.Assets)
+        {
+            bool copiedManagedAssembly =
+                asset.Kind == AssetKind.ManagedAssembly &&
+                (!asset.Rewrite || replacementNames.Contains(Path.GetFileNameWithoutExtension(asset.RelativePath)));
+            if (!copiedManagedAssembly)
+            {
+                continue;
+            }
+
+            using AssemblyDefinition definition = AssemblyDefinition.ReadAssembly(
+                asset.SourcePath,
+                new ReaderParameters { ReadSymbols = false, InMemory = true });
+            foreach (AssemblyNameReference reference in definition.MainModule.AssemblyReferences)
+            {
+                if (!strippedAssemblyNames.Contains(reference.Name) ||
+                    reference.PublicKeyToken is not { Length: > 0 })
+                {
+                    continue;
+                }
+
+                diagnostics.Add(RewriteDiagnostic.Error(
+                    RewriteDiagnosticIds.StrongNameReferenceConflict,
+                    $"Copied assembly '{asset.RelativePath}' references rewritten assembly '{reference.Name}' " +
+                    "using a strong-name token. Include the dependent assembly in instrumentation or exclude " +
+                    "the referenced assembly so the staged closure retains consistent identities."));
+            }
+        }
+
+        return diagnostics.ToImmutable();
     }
 
     private static HashSet<string> ResolveReplacementClosureNames(
@@ -748,8 +762,7 @@ public static class InstrumentationRunner
     private static string ComputeIncrementalKey(
         ClosurePlan plan,
         InstrumentationConfiguration configuration,
-        Rules.RewriteRuleSet ruleSet,
-        StrongNameKey? key)
+        Rules.RewriteRuleSet ruleSet)
     {
         var canonical = new CanonicalEncoding("InstrumentationIncrementalKey");
         canonical.AddString("EngineVersion", RewriteEngine.EngineVersion);
@@ -772,7 +785,6 @@ public static class InstrumentationRunner
                 source.AddString("Sha256", HashRequiredSourceFile(path, "Rule-set source"));
                 return source.ToString();
             }));
-        canonical.AddString("StrongNameKeySha256", key is null ? null : HashBytes(key.Blob));
         if (configuration.Mode == InstrumentationMode.RaceExploration)
         {
             canonical.AddString(
@@ -904,11 +916,6 @@ public static class InstrumentationRunner
                     $"Instrumentation request Configuration.RuleSetPaths[{index}]"));
             }
 
-            string? strongNameKeyPath = configuration.StrongNameKeyPath is null
-                ? null
-                : InstrumentationPath.GetFullPath(
-                    configuration.StrongNameKeyPath,
-                    "Instrumentation request Configuration.StrongNameKeyPath");
             string? configurationSourcePath = configuration.SourcePath is null
                 ? null
                 : InstrumentationPath.GetFullPath(
@@ -917,7 +924,6 @@ public static class InstrumentationRunner
             return configuration with
             {
                 RuleSetPaths = ruleSetPaths.ToImmutable(),
-                StrongNameKeyPath = strongNameKeyPath,
                 SourcePath = configurationSourcePath,
             };
         }
@@ -1021,11 +1027,6 @@ public static class InstrumentationRunner
         for (var index = 0; index < configuration.RuleSetPaths.Length; index++)
         {
             inputs.Add(($"Configuration.RuleSetPaths[{index}]", configuration.RuleSetPaths[index]));
-        }
-
-        if (configuration.StrongNameKeyPath is { } strongNameKeyPath)
-        {
-            inputs.Add(("Configuration.StrongNameKeyPath", strongNameKeyPath));
         }
 
         foreach ((string inputName, string inputPath) in inputs)
@@ -1175,14 +1176,6 @@ public static class InstrumentationRunner
             ValidateExistingPathComponents(
                 configuration.RuleSetPaths[index],
                 $"Configuration.RuleSetPaths[{index}]",
-                terminalMustBeDirectory: false);
-        }
-
-        if (configuration.StrongNameKeyPath is { } strongNameKeyPath)
-        {
-            ValidateExistingPathComponents(
-                strongNameKeyPath,
-                "Configuration.StrongNameKeyPath",
                 terminalMustBeDirectory: false);
         }
 

@@ -15,8 +15,7 @@ internal static class ConfigurationFactory
     /// <summary>The value options this factory understands, contributed to a command's option set.</summary>
     public static readonly ImmutableArray<string> ValueOptions =
     [
-        "config", "rule-set", "include", "exclude", "mode",
-        "strong-name-key", "target-runtime",
+        "config", "rule-set", "include", "exclude", "mode", "target-runtime",
         "builtin", "builtin-include", "builtin-exclude",
     ];
 
@@ -38,7 +37,6 @@ internal static class ConfigurationFactory
                     reader.GetString("mode"),
                     InstrumentationMode.Controlled),
                 TargetRuntime = ParseVersion(reader.GetString("target-runtime")),
-                StrongNameKeyPath = reader.GetString("strong-name-key"),
             };
 
         IReadOnlyList<string> extraRuleSets = reader.GetMany("rule-set");

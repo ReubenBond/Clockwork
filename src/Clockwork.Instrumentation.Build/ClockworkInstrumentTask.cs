@@ -52,9 +52,6 @@ public sealed class ClockworkInstrumentTask : MSBuildTask
     /// <summary>Gets or sets the instrumentation mode (<c>Controlled</c> or <c>RaceExploration</c>).</summary>
     public string InstrumentationMode { get; set; } = nameof(Configuration.InstrumentationMode.Controlled);
 
-    /// <summary>Gets or sets the strong-name key path used to re-sign signed inputs.</summary>
-    public string? StrongNameKeyPath { get; set; }
-
     /// <summary>Gets or sets the target runtime version rules are evaluated against, or empty to disable filtering.</summary>
     public string? TargetRuntime { get; set; }
 
@@ -161,12 +158,27 @@ public sealed class ClockworkInstrumentTask : MSBuildTask
             ? InstrumentationConfigurationLoader.Load(path)
             : new InstrumentationConfiguration
             {
-                IncludePatterns = ToPatternArray(IncludePatterns),
-                ExcludePatterns = ToPatternArray(ExcludePatterns),
                 Mode = ParseEnum<InstrumentationMode>(InstrumentationMode, nameof(InstrumentationMode)),
                 TargetRuntime = ParseVersion(TargetRuntime),
-                StrongNameKeyPath = NullIfEmpty(StrongNameKeyPath),
             };
+
+        System.Collections.Immutable.ImmutableArray<string> taskIncludes = ToPatternArray(IncludePatterns);
+        if (!taskIncludes.IsDefaultOrEmpty)
+        {
+            configuration = configuration with
+            {
+                IncludePatterns = [.. configuration.IncludePatterns, .. taskIncludes],
+            };
+        }
+
+        System.Collections.Immutable.ImmutableArray<string> taskExcludes = ToPatternArray(ExcludePatterns);
+        if (!taskExcludes.IsDefaultOrEmpty)
+        {
+            configuration = configuration with
+            {
+                ExcludePatterns = [.. configuration.ExcludePatterns, .. taskExcludes],
+            };
+        }
 
         System.Collections.Immutable.ImmutableArray<string> taskRuleSets = ToPatternArray(RuleSetPaths);
         if (!taskRuleSets.IsDefaultOrEmpty)

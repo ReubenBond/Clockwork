@@ -11,9 +11,17 @@
 
   <UsingTask TaskName="Clockwork.Instrumentation.Build.ClockworkInstrumentTask"
              AssemblyFile="$(MSBuildThisFileDirectory)..\tasks\net10.0\Clockwork.Instrumentation.Build.dll" />
+  <UsingTask TaskName="Clockwork.Instrumentation.Build.ClockworkValidateInstrumentedTestTask"
+             AssemblyFile="$(MSBuildThisFileDirectory)..\tasks\net10.0\Clockwork.Instrumentation.Build.dll" />
 
   <PropertyGroup>
+    <!-- A simulation test project always instruments, but rule-set selection remains explicit. -->
+    <ClockworkInstrumentationEnabled Condition="'$(ClockworkInstrumentedTestProject)' == 'true' and '$(TargetFramework)' != ''">true</ClockworkInstrumentationEnabled>
+
     <!-- The resolved application output directory to instrument (defaults to this project's output). -->
+    <ClockworkUninstrumentedTestDirectory Condition="'$(ClockworkUninstrumentedTestDirectory)' == ''">$(IntermediateOutputPath)clockwork\source\</ClockworkUninstrumentedTestDirectory>
+    <ClockworkUninstrumentedTestDirectoryFullPath>$([MSBuild]::NormalizeDirectory($(MSBuildProjectDirectory), $(ClockworkUninstrumentedTestDirectory)))</ClockworkUninstrumentedTestDirectoryFullPath>
+    <ClockworkSourceDirectory Condition="'$(ClockworkSourceDirectory)' == '' and '$(ClockworkInstrumentedTestProject)' == 'true' and '$(TargetFramework)' != ''">$(ClockworkUninstrumentedTestDirectoryFullPath)</ClockworkSourceDirectory>
     <ClockworkSourceDirectory Condition="'$(ClockworkSourceDirectory)' == ''">$(TargetDir)</ClockworkSourceDirectory>
     <ClockworkEntryAssemblyName Condition="'$(ClockworkEntryAssemblyName)' == ''">$(TargetName)</ClockworkEntryAssemblyName>
 
@@ -24,6 +32,8 @@
     -->
     <!-- Out-of-place staging under obj; the task fully owns and recreates this directory. -->
     <ClockworkStagingDirectory Condition="'$(ClockworkStagingDirectory)' == ''">$(IntermediateOutputPath)clockwork\instrumented\</ClockworkStagingDirectory>
+    <ClockworkStagingDirectoryFullPath>$([MSBuild]::NormalizeDirectory($(MSBuildProjectDirectory), $(ClockworkStagingDirectory)))</ClockworkStagingDirectoryFullPath>
+    <ClockworkStagedTargetPath>$([MSBuild]::NormalizePath($(ClockworkStagingDirectoryFullPath), $(TargetFileName)))</ClockworkStagedTargetPath>
 
     <!-- Manifest lives outside the staged closure so it never ships with the app. -->
     <ClockworkManifestPath Condition="'$(ClockworkManifestPath)' == ''">$(IntermediateOutputPath)clockwork\clockwork.manifest.json</ClockworkManifestPath>
@@ -35,6 +45,56 @@
     <!-- Auto-discover a project-adjacent config file when the consumer has not set one. -->
     <ClockworkConfigurationPath Condition="'$(ClockworkConfigurationPath)' == '' and Exists('$(MSBuildProjectDirectory)\clockwork.config.json')">$(MSBuildProjectDirectory)\clockwork.config.json</ClockworkConfigurationPath>
   </PropertyGroup>
+
+  <ItemGroup Condition="'$(ClockworkInstrumentedTestProject)' == 'true'">
+    <!-- The runner executes before a simulation exists. Keep test-host implementation outside the
+         simulated closure while rewriting the test assembly and every application dependency. -->
+    <ClockworkExclude Include="Microsoft.Testing%2A.dll" />
+    <ClockworkExclude Include="Microsoft.TestPlatform%2A.dll" />
+    <ClockworkExclude Include="Microsoft.ApplicationInsights.dll" />
+    <ClockworkExclude Include="Microsoft.Bcl.AsyncInterfaces.dll" />
+    <ClockworkExclude Include="xunit%2A.dll" />
+    <ClockworkExclude Include="nunit%2A.dll" />
+    <ClockworkExclude Include="MSTest%2A.dll" />
+    <ClockworkExclude Include="TUnit%2A.dll" />
+    <ClockworkExclude Include="testhost.dll" />
+  </ItemGroup>
+
+  <Target Name="ClockworkValidateInstrumentedTestConfiguration"
+          BeforeTargets="PrepareForBuild"
+          Condition="'$(ClockworkInstrumentedTestProject)' == 'true' and '$(TargetFramework)' != ''">
+    <Error Condition="'$(OutputType)' != 'Exe'"
+           Text="Clockwork instrumented test projects must be executable test applications (OutputType=Exe)." />
+    <Error Condition="'@(ClockworkRuleSet)' == '' and '@(ClockworkBuiltInRuleSet)' == '' and '$(ClockworkConfigurationPath)' == ''"
+           Text="Clockwork instrumented test projects must select at least one @(ClockworkRuleSet) or @(ClockworkBuiltInRuleSet)." />
+  </Target>
+
+  <!-- A previous successful simulation build leaves rewritten files in bin. Restore its pristine
+       snapshot before the next build so incremental compilation and mode changes start from normal IL. -->
+  <Target Name="ClockworkRestoreUninstrumentedTestClosure"
+          BeforeTargets="PrepareForBuild"
+          Condition="'$(ClockworkInstrumentedTestProject)' == 'true' and '$(TargetFramework)' != '' and Exists('$(ClockworkUninstrumentedTestDirectoryFullPath)')">
+    <ItemGroup>
+      <_ClockworkPristineFile Include="$(ClockworkUninstrumentedTestDirectoryFullPath)**\*" />
+    </ItemGroup>
+    <RemoveDir Directories="$(TargetDir)" />
+    <Copy SourceFiles="@(_ClockworkPristineFile)"
+          DestinationFiles="@(_ClockworkPristineFile->'$(TargetDir)%(RecursiveDir)%(Filename)%(Extension)')" />
+  </Target>
+
+  <!-- Snapshot the complete ordinary test output before rewriting it out of place. -->
+  <Target Name="ClockworkCaptureUninstrumentedTestClosure"
+          AfterTargets="Build"
+          BeforeTargets="ClockworkInstrument"
+          Condition="'$(ClockworkInstrumentedTestProject)' == 'true' and '$(TargetFramework)' != ''">
+    <ItemGroup>
+      <_ClockworkOrdinaryTestFile Include="$(TargetDir)**\*" />
+    </ItemGroup>
+    <RemoveDir Directories="$(ClockworkUninstrumentedTestDirectoryFullPath)" />
+    <MakeDir Directories="$(ClockworkUninstrumentedTestDirectoryFullPath)" />
+    <Copy SourceFiles="@(_ClockworkOrdinaryTestFile)"
+          DestinationFiles="@(_ClockworkOrdinaryTestFile->'$(ClockworkUninstrumentedTestDirectoryFullPath)%(RecursiveDir)%(Filename)%(Extension)')" />
+  </Target>
 
   <Target Name="ClockworkWriteInstrumentationModeStamp"
           BeforeTargets="ClockworkInstrument"
@@ -69,7 +129,6 @@
         IncludePatterns="@(ClockworkInclude)"
         ExcludePatterns="@(ClockworkExclude)"
         InstrumentationMode="$(ClockworkInstrumentationMode)"
-        StrongNameKeyPath="$(ClockworkStrongNameKeyPath)"
         TargetRuntime="$(ClockworkTargetRuntime)"
         EntryAssemblyName="$(ClockworkEntryAssemblyName)"
         ManifestPath="$(ClockworkManifestPath)"
@@ -79,6 +138,39 @@
     </ClockworkInstrumentTask>
 
     <Message Importance="normal" Text="Clockwork: manifest at '$(ClockworkResolvedManifestPath)' (incremental: $(ClockworkWasIncremental))" />
+  </Target>
+
+  <Target Name="ClockworkValidateInstrumentedTestOutput"
+          AfterTargets="ClockworkInstrument"
+          Condition="'$(ClockworkInstrumentedTestProject)' == 'true' and '$(TargetFramework)' != ''">
+    <Error Condition="!Exists('$(ClockworkSuccessPath)')"
+           Text="Clockwork instrumented test output is incomplete: success marker '$(ClockworkSuccessPath)' was not found. Build without --no-build first." />
+    <Error Condition="!Exists('$(ClockworkManifestPath)')"
+           Text="Clockwork instrumented test output is incomplete: manifest '$(ClockworkManifestPath)' was not found. Build without --no-build first." />
+    <Error Condition="!Exists('$(ClockworkStagedTargetPath)')"
+           Text="Clockwork staged test entry assembly '$(ClockworkStagedTargetPath)' was not found. Build without --no-build first." />
+
+    <ClockworkValidateInstrumentedTestTask
+        StagingDirectory="$(ClockworkStagingDirectoryFullPath)"
+        ManifestPath="$(ClockworkManifestPath)"
+        EntryAssemblyName="$(TargetFileName)" />
+  </Target>
+
+  <!-- Deploy only into this simulation project's test-output copy. Production project outputs and
+       every non-opted-in test project remain ordinary IL, including no-build test executions. -->
+  <Target Name="ClockworkDeployInstrumentedTestClosure"
+          AfterTargets="ClockworkInstrument"
+          DependsOnTargets="ClockworkValidateInstrumentedTestOutput"
+          Condition="'$(ClockworkInstrumentedTestProject)' == 'true' and '$(TargetFramework)' != ''">
+    <ItemGroup>
+      <_ClockworkInstrumentedTestFile Include="$(ClockworkStagingDirectoryFullPath)**\*" />
+    </ItemGroup>
+    <RemoveDir Directories="$(TargetDir)" />
+    <MakeDir Directories="$(TargetDir)" />
+    <Copy SourceFiles="@(_ClockworkInstrumentedTestFile)"
+          DestinationFiles="@(_ClockworkInstrumentedTestFile->'$(TargetDir)%(RecursiveDir)%(Filename)%(Extension)')" />
+    <Message Importance="high"
+             Text="Clockwork: deployed the instrumented simulation test closure to '$(TargetDir)'." />
   </Target>
 
 </Project>

@@ -115,7 +115,6 @@ internal static class Program
         output.WriteLine("  --entry <name>             entry assembly simple name (else auto-detected)");
         output.WriteLine("  --manifest <path>          manifest output path (else a sibling of --output)");
         output.WriteLine("  --mode <Controlled|RaceExploration> instrumentation granularity (default Controlled)");
-        output.WriteLine("  --strong-name-key <path>   strong-name key used to re-sign signed inputs");
         output.WriteLine("  --target-runtime <version> runtime version rules are evaluated against");
         output.WriteLine("  --builtin <id|all>         built-in rule set (repeatable)");
         output.WriteLine("  --builtin-include <family> include built-in family (repeatable)");
@@ -133,7 +132,6 @@ internal static class Program
         output.WriteLine("  --include <glob>           configuration include pattern (repeatable)");
         output.WriteLine("  --exclude <glob>           configuration exclude pattern (repeatable)");
         output.WriteLine("  --mode <Controlled|RaceExploration> configuration instrumentation granularity");
-        output.WriteLine("  --strong-name-key <path>   configuration strong-name key");
         output.WriteLine("  --target-runtime <version> configuration target runtime");
         output.WriteLine("  --json                     emit JSON instead of text");
         output.WriteLine();
