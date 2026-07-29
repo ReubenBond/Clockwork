@@ -133,22 +133,23 @@ internal sealed class SimulationTimerQueue
     /// </summary>
     public IReadOnlyList<ISimulationTimerEntry> AdvanceToNextDue()
     {
-        _pending.RemoveAll(static r => r.IsCanceled);
-        if (_pending.Count == 0)
-        {
-            return [];
-        }
-
-        var earliest = _pending[0].DueTime;
+        TimeSpan? earliest = null;
         foreach (var registration in _pending)
         {
-            if (registration.DueTime < earliest)
+            if (!registration.IsCanceled &&
+                (earliest is null || registration.DueTime < earliest.Value))
             {
                 earliest = registration.DueTime;
             }
         }
 
-        return AdvanceTo(earliest);
+        if (earliest is null)
+        {
+            _pending.Clear();
+            return [];
+        }
+
+        return AdvanceTo(earliest.Value);
     }
 
     public IReadOnlyList<ISimulationTimerEntry> AdvanceTo(TimeSpan target)
@@ -159,19 +160,41 @@ internal sealed class SimulationTimerQueue
         }
 
         _now = target;
-        _pending.RemoveAll(static r => r.IsCanceled);
-        var due = _pending
-            .Where(registration => registration.DueTime <= target)
-            .OrderBy(static registration => registration.DueTime)
-            .ThenBy(static registration => registration.Sequence)
-            .ToArray();
-        if (due.Length > 0)
+        List<ISimulationTimerEntry>? due = null;
+        var retainedCount = 0;
+        var originalCount = _pending.Count;
+        for (var index = 0; index < originalCount; index++)
         {
-            var dueSet = due.ToHashSet(ReferenceEqualityComparer.Instance);
-            _pending.RemoveAll(dueSet.Contains);
+            ISimulationTimerEntry registration = _pending[index];
+            if (registration.IsCanceled)
+            {
+                continue;
+            }
+
+            if (registration.DueTime <= target)
+            {
+                (due ??= []).Add(registration);
+                continue;
+            }
+
+            _pending[retainedCount++] = registration;
         }
 
-        return due;
+        if (retainedCount < originalCount)
+        {
+            _pending.RemoveRange(retainedCount, originalCount - retainedCount);
+        }
+
+        if (due is { Count: > 1 })
+        {
+            due.Sort(static (left, right) =>
+            {
+                var byTime = left.DueTime.CompareTo(right.DueTime);
+                return byTime != 0 ? byTime : left.Sequence.CompareTo(right.Sequence);
+            });
+        }
+
+        return due ?? [];
     }
 
     /// <summary>

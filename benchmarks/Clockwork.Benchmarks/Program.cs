@@ -46,4 +46,19 @@ if (args is ["--trace-replay", var replayIterationCount, var replayOperationCoun
     return;
 }
 
+if (args is ["--trace-timers", var timerIterationCount, var timerCount, var timerMode]
+    && int.TryParse(timerIterationCount, out var timerIterations)
+    && timerIterations > 0
+    && int.TryParse(timerCount, out var timers)
+    && timers > 0
+    && timerMode is "all" or "individual")
+{
+    Console.WriteLine(
+        SimulationTimerQueueBenchmarks.RunTrace(
+            timerIterations,
+            timers,
+            advanceIndividually: timerMode == "individual"));
+    return;
+}
+
 BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args);
