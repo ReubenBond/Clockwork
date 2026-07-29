@@ -61,9 +61,6 @@ public static class RewriteDiagnosticIds
     /// <summary>A rewritten assembly's strong-name identity was stripped and closure references were retargeted.</summary>
     public const string StrongNameStripped = "CWR0105";
 
-    /// <summary>A copied assembly still references a rewritten assembly's stripped strong-name identity.</summary>
-    public const string StrongNameReferenceConflict = "CWR0106";
-
     /// <summary>
     /// A rewritten call into an uncontrolled (non-rewritten, non-BCL, non-shim) assembly returns a
     /// <see cref="System.Threading.Tasks.Task"/>/<see cref="System.Threading.Tasks.ValueTask"/> or other

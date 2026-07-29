@@ -62,25 +62,15 @@ public static class InstrumentationRunner
 
         ImmutableArray<string> replacementPaths =
             ResolveReplacementAssemblies(sourceDirectory, request.RuleSet, configuration);
-        HashSet<string> replacementNames =
-            ResolveReplacementClosureNames(sourceDirectory, replacementPaths);
-        ImmutableArray<string> strongNameAssemblyNames =
+        HashSet<string> replacementNames = ResolveReplacementClosureNames(sourceDirectory, replacementPaths);
+        ImmutableArray<string> rewrittenStrongNames =
             DiscoverRewrittenStrongNameAssemblyNames(plan, replacementNames);
-        topLevel.AddRange(ValidateCopiedAssemblyReferences(
+        HashSet<string> protectedStrongNames = DiscoverCopiedStrongNameReferences(
             plan,
             replacementNames,
-            strongNameAssemblyNames.ToHashSet(StringComparer.Ordinal)));
-        if (topLevel.Any(diagnostic => diagnostic.IsError))
-        {
-            return new InstrumentationResult
-            {
-                Succeeded = false,
-                WasIncrementalHit = false,
-                StagingDirectory = stagingDirectory,
-                ManifestPath = request.ManifestPath,
-                Diagnostics = [.. topLevel],
-            };
-        }
+            rewrittenStrongNames.ToHashSet(StringComparer.Ordinal));
+        ImmutableArray<string> strongNameAssemblyNames =
+            [.. rewrittenStrongNames.Where(name => !protectedStrongNames.Contains(name))];
 
         PrepareStagingDirectory(stagingDirectory);
 
@@ -220,7 +210,10 @@ public static class InstrumentationRunner
         }
 
         StrongNameInfo strongName = StrongNameInspector.Inspect(inputPath);
-        if (strongName.HasPublicKey)
+        if (strongName.HasPublicKey &&
+            options.StrongNameAssemblyNames.Contains(
+                Path.GetFileNameWithoutExtension(asset.RelativePath),
+                StringComparer.Ordinal))
         {
             diagnostics.Add(RewriteDiagnostic.Info(
                 RewriteDiagnosticIds.StrongNameStripped,
@@ -330,12 +323,12 @@ public static class InstrumentationRunner
         return [.. names];
     }
 
-    private static ImmutableArray<RewriteDiagnostic> ValidateCopiedAssemblyReferences(
+    private static HashSet<string> DiscoverCopiedStrongNameReferences(
         ClosurePlan plan,
         HashSet<string> replacementNames,
         HashSet<string> strippedAssemblyNames)
     {
-        var diagnostics = ImmutableArray.CreateBuilder<RewriteDiagnostic>();
+        var protectedNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (ClosureAsset asset in plan.Assets)
         {
             bool copiedManagedAssembly =
@@ -357,15 +350,11 @@ public static class InstrumentationRunner
                     continue;
                 }
 
-                diagnostics.Add(RewriteDiagnostic.Error(
-                    RewriteDiagnosticIds.StrongNameReferenceConflict,
-                    $"Copied assembly '{asset.RelativePath}' references rewritten assembly '{reference.Name}' " +
-                    "using a strong-name token. Include the dependent assembly in instrumentation or exclude " +
-                    "the referenced assembly so the staged closure retains consistent identities."));
+                protectedNames.Add(reference.Name);
             }
         }
 
-        return diagnostics.ToImmutable();
+        return protectedNames;
     }
 
     private static ClosureManifest BuildManifest(

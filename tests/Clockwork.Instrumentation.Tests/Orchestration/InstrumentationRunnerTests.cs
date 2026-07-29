@@ -302,7 +302,7 @@ public sealed class InstrumentationRunnerTests : IDisposable
     }
 
     [Fact]
-    public void RejectsCopiedAssemblyReferencingStrippedIdentity()
+    public void PreservesStrongIdentityReferencedByCopiedAssembly()
     {
         string keyPath = WriteKey();
         string dependency = Compile(
@@ -320,9 +320,12 @@ public sealed class InstrumentationRunnerTests : IDisposable
             new InstrumentationConfiguration { IncludePatterns = ["dependency.dll"] },
             EmptyRuleSet());
 
-        Assert.False(result.Succeeded);
-        Assert.Contains(result.Errors, d => d.Id == RewriteDiagnosticIds.StrongNameReferenceConflict);
-        Assert.False(Directory.Exists(_staging));
+        Assert.True(result.Succeeded, string.Join("\n", result.Errors));
+        string stagedDependency = Path.Combine(_staging, "dependency.dll");
+        Assert.Equal(StrongNameStatus.StrongNameSigned, StrongNameInspector.Inspect(stagedDependency).Status);
+        Assert.Equal(
+            StrongNameInspector.Inspect(stagedDependency).PublicKeyToken,
+            ReferenceTokenOf(Path.Combine(_staging, "app.dll"), "dependency"));
     }
 
     private InstrumentationResult Run(InstrumentationConfiguration configuration, RewriteRuleSet ruleSet) =>
