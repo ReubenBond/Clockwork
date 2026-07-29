@@ -10,7 +10,7 @@ namespace Clockwork.Instrumentation.Rules;
 /// engine. A rule set has a stable <see cref="Id"/> and <see cref="Version"/>, and can compute a
 /// deterministic content <see cref="ComputeSignature"/> used for the engine's idempotence marker:
 /// re-running with the same signature is a verified no-op, while a different signature is detected
-/// as an incompatible rewrite (see <see cref="Attributes.ClockworkRewriteSignatureAttribute"/>).
+/// as an incompatible rewrite.
 /// </summary>
 public sealed class RewriteRuleSet
 {

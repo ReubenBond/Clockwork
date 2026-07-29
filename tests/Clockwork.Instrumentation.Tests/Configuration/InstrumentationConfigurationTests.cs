@@ -19,7 +19,6 @@ public sealed class InstrumentationConfigurationTests
 
         Assert.Equal(InstrumentationMode.Controlled, config.Mode);
         Assert.Null(config.TargetRuntime);
-        Assert.Null(config.StrongNameKeyPath);
         Assert.Single(config.RuleSetPaths);
     }
 
@@ -36,8 +35,7 @@ public sealed class InstrumentationConfigurationTests
               "builtInExcludeFamilies": ["Crypto"],
               "include": ["App*.dll"],
               "exclude": ["*.Tests.dll"],
-              "targetRuntime": "10.0",
-              "strongNameKeyPath": "app.snk"
+              "targetRuntime": "10.0"
             }
             """;
 
@@ -51,7 +49,6 @@ public sealed class InstrumentationConfigurationTests
         Assert.Equal(["App*.dll"], config.IncludePatterns);
         Assert.Equal(["*.Tests.dll"], config.ExcludePatterns);
         Assert.Equal(new Version(10, 0), config.TargetRuntime);
-        Assert.Equal("app.snk", config.StrongNameKeyPath);
     }
 
     [Fact]
@@ -87,11 +84,10 @@ public sealed class InstrumentationConfigurationTests
     {
         string baseDir = OperatingSystem.IsWindows() ? @"C:\proj\cfg" : "/proj/cfg";
         InstrumentationConfiguration config = InstrumentationConfigurationLoader.Parse(
-            """{ "schemaVersion": 2, "ruleSets": ["rules/clock.json"], "strongNameKeyPath": "keys/app.snk" }""",
+            """{ "schemaVersion": 2, "ruleSets": ["rules/clock.json"] }""",
             baseDir);
 
         Assert.Equal(Path.GetFullPath(Path.Combine(baseDir, "rules/clock.json")), config.RuleSetPaths[0]);
-        Assert.Equal(Path.GetFullPath(Path.Combine(baseDir, "keys/app.snk")), config.StrongNameKeyPath);
     }
 
     [Theory]
@@ -133,6 +129,7 @@ public sealed class InstrumentationConfigurationTests
     [InlineData("instrumentDependencies")]
     [InlineData("readyToRunPolicy")]
     [InlineData("strongNamePolicy")]
+    [InlineData("strongNameKeyPath")]
     public void RejectsRemovedRootProperties(string propertyName)
     {
         string json = $$"""{ "schemaVersion": 2, "{{propertyName}}": true }""";
@@ -224,7 +221,6 @@ public sealed class InstrumentationConfigurationTests
             ("""{ "schemaVersion": 2 }""", """{ "schemaVersion": 2, "include": ["App*.dll"] }"""),
             ("""{ "schemaVersion": 2 }""", """{ "schemaVersion": 2, "exclude": ["*.Tests.dll"] }"""),
             ("""{ "schemaVersion": 2 }""", """{ "schemaVersion": 2, "targetRuntime": "10.0" }"""),
-            ("""{ "schemaVersion": 2 }""", """{ "schemaVersion": 2, "strongNameKeyPath": "app.snk" }"""),
         ];
 
         foreach ((string baselineDocument, string changedDocument) in cases)

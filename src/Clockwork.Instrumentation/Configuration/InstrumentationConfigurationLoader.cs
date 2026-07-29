@@ -6,7 +6,7 @@ namespace Clockwork.Instrumentation.Configuration;
 
 /// <summary>
 /// Loads and strictly validates an <see cref="InstrumentationConfiguration"/> from a JSON document.
-/// Relative rule-set and key paths are resolved against the configuration file's directory so a
+/// Relative rule-set paths are resolved against the configuration file's directory so a
 /// configuration file is self-contained and portable. Unknown or duplicate properties, unknown enum
 /// values, wrong JSON types, and missing required fields are hard <see cref="ConfigurationException"/>s.
 /// </summary>
@@ -80,8 +80,7 @@ public static class InstrumentationConfigurationLoader
                 "builtInExcludeFamilies",
                 "include",
                 "exclude",
-                "targetRuntime",
-                "strongNameKeyPath");
+                "targetRuntime");
 
             int schema = GetRequiredInt(root, "schemaVersion", origin);
             if (schema != InstrumentationConfiguration.CurrentSchemaVersion)
@@ -102,14 +101,6 @@ public static class InstrumentationConfigurationLoader
             ImmutableArray<string> include = GetStringArray(root, "include", origin);
             ImmutableArray<string> exclude = GetStringArray(root, "exclude", origin);
             Version? targetRuntime = GetOptionalVersion(root, "targetRuntime", origin);
-            string? keyPath = GetOptionalString(root, "strongNameKeyPath", origin);
-            if (keyPath is not null && normalizedBaseDirectory is not null)
-            {
-                keyPath = CombineAndNormalizePath(
-                    normalizedBaseDirectory,
-                    keyPath,
-                    $"{origin}: 'strongNameKeyPath'");
-            }
 
             return new InstrumentationConfiguration
             {
@@ -121,7 +112,6 @@ public static class InstrumentationConfigurationLoader
                 IncludePatterns = include,
                 ExcludePatterns = exclude,
                 TargetRuntime = targetRuntime,
-                StrongNameKeyPath = keyPath,
             };
         }
     }

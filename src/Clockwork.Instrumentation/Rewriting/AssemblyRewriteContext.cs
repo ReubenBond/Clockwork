@@ -21,8 +21,8 @@ namespace Clockwork.Instrumentation.Rewriting;
 
 /// <summary>
 /// Loads a single assembly for rewriting, exposes its Mono.Cecil <see cref="AssemblyDefinition"/>,
-/// detects and preserves its debug-symbol form, reads and applies the idempotence signature marker
-/// (<see cref="ClockworkRewriteSignatureAttribute"/>), and writes the rewritten result. Instances
+/// detects and preserves its debug-symbol form, reads and applies the idempotence signature marker,
+/// and writes the rewritten result. Instances
 /// own an assembly resolver and the underlying <see cref="AssemblyDefinition"/> and must be disposed.
 /// </summary>
 internal sealed class AssemblyRewriteContext : IDisposable
@@ -32,7 +32,13 @@ internal sealed class AssemblyRewriteContext : IDisposable
 
     private static readonly string SignatureAttributeName = nameof(ClockworkRewriteSignatureAttribute);
 
+    private static readonly string AssemblyMetadataAttributeFullName =
+        typeof(System.Reflection.AssemblyMetadataAttribute).FullName!;
+
     private static readonly string DoNotRewriteAttributeFullName = typeof(DoNotRewriteAttribute).FullName!;
+
+    private const string InternalsVisibleToAttributeFullName =
+        "System.Runtime.CompilerServices.InternalsVisibleToAttribute";
 
     private readonly DefaultAssemblyResolver _resolver;
     private readonly List<RewriteDiagnostic> _loadDiagnostics = [];
@@ -186,6 +192,25 @@ internal sealed class AssemblyRewriteContext : IDisposable
     /// </summary>
     public bool TryGetRewriteSignature(out ClockworkRewriteSignatureValues values)
     {
+        CustomAttribute? metadata = FindSignatureMetadata();
+        if (metadata is not null &&
+            RewriteSignatureMetadata.TryDecode(
+                metadata.ConstructorArguments[1].Value as string,
+                out string engineVersion,
+                out string ruleSetId,
+                out string ruleSetVersion,
+                out string signature,
+                out string optionsFingerprint))
+        {
+            values = new ClockworkRewriteSignatureValues(
+                engineVersion,
+                ruleSetId,
+                ruleSetVersion,
+                signature,
+                optionsFingerprint);
+            return true;
+        }
+
         CustomAttribute? attribute = FindSignatureAttribute();
         if (attribute is not null && attribute.ConstructorArguments.Count >= 4)
         {
@@ -212,36 +237,77 @@ internal sealed class AssemblyRewriteContext : IDisposable
     {
         ModuleDefinition module = Definition.MainModule;
         TypeReference stringType = module.TypeSystem.String;
-        CustomAttributeArgument[] args =
-        [
-            new(stringType, values.EngineVersion),
-            new(stringType, values.RuleSetId),
-            new(stringType, values.RuleSetVersion),
-            new(stringType, values.Signature),
-            new(stringType, values.OptionsFingerprint),
-        ];
-
-        CustomAttribute? existing = FindSignatureAttribute();
+        string encoded = RewriteSignatureMetadata.Encode(
+            values.EngineVersion,
+            values.RuleSetId,
+            values.RuleSetVersion,
+            values.Signature,
+            values.OptionsFingerprint);
+        CustomAttribute? existing = FindSignatureMetadata();
         if (existing is not null)
         {
-            for (int i = 0; i < args.Length; i++)
-            {
-                existing.ConstructorArguments[i] = args[i];
-            }
-
+            existing.ConstructorArguments[1] = new CustomAttributeArgument(stringType, encoded);
             return;
         }
 
         MethodReference ctor = module.ImportReference(
-            typeof(ClockworkRewriteSignatureAttribute).GetConstructor(
-                [typeof(string), typeof(string), typeof(string), typeof(string), typeof(string)])!);
+            typeof(System.Reflection.AssemblyMetadataAttribute).GetConstructor([typeof(string), typeof(string)])!);
         var attribute = new CustomAttribute(ctor);
-        foreach (CustomAttributeArgument arg in args)
+        attribute.ConstructorArguments.Add(new CustomAttributeArgument(stringType, RewriteSignatureMetadata.Key));
+        attribute.ConstructorArguments.Add(new CustomAttributeArgument(stringType, encoded));
+        Definition.CustomAttributes.Add(attribute);
+    }
+
+    /// <summary>
+    /// Removes strong-name identity from this assembly when selected, and removes public-key tokens
+    /// from references to every selected closure assembly.
+    /// </summary>
+    public void StripStrongNames(IReadOnlySet<string> assemblyNames)
+    {
+        if (assemblyNames.Contains(Definition.Name.Name))
         {
-            attribute.ConstructorArguments.Add(arg);
+            Definition.Name.PublicKey = [];
+            Definition.Name.PublicKeyToken = [];
+            Definition.Name.HasPublicKey = false;
+            Definition.Name.Attributes &= ~AssemblyAttributes.PublicKey;
+            foreach (ModuleDefinition module in Definition.Modules)
+            {
+                module.Attributes &= ~ModuleAttributes.StrongNameSigned;
+            }
         }
 
-        Definition.CustomAttributes.Add(attribute);
+        foreach (ModuleDefinition module in Definition.Modules)
+        {
+            foreach (AssemblyNameReference reference in module.AssemblyReferences)
+            {
+                if (!assemblyNames.Contains(reference.Name))
+                {
+                    continue;
+                }
+
+                reference.PublicKey = [];
+                reference.PublicKeyToken = [];
+                reference.HasPublicKey = false;
+                reference.Attributes &= ~AssemblyAttributes.PublicKey;
+            }
+        }
+
+        foreach (CustomAttribute attribute in Definition.CustomAttributes)
+        {
+            if (attribute.AttributeType.FullName != InternalsVisibleToAttributeFullName ||
+                attribute.ConstructorArguments.Count != 1 ||
+                attribute.ConstructorArguments[0].Value is not string friendIdentity)
+            {
+                continue;
+            }
+
+            string friendName = friendIdentity.Split(',', 2)[0].Trim();
+            if (assemblyNames.Contains(friendName))
+            {
+                attribute.ConstructorArguments[0] =
+                    new CustomAttributeArgument(MainModule.TypeSystem.String, friendName);
+            }
+        }
     }
 
     /// <summary>
@@ -313,6 +379,15 @@ internal sealed class AssemblyRewriteContext : IDisposable
             a.AttributeType.Namespace == SignatureAttributeNamespace &&
             a.AttributeType.Name == SignatureAttributeName);
 
+    private CustomAttribute? FindSignatureMetadata() =>
+        Definition.CustomAttributes.FirstOrDefault(attribute =>
+            attribute.AttributeType.FullName == AssemblyMetadataAttributeFullName &&
+            attribute.ConstructorArguments.Count == 2 &&
+            string.Equals(
+                attribute.ConstructorArguments[0].Value as string,
+                RewriteSignatureMetadata.Key,
+                StringComparison.Ordinal));
+
     /// <inheritdoc/>
     public void Dispose()
     {
@@ -328,7 +403,7 @@ internal sealed class AssemblyRewriteContext : IDisposable
 }
 
 /// <summary>
-/// The five string values stored in a <see cref="ClockworkRewriteSignatureAttribute"/>.
+/// The five string values stored in Clockwork rewrite-signature metadata.
 /// </summary>
 /// <param name="EngineVersion">The engine version that performed the rewrite.</param>
 /// <param name="RuleSetId">The identity of the applied rule set.</param>

@@ -91,17 +91,12 @@ internal static class InstrumentCommand
         TextWriter output)
     {
         ClosurePlan plan = ClosureDiscovery.Discover(source, configuration, string.IsNullOrWhiteSpace(entry) ? null : entry);
-        StrongNameKeyLoadResult keyLoad =
-            StrongNameKeyLoader.LoadConfigured(configuration.StrongNameKeyPath);
-        StrongNameKey? key = keyLoad.Key;
-        ImmutableArray<RewriteDiagnostic> diagnostics = keyLoad.Diagnostic is { } keyDiagnostic
-            ? [keyDiagnostic]
-            : [];
+        ImmutableArray<RewriteDiagnostic> diagnostics = [];
 
         var rows = new List<PlannedAction>();
         foreach (ClosureAsset asset in plan.AssembliesToRewrite)
         {
-            rows.Add(PlanFor(asset, key));
+            rows.Add(PlanFor(asset));
         }
 
         bool anyBlocking = diagnostics.Any(static diagnostic => diagnostic.IsError)
@@ -175,7 +170,7 @@ internal static class InstrumentCommand
         return anyBlocking ? ExitCode.InstrumentationError : ExitCode.Success;
     }
 
-    private static PlannedAction PlanFor(ClosureAsset asset, StrongNameKey? key)
+    private static PlannedAction PlanFor(ClosureAsset asset)
     {
         AssemblyImageInfo image;
         try
@@ -207,29 +202,11 @@ internal static class InstrumentCommand
         StrongNameInfo strongName = StrongNameInspector.Inspect(asset.SourcePath);
         if (strongName.Status != StrongNameStatus.None)
         {
-            if (key is null || !key.CanSign)
-            {
-                string prefix = stripReadyToRun ? "strip ReadyToRun to IL, then " : string.Empty;
-                return new PlannedAction(
-                    asset.RelativePath,
-                    $"{prefix}fail (strong-named; re-signing requires a usable identity-preserving key)",
-                    IsBlocking: true);
-            }
-
-            if (!string.Equals(strongName.PublicKeyToken, key.PublicKeyToken, StringComparison.Ordinal))
-            {
-                string prefix = stripReadyToRun ? "strip ReadyToRun to IL, then " : string.Empty;
-                return new PlannedAction(
-                    asset.RelativePath,
-                    $"{prefix}fail (strong-named; signing key changes public-key token)",
-                    IsBlocking: true);
-            }
-
             return new PlannedAction(
                 asset.RelativePath,
                 stripReadyToRun
-                    ? "strip ReadyToRun to IL, instrument, and re-sign"
-                    : "instrument and re-sign",
+                    ? "strip ReadyToRun and strong-name identity, then instrument"
+                    : "instrument and strip strong-name identity",
                 IsBlocking: false);
         }
 

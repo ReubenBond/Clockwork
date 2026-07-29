@@ -129,6 +129,10 @@ public static class ControlledCancellationTokenSource
         source.Dispose();
     }
 
+    [global::System.Diagnostics.CodeAnalysis.SuppressMessage(
+        "Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "The registration is owned by the conditional weak table until the cancellation source is disposed.")]
     private static CancellationTokenSource CreateCore(
         SimulationExecutionSnapshot snapshot,
         TimeSpan delay)
