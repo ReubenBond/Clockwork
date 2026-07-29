@@ -223,8 +223,9 @@ that simulation test project's `bin` directory. Strong-name identities are strip
 from rewritten assemblies, together with their intra-closure reference tokens and
 `InternalsVisibleTo` public-key qualifiers. Test-host implementation assemblies are automatically
 excluded because discovery and runner startup execute before a simulation exists. The test entry
-assembly is also copied unchanged so async test methods can create the simulation before controlled
-code runs; the complete application/dependency closure remains eligible for rewriting. The next build restores the pristine snapshot first, so
+assembly and Clockwork kernel are also copied unchanged so async test methods can create the
+simulation before controlled code runs; the complete application/dependency closure remains eligible
+for rewriting. The next build restores the pristine snapshot first, so
 incremental compilation and instrumentation-mode changes never consume a previously rewritten input.
 Because the rewritten test copy occupies the project's normal module path, `dotnet build` followed
 by `dotnet test --no-build` uses it without runner-specific dispatch hooks. Production project
