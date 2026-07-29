@@ -6,8 +6,7 @@ namespace Clockwork.Instrumentation.Configuration;
 
 /// <summary>
 /// The declarative, serializable configuration that drives the build task and CLI: which rule-set
-/// documents to load, which assemblies in a closure to include or exclude, and the strong-name key
-/// used to re-sign signed inputs. Like
+/// documents to load and which assemblies in a closure to include or exclude. Like
 /// <see cref="Rules.RewriteRuleSet"/> it is pure data - loading it never executes arbitrary code -
 /// and it exposes a stable <see cref="ComputeSignature"/> so it can participate in incremental
 /// build keys and idempotence markers.
@@ -70,12 +69,6 @@ public sealed record InstrumentationConfiguration
     /// </summary>
     public Version? TargetRuntime { get; init; }
 
-    /// <summary>
-    /// Gets the path of the strong-name key (<c>.snk</c>) used to re-sign signed inputs. Resolved
-    /// relative to the configuration file when loaded from disk. Unsigned inputs remain unsigned.
-    /// </summary>
-    public string? StrongNameKeyPath { get; init; }
-
     internal string? SourcePath { get; init; }
 
     /// <summary>
@@ -100,7 +93,6 @@ public sealed record InstrumentationConfiguration
         canonical.AddStringArray(nameof(IncludePatterns), IncludePatterns);
         canonical.AddStringArray(nameof(ExcludePatterns), ExcludePatterns);
         canonical.AddString(nameof(TargetRuntime), TargetRuntime?.ToString());
-        canonical.AddString(nameof(StrongNameKeyPath), StrongNameKeyPath);
         return canonical.ToString();
     }
 }

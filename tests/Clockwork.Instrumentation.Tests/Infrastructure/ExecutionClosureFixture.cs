@@ -93,9 +93,6 @@ internal sealed class ExecutionClosureFixture : IDisposable
     /// <summary>Gets the staging directory the instrumented closure is written to.</summary>
     public string StagingDirectory { get; }
 
-    /// <summary>Gets the path of the strong-name key when the closure is strong-named; otherwise <see langword="null"/>.</summary>
-    public string? StrongNameKeyPath { get; private set; }
-
     /// <summary>Gets the path of the original (uninstrumented) application assembly.</summary>
     public string SourceAppPath => Path.Combine(SourceDirectory, AppAssemblyName + ".dll");
 
@@ -121,7 +118,6 @@ internal sealed class ExecutionClosureFixture : IDisposable
         {
             keyPath = Path.Combine(root, "closure.snk");
             File.WriteAllBytes(keyPath, StrongNameKeys.CreatePrivateKeyBlob());
-            fixture.StrongNameKeyPath = keyPath;
         }
 
         string api = FixtureCompiler.Compile(

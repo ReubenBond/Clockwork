@@ -110,6 +110,11 @@ public sealed partial class SimulationNodeContext
     public SimulationTaskScheduler TaskScheduler { get; }
 
     /// <summary>
+    /// Gets the scheduler lane which owns this node's queued work.
+    /// </summary>
+    public SimulationSchedulerLane TaskQueue => SchedulerLane;
+
+    /// <summary>
     /// Gets the synchronization context for this node.
     /// Used for async/await continuations on this node's lane.
     /// </summary>
@@ -221,6 +226,10 @@ public sealed partial class SimulationNodeContext
     /// </summary>
     /// <param name="duration">How long to suspend the node (in simulated time).</param>
     /// <exception cref="InvalidOperationException">Thrown if no external scheduler lane was provided.</exception>
+    [global::System.Diagnostics.CodeAnalysis.SuppressMessage(
+        "Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "The scheduled item transfers to the scheduler lane and shared-item registry; the failure path disposes it.")]
     public void SuspendFor(TimeSpan duration)
     {
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(duration, TimeSpan.Zero);

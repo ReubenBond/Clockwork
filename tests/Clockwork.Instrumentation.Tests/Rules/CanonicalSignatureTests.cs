@@ -109,8 +109,6 @@ public sealed class CanonicalSignatureTests
         {
             IncludePatterns = ["A%2CB"],
         };
-        var noKey = new InstrumentationConfiguration();
-        var emptyKeyPath = new InstrumentationConfiguration { StrongNameKeyPath = string.Empty };
         var onePath = new RewriteOptions
         {
             ReplacementAssemblyPaths = ["A,B"],
@@ -121,7 +119,6 @@ public sealed class CanonicalSignatureTests
         };
 
         Assert.NotEqual(escapedComma.ComputeSignature(), literalEscapeText.ComputeSignature());
-        Assert.NotEqual(noKey.ComputeSignature(), emptyKeyPath.ComputeSignature());
         Assert.NotEqual(onePath.ComputeSemanticFingerprint(), twoPaths.ComputeSemanticFingerprint());
     }
 
