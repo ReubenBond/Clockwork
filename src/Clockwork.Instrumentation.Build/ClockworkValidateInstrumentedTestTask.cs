@@ -95,7 +95,7 @@ public sealed class ClockworkValidateInstrumentedTestTask : MSBuildTask
         bool entryRewritten = manifest.Assemblies.Any(entry =>
             string.Equals(entry.RelativePath, expectedEntry, StringComparison.Ordinal));
         bool entryCopied = manifest.CopiedAssets.Any(entry =>
-            string.Equals(entry.RelativePath, expectedEntry, StringComparison.Ordinal));
+            string.Equals(entry, expectedEntry, StringComparison.Ordinal));
         if (!entryRewritten && !entryCopied)
         {
             LogError("CWR0208", $"Entry assembly '{expectedEntry}' was neither instrumented nor copied.");
@@ -113,7 +113,9 @@ public sealed class ClockworkValidateInstrumentedTestTask : MSBuildTask
             !schema.TryGetInt32(out int schemaVersion) ||
             schemaVersion != ClosureManifest.SchemaVersion ||
             !root.TryGetProperty("assemblies", out JsonElement assemblies) ||
-            assemblies.ValueKind != JsonValueKind.Array)
+            assemblies.ValueKind != JsonValueKind.Array ||
+            !root.TryGetProperty("copiedAssets", out JsonElement copiedAssets) ||
+            copiedAssets.ValueKind != JsonValueKind.Array)
         {
             throw new InvalidDataException("The closure manifest has an unsupported or invalid shape.");
         }
@@ -149,7 +151,18 @@ public sealed class ClockworkValidateInstrumentedTestTask : MSBuildTask
                 errors));
         }
 
-        return new ParsedManifest(entryRelativePath, entries.ToImmutable());
+        var copied = ImmutableArray.CreateBuilder<string>();
+        foreach (JsonElement item in copiedAssets.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String)
+            {
+                throw new InvalidDataException("The closure manifest contains an invalid copied asset.");
+            }
+
+            copied.Add(item.GetString()!);
+        }
+
+        return new ParsedManifest(entryRelativePath, entries.ToImmutable(), copied.ToImmutable());
     }
 
     private void LogError(string code, string message) =>
@@ -181,5 +194,6 @@ public sealed class ClockworkValidateInstrumentedTestTask : MSBuildTask
 
     private sealed record ParsedManifest(
         string? EntryRelativePath,
-        ImmutableArray<ClosureManifestEntry> Assemblies);
+        ImmutableArray<ClosureManifestEntry> Assemblies,
+        ImmutableArray<string> CopiedAssets);
 }
