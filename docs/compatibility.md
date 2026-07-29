@@ -205,15 +205,14 @@ signature, engine version, configuration, and reference set.
 
 **Instrumented test projects.** Executable simulation test projects can set
 `ClockworkInstrumentedTestProject=true`. Each build restores the prior pristine output before
-compilation, snapshots the complete ordinary test output under `obj`, automatically selects the test
-assembly plus its eligible managed application closure, and rewrites that closure out of place.
-Clockwork validates every manifest assembly and rewrite signature before deploying the rewritten
-closure into that test project's normal `bin` path, so `dotnet build` followed by
-`dotnet test --no-build` uses it without a custom runner. Microsoft Testing Platform, VSTest, xUnit,
-NUnit, MSTest, and TUnit host assemblies are copied unchanged; generated test-host bootstrap types
-are also excluded because discovery starts before a simulation is active. Production projects and
-non-opted-in tests remain ordinary IL. Select instrumentation per project rather than with a
-solution-wide global property.
+compilation and snapshots the complete ordinary test output under `obj`. It copies the test entry
+assembly and test-host implementation unchanged so async tests can create the simulation, rewrites
+the eligible managed application/dependency closure out of place, validates it, and deploys the
+complete runnable result into the test project's normal `bin` path. Strong-name identities,
+matching closure references, and friend keys are stripped automatically from rewritten assemblies.
+`dotnet build` followed by `dotnet test --no-build` therefore needs no custom runner. Production
+projects and non-opted-in tests remain ordinary IL. Select instrumentation per project rather than
+with a solution-wide global property.
 
 **Task package requires the .NET 10 SDK.** The task and its Cecil-based engine target
 `net10.0` and load only under `dotnet build` / `dotnet msbuild`; .NET Framework MSBuild

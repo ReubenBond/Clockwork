@@ -67,11 +67,11 @@ Keep ordinary and simulation tests in separate projects. Only simulation test pr
 Clockwork snapshots ordinary test output under `obj`, rewrites the complete eligible managed closure
 out of place, validates it, and deploys it to the simulation test project's normal `bin` directory.
 Strong-name identities, matching intra-closure reference tokens, and friend-assembly key qualifiers
-are stripped automatically. Test-host implementation assemblies are copied unchanged, and generated
-test-host bootstrap types are excluded from rewriting, because they execute before a simulation
-exists. `dotnet build` followed by `dotnet test --no-build` therefore runs the rewritten test copy
-naturally. The next build restores the pristine snapshot before compilation. Production outputs and
-projects without the opt-in remain ordinary IL.
+are stripped automatically. Test-host implementation assemblies and the test entry assembly are
+copied unchanged because they execute before a simulation exists. `dotnet build` followed by
+`dotnet test --no-build` therefore runs the ordinary host against rewritten dependencies naturally.
+The next build restores the pristine snapshot before compilation. Production outputs and projects
+without the opt-in remain ordinary IL.
 
 Repositories using the targets from a source project reference can set
 `ClockworkInstrumentationTaskAssembly` to the built task assembly path.

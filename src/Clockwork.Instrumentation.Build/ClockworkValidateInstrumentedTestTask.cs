@@ -92,10 +92,13 @@ public sealed class ClockworkValidateInstrumentedTestTask : MSBuildTask
             }
         }
 
-        if (!manifest.Assemblies.Any(entry =>
-            string.Equals(entry.RelativePath, expectedEntry, StringComparison.Ordinal)))
+        bool entryRewritten = manifest.Assemblies.Any(entry =>
+            string.Equals(entry.RelativePath, expectedEntry, StringComparison.Ordinal));
+        bool entryCopied = manifest.CopiedAssets.Any(entry =>
+            string.Equals(entry.RelativePath, expectedEntry, StringComparison.Ordinal));
+        if (!entryRewritten && !entryCopied)
         {
-            LogError("CWR0208", $"Entry assembly '{expectedEntry}' was not instrumented.");
+            LogError("CWR0208", $"Entry assembly '{expectedEntry}' was neither instrumented nor copied.");
         }
 
         return !Log.HasLoggedErrors;
