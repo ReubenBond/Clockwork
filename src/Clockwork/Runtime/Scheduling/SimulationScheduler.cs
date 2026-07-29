@@ -60,6 +60,7 @@ public sealed class SimulationScheduler : IDisposable
     private readonly object _gate = new();
     private readonly object _transitionPublicationGate = new();
     private readonly SortedDictionary<SimulationOperationId, SimulationOperation> _operations = new();
+    private readonly SortedDictionary<SimulationOperationId, SimulationOperation> _activeOperations = new();
     private readonly SortedDictionary<SimulationResourceId, SimulationResource> _resources = new();
     private readonly HashSet<string> _suspendedNodes = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _handback = new(0, 1);
@@ -486,6 +487,7 @@ public sealed class SimulationScheduler : IDisposable
                     capturedContext,
                     priority);
                 _operations.Add(id, operation);
+                _activeOperations.Add(id, operation);
                 _raceTracker.RegisterOperation(operation, parent);
             }
 
@@ -1085,14 +1087,11 @@ public sealed class SimulationScheduler : IDisposable
     {
         lock (_gate)
         {
-            foreach (var operation in _operations.Values)
+            if (_activeOperations.Count > 0)
             {
-                if (!operation.IsTerminal)
-                {
-                    throw new SimulationSchedulerException(
-                        "Replay completion cannot be validated while non-terminal operations remain. " +
-                        "Finish the run first, or omit completion validation for a partial or aborted run.");
-                }
+                throw new SimulationSchedulerException(
+                    "Replay completion cannot be validated while non-terminal operations remain. " +
+                    "Finish the run first, or omit completion validation for a partial or aborted run.");
             }
         }
 
@@ -1202,9 +1201,9 @@ public sealed class SimulationScheduler : IDisposable
         ArgumentNullException.ThrowIfNull(node);
         lock (_gate)
         {
-            foreach (var operation in _operations.Values)
+            foreach (var operation in _activeOperations.Values)
             {
-                if (operation.Node == node && !operation.IsTerminal)
+                if (operation.Node == node)
                 {
                     return true;
                 }
@@ -1235,8 +1234,8 @@ public sealed class SimulationScheduler : IDisposable
                 _readinessWaits.RemoveAt(index);
             }
 
-            operations = _operations.Values
-                .Where(operation => operation.Node == node && !operation.IsTerminal)
+            operations = _activeOperations.Values
+                .Where(operation => operation.Node == node)
                 .ToArray();
         }
 
@@ -1306,7 +1305,7 @@ public sealed class SimulationScheduler : IDisposable
 
     private bool HasRunnableUnderLock()
     {
-        foreach (var operation in _operations.Values)
+        foreach (var operation in _activeOperations.Values)
         {
             if (operation.State == SimulationOperationState.Runnable && IsEligibleUnderLock(operation))
             {
@@ -1383,6 +1382,7 @@ public sealed class SimulationScheduler : IDisposable
                 operation.RequestTermination();
                 registration = DetachWaiterUnderLock(operation);
                 operation.ApplyTransition(SimulationOperationState.Canceled);
+                _activeOperations.Remove(operation.Id);
                 needsUnwind = operation.Thread is not null;
             }
 
@@ -1929,25 +1929,27 @@ public sealed class SimulationScheduler : IDisposable
         {
             lock (_gate)
             {
-                var count = 0;
-                foreach (var operation in _operations.Values)
-                {
-                    if (!operation.IsTerminal)
-                    {
-                        count++;
-                    }
-                }
-
-                return count;
+                return _activeOperations.Count;
             }
         }
     }
 
-    internal int RunnableOperationCount => CaptureStatus()
-        .Count(static operation => operation.State == SimulationOperationState.Runnable);
+    internal int ActiveOperationCount
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _activeOperations.Count;
+            }
+        }
+    }
 
-    internal int WaitingOperationCount => CaptureStatus()
-        .Count(static operation => operation.State is SimulationOperationState.Created or SimulationOperationState.Paused);
+    internal int RunnableOperationCount => CountActiveOperations(
+        static operation => operation.State == SimulationOperationState.Runnable);
+
+    internal int WaitingOperationCount => CountActiveOperations(
+        static operation => operation.State is SimulationOperationState.Created or SimulationOperationState.Paused);
 
     internal bool IsIdle => PendingOperationCount == 0;
 
@@ -1999,12 +2001,9 @@ public sealed class SimulationScheduler : IDisposable
             var runnable = 0;
             var blocked = 0;
             var nonTerminal = 0;
-            foreach (var operation in _operations.Values)
+            foreach (var operation in _activeOperations.Values)
             {
-                if (!operation.IsTerminal)
-                {
-                    nonTerminal++;
-                }
+                nonTerminal++;
 
                 if (operation.State == SimulationOperationState.Runnable)
                 {
@@ -2091,8 +2090,8 @@ public sealed class SimulationScheduler : IDisposable
 
         // The wait-for graph is functional here (each paused operation waits on exactly one resource,
         // hence has at most one successor), so following the single successor chain from each start
-        // node detects every cycle deterministically. _operations is id-sorted, so starts are ordered.
-        foreach (var operation in _operations.Values)
+        // node detects every cycle deterministically. _activeOperations is id-sorted, so starts are ordered.
+        foreach (var operation in _activeOperations.Values)
         {
             var start = operation.Id;
             if (!edges.ContainsKey(start) || globallyVisited.Contains(start))
@@ -2220,13 +2219,8 @@ public sealed class SimulationScheduler : IDisposable
                 _disposed = true;
                 victims = new List<SimulationOperation>();
                 registrations = new List<CancellationTokenRegistration>();
-                foreach (var operation in _operations.Values)
+                foreach (var operation in _activeOperations.Values)
                 {
-                    if (operation.IsTerminal)
-                    {
-                        continue;
-                    }
-
                     operation.RequestTermination();
 
                     // Detach any resource wait first so a resolved-Canceled waiter is removed from its
@@ -2240,6 +2234,8 @@ public sealed class SimulationScheduler : IDisposable
                     operation.ApplyTransition(SimulationOperationState.Canceled);
                     victims.Add(operation);
                 }
+
+                _activeOperations.Clear();
 
                 // Drop any pending virtual-time timeouts; their waiters were just detached and canceled.
                 _clock.Clear();
@@ -2271,11 +2267,11 @@ public sealed class SimulationScheduler : IDisposable
 
     private SimulationOperation? SelectRunnable()
     {
-        // Collect the runnable operations in ascending id order (_operations is a SortedDictionary),
+        // Collect the runnable operations in ascending id order (_activeOperations is a SortedDictionary),
         // then delegate the choice to the pluggable strategy. The default round-robin strategy
         // reproduces the controlled-operation scheduler behavior exactly.
         List<SimulationOperation>? runnable = null;
-        foreach (var operation in _operations.Values)
+        foreach (var operation in _activeOperations.Values)
         {
             if (operation.State != SimulationOperationState.Runnable || !IsEligibleUnderLock(operation))
             {
@@ -2643,6 +2639,7 @@ public sealed class SimulationScheduler : IDisposable
                 }
 
                 operation.ApplyTransition(terminal, terminalException: terminalException);
+                _activeOperations.Remove(operation.Id);
                 _pendingTerminalNotification = operation;
             }
         }
@@ -2788,6 +2785,23 @@ public sealed class SimulationScheduler : IDisposable
             var array = new SimulationOperation[_operations.Count];
             _operations.Values.CopyTo(array, 0);
             return array;
+        }
+    }
+
+    private int CountActiveOperations(Func<SimulationOperation, bool> predicate)
+    {
+        lock (_gate)
+        {
+            var count = 0;
+            foreach (var operation in _activeOperations.Values)
+            {
+                if (predicate(operation))
+                {
+                    count++;
+                }
+            }
+
+            return count;
         }
     }
 

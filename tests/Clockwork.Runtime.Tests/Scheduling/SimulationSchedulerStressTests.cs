@@ -101,6 +101,24 @@ public sealed class SimulationSchedulerStressTests
     }
 
     [Fact]
+    public void CompletedOperationsLeaveActiveSetButRemainInStatusHistory()
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        for (var i = 0; i < 100; i++)
+        {
+            scheduler.Schedule($"op-{i}", () => { });
+        }
+
+        scheduler.Drain();
+
+        Assert.Equal(0, scheduler.ActiveOperationCount);
+        Assert.Equal(100, scheduler.CaptureStatus().Count);
+        Assert.All(
+            scheduler.CaptureStatus(),
+            status => Assert.Equal(SimulationOperationState.Completed, status.State));
+    }
+
+    [Fact]
     public void ManyPausedOperationsKeepDistinctThreadsParkedThenTeardownReclaimsThemAll()
     {
         const int count = 12;
