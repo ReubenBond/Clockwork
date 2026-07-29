@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
@@ -986,35 +987,52 @@ public sealed class SimulationScheduler : IDisposable
 
     private void PromoteReadyWaits()
     {
-        ReadinessWait[] waits;
+        ReadinessWait[]? waits = null;
+        int count;
         lock (_gate)
         {
-            waits = [.. _readinessWaits];
+            count = _readinessWaits.Count;
+            if (count == 0)
+            {
+                return;
+            }
+
+            waits = ArrayPool<ReadinessWait>.Shared.Rent(count);
+            _readinessWaits.CopyTo(waits, 0);
         }
 
-        foreach (var wait in waits)
+        try
         {
-            if (wait.IsCanceled || !wait.IsReady())
+            for (var index = 0; index < count; index++)
             {
-                continue;
-            }
-
-            SimulationOperation? operation = null;
-            using (EnterTransitionPublicationScope())
-            {
-                lock (_gate)
+                var wait = waits[index];
+                if (wait.IsCanceled || !wait.IsReady())
                 {
-                    if (!_readinessWaits.Remove(wait) || wait.IsCanceled)
-                    {
-                        continue;
-                    }
-
-                    operation = wait.Operation;
-                    operation.ApplyTransition(SimulationOperationState.Runnable);
+                    continue;
                 }
 
-                Notify(operation, SimulationOperationState.Runnable);
+                SimulationOperation? operation = null;
+                using (EnterTransitionPublicationScope())
+                {
+                    lock (_gate)
+                    {
+                        if (!_readinessWaits.Remove(wait) || wait.IsCanceled)
+                        {
+                            continue;
+                        }
+
+                        operation = wait.Operation;
+                        operation.ApplyTransition(SimulationOperationState.Runnable);
+                    }
+
+                    Notify(operation, SimulationOperationState.Runnable);
+                }
             }
+        }
+        finally
+        {
+            Array.Clear(waits, 0, count);
+            ArrayPool<ReadinessWait>.Shared.Return(waits);
         }
     }
 
