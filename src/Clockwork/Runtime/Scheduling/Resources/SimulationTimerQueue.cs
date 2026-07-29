@@ -1,4 +1,5 @@
 using System.Globalization;
+using Clockwork.Runtime.Execution;
 
 namespace Clockwork.Runtime.Scheduling.Resources;
 
@@ -8,8 +9,8 @@ namespace Clockwork.Runtime.Scheduling.Resources;
 /// a monotonic <see cref="Now"/> offset from simulation start plus a due-time-ordered queue.
 /// </para>
 /// <para>
-/// <c>SimulationClock</c> is a read-only host facade over this scheduler-owned timeline; there is no
-/// second clock to keep synchronized.
+/// The owning <see cref="SimulationScheduler"/> exposes this single timeline directly; there is no
+/// separate clock to keep synchronized.
 /// </para>
 /// <para>
 /// <b>Threading.</b> This type performs no locking of its own. The owning
@@ -24,6 +25,8 @@ internal sealed class SimulationTimerQueue
     private readonly List<ISimulationTimerEntry> _pending = [];
     private TimeSpan _now;
     private long _nextSequence;
+
+    internal int RegistrationCount => _pending.Count;
 
     /// <summary>Gets the current modeled time as a monotonic, non-negative offset from simulation start.</summary>
     public TimeSpan Now => _now;
@@ -85,14 +88,16 @@ internal sealed class SimulationTimerQueue
     public SimulationTimerRegistration Schedule(
         TimeSpan delay,
         Action? onElapsed,
-        string? diagnosticKind = null)
+        string? diagnosticKind = null,
+        SimulationNodeIdentity? node = null)
     {
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(delay, TimeSpan.Zero);
         var registration = new SimulationTimerRegistration(
             SimulationDeadlineMath.SaturatingAdd(_now, delay),
             ++_nextSequence,
             onElapsed,
-            diagnosticKind);
+            diagnosticKind,
+            node);
         _pending.Add(registration);
         return registration;
     }
@@ -221,6 +226,32 @@ internal sealed class SimulationTimerQueue
                     : ((SimulationTimerRegistration)timer).DiagnosticKind!))
             .ToArray();
     }
+
+    public bool HasPendingTimer(SimulationNodeIdentity node)
+    {
+        foreach (SimulationTimerRegistration timer in _pending.OfType<SimulationTimerRegistration>())
+        {
+            if (!timer.IsCanceled && timer.Node == node)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public void CancelPendingTimers(SimulationNodeIdentity node)
+    {
+        foreach (SimulationTimerRegistration timer in _pending.OfType<SimulationTimerRegistration>())
+        {
+            if (timer.Node == node)
+            {
+                timer.Cancel();
+            }
+        }
+    }
+
+    public void CompactCanceled() => _pending.RemoveAll(static timer => timer.IsCanceled);
 
     /// <summary>Drops every pending timeout registration. Used during scheduler teardown.</summary>
     public void Clear() => _pending.Clear();

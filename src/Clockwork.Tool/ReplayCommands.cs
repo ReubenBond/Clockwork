@@ -2,8 +2,8 @@ using System.Globalization;
 using System.Reflection;
 using System.Runtime.Loader;
 using System.Security.Cryptography;
-using System.Text.Json;
 using System.Text.Json.Nodes;
+using Clockwork.Instrumentation.Orchestration;
 using Clockwork.Runtime.Exploration;
 using Clockwork.Runtime.Replay;
 using Clockwork.Runtime.Scheduling;
@@ -303,8 +303,19 @@ internal static class ReplayCommands
         output.WriteLine($"path: {path}");
     }
 
-    private static ReplayInstrumentationIdentity? ReadOptionalManifest(string? path) =>
-        path is null ? null : ReplayManifestIdentityReader.Read(path);
+    private static ReplayInstrumentationIdentity? ReadOptionalManifest(string? path)
+    {
+        if (path is null)
+        {
+            return null;
+        }
+
+        ClosureManifest manifest = ClosureManifestJson.Read(path, out byte[] canonicalUtf8);
+        return ReplayInstrumentationIdentityMapper.FromClosureManifest(
+            manifest,
+            canonicalUtf8,
+            ReplayCompatibility.CurrentRuntimeCompatibility);
+    }
 
     private static ExitCode ExitForOutcome(ReplayOutcome outcome) =>
         outcome.Kind == ReplayTerminationKind.Completed
@@ -404,62 +415,45 @@ internal static class ReplayScenarioLoader
     }
 }
 
-internal static class ReplayManifestIdentityReader
+internal static class ReplayInstrumentationIdentityMapper
 {
-    public static ReplayInstrumentationIdentity Read(string path)
+    public static ReplayInstrumentationIdentity FromClosureManifest(
+        ClosureManifest manifest,
+        ReadOnlySpan<byte> canonicalManifestUtf8,
+        string runtimeCompatibility)
     {
-        ArgumentException.ThrowIfNullOrEmpty(path);
-        byte[] bytes = File.ReadAllBytes(path);
-        if (bytes.Length > ReplayArtifactLimits.MaxDocumentBytes)
+        ArgumentNullException.ThrowIfNull(manifest);
+        ArgumentException.ThrowIfNullOrEmpty(runtimeCompatibility);
+        if (canonicalManifestUtf8.IsEmpty)
         {
-            throw new ReplayArtifactFormatException("Instrumentation manifest exceeds the replay artifact size limit.");
+            throw new ArgumentException("Canonical manifest bytes cannot be empty.", nameof(canonicalManifestUtf8));
         }
 
-        try
+        var assemblies = new List<ReplayAssemblyIdentity>(manifest.Assemblies.Length);
+        foreach (ClosureManifestEntry entry in manifest.Assemblies)
         {
-            using JsonDocument document = JsonDocument.Parse(bytes);
-            JsonElement root = document.RootElement;
-            JsonElement assembliesElement = root.GetProperty("assemblies");
-            var assemblies = new List<ReplayAssemblyIdentity>();
-            foreach (JsonElement assembly in assembliesElement.EnumerateArray())
+            string hash = entry.OutputSha256 ?? entry.InputSha256
+                ?? throw new ReplayArtifactFormatException(
+                    $"Manifest assembly '{entry.RelativePath}' has no content hash.");
+            assemblies.Add(new ReplayAssemblyIdentity
             {
-                string name = assembly.GetProperty("relativePath").GetString()
-                    ?? throw new ReplayArtifactFormatException("Manifest assembly relativePath is required.");
-                string? hash = assembly.GetProperty("outputSha256").GetString()
-                    ?? assembly.GetProperty("inputSha256").GetString();
-                if (hash is null)
-                {
-                    throw new ReplayArtifactFormatException($"Manifest assembly '{name}' has no content hash.");
-                }
-
-                assemblies.Add(new ReplayAssemblyIdentity
-                {
-                    Name = name,
-                    Sha256 = hash,
-                    RuntimeCompatibility = ReplayCompatibility.CurrentRuntimeCompatibility,
-                });
-            }
-
-            assemblies.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Name, right.Name));
-            return new ReplayInstrumentationIdentity
-            {
-                ManifestId = GetRequiredString(root, "incrementalKey"),
-                ManifestSha256 = Convert.ToHexStringLower(SHA256.HashData(bytes)),
-                EngineVersion = GetRequiredString(root, "engineVersion"),
-                RuleSetId = GetRequiredString(root, "ruleSetId"),
-                RuleSetVersion = GetRequiredString(root, "ruleSetVersion"),
-                RuleSetSignature = GetRequiredString(root, "ruleSetSignature"),
-                Mode = GetRequiredString(root, "mode"),
-                Assemblies = assemblies,
-            };
+                Name = entry.RelativePath,
+                Sha256 = hash,
+                RuntimeCompatibility = runtimeCompatibility,
+            });
         }
-        catch (Exception exception) when (exception is JsonException or InvalidOperationException or KeyNotFoundException)
+
+        assemblies.Sort(static (left, right) => StringComparer.Ordinal.Compare(left.Name, right.Name));
+        return new ReplayInstrumentationIdentity
         {
-            throw new ReplayArtifactFormatException("Instrumentation closure manifest is malformed.", exception);
-        }
+            ManifestId = manifest.IncrementalKey,
+            ManifestSha256 = Convert.ToHexStringLower(SHA256.HashData(canonicalManifestUtf8)),
+            EngineVersion = manifest.EngineVersion,
+            RuleSetId = manifest.RuleSetId,
+            RuleSetVersion = manifest.RuleSetVersion,
+            RuleSetSignature = manifest.RuleSetSignature,
+            Mode = manifest.Mode.ToString(),
+            Assemblies = assemblies,
+        };
     }
-
-    private static string GetRequiredString(JsonElement root, string property) =>
-        root.GetProperty(property).GetString()
-        ?? throw new ReplayArtifactFormatException($"Instrumentation manifest property '{property}' is required.");
 }

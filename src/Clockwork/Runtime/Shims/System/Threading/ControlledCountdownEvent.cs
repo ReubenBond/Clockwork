@@ -1,4 +1,3 @@
-using System.Threading.Tasks;
 using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks;
 
@@ -10,19 +9,8 @@ public sealed class ControlledCountdownEvent : IDisposable
     private const string TypeName = "System.Threading.CountdownEvent";
     private const string WaitApi = TypeName + ".Wait";
 
-    private sealed class Waiter
-    {
-        public TaskCompletionSource<bool> Completion { get; } = new();
-
-        public CancellationTokenRegistration Registration;
-
-        public ISimulationTimer? Deadline;
-
-        public bool Pending { get; set; } = true;
-    }
-
     private readonly object _gate = new();
-    private readonly List<Waiter> _waiters = [];
+    private readonly List<SimulationWaiter> _waiters = [];
     private bool _disposed;
     private int _currentCount;
     private int _initialCount;
@@ -119,7 +107,7 @@ public sealed class ControlledCountdownEvent : IDisposable
         SimulationRuntimeDispatch.RequireActiveSimulation(TypeName + ".Signal");
         ArgumentOutOfRangeException.ThrowIfLessThan(signalCount, 1);
 
-        List<Waiter>? waiters = null;
+        List<SimulationWaiter.Claim>? waiters = null;
         WaitHandle? bridge = null;
         lock (_gate)
         {
@@ -155,7 +143,7 @@ public sealed class ControlledCountdownEvent : IDisposable
         SimulationRuntimeDispatch.RequireActiveSimulation(TypeName + ".Reset");
         ValidateCount(count, nameof(count));
         WaitHandle? bridge;
-        List<Waiter>? waiters = null;
+        List<SimulationWaiter.Claim>? waiters = null;
         lock (_gate)
         {
             ThrowIfDisposed();
@@ -177,37 +165,37 @@ public sealed class ControlledCountdownEvent : IDisposable
     }
 
     /// <summary>Waits until the countdown reaches zero.</summary>
-    public void Wait() => WaitCore(Timeout.Infinite, returnsBoolean: false, cancellationToken: CancellationToken.None);
+    public void Wait() => WaitCore(Timeout.Infinite, CancellationToken.None);
 
     /// <summary>Waits until the countdown reaches zero or cancellation is requested.</summary>
-    public void Wait(CancellationToken cancellationToken) => WaitCore(Timeout.Infinite, returnsBoolean: false, cancellationToken: cancellationToken);
+    public void Wait(CancellationToken cancellationToken) => WaitCore(Timeout.Infinite, cancellationToken);
 
     /// <summary>Waits until the countdown reaches zero or the virtual deadline elapses.</summary>
-    public bool Wait(int millisecondsTimeout) => WaitCore(millisecondsTimeout, returnsBoolean: true, cancellationToken: CancellationToken.None);
+    public bool Wait(int millisecondsTimeout) => WaitCore(millisecondsTimeout, CancellationToken.None);
 
     /// <summary>Waits until the countdown reaches zero, cancellation, or the virtual deadline elapses.</summary>
     public bool Wait(int millisecondsTimeout, CancellationToken cancellationToken) =>
-        WaitCore(millisecondsTimeout, returnsBoolean: true, cancellationToken: cancellationToken);
+        WaitCore(millisecondsTimeout, cancellationToken);
 
     /// <summary>Waits until the countdown reaches zero or the virtual deadline elapses.</summary>
     public bool Wait(TimeSpan timeout)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(WaitApi);
-        return WaitCore(ToMilliseconds(timeout), returnsBoolean: true, cancellationToken: CancellationToken.None);
+        return WaitCore(ToMilliseconds(timeout), CancellationToken.None);
     }
 
     /// <summary>Waits until the countdown reaches zero, cancellation, or the virtual deadline elapses.</summary>
     public bool Wait(TimeSpan timeout, CancellationToken cancellationToken)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(WaitApi);
-        return WaitCore(ToMilliseconds(timeout), returnsBoolean: true, cancellationToken: cancellationToken);
+        return WaitCore(ToMilliseconds(timeout), cancellationToken);
     }
 
     /// <summary>Disposes this countdown event and faults blocked waiters.</summary>
     public void Dispose()
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(TypeName + ".Dispose");
-        List<Waiter> waiters;
+        List<SimulationWaiter.Claim> waiters;
         WaitHandle? bridge;
         lock (_gate)
         {
@@ -260,13 +248,13 @@ public sealed class ControlledCountdownEvent : IDisposable
         return true;
     }
 
-    private bool WaitCore(int millisecondsTimeout, bool returnsBoolean, CancellationToken cancellationToken)
+    private bool WaitCore(int millisecondsTimeout, CancellationToken cancellationToken)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(WaitApi);
         cancellationToken.ThrowIfCancellationRequested();
         ValidateTimeout(millisecondsTimeout);
 
-        Waiter? waiter = null;
+        SimulationWaiter? waiter = null;
         lock (_gate)
         {
             ThrowIfDisposed();
@@ -280,131 +268,78 @@ public sealed class ControlledCountdownEvent : IDisposable
                 return false;
             }
 
-            waiter = new Waiter();
+            waiter = new SimulationWaiter();
             _waiters.Add(waiter);
             if (millisecondsTimeout != Timeout.Infinite)
             {
-                waiter.Deadline = SimulationTaskRuntime.RegisterTimeout(
+                SimulationWaiter.AttachDeadline(
+                    waiter,
                     TimeSpan.FromMilliseconds(millisecondsTimeout),
-                    () => TimeoutWaiter(waiter),
-                    WaitApi);
+                    WaitApi,
+                    pendingWaiter => TimeoutWaiter(pendingWaiter));
             }
         }
 
         AttachCancellation(waiter!, cancellationToken);
-        SimulationTaskRuntime.DrainUntil(() => waiter!.Completion.Task.IsCompleted, WaitApi);
-        try
-        {
-            return waiter!.Completion.Task.GetAwaiter().GetResult();
-        }
-        catch (TimeoutException) when (returnsBoolean)
-        {
-            return false;
-        }
+        SimulationTaskRuntime.DrainUntil(() => waiter!.Task.IsCompleted, WaitApi);
+        return waiter!.Task.GetAwaiter().GetResult();
     }
 
-    private void AttachCancellation(Waiter waiter, CancellationToken cancellationToken)
-    {
-        if (!cancellationToken.CanBeCanceled)
-        {
-            return;
-        }
+    private void AttachCancellation(SimulationWaiter waiter, CancellationToken cancellationToken) =>
+        SimulationWaiter.AttachCancellation(
+            _gate,
+            waiter,
+            (pendingWaiter, token) => CancelWaiter(pendingWaiter, token),
+            cancellationToken);
 
-        CancellationTokenRegistration registration = cancellationToken.Register(
-            static state =>
-            {
-                var (countdown, pendingWaiter, token) = ((ControlledCountdownEvent, Waiter, CancellationToken))state!;
-                countdown.CancelWaiter(pendingWaiter, token);
-            },
-            (this, waiter, cancellationToken));
+    private void TimeoutWaiter(SimulationWaiter waiter) => CompleteFailedWaiter(waiter, null, timedOut: true);
 
-        bool disposeRegistration;
-        lock (_gate)
-        {
-            disposeRegistration = !waiter.Pending;
-            if (!disposeRegistration)
-            {
-                waiter.Registration = registration;
-            }
-        }
-
-        if (disposeRegistration)
-        {
-            registration.Dispose();
-        }
-    }
-
-    private void TimeoutWaiter(Waiter waiter) => CompleteFailedWaiter(waiter, null, timedOut: true);
-
-    private void CancelWaiter(Waiter waiter, CancellationToken cancellationToken) =>
+    private void CancelWaiter(SimulationWaiter waiter, CancellationToken cancellationToken) =>
         CompleteFailedWaiter(waiter, cancellationToken, timedOut: false);
 
-    private void CompleteFailedWaiter(Waiter waiter, CancellationToken? cancellationToken, bool timedOut)
+    private void CompleteFailedWaiter(SimulationWaiter waiter, CancellationToken? cancellationToken, bool timedOut)
     {
-        CancellationTokenRegistration registration;
-        ISimulationTimer? deadline;
+        SimulationWaiter.Claim claim;
         lock (_gate)
         {
-            if (!waiter.Pending || !_waiters.Remove(waiter))
+            if (!SimulationWaiter.TryTake(
+                _waiters,
+                waiter,
+                out claim,
+                cancelDeadline: !timedOut))
             {
                 return;
             }
-
-            waiter.Pending = false;
-            registration = waiter.Registration;
-            waiter.Registration = default;
-            deadline = waiter.Deadline;
-            waiter.Deadline = null;
         }
 
-        if (!timedOut)
-        {
-            deadline?.Cancel();
-        }
-
-        registration.Dispose();
         if (timedOut)
         {
-            waiter.Completion.TrySetResult(false);
+            claim.Complete(false);
         }
         else
         {
-            waiter.Completion.TrySetCanceled(cancellationToken!.Value);
+            claim.Cancel(cancellationToken!.Value);
         }
     }
 
-    private List<Waiter> TakeWaitersUnderLock()
-    {
-        List<Waiter> result = [.. _waiters];
-        _waiters.Clear();
-        foreach (Waiter waiter in result)
-        {
-            waiter.Pending = false;
-        }
+    private List<SimulationWaiter.Claim> TakeWaitersUnderLock() => SimulationWaiter.TakeAll(_waiters);
 
-        return result;
-    }
-
-    private static void CompleteWaiters(IEnumerable<Waiter>? waiters, Exception? exception)
+    private static void CompleteWaiters(IEnumerable<SimulationWaiter.Claim>? waiters, Exception? exception)
     {
         if (waiters is null)
         {
             return;
         }
 
-        foreach (Waiter waiter in waiters)
+        foreach (SimulationWaiter.Claim waiter in waiters)
         {
-            waiter.Deadline?.Cancel();
-            waiter.Deadline = null;
-            waiter.Registration.Dispose();
-            waiter.Registration = default;
             if (exception is null)
             {
-                waiter.Completion.TrySetResult(true);
+                waiter.Complete(true);
             }
             else
             {
-                waiter.Completion.TrySetException(exception);
+                waiter.Fault(exception);
             }
         }
     }

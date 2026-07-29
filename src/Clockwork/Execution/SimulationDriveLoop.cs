@@ -4,7 +4,7 @@ namespace Clockwork;
 /// Options for a single execution of <see cref="SimulationDriveLoop"/>.
 /// Consolidates the parameters that were previously duplicated across
 /// <c>RunUntil</c>, <c>RunUntilIdle</c>, and <c>RunFor</c> on
-/// <see cref="SimulationCluster{TNode}"/>.
+/// <see cref="SimulationCluster"/>.
 /// </summary>
 /// <param name="Condition">
 /// The condition that ends the loop successfully, or <see langword="null"/> to run until idle
@@ -17,7 +17,7 @@ namespace Clockwork;
 /// <param name="InitialConsecutiveTimeAdvances">The consecutive time-advance count carried into this execution.</param>
 /// <param name="EndTime">
 /// An optional absolute ceiling for simulated time. Work due at this instant is drained, but the
-/// clock never advances beyond it.
+/// scheduler's virtual time never advances beyond it.
 /// </param>
 internal readonly record struct SimulationDriveLoopOptions(
     Func<bool>? Condition,
@@ -30,27 +30,27 @@ internal readonly record struct SimulationDriveLoopOptions(
 
 /// <summary>
 /// <para>
-/// The single internal execution engine that drives a <see cref="SimulationCluster{TNode}"/>
+/// The single internal execution engine that drives a <see cref="SimulationCluster"/>
 /// forward in time. It centralizes round-robin task execution, time advancement
 /// to the next scheduled item, and all stuck/limit detection.
 /// </para>
 /// <para>
-/// The engine is deliberately decoupled from <see cref="SimulationCluster{TNode}"/> via
+/// The engine is deliberately decoupled from <see cref="SimulationCluster"/> via
 /// delegates so that its state machine can be reasoned about (and, if needed, tested)
-/// independently of the generic cluster type and node registry.
+/// independently of the cluster and node registry.
 /// </para>
 /// </summary>
 /// <param name="getUtcNow">Returns the current simulated time.</param>
 /// <param name="runOneTaskRoundRobin">Attempts to execute one ready task; returns true if one ran.</param>
 /// <param name="getNextWaitingDueTime">Returns the earliest due time of any not-yet-ready item, or null.</param>
-/// <param name="advanceClock">Advances the shared simulation clock by the given, non-negative amount.</param>
+/// <param name="advanceVirtualTime">Advances scheduler-owned virtual time by the given, non-negative amount.</param>
 /// <param name="capturePendingWorkSummary">Captures a snapshot of runnable/waiting/blocked work.</param>
 /// <param name="teardownCancellationToken">The cluster's teardown cancellation token.</param>
 internal sealed class SimulationDriveLoop(
     Func<DateTimeOffset> getUtcNow,
     Func<bool> runOneTaskRoundRobin,
     Func<DateTimeOffset?> getNextWaitingDueTime,
-    Action<TimeSpan> advanceClock,
+    Action<TimeSpan> advanceVirtualTime,
     Func<SimulationPendingWorkSummary> capturePendingWorkSummary,
     CancellationToken teardownCancellationToken)
 {
@@ -98,7 +98,7 @@ internal sealed class SimulationDriveLoop(
             {
                 if (options.EndTime is { } target)
                 {
-                    advanceClock(target - now);
+                    advanceVirtualTime(target - now);
                     totalTimeAdvances++;
                     return CompleteIdle(iteration);
                 }
@@ -110,7 +110,7 @@ internal sealed class SimulationDriveLoop(
 
             if (options.EndTime is { } ceiling && nextDueTime.Value > ceiling)
             {
-                advanceClock(ceiling - now);
+                advanceVirtualTime(ceiling - now);
                 totalTimeAdvances++;
                 return CompleteIdle(iteration);
             }
@@ -123,7 +123,7 @@ internal sealed class SimulationDriveLoop(
 
             if (timeDelta > TimeSpan.Zero)
             {
-                advanceClock(timeDelta);
+                advanceVirtualTime(timeDelta);
             }
 
             consecutiveTimeAdvances++;

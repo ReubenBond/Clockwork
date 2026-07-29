@@ -53,7 +53,7 @@ public sealed class RaceSchedulingPointTests
     private static string Run(int seed)
     {
         using var scheduler = SchedulerTestHarness.NewScheduler(seed: seed);
-        scheduler.SchedulingStrategy = new SeededRandomSchedulingStrategy(seed);
+        scheduler.SchedulingStrategy = SimulationSchedulingStrategies.SeededRandom(seed);
         scheduler.DecisionLog = new SimulationDecisionLog();
         scheduler.Schedule("a", () => AccessTwice("A"));
         scheduler.Schedule("b", () => AccessTwice("B"));

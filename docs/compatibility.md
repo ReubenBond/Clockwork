@@ -46,6 +46,8 @@ wait-for graphs, deadlock/liveness diagnostics, and FIFO, round-robin, seeded-ra
 replay scheduling strategies. Release, timeout, and cancellation races resolve exactly once; equal virtual
 deadlines fire by registration order. Fairness is deliberately limited to deterministic, replayable waiter
 selection and does not claim BCL fairness.
+Built-in strategies are created through `SimulationSchedulingStrategies`; custom
+`ISimulationSchedulingStrategy` implementations remain supported.
 
 The built-in task and synchronization shims use this model for monitors, semaphores, wait handles,
 synchronous task waits, timers, and modern synchronization primitives. Controlled instrumentation remains
@@ -97,7 +99,7 @@ points. This capability does not add profiler/native detours or runtime hosting/
 
 ### Replay and schedule exploration
 
-Replay artifacts use canonical UTF-8 JSON with format identity `clockwork.replay` and schema version 1.
+Replay artifacts use canonical UTF-8 JSON with format identity `clockwork.replay` and schema version 2.
 They record the root seed, explicit schedule seed, strategy/options, Clockwork/runtime compatibility,
 optional closure-manifest and assembly hashes, ordered scheduler/resource/timer decisions, race
 scheduling points, terminal outcome, and structured operation/resource/timer/race/deadlock diagnostics.
@@ -106,8 +108,8 @@ runtime version, rule-set, manifest, or assembly hash mismatch fails before scen
 
 Recording and replay are exposed through `ReplayRunner`. Replay validates every decision at the first
 divergence, including expected/actual source, candidate metadata, and selected result, then verifies
-that the complete decision stream was consumed at the reproduced terminal boundary. Interrupted
-recordings are marked `Aborted` and are rejected for exact replay.
+that the complete decision stream was consumed at the reproduced terminal boundary. An `Aborted`
+outcome identifies an interrupted decision prefix and is rejected for exact replay.
 
 `ScheduleExplorer` varies only the schedule seed while keeping the model/application root seed fixed.
 Iterations run serially; iteration, failure, step, cancellation, and optional wall-clock safety bounds
@@ -150,8 +152,9 @@ does not perform runtime interception. The engine (`RewriteEngine.Rewrite`) take
 `RewriteRuleSet` and a set of replacement ("shim") assemblies, applies an ordered set
 of passes to the input assembly, validates the result by reading it back, and emits a
 deterministic `InstrumentationManifest`. The rule model integrates the simulation API
-policy classification (`Controlled`/`Rejected`/`PassThrough`) without the engine
-referencing any concrete shim by identity.
+policy classification (`Controlled`/`Rejected`) without the engine referencing any
+concrete shim by identity. APIs remain unchanged only when callers omit their rule or
+exclude the containing assembly from instrumentation.
 
 **Supported IL transformations (verified by the golden corpus):**
 
@@ -194,14 +197,22 @@ task with `build/` props and targets, a development dependency) and `Clockwork.T
 **Opt-in only.** An ordinary build never instruments. The `ClockworkInstrument` target
 runs `AfterTargets="Build"` only when the consumer sets
 `ClockworkInstrumentationEnabled=true` and supplies at least one `@(ClockworkRuleSet)`
-document. It discovers the resolved output closure (honoring `.deps.json`, runtimeconfig,
-satellite/resource/native assets, include/exclude globs, and framework/reference-assembly
-exclusion), rewrites **only managed IL** out-of-place under
+document. It discovers the full resolved managed closure (honoring `.deps.json`, runtimeconfig,
+satellite/resource/native assets, and include/exclude globs). Framework and reference assemblies
+are always copied rather than rewritten, and an explicit include cannot override that safety
+boundary. It rewrites **only managed IL** out-of-place under
 `obj/<Config>/<Tfm>/clockwork/instrumented/`, copies the non-managed assets needed to run
 the staged app unchanged, and emits a manifest under
 `obj/<Config>/<Tfm>/clockwork/clockwork.manifest.json`. Source and `bin` outputs are never
-mutated. The work is incremental, keyed by input assembly/symbol hashes, the rule-set
-signature, engine version, configuration, and reference set.
+mutated. The work is incremental, keyed by every input asset's hash, the rule-set signature,
+engine version, manifest schema, configuration, and reference set. Each copied native library,
+dependency/runtime configuration file, symbol file, replacement assembly, and race-runtime asset is
+recorded as a typed manifest entry containing its closure-relative path and lower-case SHA-256.
+Incremental hits verify the staged hash of every rewritten assembly and copied asset; a missing or
+modified output invalidates the hit and rebuilds the full staged closure. Closure manifests use strict
+schema version 3; `copiedAssets` entries are objects containing `relativePath` and `sha256`. Version 2
+is rejected rather than interpreted through a compatibility shape. Manifests are limited to 16 MiB,
+4,096 assembly entries, 65,536 copied assets, and 8,192 UTF-16 characters per string.
 
 **Task package requires the .NET 10 SDK.** The task and its Cecil-based engine target
 `net10.0` and load only under `dotnet build` / `dotnet msbuild`; .NET Framework MSBuild
@@ -214,27 +225,31 @@ implicitly.
 **Configuration is data, not code.** Configuration and rule sets are JSON documents,
 validated strictly for schema, types, and signatures; **no arbitrary code is executed
 from configuration**. Multiple rule sets merge deterministically by a defined precedence shared
-by built-in, application, and third-party rules.
+by built-in, application, and third-party rules. Instrumentation configuration files must declare
+`"schemaVersion": 2`. Its exact optional fields are `ruleSets`, `mode`, `builtInRuleSets`,
+`builtInIncludeFamilies`, `builtInExcludeFamilies`, `include`, `exclude`, `targetRuntime`, and
+`strongNameKeyPath`; unknown fields are rejected. Version 1 is rejected, and there are no migration
+or compatibility aliases.
 
 **Strong naming (build/tool scope).** Signed, public-signed, and delay-signed inputs are
-detected. Re-signing happens only when a key is supplied (`ClockworkStrongNamePolicy=Resign`
-+ `ClockworkStrongNameKeyPath`); when re-signing is required but no key is available the
-build fails clearly rather than emitting a broken signature. Public-key-token consistency
-across a rewritten dependency closure is verified. **Authenticode** signatures are detected
+detected. A signed input is re-signed when `ClockworkStrongNameKeyPath` (or the JSON/CLI
+equivalent) supplies usable private-key material whose public-key token matches the input;
+otherwise the build fails clearly rather than emitting a broken identity. Unsigned inputs remain
+unsigned even when a key is configured. Public-key-token consistency across a rewritten dependency
+closure is verified. **Authenticode** signatures are detected
 and reported as unsupported - they are never re-applied, and a rewritten assembly does not
 retain its Authenticode signature; re-sign such outputs with your own toolchain after
 instrumentation.
 
-**ReadyToRun (build/tool scope).** R2R/native sections are detected. The default `Reject`
-policy fails rather than emit stale native code; the opt-in `StripToIL` policy round-trips
-through Cecil to produce IL-only staged output. Because instrumentation rewrites managed
-IL, it must run **before** crossgen/R2R publish, single-file bundling, and Native AOT -
-instrument first, then publish. Hooking an already-published R2R, single-file, or NativeAOT
-binary is not supported.
+**ReadyToRun (build/tool scope).** R2R/native sections are detected and always stripped by
+round-tripping the usable managed IL through Cecil before rewriting, producing IL-only staged
+output with no stale native code. Mixed-mode images and images without usable managed IL are
+rejected. Instrument before single-file bundling and Native AOT; those published forms cannot be
+recovered to a rewriteable managed closure.
 
 #### Deterministic BCL rule set
 
-The built-in simulation rule set `clockwork.bcl.deterministic` (version `2.0.0`),
+The built-in simulation rule set `clockwork.bcl.deterministic` (version `3.0.0`),
 redirects the direct **static** time / identity / random BCL surface to Cecil-free runtime
 shims in the `Clockwork` assembly, under namespaces matching
 `Clockwork.Shims.<framework namespace>`. The complete, exhaustive
@@ -256,7 +271,7 @@ Controlled entry point requires an active Clockwork simulation; without one it t
 Uninstrumented production binaries retain ordinary BCL behavior. The runtime inventory names are
 `ControlledDateTime`, `ControlledDateTimeOffset`, `ControlledStopwatch`, `ControlledEnvironment`,
 `ControlledGuid`, `ControlledRandom`, `ControlledRandomNumberGenerator`,
-`SimulationInsecureRandomNumberGenerator`, and `SimulationStableHash`.
+`SimulationRandomNumberGenerator`, and `SimulationStableHash`.
 
 Semantics: local-time clocks (`DateTime.Now`/`Today`, `DateTimeOffset.Now`) honour the
 configured simulation time zone; `Environment.TickCount`/`TickCount64` wrap with correct
@@ -266,15 +281,14 @@ configured simulation time zone; `Environment.TickCount`/`TickCount64` wrap with
 version 7 (no monotonicity guarantee beyond the BCL contract). `Random.Shared` and unseeded
 `new Random()` become per-node deterministic streams; explicitly seeded `new Random(int)`
 preserves the caller's seed exactly. Cryptographic randomness (`RandomNumberGenerator` static
-entropy APIs) is **rejected by default** under simulation with a precise diagnostic; a strictly
-test-only opt-in (`SimulationBuilder.WithCryptoRandomnessPolicy(DeterministicInsecureForTesting)`)
-can substitute deterministic-insecure bytes - production security semantics are never changed.
+APIs and controlled factory instances) draws deterministic, per-node non-cryptographic bytes from a
+stream isolated from application randomness, identity generation, scheduling, networking, and fault
+injection.
 
 **Opt-in.** No JSON authoring is required. MSBuild consumers set
-`<ClockworkUseBuiltInRules>true</ClockworkUseBuiltInRules>` (strict by default via
-`ClockworkStrictBuiltIns`); CLI consumers pass `--builtin clockwork.bcl.deterministic`
-(or `--builtin all`) with optional `--builtin-include`/`--builtin-exclude` family filters and
-`--builtin-strict`. The selected families are versioned and folded into the rule-set signature,
+`<ClockworkUseBuiltInRules>true</ClockworkUseBuiltInRules>`; CLI consumers pass
+`--builtin clockwork.bcl.deterministic` (or `--builtin all`) with optional
+`--builtin-include`/`--builtin-exclude` family filters. The selected families are versioned and folded into the rule-set signature,
 so incremental rebuilds stay correct.
 
 #### Controlled task and async rule set
@@ -582,8 +596,8 @@ cancels all remaining registrations without invoking user callbacks.
   Authenticode is detected but not re-applied; consumers must apply it after instrumentation.
 - **Nondeterministic BCL surface beyond the rule inventory.** Only the exact signatures in
   [`rule-inventory.md`](rule-inventory.md) are rewritten. Documented holes include `Stopwatch`
-  instance APIs and `GetElapsedTime(long, long)`; generic crypto helpers `GetItems<T>`/`Shuffle<T>`
-  and unlisted `GetString`/`GetHexString` overloads; and `DateTime`/`DateTimeOffset`
+  instance APIs and `GetElapsedTime(long, long)`; unlisted `RandomNumberGenerator` overloads; and
+  `DateTime`/`DateTimeOffset`
   parse/format/convert helpers. Timer limitations are unrecognized custom `TimeProvider`
   implementations, non-null `System.Timers.Timer.SynchronizingObject`/designer integration, and
   `Timer.Dispose(WaitHandle)` with a handle outside Clockwork's controlled event surface.
@@ -605,9 +619,9 @@ The implemented package boundaries under `src/` map to the modes above:
 | `Clockwork.Instrumentation.Build` | `Clockwork.Instrumentation` | Opt-in MSBuild task + targets that instrument the resolved output closure out-of-place. |
 | `Clockwork.Tool` | `Clockwork.Instrumentation` | `dotnet clockwork instrument` / `inspect` CLI over the shared orchestrator. |
 | `Clockwork.Analyzers` | *(none)* | Roslyn diagnostics aligned with controlled/rejected direct BCL usage. |
-| `Clockwork.Testing` | `Clockwork` | Reusable test helpers and scenario builders for consumers. |
+| `Clockwork.Testing` | `Clockwork` | Reusable test helpers, scenario builders, and in-memory log capture for consumers. |
 
-`Clockwork.Testing` remains a separate helper package. Application hosting and transport models are
+`Clockwork.Testing` remains a separate helper project and namespace boundary. Application hosting and transport models are
 consumer-owned and outside the Clockwork core; consumers compose them over `SimulationNetwork` and
 the generic application-composition APIs, and no dedicated hosting or HTTP packages ship. Exact
 shipped interception behavior is defined by [`rule-inventory.md`](rule-inventory.md).

@@ -6,7 +6,7 @@ namespace Clockwork;
 /// <para>
 /// Derives stable, deterministic <see cref="int"/> seeds from strings such as test names, so
 /// callers do not need to hand-pick or hard-code arbitrary integer seeds for
-/// <see cref="SimulationCluster{TNode}"/>/<see cref="SimulationRandom"/>.
+/// <see cref="SimulationCluster"/>/<see cref="SimulationRandom"/>.
 /// </para>
 /// <para>
 /// This intentionally never uses <see cref="string.GetHashCode()"/> (or

@@ -11,34 +11,27 @@ namespace Clockwork.Conformance.Tests;
 internal sealed class SimulationHost : IDisposable
 {
     private readonly SimulationCluster _cluster;
-    private readonly Dictionary<string, SimulationNodeHandle<object?>> _nodes = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, SimulationNode<object?>> _nodes = new(StringComparer.Ordinal);
     private readonly string _defaultAddress;
 
     public SimulationHost(
         DateTimeOffset start,
         int seed = 1,
         TimeZoneInfo? timeZone = null,
-        CryptoRandomnessPolicy cryptoPolicy = CryptoRandomnessPolicy.Reject,
         IReadOnlyList<string>? nodeAddresses = null)
     {
         IReadOnlyList<string> addresses = nodeAddresses ?? ["node"];
         _defaultAddress = addresses[0];
 
-        var builder = new SimulationBuilder()
-            .WithSeed(seed)
-            .WithStartDateTime(start)
-            .WithCryptoRandomnessPolicy(cryptoPolicy);
-        if (timeZone is not null)
-        {
-            builder = builder.WithTimeZone(timeZone);
-        }
+        _cluster = new SimulationCluster(
+            seed,
+            start,
+            simulationTimeZone: timeZone);
 
         foreach (string address in addresses)
         {
-            _nodes[address] = builder.AddNode(address);
+            _nodes[address] = _cluster.AddNode(address);
         }
-
-        _cluster = builder.Build();
     }
 
     /// <summary>Invokes the probe method as work on the default node.</summary>
@@ -47,7 +40,7 @@ internal sealed class SimulationHost : IDisposable
     /// <summary>Invokes the probe method as work on the named node.</summary>
     public object? InvokeOnNode(string address, MethodInfo method, params object?[] args)
     {
-        SimulationNodeHandle<object?> node = _nodes[address];
+        SimulationNode<object?> node = _nodes[address];
 
         object? result = null;
         Exception? error = null;
@@ -84,7 +77,7 @@ internal sealed class SimulationHost : IDisposable
     /// </summary>
     public object? InvokeWithWork(MethodInfo method, object?[] args, params Action[] afterWork)
     {
-        SimulationNodeHandle<object?> node = _nodes[_defaultAddress];
+        SimulationNode<object?> node = _nodes[_defaultAddress];
 
         object? result = null;
         Exception? error = null;

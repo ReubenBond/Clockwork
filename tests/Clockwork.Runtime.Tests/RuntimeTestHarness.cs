@@ -1,7 +1,6 @@
 using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Random;
 using Clockwork.Runtime.Scheduling;
-using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks;
 
 namespace Clockwork.Runtime.Tests;
@@ -17,8 +16,7 @@ internal static class RuntimeTestHarness
             runtime,
             new SimulationSeedAuthority(seed),
             Origin,
-            TimeZoneInfo.Utc,
-            SimulationCryptoRandomnessPolicy.Reject);
+            TimeZoneInfo.Utc);
         return runtime;
     }
 }

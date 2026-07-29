@@ -7,7 +7,7 @@ namespace Clockwork.Runtime.Scheduling.Strategies;
 /// ordering that the legacy task-queue bridge relied on. It is fully deterministic and needs no
 /// recording.
 /// </summary>
-public sealed class FifoSchedulingStrategy : ISimulationSchedulingStrategy
+internal sealed class FifoSchedulingStrategy : ISimulationSchedulingStrategy
 {
     /// <inheritdoc/>
     public string Name => "fifo";

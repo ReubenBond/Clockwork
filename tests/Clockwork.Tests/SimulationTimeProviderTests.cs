@@ -1,16 +1,52 @@
+using Clockwork.Runtime.Scheduling;
+
 namespace Clockwork.Tests;
 
 public sealed class SimulationTimeProviderTests
 {
     [Fact]
+    public void TimeQueriesUseSchedulerTimelineAndTimeProviderSemantics()
+    {
+        var (scheduler, _, provider) = CreateComponents();
+
+        Assert.Equal(scheduler.UtcNow, provider.GetUtcNow());
+        Assert.Equal(scheduler.UtcNow.Ticks, provider.GetTimestamp());
+        Assert.Equal(TimeSpan.TicksPerSecond, provider.TimestampFrequency);
+        Assert.Same(TimeZoneInfo.Utc, provider.LocalTimeZone);
+        Assert.Equal("1970-01-01T00:00:00.000", provider.ToString());
+
+        Advance(scheduler, TimeSpan.FromMilliseconds(1250));
+
+        Assert.Equal(scheduler.UtcNow, provider.GetUtcNow());
+        Assert.Equal(scheduler.UtcNow.Ticks, provider.GetTimestamp());
+    }
+
+    [Fact]
+    public void TimeQueriesRemainAvailableAfterLaneDetachmentWhileTimerCreationFails()
+    {
+        var (scheduler, queue, provider) = CreateComponents();
+
+        _ = queue.Detach();
+
+        Assert.Equal(scheduler.UtcNow, provider.GetUtcNow());
+        Assert.Equal(scheduler.UtcNow.Ticks, provider.GetTimestamp());
+        Assert.Throws<ObjectDisposedException>(
+            () => provider.CreateTimer(
+                static _ => { },
+                null,
+                TimeSpan.Zero,
+                Timeout.InfiniteTimeSpan));
+    }
+
+    [Fact]
     public void TimerFiresWhenSimulatedTimeReachesDueTime()
     {
-        var (clock, queue, provider) = CreateComponents();
+        var (scheduler, queue, provider) = CreateComponents();
         var fireCount = 0;
         using var timer = provider.CreateTimer(_ => fireCount++, null, TimeSpan.FromSeconds(5), Timeout.InfiniteTimeSpan);
 
         Assert.False(queue.RunOnce());
-        clock.Advance(TimeSpan.FromSeconds(5));
+        Advance(scheduler, TimeSpan.FromSeconds(5));
 
         Assert.True(queue.RunOnce());
         Assert.Equal(1, fireCount);
@@ -19,13 +55,13 @@ public sealed class SimulationTimeProviderTests
     [Fact]
     public void PeriodicTimerReschedulesItself()
     {
-        var (clock, queue, provider) = CreateComponents();
+        var (scheduler, queue, provider) = CreateComponents();
         var fireCount = 0;
         using var timer = provider.CreateTimer(_ => fireCount++, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2));
 
-        clock.Advance(TimeSpan.FromSeconds(1));
+        Advance(scheduler, TimeSpan.FromSeconds(1));
         Assert.True(queue.RunOnce());
-        clock.Advance(TimeSpan.FromSeconds(2));
+        Advance(scheduler, TimeSpan.FromSeconds(2));
         Assert.True(queue.RunOnce());
 
         Assert.Equal(2, fireCount);
@@ -34,12 +70,12 @@ public sealed class SimulationTimeProviderTests
     [Fact]
     public void DisposedTimerDoesNotFire()
     {
-        var (clock, queue, provider) = CreateComponents();
+        var (scheduler, queue, provider) = CreateComponents();
         var fired = false;
         var timer = provider.CreateTimer(_ => fired = true, null, TimeSpan.FromSeconds(1), Timeout.InfiniteTimeSpan);
 
         timer.Dispose();
-        clock.Advance(TimeSpan.FromSeconds(1));
+        Advance(scheduler, TimeSpan.FromSeconds(1));
 
         Assert.False(queue.RunOnce());
         Assert.False(fired);
@@ -48,10 +84,10 @@ public sealed class SimulationTimeProviderTests
     [Fact]
     public void CallbackChangeToPeriodicReplacesAutomaticReschedule()
     {
-        var (clock, queue, provider) = CreateComponents();
+        var (scheduler, queue, provider) = CreateComponents();
         var fireCount = 0;
-        SimulationTimer? timer = null;
-        timer = (SimulationTimer)provider.CreateTimer(
+        ITimer? timer = null;
+        timer = provider.CreateTimer(
             _ =>
             {
                 fireCount++;
@@ -65,29 +101,29 @@ public sealed class SimulationTimeProviderTests
             TimeSpan.FromSeconds(10));
         using (timer)
         {
-            clock.Advance(TimeSpan.FromSeconds(1));
+            Advance(scheduler, TimeSpan.FromSeconds(1));
             Assert.True(queue.RunOnce());
-            AssertSinglePendingTimer(queue, clock.UtcNow + TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(2));
+            AssertSinglePendingTimer(queue, scheduler.UtcNow + TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(2));
 
-            clock.Advance(TimeSpan.FromSeconds(3));
+            Advance(scheduler, TimeSpan.FromSeconds(3));
             Assert.True(queue.RunOnce());
             Assert.Equal(2, fireCount);
-            AssertSinglePendingTimer(queue, clock.UtcNow + TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+            AssertSinglePendingTimer(queue, scheduler.UtcNow + TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
 
-            clock.Advance(TimeSpan.FromSeconds(2));
+            Advance(scheduler, TimeSpan.FromSeconds(2));
             Assert.True(queue.RunOnce());
             Assert.Equal(3, fireCount);
-            AssertSinglePendingTimer(queue, clock.UtcNow + TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+            AssertSinglePendingTimer(queue, scheduler.UtcNow + TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
         }
     }
 
     [Fact]
     public void CallbackChangeToOneShotLeavesOnlyTheReplacementPending()
     {
-        var (clock, queue, provider) = CreateComponents();
+        var (scheduler, queue, provider) = CreateComponents();
         var fireCount = 0;
-        SimulationTimer? timer = null;
-        timer = (SimulationTimer)provider.CreateTimer(
+        ITimer? timer = null;
+        timer = provider.CreateTimer(
             _ =>
             {
                 fireCount++;
@@ -101,14 +137,16 @@ public sealed class SimulationTimeProviderTests
             TimeSpan.FromSeconds(1));
         using (timer)
         {
-            clock.Advance(TimeSpan.FromSeconds(1));
+            Advance(scheduler, TimeSpan.FromSeconds(1));
             Assert.True(queue.RunOnce());
-            AssertSinglePendingTimer(queue, clock.UtcNow + TimeSpan.FromSeconds(3), TimeSpan.Zero);
+            AssertSinglePendingTimer(queue, scheduler.UtcNow + TimeSpan.FromSeconds(3), TimeSpan.Zero);
 
-            clock.Advance(TimeSpan.FromSeconds(3));
+            Advance(scheduler, TimeSpan.FromSeconds(3));
             Assert.True(queue.RunOnce());
             Assert.Equal(2, fireCount);
-            Assert.Equal(0, SimulationTimer.GetPendingTimerCount(queue));
+            Assert.DoesNotContain(
+                queue.CaptureScheduledItems(),
+                static item => item.Kind == "timer");
             Assert.False(queue.RunOnce());
         }
     }
@@ -116,10 +154,10 @@ public sealed class SimulationTimeProviderTests
     [Fact]
     public void CallbackChangeToInfiniteSuppressesAutomaticReschedule()
     {
-        var (clock, queue, provider) = CreateComponents();
+        var (scheduler, queue, provider) = CreateComponents();
         var fireCount = 0;
-        SimulationTimer? timer = null;
-        timer = (SimulationTimer)provider.CreateTimer(
+        ITimer? timer = null;
+        timer = provider.CreateTimer(
             _ =>
             {
                 fireCount++;
@@ -130,12 +168,14 @@ public sealed class SimulationTimeProviderTests
             TimeSpan.FromSeconds(1));
         using (timer)
         {
-            clock.Advance(TimeSpan.FromSeconds(1));
+            Advance(scheduler, TimeSpan.FromSeconds(1));
             Assert.True(queue.RunOnce());
 
             Assert.Equal(1, fireCount);
-            Assert.Equal(0, SimulationTimer.GetPendingTimerCount(queue));
-            clock.Advance(TimeSpan.FromSeconds(10));
+            Assert.DoesNotContain(
+                queue.CaptureScheduledItems(),
+                static item => item.Kind == "timer");
+            Advance(scheduler, TimeSpan.FromSeconds(10));
             Assert.False(queue.RunOnce());
         }
     }
@@ -143,10 +183,10 @@ public sealed class SimulationTimeProviderTests
     [Fact]
     public void RepeatedCallbackChangesLeaveOnlyTheLastReplacementPending()
     {
-        var (clock, queue, provider) = CreateComponents();
+        var (scheduler, queue, provider) = CreateComponents();
         var fireCount = 0;
-        SimulationTimer? timer = null;
-        timer = (SimulationTimer)provider.CreateTimer(
+        ITimer? timer = null;
+        timer = provider.CreateTimer(
             _ =>
             {
                 fireCount++;
@@ -162,14 +202,16 @@ public sealed class SimulationTimeProviderTests
             TimeSpan.FromSeconds(1));
         using (timer)
         {
-            clock.Advance(TimeSpan.FromSeconds(1));
+            Advance(scheduler, TimeSpan.FromSeconds(1));
             Assert.True(queue.RunOnce());
-            AssertSinglePendingTimer(queue, clock.UtcNow + TimeSpan.FromSeconds(4), TimeSpan.Zero);
+            AssertSinglePendingTimer(queue, scheduler.UtcNow + TimeSpan.FromSeconds(4), TimeSpan.Zero);
 
-            clock.Advance(TimeSpan.FromSeconds(4));
+            Advance(scheduler, TimeSpan.FromSeconds(4));
             Assert.True(queue.RunOnce());
             Assert.Equal(2, fireCount);
-            Assert.Equal(0, SimulationTimer.GetPendingTimerCount(queue));
+            Assert.DoesNotContain(
+                queue.CaptureScheduledItems(),
+                static item => item.Kind == "timer");
             Assert.False(queue.RunOnce());
         }
     }
@@ -177,10 +219,10 @@ public sealed class SimulationTimeProviderTests
     [Fact]
     public void CallbackDisposeSuppressesAutomaticReschedule()
     {
-        var (clock, queue, provider) = CreateComponents();
+        var (scheduler, queue, provider) = CreateComponents();
         var fireCount = 0;
-        SimulationTimer? timer = null;
-        timer = (SimulationTimer)provider.CreateTimer(
+        ITimer? timer = null;
+        timer = provider.CreateTimer(
             _ =>
             {
                 fireCount++;
@@ -190,12 +232,14 @@ public sealed class SimulationTimeProviderTests
             TimeSpan.FromSeconds(1),
             TimeSpan.FromSeconds(1));
 
-        clock.Advance(TimeSpan.FromSeconds(1));
+        Advance(scheduler, TimeSpan.FromSeconds(1));
         Assert.True(queue.RunOnce());
 
         Assert.Equal(1, fireCount);
-        Assert.Equal(0, SimulationTimer.GetPendingTimerCount(queue));
-        clock.Advance(TimeSpan.FromSeconds(10));
+        Assert.DoesNotContain(
+            queue.CaptureScheduledItems(),
+            static item => item.Kind == "timer");
+        Advance(scheduler, TimeSpan.FromSeconds(10));
         Assert.False(queue.RunOnce());
     }
 
@@ -204,17 +248,22 @@ public sealed class SimulationTimeProviderTests
         DateTimeOffset expectedDueTime,
         TimeSpan expectedPeriod)
     {
-        Assert.Equal(1, SimulationTimer.GetPendingTimerCount(queue));
-        var pending = Assert.Single(SimulationTimer.GetTimers(queue));
+        var pending = Assert.Single(
+            queue.CaptureScheduledItems(),
+            static item => item.Kind == "timer");
         Assert.Equal(expectedDueTime, pending.DueTime);
-        Assert.Equal(expectedPeriod, pending.Period);
+        Assert.Equal(
+            FormattableString.Invariant($"Timer callback (period={expectedPeriod:c})"),
+            pending.Description);
     }
 
-    private static (SimulationClock Clock, SimulationSchedulerLane Queue, SimulationTimeProvider Provider) CreateComponents()
+    private static (SimulationScheduler Scheduler, SimulationSchedulerLane Queue, SimulationTimeProvider Provider) CreateComponents()
     {
         var scheduler = SimulationTestHarness.NewScheduler();
-        var clock = new SimulationClock(scheduler);
         var queue = new SimulationSchedulerLane(scheduler, SimulationTestHarness.NewGuard(scheduler));
-        return (clock, queue, new SimulationTimeProvider(queue, clock));
+        return (scheduler, queue, new SimulationTimeProvider(queue));
     }
+
+    private static void Advance(SimulationScheduler scheduler, TimeSpan delta) =>
+        scheduler.AdvanceVirtualTimeTo(scheduler.VirtualTime + delta);
 }

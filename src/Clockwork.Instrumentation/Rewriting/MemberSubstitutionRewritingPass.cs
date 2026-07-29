@@ -33,6 +33,8 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
     };
 
     private MemberSubstitutionMapper? _mapper;
+    private readonly HashSet<string> _reportedOutOfRange = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _reportedApplicationFailures = new(StringComparer.Ordinal);
 
     public MemberSubstitutionRewritingPass(RewriteSession session)
         : base(session)
@@ -47,6 +49,12 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
     internal override void VisitType(TypeDefinition type)
     {
         base.VisitType(type);
+        ReportOutOfRange(type.Fields.Select(field => field.FieldType));
+        ReportOutOfRange(type.Properties.Select(property => property.PropertyType));
+        ReportOutOfRange(type.Properties.SelectMany(property => property.Parameters).Select(parameter => parameter.ParameterType));
+        ReportOutOfRange(type.Methods.Select(method => method.ReturnType));
+        ReportOutOfRange(type.Methods.SelectMany(method => method.Parameters).Select(parameter => parameter.ParameterType));
+
         if (!IsActive)
         {
             return;
@@ -105,6 +113,7 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
     /// <inheritdoc/>
     protected override void VisitMethodBody(MethodBody body)
     {
+        ReportOutOfRange(body.Variables.Select(variable => variable.VariableType));
         if (!IsActive)
         {
             return;
@@ -124,10 +133,7 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
     /// <inheritdoc/>
     protected override Instruction VisitInstruction(Instruction instruction)
     {
-        if (TryRecordPassThrough(instruction))
-        {
-            return instruction;
-        }
+        ReportOutOfRange(instruction);
 
         if (!IsActive)
         {
@@ -157,37 +163,6 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
         }
     }
 
-    private bool TryRecordPassThrough(Instruction instruction)
-    {
-        TypeReference? targetType = instruction.Operand switch
-        {
-            MethodReference method => method.DeclaringType,
-            FieldReference field => field.DeclaringType,
-            _ => null,
-        };
-        if (targetType is null
-            || !Session.Matcher.TryMatchType(targetType, out RewriteRule rule)
-            || rule.Policy != SimulationApiPolicy.PassThrough)
-        {
-            return false;
-        }
-
-        RewriteSession.TryGetSequencePoint(Method!, instruction, out string? file, out int line);
-        Session.AddTransformation(new ManifestTransformation(
-            rule.Id,
-            rule.Operation,
-            TransformationOutcome.PassedThrough,
-            rule.Policy,
-            rule.Target.ToCanonicalString(),
-            null,
-            CecilNames.FullyQualifiedMethodName(Method!),
-            instruction.Offset,
-            file,
-            line,
-            rule.Description ?? "Explicit PassThrough policy."));
-        return true;
-    }
-
     private Instruction VisitMethodOperand(Instruction instruction, MethodReference method)
     {
         // The compiler produces an awaiter from task.GetAwaiter() / task.ConfigureAwait(bool). The
@@ -215,6 +190,10 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
             instruction.Operand = mapped;
             IsMethodBodyModified = true;
         }
+        else
+        {
+            ReportUnappliedMemberSubstitution(method, instruction);
+        }
 
         return instruction;
     }
@@ -224,6 +203,11 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
         MethodReference? constructor = Mapper.BuildAwaiterSourceConstructor(method, arity);
         if (constructor is null)
         {
+            if (Session.Matcher.GetMatchingTypeRules(method.ReturnType).Count > 0)
+            {
+                ReportUnappliedMemberSubstitution(method, instruction);
+            }
+
             return null;
         }
 
@@ -236,11 +220,114 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
     private MemberSubstitutionMapper BuildMapper() =>
         MemberSubstitutionMapper.Build(Session, (rule, error) =>
         {
-            Session.AddDiagnostic(RewriteDiagnostic.Warning(
+            Session.AddDiagnostic(RewriteDiagnostic.Error(
                 RewriteDiagnosticIds.UnresolvedReplacement,
-                $"{error} Member-aware substitution rule '{rule.Id}' was skipped."));
+                $"{error} Member-aware substitution rule '{rule.Id}' could not be applied."));
             Session.AddUnresolvedReference(rule.Replacement.ToCanonicalString());
         });
+
+    private void ReportOutOfRange(IEnumerable<TypeReference> types)
+    {
+        foreach (TypeReference type in types)
+        {
+            ReportOutOfRange(type, instruction: null);
+        }
+    }
+
+    private void ReportOutOfRange(Instruction instruction)
+    {
+        switch (instruction.Operand)
+        {
+            case MethodReference method:
+                ReportOutOfRange(method.DeclaringType, instruction);
+                ReportOutOfRange(method.ReturnType, instruction);
+                ReportOutOfRange(method.Parameters.Select(parameter => parameter.ParameterType), instruction);
+                if (method is GenericInstanceMethod generic)
+                {
+                    ReportOutOfRange(generic.GenericArguments, instruction);
+                }
+
+                break;
+            case FieldReference field:
+                ReportOutOfRange(field.DeclaringType, instruction);
+                ReportOutOfRange(field.FieldType, instruction);
+                break;
+        }
+    }
+
+    private void ReportOutOfRange(IEnumerable<TypeReference> types, Instruction instruction)
+    {
+        foreach (TypeReference type in types)
+        {
+            ReportOutOfRange(type, instruction);
+        }
+    }
+
+    private void ReportOutOfRange(TypeReference type, Instruction? instruction)
+    {
+        foreach (RewriteRule rule in Session.Matcher.GetOutOfRangeTypeRules(type))
+        {
+            string containing = Method is null
+                ? TypeDef?.FullName ?? Session.TargetModule.Name
+                : CecilNames.FullyQualifiedMethodName(Method);
+            int offset = instruction?.Offset ?? -1;
+            string key = $"{rule.Id}|{containing}|{offset}";
+            if (!_reportedOutOfRange.Add(key))
+            {
+                continue;
+            }
+
+            Session.AddDiagnostic(RewriteDiagnostic.Error(
+                RewriteDiagnosticIds.RuntimeOutOfRange,
+                $"Rule '{rule.Id}' targeted type '{type.FullName}' but the configured target runtime is outside its supported range {rule.SupportedRuntimes.ToCanonicalString()}.",
+                containing,
+                offset));
+        }
+    }
+
+    private void ReportUnappliedMemberSubstitution(MethodReference method, Instruction instruction)
+    {
+        var rules = new Dictionary<string, RewriteRule>(StringComparer.Ordinal);
+        AddMatchingRules(method.DeclaringType, rules);
+        AddMatchingRules(method.ReturnType, rules);
+        foreach (ParameterDefinition parameter in method.Parameters)
+        {
+            AddMatchingRules(parameter.ParameterType, rules);
+        }
+
+        if (method is GenericInstanceMethod generic)
+        {
+            foreach (TypeReference argument in generic.GenericArguments)
+            {
+                AddMatchingRules(argument, rules);
+            }
+        }
+
+        string containing = CecilNames.FullyQualifiedMethodName(Method!);
+        foreach (RewriteRule rule in rules.Values)
+        {
+            string key = $"{rule.Id}|{containing}|{instruction.Offset}";
+            if (!_reportedApplicationFailures.Add(key))
+            {
+                continue;
+            }
+
+            Session.AddDiagnostic(RewriteDiagnostic.Error(
+                RewriteDiagnosticIds.UnresolvedReplacement,
+                $"Member-aware substitution rule '{rule.Id}' could not map targeted member '{method.FullName}' to the replacement type.",
+                containing,
+                instruction.Offset));
+            Session.AddUnresolvedReference(rule.Replacement.ToCanonicalString());
+        }
+    }
+
+    private void AddMatchingRules(TypeReference type, Dictionary<string, RewriteRule> rules)
+    {
+        foreach (RewriteRule rule in Session.Matcher.GetMatchingTypeRules(type))
+        {
+            rules.TryAdd(rule.Id, rule);
+        }
+    }
 
     private void RecordMethod(MethodReference original, Instruction instruction)
     {

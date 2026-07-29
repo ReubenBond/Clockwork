@@ -4,13 +4,13 @@ Clockwork is a deterministic simulation testing framework for distributed system
 
 ## Features
 
-- A shared `SimulationClock` and `SimulationTimeProvider`
+- Scheduler-owned virtual time and a shared `SimulationTimeProvider`
 - Deterministic `TaskScheduler` and `SynchronizationContext` implementations
 - Per-node scheduler lanes with suspend, resume, and single-step controls
 - Seeded random streams for reproducible scenarios
 - In-memory network partitions, isolation, loss, delay, and jitter
-- Extensible cluster and chaos-injection base classes
-- A fluent `SimulationBuilder` for common simulations that don't need a hand-written subclass
+- A directly constructible `SimulationCluster` with immediate node attachment
+- Extensible node and chaos-injection base classes
 - Versioned canonical replay artifacts with exact compatibility and divergence checks
 - Bounded seeded schedule exploration and deterministic failure-trace minimization
 - Stable operation/resource wait graphs, deadlock cycles, race pairs, and timer diagnostics
@@ -18,7 +18,10 @@ Clockwork is a deterministic simulation testing framework for distributed system
 - Fixed and adaptive `RunUntil`/`RunUntilIdle` execution budgets
 - Stable, cross-process-safe seed derivation from strings (`SimulationSeed`)
 - Reusable rendezvous primitives (`SimulationGate`, `SimulationLatch`, `SimulationBarrier`)
-- In-memory logging for simulation diagnostics
+- In-memory logging for simulation diagnostics in the `Clockwork.Testing` project and namespace
+
+Consumers should attach node identity and other context using standard structured `ILogger` scopes or
+properties; Clockwork does not wrap loggers or prefix rendered messages.
 
 Clockwork targets .NET 10.
 
@@ -31,12 +34,12 @@ are in [`docs/compatibility.md`](docs/compatibility.md).
 | Area | Current support | Durable limitations |
 |---|---|---|
 | Simulation kernel | Virtual clock, seeded randomness, simulated network, cooperative scheduler lanes, node lifecycle, diagnostics, rendezvous primitives, and controlled scheduling. | Application hosting and transport models are consumer-owned; Clockwork ships no dedicated hosting or HTTP package. |
-| Build and CLI instrumentation | Opt-in, out-of-place Cecil rewriting through `Clockwork.Instrumentation.Build` and `Clockwork.Tool`; direct-call analyzers; deterministic manifests and incremental inputs. | Instrument before R2R, single-file bundling, trimming, or NativeAOT. Authenticode is not re-applied; strong-name re-signing requires a supplied key. |
-| Deterministic BCL rules | `clockwork.bcl.deterministic` controls the exact time, identity, and random signatures in the generated inventory. | APIs outside the inventory retain no determinism claim. Cryptographic entropy is rejected unless the explicit deterministic-insecure test policy is enabled. |
+| Build and CLI instrumentation | Opt-in, out-of-place Cecil rewriting through `Clockwork.Instrumentation.Build` and `Clockwork.Tool`; direct-call analyzers; deterministic manifests and content-verified incremental outputs. | ReadyToRun inputs are reduced to IL before rewriting; instrument before single-file bundling, trimming, or NativeAOT. Authenticode is not re-applied; signed inputs require a matching strong-name key. |
+| Deterministic BCL rules | `clockwork.bcl.deterministic` controls the exact time, identity, and random signatures in the generated inventory. | APIs outside the inventory retain no determinism claim. |
 | Controlled concurrency | `clockwork.tasks.controlled` controls async builders/awaiters, task combinators and waits, `Task.Run`, all .NET 10 `TaskFactory`/`TaskFactory<T>.StartNew` overloads, `Thread`, `ThreadPool`, `Parallel`, `Monitor`, `System.Threading.Lock`, and `SemaphoreSlim`. Debug and Release lowering are conformance-tested. | Synchronous `ValueTask` blocking, custom task schedulers, unsupported task-creation options, native-overlapped thread-pool work, and OS-specific thread controls are rejected. |
 | Synchronization | Full .NET 10 `Interlocked` and `Volatile`; `SpinWait`; events and wait handles; registered waits; `ReaderWriterLockSlim`; `ManualResetEventSlim`; unnamed kernel `Mutex`/`Semaphore`; `SpinLock`; `ExecutionContext`; `SynchronizationContext`; `Barrier`; and `CountdownEvent`. | Named/cross-process primitives, open-existing APIs, raw handles, raw `SynchronizationContext.Wait`, and `WaitAll` arrays containing a `Mutex` are rejected. |
 | Virtual timers | `System.Threading.Timer`, `System.Timers.Timer`, `PeriodicTimer`, all .NET 10 `Task.Delay` and `Task.WaitAsync` overloads, timer-driven cancellation, and `TimeProvider.System`/`CreateTimer`. | Custom providers and non-null `System.Timers.Timer.SynchronizingObject`/designer integration are rejected. |
-| Replay and race exploration | Canonical replay schema version 1, exact compatibility/divergence checks, bounded serial schedule exploration, failure minimization, and opt-in `RaceExploration` instrumentation with structured first-race reports. | Controlled mode adds no fine-grained memory/control-flow calls. Race tracking excludes unmanaged memory, multidimensional arrays, reflection/dynamic invocation, and interface-only collection calls as detailed in compatibility docs. |
+| Replay and race exploration | Canonical replay schema version 2, exact compatibility/divergence checks, bounded serial schedule exploration, failure minimization, and opt-in `RaceExploration` instrumentation with structured first-race reports. | Controlled mode adds no fine-grained memory/control-flow calls. Race tracking excludes unmanaged memory, multidimensional arrays, reflection/dynamic invocation, and interface-only collection calls as detailed in compatibility docs. |
 | Activation | Instrumented controlled entry points require an active simulation and registered runtime service; uninstrumented binaries retain ordinary BCL behavior. | There is no inactive pass-through from rewritten controlled calls to real BCL operations. |
 ## Build and test
 
@@ -57,16 +60,40 @@ Race exploration is a build-time opt-in separate from ordinary controlled rewrit
 <ClockworkInstrumentationMode>RaceExploration</ClockworkInstrumentationMode>
 ```
 
-The CLI equivalent is `dotnet clockwork instrument ... --mode RaceExploration`; JSON configuration uses
-`"mode": "RaceExploration"`. The selected mode is recorded in per-assembly and closure manifests and
-participates in rewrite signatures and incremental cache keys. `Controlled` remains the default and
-does not add memory, branch, array, indirect, or collection scheduling calls.
+The CLI equivalent is `dotnet clockwork instrument ... --mode RaceExploration`. JSON configuration
+files require instrumentation-configuration schema version 2:
+
+```json
+{
+  "schemaVersion": 2,
+  "mode": "RaceExploration"
+}
+```
+
+Version 1 is rejected rather than migrated or interpreted through compatibility aliases. The selected
+mode is recorded in per-assembly and closure manifests and participates in rewrite signatures and
+incremental cache keys. `Controlled` remains the default and does not add memory, branch, array,
+indirect, or collection scheduling calls.
 
 Injected points yield only while running as a `SimulationOperation`. They use the scheduler's selected
 strategy and decision/replay log, preserving the exactly-one-running baton invariant. A run exposes
-`SimulationScheduler.RaceExplorationResult`, `FirstRace`, and
+`SimulationScheduler.FirstRace` and
 `CaptureRaceSchedulingPoints()`. A race is a distinct `RaceDetected` outcome with both operations,
 access kinds, logical location, source/IL sites, synchronization context, and the schedule trace.
+
+### Scheduling strategies
+
+Built-in strategies are created through the single `SimulationSchedulingStrategies` factory surface
+and assigned as `ISimulationSchedulingStrategy`; custom implementations remain supported:
+
+```csharp
+scheduler.SchedulingStrategy = SimulationSchedulingStrategies.Fifo();
+scheduler.SchedulingStrategy = SimulationSchedulingStrategies.RoundRobin();
+scheduler.SchedulingStrategy = SimulationSchedulingStrategies.Priority();
+scheduler.SchedulingStrategy = SimulationSchedulingStrategies.SeededRandom(seed: 17);
+scheduler.SchedulingStrategy = SimulationSchedulingStrategies.SeededRandom(scheduler.Runtime);
+scheduler.SchedulingStrategy = SimulationSchedulingStrategies.Replay(recordedDecisions);
+```
 
 ## Record, replay, explore, and minimize
 
@@ -105,53 +132,17 @@ policy, compatibility rules, and limitations.
 
 ## Define a simulation
 
-Derive your application-specific node and cluster types from `SimulationNode` and `SimulationCluster<TNode>`:
+Construct `SimulationCluster` directly. It owns the runtime, scheduler and virtual time, network, drive loop,
+nodes, and node state. Nodes are fully attached and usable as soon as `AddNode` returns:
 
 ```csharp
 using Clockwork;
 
-public sealed class TestNode(string address, SimulationNodeContext context) : SimulationNode
-{
-    public override string NetworkAddress { get; } = address;
-    public override SimulationNodeContext Context { get; } = context;
-    public override bool IsInitialized => true;
-}
-
-public sealed class TestCluster : SimulationCluster<TestNode>
-{
-    public TestCluster(int seed)
-        : base(seed)
-    {
-        Network = new SimulationNetwork(() => Nodes, Random.Fork());
-    }
-
-    public SimulationNetwork Network { get; }
-
-    public TestNode AddNode(string address)
-    {
-        var context = new SimulationNodeContext(Clock, Guard, ForkRandom(), SchedulerLane);
-        var node = new TestNode(address, context);
-        RegisterNode(node);
-        return node;
-    }
-
-    protected override ValueTask DisposeAsyncCore() => ValueTask.CompletedTask;
-}
-```
-
-## Build a simulation without a subclass
-
-For simulations that don't need application-specific cluster behavior, `SimulationBuilder`
-produces a working `SimulationCluster<TNode>` without a hand-written subclass:
-
-```csharp
-using Clockwork;
-
-var builder = new SimulationBuilder().WithSeed(12345);
-var node1 = builder.AddNode("node-1", state: 0);   // SimulationNodeHandle<int>
-var node2 = builder.AddNode("node-2");             // SimulationNodeHandle<object?>
-
-await using var cluster = builder.Build();
+await using var cluster = new SimulationCluster(
+    seed: 12345,
+    startDateTime: DateTimeOffset.UnixEpoch);
+var node1 = cluster.AddNode("node-1", state: 0); // SimulationNode<int>
+var node2 = cluster.AddNode("node-2");           // SimulationNode<object?>
 
 var handled = false;
 node1.Context.SchedulerLane.EnqueueAfter(() => handled = true, TimeSpan.FromSeconds(30));
@@ -160,55 +151,46 @@ cluster.RunUntil(() => handled, AdaptiveExecutionBudget.Default);
 cluster.Network.CreateBidirectionalPartition(node1.NetworkAddress, node2.NetworkAddress);
 ```
 
-`WithSeed` is required - `Build()` throws `InvalidOperationException` if it was never called, so a
-built simulation can never be accidentally non-deterministic by defaulting to a wall-clock-derived
-seed. `AddNode`/`AddNode<TState>` return a `SimulationNodeHandle<TState>` immediately so you can
-capture it in a local variable, but its `Context` and `State` are only usable **after** `Build()`
-returns - accessing them earlier throws `InvalidOperationException`, since the node's queue, clock,
-and random generator do not exist until the cluster does.
+The seed is a required constructor argument. Optional constructor arguments configure starting time,
+the simulated local time zone, and teardown cancellation. A
+zero-node cluster is valid and its `Network` is available immediately.
 
-`SimulationBuilder` and hand-written `SimulationCluster<TNode>` subclasses are not mutually
-exclusive: everything under "Define a simulation" above continues to work unmodified, and nothing
-about the builder changes `SimulationCluster<TNode>`'s existing API or behavior.
+### Registering custom node subclasses
 
-### Registering existing node subclasses alongside plain handles
-
-`AddCustomNode<TNode>` registers an existing `SimulationNode` subclass in the same
-non-generic `SimulationCluster`, side-by-side with plain handles - a foundation for heterogeneous node
-composition:
+`AddCustomNode<TNode>` creates and immediately returns a custom `SimulationNode` subclass alongside
+typed-state nodes. The returned node must expose the exact context supplied to the factory and the
+requested network address:
 
 ```csharp
-// MyWorkerNode is any existing SimulationNode subclass - e.g. TestNode from "Define a
-// simulation" above: public sealed class MyWorkerNode(string address, SimulationNodeContext context) : SimulationNode { ... }
-var builder = new SimulationBuilder().WithSeed(1);
-var counter = builder.AddNode("counter", state: 0);
-builder.AddCustomNode("worker", context => new MyWorkerNode("worker", context));
+public sealed class MyWorkerNode(string address, SimulationNodeContext context) : SimulationNode
+{
+    public override string NetworkAddress { get; } = address;
+    public override SimulationNodeContext Context { get; } = context;
+    public override bool IsInitialized => true;
+}
 
-await using var cluster = builder.Build();
-var worker = cluster.FindNode<MyWorkerNode>("worker")!;
+await using var cluster = new SimulationCluster(seed: 1);
+var counter = cluster.AddNode("counter", state: 0);
+var worker = cluster.AddCustomNode(
+    "worker",
+    context => new MyWorkerNode("worker", context));
 ```
 
-Unlike the handle overloads, `AddCustomNode` cannot hand the constructed node back synchronously -
-`factory` needs a real `SimulationNodeContext`, which doesn't exist until `Build()` runs. Retrieve
-it afterwards via `cluster.FindNode<MyWorkerNode>(...)`.
-
-**What this foundation does not include yet:** there is no dependency-injection-style construction
+There is no dependency-injection-style construction
 or startup ordering between nodes, and no per-node-type discovery beyond address lookup and
-`OfType<T>()`. Full heterogeneous lifecycle support (typed groups, startup ordering, DI-style
-construction) is not provided. The supported foundation is the shared
-clock/guard/drive-loop across mixed node types, rather than a partial lifecycle API that would be
-misleading about what it actually guarantees.
-
-The non-generic `SimulationCluster` disposes every registered node - and, for handles, their state payload - that
-implements `IAsyncDisposable`/`IDisposable` when the cluster itself is disposed.
-
-`SimulationBuilder` and the non-generic `SimulationCluster` are deliberately small and composable plain classes with no
-required base class for node state. Clockwork does not provide `IHost` integration.
+`OfType<T>()`. The cluster disposes owned typed-state payloads and disposable custom nodes in
+attachment order. Before any state or node disposer runs, every attached context is enabled and its
+existing tasks, timers, synchronization-context callbacks, and timed suspension callbacks drain to
+quiescence. Async disposers are then driven so their awaited lifecycle work can complete. Finally,
+remaining node or shared-lane work is canceled and the context is detached. The same deterministic
+cleanup applies when an attachment fails. Disposing the cluster
+from inside an `AddNode` or `AddCustomNode` factory is unsupported and throws without changing the
+cluster's state. Clockwork does not provide `IHost` integration.
 
 ## Drive simulated execution
 
 ```csharp
-await using var cluster = new TestCluster(seed: 12345);
+await using var cluster = new SimulationCluster(seed: 12345);
 var node1 = cluster.AddNode("node-1");
 var node2 = cluster.AddNode("node-2");
 
@@ -224,7 +206,10 @@ cluster.RunFor(TimeSpan.FromMinutes(5));
 cluster.Network.HealBidirectionalPartition(node1.NetworkAddress, node2.NetworkAddress);
 ```
 
-`RunUntil`, `RunUntilIdle`, and `RunFor` execute one queued operation at a time and advance the shared clock only when no work is ready. All three return `SimulationExecutionResult`, including the stop reason, counters, limits, and pending-work snapshot. They share one drive-loop engine, so hook firing, time advancement, and stuck detection remain consistent.
+`RunUntil`, `RunUntilIdle`, and `RunFor` execute one queued operation at a time and advance the
+scheduler's virtual time only when no work is ready. All three return `SimulationExecutionResult`,
+including the stop reason, counters, limits, and pending-work snapshot. They share one drive-loop
+engine, so time advancement and stuck detection remain consistent.
 
 ## Execution results and diagnostics
 
@@ -251,11 +236,15 @@ can stop: `ConditionMet`, `Idle`, `IdleWithPendingWork` (idle, but a suspended n
 it cannot execute), `MaxSimulatedTimeAdvanceExceeded`, `MaxConsecutiveTimeAdvancesExceeded`,
 `MaxIterationsReached`, and `TeardownCancellationRequested`. `SimulationExecutionResult.PendingWork`
 (a `SimulationPendingWorkSummary`) reports runnable/waiting/blocked counts plus a stably-ordered
-list of per-item diagnostics (queue identity, scheduled item type, due time, sequence number, and
-readiness) - useful for diagnosing a stuck or failed-to-progress simulation without adding any
-production-code instrumentation. `SimulationCluster<TNode>.MaxConsecutiveTimeAdvances` (default
+list of per-item diagnostics (queue identity, stable kind and description, due time, sequence number,
+and readiness) - useful for diagnosing a stuck or failed-to-progress simulation without adding any
+production-code instrumentation. `SimulationCluster.MaxConsecutiveTimeAdvances` (default
 10,000) makes the previously hardcoded stuck-detection threshold configurable and inspectable,
 alongside the existing `MaxSimulatedTimeAdvance` property.
+
+`SimulationSchedulerLane.CaptureScheduledItems()` returns the same stable, immutable diagnostic
+records for a single lane. Each record exposes only queue identity, kind, description, due time,
+sequence number, and ready/blocked status; scheduler implementation objects are never returned.
 
 `RunToCompletion(Func<Task>, ...)` drives async work under the cluster synchronization context and
 controlled scheduler. Generic overloads return `Task<T>` results directly. Fixed and adaptive
@@ -307,7 +296,7 @@ var seed = SimulationSeed.FromString(nameof(MyTest));
 // or combine multiple components (e.g. class + method name):
 var seed2 = SimulationSeed.FromStrings(GetType().FullName!, nameof(MyTest));
 
-await using var cluster = new TestCluster(seed);
+await using var cluster = new SimulationCluster(seed);
 ```
 
 This deliberately never uses `string.GetHashCode()`/`object.GetHashCode()`: the runtime documents
@@ -386,7 +375,7 @@ NativeAOT, signed assemblies, and profiler conflicts).
 
 ## Deterministic BCL rule set
 
-The built-in simulation rule set **`clockwork.bcl.deterministic`** (version `2.0.0`),
+The built-in simulation rule set **`clockwork.bcl.deterministic`** (version `3.0.0`),
 makes ordinary source that calls the direct **static** time / identity / random BCL surface
 deterministic - with no dependency injection, no `TimeProvider` threading, and no manual shim
 wiring. Enabling it rewrites those call sites to runtime shims in the `Clockwork` assembly,
@@ -398,7 +387,7 @@ test, so the documentation cannot drift from the code.
 **Enabling it (no JSON required).**
 
 ```xml
-<!-- MSBuild: strict by default -->
+<!-- MSBuild -->
 <PropertyGroup>
   <ClockworkUseBuiltInRules>true</ClockworkUseBuiltInRules>
 </PropertyGroup>
@@ -410,7 +399,6 @@ dotnet clockwork instrument --source <directory> --output <dir> --builtin clockw
 #   --builtin all                 enable every shipped rule set
 #   --builtin-include Clock Random restrict to specific families
 #   --builtin-exclude Crypto      drop a family
-#   --builtin-strict false        relax strict validation (strict is the default)
 ```
 
 **Simulation-only contract (never a silent fallback).** Instrumented closure binaries are
@@ -428,7 +416,7 @@ active Clockwork simulation; invoking one without an active simulation throws
 Production binaries remain uninstrumented and therefore retain ordinary BCL behavior. The renamed
 runtime inventory uses `ControlledDateTime`, `ControlledDateTimeOffset`, `ControlledStopwatch`,
 `ControlledEnvironment`, `ControlledGuid`, `ControlledRandom`,
-`ControlledRandomNumberGenerator`, `SimulationInsecureRandomNumberGenerator`, and
+`ControlledRandomNumberGenerator`, `SimulationRandomNumberGenerator`, and
 `SimulationStableHash`.
 
 **Semantics.** Local-time clocks (`DateTime.Now`/`Today`, `DateTimeOffset.Now`) honour the
@@ -441,15 +429,13 @@ version 7 (no monotonicity guarantee beyond the BCL contract). `Random.Shared` a
 `new Random()` become **per-node** deterministic streams that replay under a fixed seed and
 schedule and never share mutable state across nodes; explicitly seeded `new Random(int)`
 preserves the caller's seed exactly. Cryptographic randomness (`RandomNumberGenerator` static
-entropy APIs) is **rejected by default** with a precise diagnostic naming the assembly, method,
-and location; a strictly test-only opt-in,
-`SimulationBuilder.WithCryptoRandomnessPolicy(CryptoRandomnessPolicy.DeterministicInsecureForTesting)`,
-can substitute deterministic-insecure bytes - production security semantics are never changed and
-insecure bytes are never silently substituted.
+APIs and controlled factory instances) draws deterministic, per-node non-cryptographic bytes from a
+stream isolated from application randomness, identity generation, scheduling, networking, and fault
+injection.
 
-**Compile-time guidance.** The `Clockwork.Analyzers` project ships two diagnostics that mirror
-the rule set: `CW1001` flags controlled time/identity/random members that require instrumentation,
-and `CW1002` flags cryptographic randomness that is rejected under simulation.
+**Compile-time guidance.** The `Clockwork.Analyzers` project reports `CW1001` for controlled
+time/identity/random members that require instrumentation and `CW1003` when unordered collection
+enumeration influences deterministic logic.
 
 Verified end to end by a conformance test project that compiles unmodified BCL-calling source,
 rewrites it with the built-in rule set, and observes deterministic behaviour under a live

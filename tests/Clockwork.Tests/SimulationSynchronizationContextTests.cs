@@ -278,11 +278,11 @@ public sealed class SimulationSynchronizationContextTests
         using var blockerEntered = new ManualResetEventSlim();
         using var releaseBlocker = new ManualResetEventSlim();
 
-        queue.Enqueue(new ScheduledActionItem(() =>
+        queue.Enqueue(() =>
         {
             blockerEntered.Set();
             releaseBlocker.Wait(TestContext.Current.CancellationToken);
-        }));
+        });
 
         var backgroundThread = new Thread(() => queue.RunOnce())
         {
@@ -303,6 +303,35 @@ public sealed class SimulationSynchronizationContextTests
             releaseBlocker.Set();
             backgroundThread.Join();
         }
+    }
+
+    [Fact]
+    public async Task SendStopsWhenDetachmentCancelsItsScheduledCallback()
+    {
+        var queue = CreateQueue();
+        SimulationSynchronizationContext context = queue.SynchronizationContext;
+        var sentCallbackRan = false;
+        queue.Enqueue(() =>
+        {
+            foreach (ScheduledItem item in queue.Detach())
+            {
+                item.Dispose();
+            }
+        });
+
+        ObjectDisposedException exception = await Assert.ThrowsAsync<ObjectDisposedException>(
+            () => Task.Run(
+                    () => context.Send(_ => sentCallbackRan = true, null),
+                    TestContext.Current.CancellationToken)
+                .WaitAsync(
+                    TimeSpan.FromSeconds(5),
+                    TestContext.Current.CancellationToken));
+
+        Assert.Contains(
+            nameof(SimulationSchedulerLane),
+            exception.ObjectName,
+            StringComparison.Ordinal);
+        Assert.False(sentCallbackRan);
     }
 
     [Fact]

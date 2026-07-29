@@ -15,7 +15,7 @@ namespace Clockwork.Instrumentation.Orchestration;
 /// <param name="WasReSigned">Whether the staged output was re-signed with the configured strong-name key.</param>
 /// <param name="ReadyToRunStripped">Whether a ReadyToRun native image was stripped to produce IL-only output.</param>
 /// <param name="Manifest">The engine manifest for this assembly, or <see langword="null"/> if it was rejected before rewriting.</param>
-/// <param name="Diagnostics">The diagnostics produced for this assembly (engine plus orchestrator policy diagnostics).</param>
+/// <param name="Diagnostics">The diagnostics produced for this assembly (engine plus orchestrator diagnostics).</param>
 public sealed record AssemblyInstrumentationResult(
     string RelativePath,
     bool WasRewritten,

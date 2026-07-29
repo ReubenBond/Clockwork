@@ -3,7 +3,6 @@ using Clockwork.Instrumentation.Manifest;
 using Clockwork.Instrumentation.Orchestration;
 using Clockwork.Instrumentation.Rules;
 using Clockwork.Instrumentation.Tests.Infrastructure;
-using Clockwork.Runtime.Policy;
 
 namespace Clockwork.Instrumentation.Tests.Execution;
 
@@ -166,44 +165,6 @@ public sealed class ProcessExecutionTests
     }
 
     [Fact]
-    public void JsonPassThroughRuleLeavesProcessBehaviorUnchangedAndRecordsSites()
-    {
-        using var fixture = ExecutionClosureFixture.Create();
-        var authored = new RewriteRuleSet(
-            "clockwork.passthrough.process",
-            "1.0",
-            [
-                RewriteRule.RedirectCall(
-                    "passthrough-clock",
-                    MemberSignature.Method("ClockworkFixtures.Api.RealClock", "UtcNowTicks"),
-                    RewriteReplacement.Method(
-                        "Missing.Replacement",
-                        "Missing.Replacement.Shim",
-                        "UtcNowTicks"),
-                    SimulationApiPolicy.PassThrough) with
-                {
-                    Description = "Approved process boundary.",
-                },
-            ]);
-        RewriteRuleSet parsed = RuleSetJson.Parse(RuleSetJson.Write(authored));
-
-        InstrumentationResult result = fixture.Instrument(ruleSet: parsed);
-        Assert.True(result.Succeeded, string.Join("\n", result.Errors));
-
-        AppRunResult staged = fixture.RunStaged();
-        Assert.Equal(0, staged.ExitCode);
-        Assert.Contains("app.ticks=100", staged.Output);
-        Assert.Contains("dep.ticks=100", staged.Output);
-        Assert.All(
-            result.Assemblies.SelectMany(assembly => assembly.Manifest?.Transformations ?? []),
-            transformation =>
-            {
-                Assert.Equal(TransformationOutcome.PassedThrough, transformation.Outcome);
-                Assert.Equal("Approved process boundary.", transformation.Reason);
-            });
-    }
-
-    [Fact]
     public void IncrementalRebuildLeavesRunnableClosure()
     {
         using var fixture = ExecutionClosureFixture.Create();
@@ -226,7 +187,6 @@ public sealed class ProcessExecutionTests
 
         var configuration = new InstrumentationConfiguration
         {
-            StrongNamePolicy = StrongNamePolicy.ReSign,
             StrongNameKeyPath = fixture.StrongNameKeyPath,
         };
         InstrumentationResult result = fixture.Instrument(configuration);

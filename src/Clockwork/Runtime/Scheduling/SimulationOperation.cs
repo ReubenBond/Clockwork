@@ -103,7 +103,8 @@ public sealed class SimulationOperation
 
     /// <summary>
     /// Gets this operation's scheduling priority. Higher values are preferred by the
-    /// <see cref="Clockwork.Runtime.Scheduling.Strategies.PrioritySchedulingStrategy"/>; it has no
+    /// the priority strategy created by
+    /// <see cref="Clockwork.Runtime.Scheduling.Strategies.SimulationSchedulingStrategies"/>; it has no
     /// effect under the other strategies. Defaults to <c>0</c>. This is a crisp, caller-supplied
     /// integer (not a BCL <see cref="System.Threading.ThreadPriority"/>): the scheduler never infers
     /// or mutates it, so priority-ordered schedules stay reproducible.

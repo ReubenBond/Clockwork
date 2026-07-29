@@ -58,9 +58,9 @@ internal static class Program
         {
             return Fail(error, ex.Message, ExitCode.ConfigurationError);
         }
-        catch (RuleSetFormatException ex)
+        catch (Instrumentation.Orchestration.ClosureManifestFormatException ex)
         {
-            return Fail(error, ex.Message, ExitCode.ConfigurationError);
+            return Fail(error, ex.Message, ExitCode.ReplayError);
         }
         catch (ClosureException ex)
         {
@@ -108,23 +108,18 @@ internal static class Program
         output.WriteLine("instrument options:");
         output.WriteLine("  --source <dir>              application output/publish directory to read (required)");
         output.WriteLine("  --output <dir>             staging directory to write the instrumented closure (required unless --dry-run)");
-        output.WriteLine("  --config <path>            JSON configuration file (source of policy settings)");
+        output.WriteLine("  --config <path>            JSON instrumentation configuration file");
         output.WriteLine("  --rule-set <path>          rule-set JSON document (repeatable; appended to config)");
         output.WriteLine("  --include <glob>           include pattern (repeatable)");
         output.WriteLine("  --exclude <glob>           exclude pattern (repeatable)");
         output.WriteLine("  --entry <name>             entry assembly simple name (else auto-detected)");
         output.WriteLine("  --manifest <path>          manifest output path (else a sibling of --output)");
         output.WriteLine("  --mode <Controlled|RaceExploration> instrumentation granularity (default Controlled)");
-        output.WriteLine("  --r2r <Reject|StripToIL>   ReadyToRun policy (default Reject)");
-        output.WriteLine("  --strong-name <Fail|ReSign> strong-name policy (default Fail)");
-        output.WriteLine("  --strong-name-key <path>   strong-name key for ReSign");
-        output.WriteLine("  --exclude-framework <bool> exclude framework/reference assemblies (default true)");
-        output.WriteLine("  --instrument-dependencies <bool> instrument managed dependencies (default true)");
+        output.WriteLine("  --strong-name-key <path>   strong-name key used to re-sign signed inputs");
         output.WriteLine("  --target-runtime <version> runtime version rules are evaluated against");
         output.WriteLine("  --builtin <id|all>         built-in rule set (repeatable)");
         output.WriteLine("  --builtin-include <family> include built-in family (repeatable)");
         output.WriteLine("  --builtin-exclude <family> exclude built-in family (repeatable)");
-        output.WriteLine("  --builtin-strict <bool>    enforce strict built-in selection (default true)");
         output.WriteLine("  --dry-run                  report the planned transformation without writing");
         output.WriteLine("  --json                     emit JSON instead of text");
         output.WriteLine();
@@ -135,15 +130,10 @@ internal static class Program
         output.WriteLine("  --builtin <id|all>         built-in rule set (repeatable)");
         output.WriteLine("  --builtin-include <family> include built-in family (repeatable)");
         output.WriteLine("  --builtin-exclude <family> exclude built-in family (repeatable)");
-        output.WriteLine("  --builtin-strict <bool>    enforce strict built-in selection (default true)");
         output.WriteLine("  --include <glob>           configuration include pattern (repeatable)");
         output.WriteLine("  --exclude <glob>           configuration exclude pattern (repeatable)");
         output.WriteLine("  --mode <Controlled|RaceExploration> configuration instrumentation granularity");
-        output.WriteLine("  --r2r <Reject|StripToIL>   configuration ReadyToRun policy");
-        output.WriteLine("  --strong-name <Fail|ReSign> configuration strong-name policy");
         output.WriteLine("  --strong-name-key <path>   configuration strong-name key");
-        output.WriteLine("  --exclude-framework <bool> configuration framework exclusion");
-        output.WriteLine("  --instrument-dependencies <bool> configuration dependency instrumentation");
         output.WriteLine("  --target-runtime <version> configuration target runtime");
         output.WriteLine("  --json                     emit JSON instead of text");
         output.WriteLine();

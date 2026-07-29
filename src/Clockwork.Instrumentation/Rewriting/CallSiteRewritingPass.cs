@@ -39,16 +39,6 @@ internal sealed class CallSiteRewritingPass : RewritePass
             return instruction;
         }
 
-        if (rule.Policy == Clockwork.Runtime.Policy.SimulationApiPolicy.PassThrough)
-        {
-            Record(
-                rule,
-                instruction.Offset,
-                TransformationOutcome.PassedThrough,
-                rule.Description ?? "Explicit PassThrough policy.");
-            return instruction;
-        }
-
         return rule.Operation switch
         {
             RewriteOperationKind.RedirectCall => RedirectCall(instruction, method, rule),
@@ -150,33 +140,11 @@ internal sealed class CallSiteRewritingPass : RewritePass
         }
 
         string containing = CecilNames.FullyQualifiedMethodName(Method!);
-        switch (rule.Fallback)
-        {
-            case RewriteFallback.Skip:
-                Session.AddDiagnostic(RewriteDiagnostic.Warning(
-                    RewriteDiagnosticIds.UnresolvedReplacement,
-                    $"{error} Rule '{rule.Id}' was skipped per its fallback policy.",
-                    containing,
-                    offset));
-                Record(rule, offset, TransformationOutcome.Skipped);
-                break;
-
-            case RewriteFallback.Reject:
-                Session.AddDiagnostic(RewriteDiagnostic.Error(
-                    RewriteDiagnosticIds.UnsupportedTargetShape,
-                    $"{error} Rule '{rule.Id}' requires the targeted API not to pass through uncontrolled, but no replacement is available.",
-                    containing,
-                    offset));
-                break;
-
-            default:
-                Session.AddDiagnostic(RewriteDiagnostic.Error(
-                    RewriteDiagnosticIds.UnresolvedReplacement,
-                    $"{error} Rule '{rule.Id}' could not be applied.",
-                    containing,
-                    offset));
-                break;
-        }
+        Session.AddDiagnostic(RewriteDiagnostic.Error(
+            RewriteDiagnosticIds.UnresolvedReplacement,
+            $"{error} Rule '{rule.Id}' could not be applied.",
+            containing,
+            offset));
 
         Session.AddUnresolvedReference(rule.Replacement.ToCanonicalString());
         return false;
@@ -188,12 +156,11 @@ internal sealed class CallSiteRewritingPass : RewritePass
         string message =
             $"Rule '{rule.Id}' matched {CecilNames.FullyQualifiedMethodName(method)} but the configured target runtime is outside its supported range {rule.SupportedRuntimes.ToCanonicalString()}.";
 
-        RewriteDiagnostic diagnostic = rule.Fallback == RewriteFallback.Skip
-            ? RewriteDiagnostic.Warning(RewriteDiagnosticIds.RuntimeOutOfRange, $"{message} Skipped per fallback policy.", containing, instruction.Offset)
-            : RewriteDiagnostic.Error(RewriteDiagnosticIds.RuntimeOutOfRange, message, containing, instruction.Offset);
-        Session.AddDiagnostic(diagnostic);
-        _ = method;
-        Record(rule, instruction.Offset, TransformationOutcome.Skipped);
+        Session.AddDiagnostic(RewriteDiagnostic.Error(
+            RewriteDiagnosticIds.RuntimeOutOfRange,
+            message,
+            containing,
+            instruction.Offset));
     }
 
     private bool TryApplyGenericArguments(
@@ -482,7 +449,7 @@ internal sealed class CallSiteRewritingPass : RewritePass
             offset));
     }
 
-    private void Record(RewriteRule rule, int offset, TransformationOutcome outcome, string? reason = null)
+    private void Record(RewriteRule rule, int offset, TransformationOutcome outcome)
     {
         string containing = CecilNames.FullyQualifiedMethodName(Method!);
         RewriteSession.TryGetSequencePoint(Method!, FindInstruction(offset), out string? file, out int line);
@@ -493,12 +460,11 @@ internal sealed class CallSiteRewritingPass : RewritePass
             outcome,
             rule.Policy,
             rule.Target.ToCanonicalString(),
-            outcome == TransformationOutcome.PassedThrough ? null : rule.Replacement.ToCanonicalString(),
+            rule.Replacement.ToCanonicalString(),
             containing,
             offset,
             file,
-            line,
-            reason));
+            line));
     }
 
     private Instruction FindInstruction(int offset)

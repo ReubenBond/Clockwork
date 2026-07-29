@@ -18,7 +18,7 @@ public sealed class SimulationSchedulingStrategyTests
     public void RoundRobinIsTheDefaultAndRotatesAcrossRunnableOperations()
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();
-        Assert.IsType<RoundRobinSchedulingStrategy>(scheduler.SchedulingStrategy);
+        Assert.Equal("round-robin", scheduler.SchedulingStrategy.Name);
 
         var order = DriveThreeYieldingOperations(scheduler);
 
@@ -30,7 +30,7 @@ public sealed class SimulationSchedulingStrategyTests
     public void FifoAlwaysRunsTheSmallestRunnableId()
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();
-        scheduler.SchedulingStrategy = new FifoSchedulingStrategy();
+        scheduler.SchedulingStrategy = SimulationSchedulingStrategies.Fifo();
 
         var order = DriveThreeYieldingOperations(scheduler);
 
@@ -42,7 +42,7 @@ public sealed class SimulationSchedulingStrategyTests
     public void PriorityRunsHighestPriorityBandFirstThenRoundRobinWithinIt()
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();
-        scheduler.SchedulingStrategy = new PrioritySchedulingStrategy();
+        scheduler.SchedulingStrategy = SimulationSchedulingStrategies.Priority();
 
         var order = new List<long>();
         // Ids 1,2,3 with priorities 0,10,5 -> op2 (highest) drains first, then op3, then op1.
@@ -59,7 +59,7 @@ public sealed class SimulationSchedulingStrategyTests
     public void PriorityRotatesFairlyWithinAnEqualPriorityBand()
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();
-        scheduler.SchedulingStrategy = new PrioritySchedulingStrategy();
+        scheduler.SchedulingStrategy = SimulationSchedulingStrategies.Priority();
 
         var order = new List<long>();
         ScheduleYielding(scheduler, order, priority: 5);
@@ -100,7 +100,7 @@ public sealed class SimulationSchedulingStrategyTests
         using var scheduler = SchedulerTestHarness.NewScheduler();
         var log = new SimulationDecisionLog();
         scheduler.DecisionLog = log;
-        scheduler.SchedulingStrategy = SeededRandomSchedulingStrategy.ForRuntime(scheduler.Runtime);
+        scheduler.SchedulingStrategy = SimulationSchedulingStrategies.SeededRandom(scheduler.Runtime);
 
         DriveThreeYieldingOperations(scheduler);
 
@@ -127,12 +127,12 @@ public sealed class SimulationSchedulingStrategyTests
         using var recorder = SchedulerTestHarness.NewScheduler();
         var log = new SimulationDecisionLog();
         recorder.DecisionLog = log;
-        recorder.SchedulingStrategy = SeededRandomSchedulingStrategy.ForRuntime(recorder.Runtime);
+        recorder.SchedulingStrategy = SimulationSchedulingStrategies.SeededRandom(recorder.Runtime);
         var recordedOrder = DriveThreeYieldingOperations(recorder);
 
         // Replay from the recorded decisions, with a different (default) seed source.
         using var replay = SchedulerTestHarness.NewScheduler(seed: 999);
-        replay.SchedulingStrategy = new ReplaySchedulingStrategy(log.Records);
+        replay.SchedulingStrategy = SimulationSchedulingStrategies.Replay(log.Records);
         var replayedOrder = DriveThreeYieldingOperations(replay);
         replay.ValidateReplayComplete();
 
@@ -146,12 +146,12 @@ public sealed class SimulationSchedulingStrategyTests
         using var recorder = SchedulerTestHarness.NewScheduler();
         var log = new SimulationDecisionLog();
         recorder.DecisionLog = log;
-        recorder.SchedulingStrategy = new FifoSchedulingStrategy();
+        recorder.SchedulingStrategy = SimulationSchedulingStrategies.Fifo();
         DriveThreeYieldingOperations(recorder);
 
         // Re-run with round-robin (diverges immediately) while validating against the FIFO recording.
         using var replay = SchedulerTestHarness.NewScheduler();
-        replay.SchedulingStrategy = new RoundRobinSchedulingStrategy();
+        replay.SchedulingStrategy = SimulationSchedulingStrategies.RoundRobin();
         replay.ReplayValidator = new SimulationDecisionReplayValidator(
             new SimulationInMemoryDecisionReplayReader(log.Records));
 
@@ -178,7 +178,7 @@ public sealed class SimulationSchedulingStrategyTests
         };
 
         using var scheduler = SchedulerTestHarness.NewScheduler();
-        scheduler.SchedulingStrategy = new ReplaySchedulingStrategy(bogus);
+        scheduler.SchedulingStrategy = SimulationSchedulingStrategies.Replay(bogus);
         var order = new List<long>();
         ScheduleYielding(scheduler, order);
         ScheduleYielding(scheduler, order);
@@ -195,7 +195,7 @@ public sealed class SimulationSchedulingStrategyTests
             SchedulingRecord(1, "2"),
         };
         using var scheduler = SchedulerTestHarness.NewScheduler();
-        scheduler.SchedulingStrategy = new ReplaySchedulingStrategy(records);
+        scheduler.SchedulingStrategy = SimulationSchedulingStrategies.Replay(records);
         scheduler.Schedule("first", () => { });
         scheduler.Schedule("second", () => { });
 
@@ -226,7 +226,7 @@ public sealed class SimulationSchedulingStrategyTests
     public void PartialRunDoesNotRequireReplayCompletion()
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();
-        scheduler.SchedulingStrategy = new ReplaySchedulingStrategy(
+        scheduler.SchedulingStrategy = SimulationSchedulingStrategies.Replay(
             [
                 SchedulingRecord(0, "1"),
                 SchedulingRecord(1, "2"),
@@ -242,7 +242,7 @@ public sealed class SimulationSchedulingStrategyTests
     public void ReusableDrainDoesNotPrematurelyValidateLaterReplayBatches()
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();
-        scheduler.SchedulingStrategy = new ReplaySchedulingStrategy(
+        scheduler.SchedulingStrategy = SimulationSchedulingStrategies.Replay(
             [
                 SchedulingRecord(0, "1"),
                 SchedulingRecord(1, "3"),
@@ -281,7 +281,7 @@ public sealed class SimulationSchedulingStrategyTests
     private static List<long> RunSeeded(int seed)
     {
         using var scheduler = SchedulerTestHarness.NewScheduler(seed: seed);
-        scheduler.SchedulingStrategy = SeededRandomSchedulingStrategy.ForRuntime(scheduler.Runtime);
+        scheduler.SchedulingStrategy = SimulationSchedulingStrategies.SeededRandom(scheduler.Runtime);
         return DriveThreeYieldingOperations(scheduler);
     }
 
@@ -290,7 +290,7 @@ public sealed class SimulationSchedulingStrategyTests
         using var scheduler = SchedulerTestHarness.NewScheduler(seed: seed);
         var log = new SimulationDecisionLog();
         scheduler.DecisionLog = log;
-        scheduler.SchedulingStrategy = SeededRandomSchedulingStrategy.ForRuntime(scheduler.Runtime);
+        scheduler.SchedulingStrategy = SimulationSchedulingStrategies.SeededRandom(scheduler.Runtime);
         var order = DriveThreeYieldingOperations(scheduler);
         return (order, log);
     }

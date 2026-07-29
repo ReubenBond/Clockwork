@@ -4,11 +4,12 @@ using System.Reflection;
 using System.Text;
 using Microsoft.Extensions.Logging;
 
-namespace Clockwork;
+namespace Clockwork.Testing;
 
 /// <summary>
-/// The in-memory log buffer which all <see cref="InMemoryLogger"/> instances share.
-/// Useful for simulation testing where logs need to be captured and inspected.
+/// Provides an in-memory log buffer shared by loggers created by an
+/// <see cref="InMemoryLoggerProvider"/>.
+/// Useful for tests where logs need to be captured and inspected.
 /// </summary>
 /// <remarks>
 /// Creates a new in-memory log buffer.
@@ -231,7 +232,7 @@ public sealed class InMemoryLoggerProvider(TimeProvider? timeProvider = null) : 
 /// <summary>
 /// A logger that writes to an in-memory buffer via the InMemoryLogBuffer.
 /// </summary>
-public sealed class InMemoryLogger(string categoryName, InMemoryLogBuffer buffer) : ILogger
+internal sealed class InMemoryLogger(string categoryName, InMemoryLogBuffer buffer) : ILogger
 {
     /// <inheritdoc />
     public IDisposable? BeginScope<TState>(TState state)

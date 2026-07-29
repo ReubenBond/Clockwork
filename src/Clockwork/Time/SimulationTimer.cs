@@ -4,7 +4,7 @@ namespace Clockwork;
 /// A timer implementation for the simulation time provider.
 /// This implements the timer abstractions using a scheduler lane.
 /// </summary>
-public sealed class SimulationTimer(SimulationSchedulerLane schedulerLane, TimerCallback callback, object? state) : ITimer
+internal sealed class SimulationTimer(SimulationSchedulerLane schedulerLane, TimerCallback callback, object? state) : ITimer
 {
     private const uint MaxSupportedTimeout = 0xfffffffe;
 
@@ -17,7 +17,7 @@ public sealed class SimulationTimer(SimulationSchedulerLane schedulerLane, Timer
     /// <summary>
     /// Gets the current period for this timer.
     /// </summary>
-    public TimeSpan Period { get; private set; }
+    internal TimeSpan Period { get; private set; }
 
     /// <inheritdoc />
     public bool Change(TimeSpan dueTime, TimeSpan period)
@@ -113,32 +113,15 @@ public sealed class SimulationTimer(SimulationSchedulerLane schedulerLane, Timer
         return ValueTask.CompletedTask;
     }
 
-    /// <summary>
-    /// Gets information about all pending timers from the scheduler lane.
-    /// </summary>
-    /// <param name="schedulerLane">The scheduler lane to query.</param>
-    /// <returns>A list of timer info for all pending timers.</returns>
-    public static IReadOnlyList<(DateTimeOffset DueTime, TimeSpan Period)> GetTimers(SimulationSchedulerLane schedulerLane)
-    {
-        ArgumentNullException.ThrowIfNull(schedulerLane);
-        return schedulerLane.GetItemsOfType<ScheduledTimerItem, (DateTimeOffset, TimeSpan)>(timer => (timer.DueTime, timer.Timer.Period));
-    }
-
-    /// <summary>
-    /// Gets the count of pending timers from the scheduler lane.
-    /// </summary>
-    /// <param name="schedulerLane">The scheduler lane to query.</param>
-    /// <returns>The count of pending timers.</returns>
-    public static int GetPendingTimerCount(SimulationSchedulerLane schedulerLane)
-    {
-        ArgumentNullException.ThrowIfNull(schedulerLane);
-        return schedulerLane.GetWaitingCount<ScheduledTimerItem>();
-    }
-
     private sealed class ScheduledTimerItem(SimulationTimer timer, long generation) : ScheduledItem
     {
-        public SimulationTimer Timer => timer;
+        internal override string Kind => "timer";
 
-        protected internal override void Invoke() => timer.TimerFired(generation);
+        internal override string Description =>
+            string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"Timer callback (period={timer.Period:c})");
+
+        internal override void Invoke() => timer.TimerFired(generation);
     }
 }

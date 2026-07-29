@@ -1,7 +1,18 @@
+using Clockwork.Runtime.Scheduling;
+
 namespace Clockwork.Tests;
 
 public sealed class SimulationNodeContextTests
 {
+    [Fact]
+    public void SchedulerExposesTheLaneTimeAuthority()
+    {
+        var (scheduler, _, context) = CreateComponents();
+
+        Assert.Same(scheduler, context.Scheduler);
+        Assert.Same(scheduler, context.SchedulerLane.Scheduler);
+    }
+
     [Fact]
     public void NewContextStartsInRunningState()
     {
@@ -16,7 +27,7 @@ public sealed class SimulationNodeContextTests
     {
         var context = CreateContext();
         var executed = false;
-        context.SchedulerLane.Enqueue(new ScheduledActionItem(() => executed = true));
+        context.SchedulerLane.Enqueue(() => executed = true);
 
         context.Suspend();
 
@@ -30,7 +41,7 @@ public sealed class SimulationNodeContextTests
     {
         var context = CreateContext();
         var executed = false;
-        context.SchedulerLane.Enqueue(new ScheduledActionItem(() => executed = true));
+        context.SchedulerLane.Enqueue(() => executed = true);
         context.Suspend();
 
         context.Resume();
@@ -44,8 +55,8 @@ public sealed class SimulationNodeContextTests
     public void RunUntilIdleReturnsZeroWhileSuspendedEvenWithReadyWork()
     {
         var context = CreateContext();
-        context.SchedulerLane.Enqueue(new ScheduledActionItem(() => { }));
-        context.SchedulerLane.Enqueue(new ScheduledActionItem(() => { }));
+        context.SchedulerLane.Enqueue(() => { });
+        context.SchedulerLane.Enqueue(() => { });
         context.Suspend();
 
         Assert.Equal(0, context.RunUntilIdle());
@@ -54,14 +65,14 @@ public sealed class SimulationNodeContextTests
     [Fact]
     public void HasReadyTasksReflectsQueueStateAndSuspension()
     {
-        var (clock, guard, context) = CreateComponents();
+        var (scheduler, _, context) = CreateComponents();
 
         Assert.False(context.HasReadyTasks);
 
         context.SchedulerLane.EnqueueAfter(() => { }, TimeSpan.FromSeconds(5));
         Assert.False(context.HasReadyTasks);
 
-        clock.Advance(TimeSpan.FromSeconds(5));
+        Advance(scheduler, TimeSpan.FromSeconds(5));
         Assert.True(context.HasReadyTasks);
 
         context.Suspend();
@@ -80,13 +91,13 @@ public sealed class SimulationNodeContextTests
     public void SuspendForAutomaticallyResumesAfterTheDurationElapses()
     {
         var externalQueue = SimulationTestHarness.NewLane();
-        var (clock, _, context) = SimulationTestHarness.NewNodeComponents(externalLane: externalQueue);
+        var (scheduler, _, context) = SimulationTestHarness.NewNodeComponents(externalLane: externalQueue);
 
         context.SuspendFor(TimeSpan.FromSeconds(5));
         Assert.True(context.IsSuspended);
 
         // The auto-resume is scheduled on the external queue, not the node's own queue.
-        clock.Advance(TimeSpan.FromSeconds(5));
+        Advance(scheduler, TimeSpan.FromSeconds(5));
         Assert.True(context.IsSuspended);
 
         Assert.True(externalQueue.RunOnce());
@@ -102,10 +113,50 @@ public sealed class SimulationNodeContextTests
         Assert.Throws<ArgumentOutOfRangeException>(() => context.SuspendFor(TimeSpan.Zero));
     }
 
-    private static (SimulationClock Clock, SingleThreadedGuard Guard, SimulationNodeContext Context) CreateComponents()
+    [Fact]
+    public void SuspendForMaximumDurationOverflowRestoresRunningStateAndLane()
+    {
+        var externalQueue = SimulationTestHarness.NewLane();
+        var context = SimulationTestHarness.NewNodeComponents(externalLane: externalQueue).Context;
+        var executed = false;
+        context.SchedulerLane.Enqueue(() => executed = true);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => context.SuspendFor(TimeSpan.MaxValue));
+
+        Assert.Equal(SimulationNodeState.Running, context.State);
+        Assert.False(context.IsSuspended);
+        Assert.True(context.Step());
+        Assert.True(executed);
+        Assert.False(context.HasPendingAttachmentWork);
+    }
+
+    [Fact]
+    public void FailedSuspendForCleansTrackingAndContextCanBeReused()
+    {
+        var externalQueue = SimulationTestHarness.NewLane();
+        var (scheduler, _, context) =
+            SimulationTestHarness.NewNodeComponents(externalLane: externalQueue);
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => context.SuspendFor(TimeSpan.MaxValue));
+        Assert.False(context.HasPendingAttachmentWork);
+
+        context.SuspendFor(TimeSpan.FromSeconds(1));
+        Advance(scheduler, TimeSpan.FromSeconds(1));
+        Assert.True(externalQueue.RunOnce());
+
+        Assert.False(context.IsSuspended);
+        Assert.False(context.HasPendingAttachmentWork);
+        context.BeginAttachmentCleanup();
+        context.CompleteAttachmentCleanup();
+    }
+
+    private static (SimulationScheduler Scheduler, SingleThreadedGuard Guard, SimulationNodeContext Context) CreateComponents()
     {
         return SimulationTestHarness.NewNodeComponents();
     }
 
     private static SimulationNodeContext CreateContext() => CreateComponents().Context;
+
+    private static void Advance(SimulationScheduler scheduler, TimeSpan delta) =>
+        scheduler.AdvanceVirtualTimeTo(scheduler.VirtualTime + delta);
 }

@@ -38,7 +38,7 @@ public readonly record struct ManifestExclusion(string TypeFullName, string Reas
 public sealed record InstrumentationManifest
 {
     /// <summary>The manifest schema version.</summary>
-    public const int SchemaVersion = 2;
+    public const int SchemaVersion = 3;
 
     /// <summary>Gets the producing engine's name.</summary>
     public string EngineName { get; init; } = "Clockwork.Instrumentation";
@@ -135,7 +135,6 @@ public sealed record InstrumentationManifest
                 ["ilOffset"] = transformation.ILOffset,
                 ["sourceFile"] = transformation.SourceFile,
                 ["sourceLine"] = transformation.SourceLine,
-                ["reason"] = transformation.Reason,
             });
         }
 

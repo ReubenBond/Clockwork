@@ -169,7 +169,7 @@ public static class ReplayRunner
         var records = artifact.Decisions.Select(static decision => decision.ToRecord()).ToArray();
         var listener = new ReplayOperationListener(includeDiagnosticMessages: false);
         using SimulationScheduler scheduler = CreateScheduler(artifact.RootSeed, listener);
-        scheduler.SchedulingStrategy = new ReplaySchedulingStrategy(records);
+        scheduler.SchedulingStrategy = SimulationSchedulingStrategies.Replay(records);
         scheduler.ReplayValidator = new SimulationDecisionReplayValidator(
             new SimulationInMemoryDecisionReplayReader(records));
 
@@ -218,10 +218,10 @@ public static class ReplayRunner
     private static ISimulationSchedulingStrategy CreateStrategy(ReplaySchedulingPolicy policy, int scheduleSeed) =>
         policy switch
         {
-            ReplaySchedulingPolicy.Fifo => new FifoSchedulingStrategy(),
-            ReplaySchedulingPolicy.RoundRobin => new RoundRobinSchedulingStrategy(),
-            ReplaySchedulingPolicy.Priority => new PrioritySchedulingStrategy(),
-            ReplaySchedulingPolicy.SeededRandom => new SeededRandomSchedulingStrategy(scheduleSeed),
+            ReplaySchedulingPolicy.Fifo => SimulationSchedulingStrategies.Fifo(),
+            ReplaySchedulingPolicy.RoundRobin => SimulationSchedulingStrategies.RoundRobin(),
+            ReplaySchedulingPolicy.Priority => SimulationSchedulingStrategies.Priority(),
+            ReplaySchedulingPolicy.SeededRandom => SimulationSchedulingStrategies.SeededRandom(scheduleSeed),
             _ => throw new ArgumentOutOfRangeException(nameof(policy)),
         };
 
@@ -281,9 +281,6 @@ public static class ReplayRunner
         DriveResult drive)
     {
         ReplayOutcome outcome = ClassifyOutcome(configuration, scheduler, listener, drive);
-        ReplayRecordingState state = drive.IsAborted
-            ? ReplayRecordingState.Aborted
-            : ReplayRecordingState.Complete;
         IReadOnlyList<ReplayRaceSchedulingPoint> points = scheduler.CaptureRaceSchedulingPoints()
             .Select(point =>
             {
@@ -304,7 +301,6 @@ public static class ReplayRunner
 
         return new ReplayArtifact
         {
-            RecordingState = state,
             RootSeed = configuration.RootSeed,
             Scheduler = new ReplaySchedulerConfiguration
             {

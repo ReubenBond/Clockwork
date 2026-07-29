@@ -4,11 +4,10 @@ using System.Globalization;
 namespace Clockwork;
 
 /// <summary>
-/// Base class for all scheduled items in the queue.
-/// Implements IDisposable for cancellation support.
+/// Base class for scheduled lane work.
 /// </summary>
 [DebuggerDisplay("{DebuggerDisplay,nq}")]
-public abstract class ScheduledItem : IDisposable
+internal abstract class ScheduledItem : IDisposable
 {
     private SimulationSchedulerLane? _lane;
     private IDisposable? _registration;
@@ -17,19 +16,23 @@ public abstract class ScheduledItem : IDisposable
     /// <summary>
     /// Gets the comparer for ordering scheduled items.
     /// </summary>
-    public static IComparer<ScheduledItem> Comparer { get; } = ScheduledItemComparer.Instance;
+    internal static IComparer<ScheduledItem> Comparer { get; } = ScheduledItemComparer.Instance;
 
     /// <summary>
     /// Gets the absolute time when this item is due.
     /// Set internally by <see cref="SimulationSchedulerLane"/> when the item is scheduled.
     /// </summary>
-    public DateTimeOffset DueTime { get; private set; }
+    internal DateTimeOffset DueTime { get; private set; }
 
     /// <summary>
     /// Gets the sequence number for ordering items with the same due time.
     /// Set internally by <see cref="SimulationSchedulerLane"/> when the item is scheduled.
     /// </summary>
-    public long SequenceNumber { get; private set; }
+    internal long SequenceNumber { get; private set; }
+
+    internal abstract string Kind { get; }
+
+    internal abstract string Description { get; }
 
     /// <summary>
     /// Called by <see cref="SimulationSchedulerLane"/> when the item is added to the queue.
@@ -74,7 +77,7 @@ public abstract class ScheduledItem : IDisposable
     /// <summary>
     /// Executes the scheduled item's action.
     /// </summary>
-    protected internal abstract void Invoke();
+    internal abstract void Invoke();
 
     /// <summary>
     /// Cancels the item by removing it from the queue.

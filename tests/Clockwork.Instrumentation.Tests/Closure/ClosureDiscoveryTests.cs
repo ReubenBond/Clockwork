@@ -7,9 +7,8 @@ namespace Clockwork.Instrumentation.Tests.Closure;
 /// <summary>
 /// Verifies deterministic application-closure discovery: managed application and dependency
 /// assemblies are selected for rewriting; framework, satellite, native, symbol, and config assets
-/// are copied verbatim with a recorded reason; include/exclude patterns and the framework-exclusion
-/// and dependency toggles are honored; the entry assembly is detected from a runtimeconfig; and the
-/// asset order is stable.
+/// are copied verbatim with a recorded reason; include/exclude patterns honor the mandatory framework
+/// boundary; the entry assembly is detected from a runtimeconfig; and the asset order is stable.
 /// </summary>
 public sealed class ClosureDiscoveryTests : IDisposable
 {
@@ -44,18 +43,6 @@ public sealed class ClosureDiscoveryTests : IDisposable
     }
 
     [Fact]
-    public void DependencyRewritingDisabledRewritesOnlyEntry()
-    {
-        BuildStandardClosure();
-        ClosurePlan plan = ClosureDiscovery.Discover(
-            _directory, new InstrumentationConfiguration { InstrumentDependencies = false });
-
-        Assert.Equal("app.dll", plan.EntryAssemblyRelativePath);
-        Assert.Equal(["app.dll"], plan.AssembliesToRewrite.Select(a => a.RelativePath));
-        Assert.Equal("dependency rewriting disabled", Single(plan, "thirdparty.dll").SkipReason);
-    }
-
-    [Fact]
     public void ExcludePatternIsHonored()
     {
         BuildStandardClosure();
@@ -78,13 +65,14 @@ public sealed class ClosureDiscoveryTests : IDisposable
     }
 
     [Fact]
-    public void FrameworkAssemblyRewrittenWhenExclusionDisabled()
+    public void ExplicitIncludeCannotOverrideFrameworkBoundary()
     {
         BuildStandardClosure();
         ClosurePlan plan = ClosureDiscovery.Discover(
-            _directory, new InstrumentationConfiguration { ExcludeFrameworkAssemblies = false });
+            _directory, new InstrumentationConfiguration { IncludePatterns = ["System.Fake.dll"] });
 
-        Assert.Contains("System.Fake.dll", plan.AssembliesToRewrite.Select(a => a.RelativePath));
+        Assert.Empty(plan.AssembliesToRewrite);
+        Assert.Equal("framework assembly", Single(plan, "System.Fake.dll").SkipReason);
     }
 
     [Fact]
@@ -92,6 +80,18 @@ public sealed class ClosureDiscoveryTests : IDisposable
     {
         Assert.Throws<ClosureException>(() => ClosureDiscovery.Discover(
             Path.Combine(_directory, "nope"), new InstrumentationConfiguration()));
+    }
+
+    [Fact]
+    public void RejectsInvalidEntryWithoutUsableManagedIL()
+    {
+        File.WriteAllBytes(Path.Combine(_directory, "app.dll"), [0x00, 0x01, 0x02, 0x03]);
+        File.WriteAllText(Path.Combine(_directory, "app.runtimeconfig.json"), "{}");
+
+        ClosureException exception = Assert.Throws<ClosureException>(
+            () => ClosureDiscovery.Discover(_directory, new InstrumentationConfiguration()));
+
+        Assert.Contains("usable IL", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]

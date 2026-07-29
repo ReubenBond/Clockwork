@@ -1,7 +1,6 @@
 using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Random;
 using Clockwork.Runtime.Scheduling;
-using Clockwork.Runtime.Shims;
 
 namespace Clockwork.Runtime.Tests;
 
@@ -15,8 +14,7 @@ internal sealed class SimulationSchedulerTestHost : IDisposable
             runtime,
             new SimulationSeedAuthority(seed),
             DateTimeOffset.UnixEpoch,
-            TimeZoneInfo.Utc,
-            SimulationCryptoRandomnessPolicy.Reject);
+            TimeZoneInfo.Utc);
     }
 
     public SimulationScheduler Scheduler { get; }

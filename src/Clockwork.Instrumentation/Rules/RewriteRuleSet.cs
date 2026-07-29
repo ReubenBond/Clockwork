@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
+using Clockwork.Instrumentation.Orchestration;
 
 namespace Clockwork.Instrumentation.Rules;
 
@@ -25,6 +26,8 @@ public sealed class RewriteRuleSet
         ArgumentException.ThrowIfNullOrEmpty(id);
         ArgumentException.ThrowIfNullOrEmpty(version);
         ArgumentNullException.ThrowIfNull(rules);
+        ValidateIdentifier(id, nameof(id));
+        ValidateIdentifier(version, nameof(version));
 
         Id = id;
         Version = version;
@@ -33,6 +36,8 @@ public sealed class RewriteRuleSet
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (RewriteRule rule in Rules)
         {
+            ArgumentNullException.ThrowIfNull(rule);
+            ValidateIdentifier(rule.Id, $"{nameof(rules)} rule id");
             if (!seen.Add(rule.Id))
             {
                 throw new ArgumentException($"Duplicate rule id '{rule.Id}' in rule set '{id}'.", nameof(rules));
@@ -63,17 +68,25 @@ public sealed class RewriteRuleSet
         return Convert.ToHexStringLower(hash);
     }
 
-    /// <summary>Returns a stable canonical multi-line string describing the whole rule set.</summary>
+    /// <summary>Returns a stable, unambiguous canonical encoding of the whole rule set.</summary>
     public string ToCanonicalString()
     {
-        var builder = new StringBuilder();
-        builder.Append("ruleset:").Append(Id).Append('\n');
-        builder.Append("version:").Append(Version).Append('\n');
-        foreach (RewriteRule rule in Rules)
-        {
-            builder.Append("rule:").Append(rule.ToCanonicalString()).Append('\n');
-        }
+        var canonical = new CanonicalEncoding(nameof(RewriteRuleSet));
+        canonical.AddString(nameof(Id), Id);
+        canonical.AddString(nameof(Version), Version);
+        canonical.AddStringSequence(
+            nameof(Rules),
+            Rules.Select(static rule => rule.ToCanonicalString()));
+        return canonical.ToString();
+    }
 
-        return builder.ToString();
+    private static void ValidateIdentifier(string value, string parameterName)
+    {
+        if (value.Length > ClosureManifestLimits.MaxStringLength)
+        {
+            throw new ArgumentException(
+                $"Identifier length {value.Length} exceeds {ClosureManifestLimits.MaxStringLength}.",
+                parameterName);
+        }
     }
 }

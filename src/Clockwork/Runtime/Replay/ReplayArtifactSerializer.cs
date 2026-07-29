@@ -2,20 +2,32 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Clockwork.Runtime.Decisions;
+using Clockwork.Runtime.Random;
+using Clockwork.Runtime.Racing;
 
 namespace Clockwork.Runtime.Replay;
 
 /// <summary>Reads and writes bounded replay artifacts using stable canonical UTF-8 JSON.</summary>
 public static class ReplayArtifactSerializer
 {
+    private const int MaxJsonDepth = 64;
+
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
         AllowTrailingCommas = false,
+        MaxDepth = MaxJsonDepth,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         PropertyNameCaseInsensitive = false,
         ReadCommentHandling = JsonCommentHandling.Disallow,
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Skip,
-        Converters = { new JsonStringEnumConverter() },
+        Converters =
+        {
+            new StrictJsonStringEnumConverter<ReplayTerminationKind>(),
+            new StrictJsonStringEnumConverter<SimulationSeedDomain>(),
+            new StrictJsonStringEnumConverter<SimulationDecisionKind>(),
+            new StrictJsonStringEnumConverter<RaceAccessKind>(),
+        },
     };
 
     /// <summary>Serializes an artifact to canonical compact UTF-8 JSON.</summary>
@@ -57,6 +69,7 @@ public static class ReplayArtifactSerializer
 
         try
         {
+            ValidateRequiredWireProperties(utf8Json);
             ReplayArtifact? artifact = JsonSerializer.Deserialize<ReplayArtifact>(utf8Json, SerializerOptions);
             if (artifact is null)
             {
@@ -69,6 +82,120 @@ public static class ReplayArtifactSerializer
         catch (JsonException exception)
         {
             throw new ReplayArtifactFormatException("Replay artifact JSON is malformed.", exception);
+        }
+    }
+
+    private static void ValidateRequiredWireProperties(ReadOnlySpan<byte> utf8Json)
+    {
+        var reader = new Utf8JsonReader(utf8Json, new JsonReaderOptions
+        {
+            AllowTrailingCommas = false,
+            CommentHandling = JsonCommentHandling.Disallow,
+            MaxDepth = MaxJsonDepth,
+        });
+        using JsonDocument document = JsonDocument.ParseValue(ref reader);
+        if (document.RootElement.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
+        JsonElement root = document.RootElement;
+        _ = RequireWireProperty(root, "format", "format");
+        _ = RequireWireProperty(root, "schemaVersion", "schemaVersion");
+        _ = RequireWireProperty(root, "decisions", "decisions");
+        _ = RequireWireProperty(root, "raceSchedulingPoints", "raceSchedulingPoints");
+
+        if (TryGetObjectProperty(root, "scheduler", out JsonElement scheduler))
+        {
+            _ = RequireWireProperty(scheduler, "options", "scheduler.options");
+        }
+
+        if (TryGetObjectProperty(root, "instrumentation", out JsonElement instrumentation))
+        {
+            _ = RequireWireProperty(
+                instrumentation,
+                "assemblies",
+                "instrumentation.assemblies");
+        }
+
+        JsonElement diagnostics = RequireWireProperty(root, "diagnostics", "diagnostics");
+        if (diagnostics.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
+        _ = RequireWireProperty(
+            diagnostics,
+            "operations",
+            "diagnostics.operations");
+        JsonElement resources = RequireWireProperty(
+            diagnostics,
+            "resources",
+            "diagnostics.resources");
+        _ = RequireWireProperty(
+            diagnostics,
+            "pendingTimers",
+            "diagnostics.pendingTimers");
+        JsonElement deadlockCycles = RequireWireProperty(
+            diagnostics,
+            "deadlockCycles",
+            "diagnostics.deadlockCycles");
+
+        RequireCollectionProperties(
+            resources,
+            "waiters",
+            "diagnostics.resources");
+        RequireCollectionProperties(
+            deadlockCycles,
+            "edges",
+            "diagnostics.deadlockCycles");
+    }
+
+    private static JsonElement RequireWireProperty(
+        JsonElement owner,
+        string propertyName,
+        string path)
+    {
+        if (!owner.TryGetProperty(propertyName, out JsonElement value)
+            || value.ValueKind == JsonValueKind.Null)
+        {
+            throw new ReplayArtifactFormatException($"{path} is required.");
+        }
+
+        return value;
+    }
+
+    private static bool TryGetObjectProperty(
+        JsonElement owner,
+        string propertyName,
+        out JsonElement value)
+    {
+        return owner.TryGetProperty(propertyName, out value)
+            && value.ValueKind == JsonValueKind.Object;
+    }
+
+    private static void RequireCollectionProperties(
+        JsonElement collection,
+        string propertyName,
+        string collectionPath)
+    {
+        if (collection.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        var index = 0;
+        foreach (JsonElement element in collection.EnumerateArray())
+        {
+            if (element.ValueKind == JsonValueKind.Object)
+            {
+                _ = RequireWireProperty(
+                    element,
+                    propertyName,
+                    $"{collectionPath}[{index}].{propertyName}");
+            }
+
+            index++;
         }
     }
 
@@ -103,15 +230,53 @@ public static class ReplayArtifactSerializer
             Directory.CreateDirectory(directory);
         }
 
-        string temporaryPath = fullPath + ".tmp-" + Guid.NewGuid().ToString("n");
+        string? temporaryPath = null;
         try
         {
-            File.WriteAllBytes(temporaryPath, bytes);
+            FileStream? stream = null;
+            for (var attempt = 0; attempt < 16; attempt++)
+            {
+                string candidate = fullPath + "."
+                    + Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16))
+                    + ".tmp";
+                try
+                {
+                    stream = new FileStream(
+                        candidate,
+                        FileMode.CreateNew,
+                        FileAccess.Write,
+                        FileShare.None,
+                        bufferSize: 4096,
+                        FileOptions.WriteThrough);
+                    temporaryPath = candidate;
+                    break;
+                }
+                catch (IOException) when (File.Exists(candidate))
+                {
+                }
+            }
+
+            if (stream is null || temporaryPath is null)
+            {
+                throw new IOException(
+                    $"Could not create a unique temporary file for replay artifact '{fullPath}' after 16 attempts.");
+            }
+
+            using (stream)
+            {
+                stream.Write(bytes);
+                stream.Flush(flushToDisk: true);
+            }
+
             File.Move(temporaryPath, fullPath, overwrite: true);
+            temporaryPath = null;
         }
         finally
         {
-            File.Delete(temporaryPath);
+            if (temporaryPath is not null)
+            {
+                File.Delete(temporaryPath);
+            }
         }
     }
 
@@ -151,9 +316,21 @@ public static class ReplayArtifactSerializer
                 $"Scheduler option count {artifact.Scheduler.Options.Count} exceeds {ReplayArtifactLimits.MaxSchedulerOptions}.");
         }
 
-        foreach ((string key, string value) in artifact.Scheduler.Options)
+        foreach (KeyValuePair<string, string> option in artifact.Scheduler.Options)
         {
+            string? key = option.Key;
+            string? value = option.Value;
+            if (key is null)
+            {
+                throw new ReplayArtifactFormatException("scheduler.options contains a null key.");
+            }
+
             RequireString(key, "scheduler.options key");
+            if (value is null)
+            {
+                throw new ReplayArtifactFormatException($"scheduler.options['{key}'] cannot be null.");
+            }
+
             RequireString(value, $"scheduler.options['{key}']");
         }
 
@@ -187,10 +364,12 @@ public static class ReplayArtifactSerializer
             }
 
             string? previousName = null;
-            foreach (ReplayAssemblyIdentity assembly in instrumentation.Assemblies)
+            for (var index = 0; index < instrumentation.Assemblies.Count; index++)
             {
-                RequireString(assembly.Name, "instrumentation.assemblies[].name");
-                RequireSha256(assembly.Sha256, "instrumentation.assemblies[].sha256");
+                string path = $"instrumentation.assemblies[{index}]";
+                ReplayAssemblyIdentity assembly = RequireElement(instrumentation.Assemblies[index], path);
+                RequireString(assembly.Name, $"{path}.name");
+                RequireSha256(assembly.Sha256, $"{path}.sha256");
                 if (previousName is not null && StringComparer.Ordinal.Compare(previousName, assembly.Name) >= 0)
                 {
                     throw new ReplayArtifactFormatException(
@@ -198,7 +377,7 @@ public static class ReplayArtifactSerializer
                 }
 
                 previousName = assembly.Name;
-                RequireOptionalString(assembly.RuntimeCompatibility, "instrumentation.assemblies[].runtimeCompatibility");
+                RequireOptionalString(assembly.RuntimeCompatibility, $"{path}.runtimeCompatibility");
             }
         }
 
@@ -215,17 +394,20 @@ public static class ReplayArtifactSerializer
 
         for (var index = 0; index < artifact.Decisions.Count; index++)
         {
-            ReplayDecision decision = artifact.Decisions[index];
+            string path = $"decisions[{index}]";
+            ReplayDecision decision = RequireElement(artifact.Decisions[index], path);
             if (decision.Sequence != index)
             {
                 throw new ReplayArtifactFormatException(
                     $"Decision sequence must be contiguous from zero; index {index} contains sequence {decision.Sequence}.");
             }
 
-            RequireOptionalString(decision.SourceId, "decisions[].sourceId");
-            RequireOptionalString(decision.InputMetadata, "decisions[].inputMetadata");
-            RequireString(decision.SelectedResult, "decisions[].selectedResult", allowEmpty: true);
-            RequireOptionalString(decision.NodeId, "decisions[].nodeId");
+            RequireDefinedEnum(decision.Domain, $"{path}.domain");
+            RequireDefinedEnum(decision.Kind, $"{path}.kind");
+            RequireOptionalString(decision.SourceId, $"{path}.sourceId");
+            RequireOptionalString(decision.InputMetadata, $"{path}.inputMetadata");
+            RequireString(decision.SelectedResult, $"{path}.selectedResult", allowEmpty: true);
+            RequireOptionalString(decision.NodeId, $"{path}.nodeId");
         }
 
         if (artifact.RaceSchedulingPoints is null)
@@ -240,30 +422,30 @@ public static class ReplayArtifactSerializer
         }
 
         long previousSequence = 0;
-        foreach (ReplayRaceSchedulingPoint point in artifact.RaceSchedulingPoints)
+        for (var index = 0; index < artifact.RaceSchedulingPoints.Count; index++)
         {
+            string path = $"raceSchedulingPoints[{index}]";
+            ReplayRaceSchedulingPoint point = RequireElement(artifact.RaceSchedulingPoints[index], path);
             if (point.Sequence <= previousSequence)
             {
                 throw new ReplayArtifactFormatException("Race scheduling point sequences must be strictly increasing.");
             }
 
             previousSequence = point.Sequence;
-            RequireString(point.Location, "raceSchedulingPoints[].location");
-            RequireString(point.Member, "raceSchedulingPoints[].member");
-            RequireOptionalString(point.SourceFile, "raceSchedulingPoints[].sourceFile");
+            RequireDefinedEnum(point.Kind, $"{path}.kind");
+            RequireString(point.Location, $"{path}.location");
+            RequireString(point.Member, $"{path}.member");
+            RequireOptionalString(point.SourceFile, $"{path}.sourceFile");
         }
 
         if (artifact.Outcome is null)
         {
             throw new ReplayArtifactFormatException("outcome is required.");
         }
+        RequireDefinedEnum(artifact.Outcome.Kind, "outcome.kind");
+
         RequireOptionalString(artifact.Outcome.FailureIdentity, "outcome.failureIdentity");
         RequireOptionalString(artifact.Outcome.Diagnostic, "outcome.diagnostic");
-        if (artifact.RecordingState == ReplayRecordingState.Aborted &&
-            artifact.Outcome.Kind != ReplayTerminationKind.Aborted)
-        {
-            throw new ReplayArtifactFormatException("An aborted recording must have an Aborted outcome.");
-        }
 
         if (artifact.Diagnostics is null)
         {
@@ -271,12 +453,21 @@ public static class ReplayArtifactSerializer
         }
 
         RequireString(artifact.Diagnostics.Liveness, "diagnostics.liveness");
-        if (artifact.Diagnostics.Operations is null ||
-            artifact.Diagnostics.Resources is null ||
-            artifact.Diagnostics.PendingTimers is null ||
-            artifact.Diagnostics.DeadlockCycles is null)
+        if (artifact.Diagnostics.Operations is null)
         {
-            throw new ReplayArtifactFormatException("Diagnostic collections cannot be null.");
+            throw new ReplayArtifactFormatException("diagnostics.operations is required.");
+        }
+        if (artifact.Diagnostics.Resources is null)
+        {
+            throw new ReplayArtifactFormatException("diagnostics.resources is required.");
+        }
+        if (artifact.Diagnostics.PendingTimers is null)
+        {
+            throw new ReplayArtifactFormatException("diagnostics.pendingTimers is required.");
+        }
+        if (artifact.Diagnostics.DeadlockCycles is null)
+        {
+            throw new ReplayArtifactFormatException("diagnostics.deadlockCycles is required.");
         }
 
         if (artifact.Diagnostics.Operations.Count > ReplayArtifactLimits.MaxDecisions ||
@@ -287,34 +478,57 @@ public static class ReplayArtifactSerializer
             throw new ReplayArtifactFormatException("A diagnostic collection exceeds the replay artifact item limit.");
         }
 
-        foreach (ReplayOperationDiagnostic operation in artifact.Diagnostics.Operations)
+        for (var operationIndex = 0; operationIndex < artifact.Diagnostics.Operations.Count; operationIndex++)
         {
-            RequireString(operation.State, "diagnostics.operations[].state");
-            RequireOptionalString(operation.Node, "diagnostics.operations[].node");
-            RequireOptionalString(operation.Description, "diagnostics.operations[].description");
-            RequireOptionalString(operation.WaitReason, "diagnostics.operations[].waitReason");
+            string path = $"diagnostics.operations[{operationIndex}]";
+            ReplayOperationDiagnostic operation =
+                RequireElement(artifact.Diagnostics.Operations[operationIndex], path);
+            RequireString(operation.State, $"{path}.state");
+            RequireOptionalString(operation.Node, $"{path}.node");
+            RequireOptionalString(operation.Description, $"{path}.description");
+            RequireOptionalString(operation.WaitReason, $"{path}.waitReason");
         }
 
-        foreach (ReplayResourceDiagnostic resource in artifact.Diagnostics.Resources)
+        for (var resourceIndex = 0; resourceIndex < artifact.Diagnostics.Resources.Count; resourceIndex++)
         {
-            RequireString(resource.Kind, "diagnostics.resources[].kind");
-            RequireOptionalString(resource.Name, "diagnostics.resources[].name");
+            string path = $"diagnostics.resources[{resourceIndex}]";
+            ReplayResourceDiagnostic resource =
+                RequireElement(artifact.Diagnostics.Resources[resourceIndex], path);
+            RequireString(resource.Kind, $"{path}.kind");
+            RequireOptionalString(resource.Name, $"{path}.name");
             if (resource.Waiters is null)
             {
-                throw new ReplayArtifactFormatException("diagnostics.resources[].waiters cannot be null.");
+                throw new ReplayArtifactFormatException($"{path}.waiters cannot be null.");
             }
 
-            foreach (ReplayWaiterDiagnostic waiter in resource.Waiters)
+            for (var waiterIndex = 0; waiterIndex < resource.Waiters.Count; waiterIndex++)
             {
-                RequireOptionalString(waiter.Reason, "diagnostics.resources[].waiters[].reason");
+                string waiterPath = $"{path}.waiters[{waiterIndex}]";
+                ReplayWaiterDiagnostic waiter = RequireElement(resource.Waiters[waiterIndex], waiterPath);
+                RequireOptionalString(waiter.Reason, $"{waiterPath}.reason");
             }
         }
 
-        foreach (ReplayDeadlockCycleDiagnostic cycle in artifact.Diagnostics.DeadlockCycles)
+        for (var timerIndex = 0; timerIndex < artifact.Diagnostics.PendingTimers.Count; timerIndex++)
         {
+            RequireElement(
+                artifact.Diagnostics.PendingTimers[timerIndex],
+                $"diagnostics.pendingTimers[{timerIndex}]");
+        }
+
+        for (var cycleIndex = 0; cycleIndex < artifact.Diagnostics.DeadlockCycles.Count; cycleIndex++)
+        {
+            string path = $"diagnostics.deadlockCycles[{cycleIndex}]";
+            ReplayDeadlockCycleDiagnostic cycle =
+                RequireElement(artifact.Diagnostics.DeadlockCycles[cycleIndex], path);
             if (cycle.Edges is null)
             {
-                throw new ReplayArtifactFormatException("diagnostics.deadlockCycles[].edges cannot be null.");
+                throw new ReplayArtifactFormatException($"{path}.edges cannot be null.");
+            }
+
+            for (var edgeIndex = 0; edgeIndex < cycle.Edges.Count; edgeIndex++)
+            {
+                RequireElement(cycle.Edges[edgeIndex], $"{path}.edges[{edgeIndex}]");
             }
         }
 
@@ -336,6 +550,26 @@ public static class ReplayArtifactSerializer
         RequireString(access.Location, $"{field}.location");
         RequireString(access.Member, $"{field}.member");
         RequireOptionalString(access.SourceFile, $"{field}.sourceFile");
+    }
+
+    private static T RequireElement<T>(T? value, string path)
+        where T : class
+    {
+        if (value is null)
+        {
+            throw new ReplayArtifactFormatException($"{path} cannot be null.");
+        }
+
+        return value;
+    }
+
+    private static void RequireDefinedEnum<TEnum>(TEnum value, string field)
+        where TEnum : struct, Enum
+    {
+        if (!Enum.IsDefined(value))
+        {
+            throw new ReplayArtifactFormatException($"{field} value '{value}' is not defined.");
+        }
     }
 
     private static void RequireSha256(string value, string field)
@@ -374,7 +608,6 @@ public static class ReplayArtifactSerializer
         writer.WriteStartObject();
         writer.WriteString("format", artifact.Format);
         writer.WriteNumber("schemaVersion", artifact.SchemaVersion);
-        writer.WriteString("recordingState", artifact.RecordingState.ToString());
         writer.WriteNumber("rootSeed", artifact.RootSeed);
         WriteScheduler(writer, artifact.Scheduler);
         WriteInstrumentation(writer, artifact.Instrumentation);

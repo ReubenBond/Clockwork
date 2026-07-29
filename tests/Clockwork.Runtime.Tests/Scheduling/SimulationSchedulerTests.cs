@@ -260,6 +260,65 @@ public sealed class SimulationSchedulerTests
     }
 
     [Fact]
+    public void RemovePendingWorkPreservesReadinessWaitForAnotherNode()
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        var removedNode = new SimulationNodeIdentity("removed");
+        var unrelatedNode = new SimulationNodeIdentity("unrelated");
+        var removedRan = false;
+        var unrelatedReady = false;
+        var unrelatedRan = false;
+        _ = scheduler.ScheduleWhenReady(removedNode, static () => false, () => removedRan = true);
+        _ = scheduler.ScheduleWhenReady(unrelatedNode, () => unrelatedReady, () => unrelatedRan = true);
+
+        scheduler.RemovePendingWork(removedNode);
+        unrelatedReady = true;
+
+        Assert.True(scheduler.RunStep());
+        Assert.False(removedRan);
+        Assert.True(unrelatedRan);
+        Assert.False(scheduler.RunStep());
+    }
+
+    [Fact]
+    public void ScheduleAfterUsesInheritedNodeForCallbackDiagnosticsAndDetachment()
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        var node = new SimulationNodeIdentity("inherited");
+        SimulationNodeIdentity? callbackNode = null;
+        var detachedCallbackRan = false;
+        IDisposable? elapsedRegistration = null;
+        IDisposable? detachedRegistration = null;
+        scheduler.Schedule(
+            "parent",
+            () =>
+            {
+                elapsedRegistration = scheduler.ScheduleAfter(
+                    "elapsed",
+                    () => callbackNode = SimulationExecutionContext.Current!.Node,
+                    TimeSpan.FromSeconds(1));
+                detachedRegistration = scheduler.ScheduleAfter(
+                    "detached",
+                    () => detachedCallbackRan = true,
+                    TimeSpan.FromSeconds(2));
+            },
+            node);
+        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.TryAdvanceVirtualTime());
+        Assert.True(scheduler.RunStep());
+
+        Assert.Equal(node, callbackNode);
+        Assert.True(scheduler.HasPendingWork(node));
+        scheduler.RemovePendingWork(node);
+
+        Assert.False(scheduler.HasPendingWork(node));
+        Assert.Equal(0, scheduler.Drain());
+        Assert.False(detachedCallbackRan);
+        elapsedRegistration!.Dispose();
+        detachedRegistration!.Dispose();
+    }
+
+    [Fact]
     public void CancelCreatedOperationTransitionsToCanceledWithoutRunning()
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();

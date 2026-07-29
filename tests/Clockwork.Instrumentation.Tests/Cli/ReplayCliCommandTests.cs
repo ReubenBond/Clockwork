@@ -1,4 +1,7 @@
+using System.Security.Cryptography;
 using System.Text.Json;
+using Clockwork.Instrumentation.Configuration;
+using Clockwork.Instrumentation.Orchestration;
 using Clockwork.Runtime.Racing;
 using Clockwork.Runtime.Replay;
 using Clockwork.Runtime.Scheduling;
@@ -44,7 +47,7 @@ public sealed class ReplayCliCommandTests : IDisposable
         Assert.Empty(traceError);
         Assert.Equal("Completed", JsonDocument.Parse(runOutput).RootElement.GetProperty("outcome").GetString());
         Assert.True(JsonDocument.Parse(replayOutput).RootElement.GetProperty("reproduced").GetBoolean());
-        Assert.Contains("Clockwork replay clockwork.replay/v1", traceOutput, StringComparison.Ordinal);
+        Assert.Contains("Clockwork replay clockwork.replay/v2", traceOutput, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -64,6 +67,72 @@ public sealed class ReplayCliCommandTests : IDisposable
         Assert.Contains("outcome: Faulted", output, StringComparison.Ordinal);
         Assert.Empty(error);
         Assert.Equal(ReplayTerminationKind.Faulted, ReplayArtifactSerializer.Read(artifact).Outcome.Kind);
+    }
+
+    [Fact]
+    public void ManifestIdentityIsMappedFromTypedClosureManifest()
+    {
+        string artifactPath = Path.Combine(_root, "manifest.cwr.json");
+        ClosureManifest manifest = CreateManifest(new string('a', 64));
+        string manifestPath = WriteManifest("manifest.json", manifest);
+
+        (ExitCode code, _, string error) = Invoke(
+            "record",
+            "--assembly", TestAssembly,
+            "--scenario-type", typeof(SuccessScenario).FullName!,
+            "--artifact", artifactPath,
+            "--seed", "42",
+            "--manifest", manifestPath);
+
+        Assert.Equal(ExitCode.Success, code);
+        Assert.Empty(error);
+        ReplayInstrumentationIdentity identity =
+            Assert.IsType<ReplayInstrumentationIdentity>(
+                ReplayArtifactSerializer.Read(artifactPath).Instrumentation);
+        Assert.Equal(manifest.IncrementalKey, identity.ManifestId);
+        Assert.Equal(
+            Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(manifestPath))),
+            identity.ManifestSha256);
+        ReplayAssemblyIdentity assembly = Assert.Single(identity.Assemblies);
+        Assert.Equal("app.dll", assembly.Name);
+        Assert.Equal(new string('e', 64), assembly.Sha256);
+        Assert.Equal(ReplayCompatibility.CurrentRuntimeCompatibility, assembly.RuntimeCompatibility);
+    }
+
+    [Fact]
+    public void ReplayRejectsDifferentCopiedAssetIdentity()
+    {
+        string artifactPath = Path.Combine(_root, "manifest-mismatch.cwr.json");
+        ClosureManifest recorded = CreateManifest(new string('a', 64));
+        ClosureManifest current = recorded with
+        {
+            CopiedAssets =
+            [
+                new ClosureManifestCopiedAsset(
+                    "app.runtimeconfig.json",
+                    new string('b', 64)),
+            ],
+        };
+        string recordedManifest = WriteManifest("recorded-manifest.json", recorded);
+        string currentManifest = WriteManifest("current-manifest.json", current);
+        (ExitCode recordCode, _, _) = Invoke(
+            "record",
+            "--assembly", TestAssembly,
+            "--scenario-type", typeof(SuccessScenario).FullName!,
+            "--artifact", artifactPath,
+            "--seed", "42",
+            "--manifest", recordedManifest);
+
+        (ExitCode replayCode, _, string replayError) = Invoke(
+            "replay",
+            artifactPath,
+            "--assembly", TestAssembly,
+            "--scenario-type", typeof(SuccessScenario).FullName!,
+            "--manifest", currentManifest);
+
+        Assert.Equal(ExitCode.Success, recordCode);
+        Assert.Equal(ExitCode.ReplayError, replayCode);
+        Assert.Contains("manifest", replayError, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -201,6 +270,42 @@ public sealed class ReplayCliCommandTests : IDisposable
     }
 
     private static string TestAssembly => typeof(ReplayCliCommandTests).Assembly.Location;
+
+    private string WriteManifest(string fileName, ClosureManifest manifest)
+    {
+        Directory.CreateDirectory(_root);
+        string path = Path.Combine(_root, fileName);
+        File.WriteAllText(path, manifest.ToJson());
+        return path;
+    }
+
+    private static ClosureManifest CreateManifest(string incrementalKey) => new()
+    {
+        EngineVersion = "1.2.3",
+        RuleSetId = "clockwork.test",
+        RuleSetVersion = "1",
+        RuleSetSignature = new string('c', 64),
+        ConfigurationSignature = new string('d', 64),
+        Mode = InstrumentationMode.Controlled,
+        IncrementalKey = incrementalKey,
+        EntryRelativePath = "app.dll",
+        Assemblies =
+        [
+            new ClosureManifestEntry(
+                "app.dll",
+                WasRewritten: true,
+                WasNoOp: false,
+                WasReSigned: false,
+                ReadyToRunStripped: false,
+                InputSha256: new string('d', 64),
+                OutputSha256: new string('e', 64),
+                ErrorCount: 0),
+        ],
+        CopiedAssets =
+        [
+            new ClosureManifestCopiedAsset("app.runtimeconfig.json", new string('f', 64)),
+        ],
+    };
 
     private string RecordLongFaultArtifact()
     {

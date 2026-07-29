@@ -133,7 +133,7 @@ public sealed class ControlledRegisteredWaitHandle
         _pendingState = target;
         _pending = ControlledWaitHandle.ArmRegisteredWaiter(target, _timeoutMs, RegisterApi);
         SimulationTaskRuntime.ScheduleContinuation(
-            _pending.Completion.Task, OnWaiterCompleted, RegisterApi, flowExecutionContext: false);
+            _pending.Task, OnWaiterCompleted, RegisterApi, flowExecutionContext: false);
     }
 
     private void ScheduleResume(bool signaled) =>
@@ -148,7 +148,7 @@ public sealed class ControlledRegisteredWaitHandle
 
         // A successful completion with result true means the handle was signalled; false means the deadline
         // elapsed or Unregister cancelled the waiter (disambiguated by the _unregistered flag below).
-        bool signaled = pending.Completion.Task.IsCompletedSuccessfully && pending.Completion.Task.Result;
+        bool signaled = pending.Task.IsCompletedSuccessfully && pending.Task.Result;
         OnWaitCompleted(signaled);
     }
 

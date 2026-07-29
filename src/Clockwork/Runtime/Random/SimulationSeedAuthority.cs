@@ -9,7 +9,7 @@ namespace Clockwork.Runtime.Random;
 /// </para>
 /// <para>
 /// <b>Why not just keep calling <c>Random.Fork()</c>/<c>Random.Next()</c>?</b> Forking a shared
-/// <see cref="System.Random"/> in registration order (as e.g. <c>SimulationCluster{TNode}.ForkRandom()</c>
+/// <see cref="System.Random"/> in registration order (as e.g. <c>SimulationCluster.ForkRandom()</c>
 /// does today) makes every derived seed depend on the exact order and count of every earlier
 /// derivation - reordering two <c>AddNode</c> calls, or adding an unrelated derivation in between,
 /// silently reseeds every node that comes after it. <see cref="GetSiteSeed(SimulationSeedDomain, string)"/>

@@ -72,7 +72,7 @@ public sealed class SimulationScheduler : IDisposable
     private readonly SimulationRuntimeIdentity _runtime;
     private readonly ISimulationOperationListener? _listener;
 
-    private ISimulationSchedulingStrategy _strategy = new RoundRobinSchedulingStrategy();
+    private ISimulationSchedulingStrategy _strategy = SimulationSchedulingStrategies.RoundRobin();
     private ISimulationDecisionLog? _decisionLog;
     private SimulationDecisionReplayValidator? _replayValidator;
     private long _nextReplayDecisionId;
@@ -104,7 +104,6 @@ public sealed class SimulationScheduler : IDisposable
             new SimulationSeedAuthority(runtime?.Seed ?? throw new ArgumentNullException(nameof(runtime))),
             DateTimeOffset.UnixEpoch,
             TimeZoneInfo.Utc,
-            SimulationCryptoRandomnessPolicy.Reject,
             listener)
     {
     }
@@ -114,7 +113,6 @@ public sealed class SimulationScheduler : IDisposable
         SimulationSeedAuthority seedAuthority,
         DateTimeOffset startDateTime,
         TimeZoneInfo localTimeZone,
-        SimulationCryptoRandomnessPolicy cryptoPolicy,
         ISimulationOperationListener? listener = null)
     {
         ArgumentNullException.ThrowIfNull(runtime);
@@ -134,8 +132,7 @@ public sealed class SimulationScheduler : IDisposable
                 seedAuthority,
                 () => UtcNow,
                 localTimeZone,
-                startDateTime,
-                cryptoPolicy),
+                startDateTime),
             this);
     }
 
@@ -148,9 +145,9 @@ public sealed class SimulationScheduler : IDisposable
 
     /// <summary>
     /// Gets or sets the policy that chooses which runnable operation runs next. Defaults to
-    /// <see cref="RoundRobinSchedulingStrategy"/> - the controlled-operation scheduler behavior - so existing simulations are
-    /// unaffected. Assigning a strategy takes effect on the next selection. Set this before driving the
-    /// scheduler for a reproducible schedule.
+    /// the round-robin strategy from <see cref="SimulationSchedulingStrategies"/>. Assigning a
+    /// strategy takes effect on the next selection. Set this before driving the scheduler for a
+    /// reproducible schedule.
     /// </summary>
     /// <exception cref="ArgumentNullException"><paramref name="value"/> is <see langword="null"/>.</exception>
     public ISimulationSchedulingStrategy SchedulingStrategy
@@ -178,7 +175,7 @@ public sealed class SimulationScheduler : IDisposable
     /// runnable operations, as a <see cref="SimulationDecisionKind.SchedulingOrder"/> decision in the
     /// <see cref="SimulationSeedDomain.Scheduler"/> domain. When <see langword="null"/> (the default),
     /// no scheduling decisions are recorded. Attach a log to capture a schedule for later exact replay
-    /// via <see cref="ReplaySchedulingStrategy"/>. Single-candidate steps are never recorded, so
+    /// via <see cref="SimulationSchedulingStrategies.Replay"/>. Single-candidate steps are never recorded, so
     /// recording is stable against interleavings where only one operation is runnable.
     /// </summary>
     public ISimulationDecisionLog? DecisionLog
@@ -204,7 +201,7 @@ public sealed class SimulationScheduler : IDisposable
     /// Gets or sets a validator that checks each scheduling choice against a previously recorded run,
     /// throwing <see cref="SimulationDecisionReplayMismatchException"/> at the first divergence. This
     /// is orthogonal to <see cref="DecisionLog"/>: a validator can be attached with or without a live
-    /// log, and with or without a <see cref="ReplaySchedulingStrategy"/>, to assert that a re-run's
+    /// log, and with or without a replay strategy, to assert that a re-run's
     /// scheduling decisions reproduce the original exactly.
     /// </summary>
     public SimulationDecisionReplayValidator? ReplayValidator
@@ -304,21 +301,6 @@ public sealed class SimulationScheduler : IDisposable
         }
     }
 
-    /// <summary>Gets the structured race-specific outcome observed so far.</summary>
-    public RaceExplorationResult RaceExplorationResult
-    {
-        get
-        {
-            lock (_gate)
-            {
-                RaceReport? race = _raceTracker.FirstRace;
-                return race is null
-                    ? new RaceExplorationResult(RaceExplorationTerminationReason.CompletedWithoutRace, null)
-                    : new RaceExplorationResult(RaceExplorationTerminationReason.RaceDetected, race);
-            }
-        }
-    }
-
     /// <summary>
     /// Records an injected scheduling point and yields the current operation through the configured
     /// scheduling strategy and decision/replay pipeline.
@@ -407,9 +389,9 @@ public sealed class SimulationScheduler : IDisposable
     /// <param name="body">The operation body. Runs exactly once, on the operation's own thread.</param>
     /// <param name="node">The node the operation is scoped to, or <see langword="null"/> for cluster-level work.</param>
     /// <param name="priority">
-    /// The operation's scheduling priority (see <see cref="SimulationOperation.Priority"/>). Only the
-    /// <see cref="Strategies.PrioritySchedulingStrategy"/> consults it; it is inert under the other
-    /// strategies. Defaults to <c>0</c>.
+    /// The operation's scheduling priority (see <see cref="SimulationOperation.Priority"/>). Only a
+    /// priority strategy from <see cref="SimulationSchedulingStrategies"/> consults it; it is inert
+    /// under the other strategies. Defaults to <c>0</c>.
     /// </param>
     /// <returns>The newly created operation.</returns>
     public SimulationOperation Register(string workDescription, Action body, SimulationNodeIdentity? node = null, int priority = 0)
@@ -433,8 +415,9 @@ public sealed class SimulationScheduler : IDisposable
     /// <param name="body">The operation body.</param>
     /// <param name="node">The node the operation is scoped to, or <see langword="null"/>.</param>
     /// <param name="priority">
-    /// The operation's scheduling priority (see <see cref="SimulationOperation.Priority"/>); only the
-    /// <see cref="Strategies.PrioritySchedulingStrategy"/> consults it. Defaults to <c>0</c>.
+    /// The operation's scheduling priority (see <see cref="SimulationOperation.Priority"/>); only a
+    /// priority strategy from <see cref="SimulationSchedulingStrategies"/> consults it. Defaults to
+    /// <c>0</c>.
     /// </param>
     /// <returns>The newly created, admitted operation.</returns>
     public SimulationOperation Schedule(string workDescription, Action body, SimulationNodeIdentity? node = null, int priority = 0)
@@ -640,7 +623,7 @@ public sealed class SimulationScheduler : IDisposable
                     executionContext: null,
                     onElapsed,
                     preserveLogicalExecution: true);
-            return _clock.Schedule(delay, scheduleCallback, "CallbackTimer");
+            return _clock.Schedule(delay, scheduleCallback, "CallbackTimer", snapshot.Node);
         }
     }
 
@@ -675,7 +658,8 @@ public sealed class SimulationScheduler : IDisposable
                         snapshot,
                         executionContext,
                         body,
-                        preserveLogicalExecution: true)));
+                        preserveLogicalExecution: true)),
+                node: snapshot.Node);
         }
 
         registration.SetTimer(timer);
@@ -867,6 +851,21 @@ public sealed class SimulationScheduler : IDisposable
     /// <returns><see langword="true"/> if an operation ran; <see langword="false"/> if none was runnable.</returns>
     public bool RunStep()
     {
+        bool result = RunStepCore(out ExceptionDispatchInfo? callbackFailure);
+        callbackFailure?.Throw();
+        return result;
+    }
+
+    internal bool RunStepCapturingCallbackFailure(out Exception? callbackFailure)
+    {
+        bool result = RunStepCore(out ExceptionDispatchInfo? failure);
+        callbackFailure = failure?.SourceException;
+        return result;
+    }
+
+    private bool RunStepCore(out ExceptionDispatchInfo? callbackFailure)
+    {
+        callbackFailure = null;
         if (Monitor.IsEntered(_transitionPublicationGate))
         {
             throw new SimulationSchedulerException(
@@ -935,7 +934,6 @@ public sealed class SimulationScheduler : IDisposable
             FinalizeTerminal(operation);
         }
 
-        ExceptionDispatchInfo? callbackFailure = null;
         lock (_gate)
         {
             if (_unhandledCallbackFailures.Count > 0)
@@ -943,8 +941,6 @@ public sealed class SimulationScheduler : IDisposable
                 callbackFailure = _unhandledCallbackFailures.Dequeue();
             }
         }
-
-        callbackFailure?.Throw();
 
         return true;
     }
@@ -1101,10 +1097,7 @@ public sealed class SimulationScheduler : IDisposable
         }
 
         _replayValidator?.ValidateComplete();
-        if (_strategy is ReplaySchedulingStrategy replay)
-        {
-            replay.ValidateComplete();
-        }
+        (_strategy as ISimulationSchedulingStrategyRuntimeHooks)?.ValidateComplete();
     }
 
     /// <summary>
@@ -1114,10 +1107,7 @@ public sealed class SimulationScheduler : IDisposable
     public void ValidateReplayDecisionStreamsComplete()
     {
         _replayValidator?.ValidateComplete();
-        if (_strategy is ReplaySchedulingStrategy replay)
-        {
-            replay.ValidateComplete();
-        }
+        (_strategy as ISimulationSchedulingStrategyRuntimeHooks)?.ValidateComplete();
     }
 
     /// <summary>
@@ -1188,11 +1178,86 @@ public sealed class SimulationScheduler : IDisposable
         }
     }
 
+    internal int PendingTimerRegistrationCount
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _clock.RegistrationCount;
+            }
+        }
+    }
+
     internal IReadOnlyList<SimulationPendingTimerInfo> CapturePendingTimers()
     {
         lock (_gate)
         {
             return _clock.SnapshotAllPending();
+        }
+    }
+
+    internal bool HasPendingWork(SimulationNodeIdentity node)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+        lock (_gate)
+        {
+            foreach (var operation in _operations.Values)
+            {
+                if (operation.Node == node && !operation.IsTerminal)
+                {
+                    return true;
+                }
+            }
+
+            return _clock.HasPendingTimer(node);
+        }
+    }
+
+    internal void RemovePendingWork(SimulationNodeIdentity node)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+        List<ReadinessWait> readinessWaits = [];
+        SimulationOperation[] operations;
+        lock (_gate)
+        {
+            _clock.CancelPendingTimers(node);
+            for (var index = 0; index < _readinessWaits.Count;)
+            {
+                var wait = _readinessWaits[index];
+                if (wait.Operation.Node != node)
+                {
+                    index++;
+                    continue;
+                }
+
+                readinessWaits.Add(wait);
+                _readinessWaits.RemoveAt(index);
+            }
+
+            operations = _operations.Values
+                .Where(operation => operation.Node == node && !operation.IsTerminal)
+                .ToArray();
+        }
+
+        try
+        {
+            foreach (ReadinessWait wait in readinessWaits)
+            {
+                wait.Cancel();
+            }
+
+            foreach (SimulationOperation operation in operations)
+            {
+                Cancel(operation);
+            }
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                _clock.CompactCanceled();
+            }
         }
     }
 
@@ -2207,7 +2272,7 @@ public sealed class SimulationScheduler : IDisposable
     private SimulationOperation? SelectRunnable()
     {
         // Collect the runnable operations in ascending id order (_operations is a SortedDictionary),
-        // then delegate the choice to the pluggable strategy. The default RoundRobinSchedulingStrategy
+        // then delegate the choice to the pluggable strategy. The default round-robin strategy
         // reproduces the controlled-operation scheduler behavior exactly.
         List<SimulationOperation>? runnable = null;
         foreach (var operation in _operations.Values)
@@ -2327,7 +2392,7 @@ public sealed class SimulationScheduler : IDisposable
             SimulationDecisionKind.SchedulingOrder,
             GetDecisionSourceId(),
             FormatCandidateIds(runnable),
-            ReplaySchedulingStrategy.FormatId(chosen.Id),
+            FormatOperationId(chosen.Id),
             _runtime.Id,
             NodeId: null,
             SimulationLogicalExecutionId.None);
@@ -2362,12 +2427,9 @@ public sealed class SimulationScheduler : IDisposable
             waiterInfos[index] = pending[index].ToInfo();
         }
 
-        var selectedIndex = _strategy switch
-        {
-            SeededRandomSchedulingStrategy random => random.ChooseIndex(pending.Length),
-            ReplaySchedulingStrategy replay => replay.ChooseResourceWaiter(waiterInfos),
-            _ => 0,
-        };
+        var selectedIndex = _strategy is ISimulationSchedulingStrategyRuntimeHooks hooks
+            ? hooks.ChooseResourceWaiter(waiterInfos)
+            : 0;
 
         SimulationResourceWaiter selected = pending[selectedIndex];
         RecordResourceWinner(selected, pending);
@@ -2386,7 +2448,7 @@ public sealed class SimulationScheduler : IDisposable
         var candidateIds = new string[pending.Length];
         for (var index = 0; index < pending.Length; index++)
         {
-            candidateIds[index] = ReplaySchedulingStrategy.FormatId(pending[index].Operation.Id);
+            candidateIds[index] = FormatOperationId(pending[index].Operation.Id);
         }
 
         var request = new SimulationDecisionRequest(
@@ -2396,7 +2458,7 @@ public sealed class SimulationScheduler : IDisposable
             string.Create(
                 CultureInfo.InvariantCulture,
                 $"resource={selected.Resource.Id.Value};waiters={string.Join(",", candidateIds)}"),
-            ReplaySchedulingStrategy.FormatId(selected.Operation.Id),
+            FormatOperationId(selected.Operation.Id),
             _runtime.Id,
             selected.Operation.Node?.Address,
             selected.Operation.LogicalExecutionId);
@@ -2418,9 +2480,7 @@ public sealed class SimulationScheduler : IDisposable
     }
 
     private string GetDecisionSourceId() =>
-        _strategy is ReplaySchedulingStrategy replay
-            ? replay.LastDecisionSourceId ?? _strategy.Name
-            : _strategy.Name;
+        (_strategy as ISimulationSchedulingStrategyRuntimeHooks)?.DecisionSourceId ?? _strategy.Name;
 
     private void RecordWaitResolution(SimulationResourceWaiter waiter, SimulationWaitOutcome outcome)
     {
@@ -2462,11 +2522,14 @@ public sealed class SimulationScheduler : IDisposable
         var ids = new string[runnable.Count];
         for (var i = 0; i < runnable.Count; i++)
         {
-            ids[i] = ReplaySchedulingStrategy.FormatId(runnable[i].Id);
+            ids[i] = FormatOperationId(runnable[i].Id);
         }
 
         return string.Join(",", ids);
     }
+
+    private static string FormatOperationId(SimulationOperationId id) =>
+        id.Value.ToString(CultureInfo.InvariantCulture);
 
     private void EnsureThreadStarted(SimulationOperation operation)
     {

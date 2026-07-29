@@ -4,7 +4,7 @@ namespace Clockwork;
 
 /// <summary>
 /// <para>
-/// A structured outcome of a single <see cref="SimulationCluster{TNode}"/> drive-loop
+/// A structured outcome of a single <see cref="SimulationCluster"/> drive-loop
 /// execution (<c>RunUntil</c>, <c>RunUntilIdle</c>, or <c>RunFor</c>).
 /// </para>
 /// <para>

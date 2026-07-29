@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Threading;
-using System.Threading.Tasks;
 using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks;
 using Microsoft.Win32.SafeHandles;
@@ -42,18 +41,12 @@ public static class ControlledWaitHandle
     private const string SafeWaitHandleApi = "System.Threading.WaitHandle.SafeWaitHandle";
 
     /// <summary>A single blocked <see cref="WaitHandle.WaitOne()"/> caller.</summary>
-    internal sealed class Waiter
+    internal sealed class Waiter : SimulationWaiter
     {
-        public readonly TaskCompletionSource<bool> Completion = new();
-
         public long OwnerId { get; init; }
-
-        // The virtual-time deadline for a finite wait, or null for an infinite wait. Cancelled when the
-        // waiter completes for any other reason so a stale timeout cannot fire.
-        public ISimulationTimer? Deadline;
     }
 
-    internal sealed class MultiWaiter
+    internal sealed class MultiWaiter : SimulationWaiter
     {
         public required HandleState[] States { get; init; }
 
@@ -63,13 +56,7 @@ public static class ControlledWaitHandle
         // different signaler's strand, but mutex acquisition must remain owned by the waiter.
         public required long OwnerId { get; init; }
 
-        public TaskCompletionSource<bool> Completion { get; } = new();
-
-        public ISimulationTimer? Deadline { get; set; }
-
         public int WinnerIndex { get; set; } = -1;
-
-        public bool Pending { get; set; } = true;
     }
 
     /// <summary>Base state for a controlled wait handle.</summary>
@@ -319,13 +306,12 @@ public static class ControlledWaitHandle
         if (handle is not null && TryGetState(handle, out HandleState state))
         {
             state.Disposed = true;
-            foreach (Waiter waiter in state.Waiters)
+            List<SimulationWaiter.Claim> waiters = SimulationWaiter.TakeAll(state.Waiters);
+            foreach (SimulationWaiter.Claim waiter in waiters)
             {
-                waiter.Deadline?.Cancel();
-                waiter.Completion.TrySetException(new ObjectDisposedException(nameof(WaitHandle)));
+                waiter.Fault(new ObjectDisposedException(nameof(WaitHandle)));
             }
 
-            state.Waiters.Clear();
             foreach (MultiWaiter waiter in state.MultiWaiters.ToArray())
             {
                 FaultMultiWaiter(waiter, new ObjectDisposedException(nameof(WaitHandle)));
@@ -371,12 +357,12 @@ public static class ControlledWaitHandle
                 return;
             }
 
-            for (int i = 0; i < state.Waiters.Count; i++)
+            List<SimulationWaiter.Claim> waiters = SimulationWaiter.TakeAll(state.Waiters);
+            foreach (SimulationWaiter.Claim waiter in waiters)
             {
-                Complete(state.Waiters[i]);
+                waiter.Complete(true);
             }
 
-            state.Waiters.Clear();
             return;
         }
 
@@ -384,16 +370,12 @@ public static class ControlledWaitHandle
         while (state.Signaled && state.Waiters.Count > 0)
         {
             Waiter waiter = state.Waiters[0];
-            state.Waiters.RemoveAt(0);
-            state.Signaled = false;
-            Complete(waiter);
+            if (SimulationWaiter.TryTake(state.Waiters, waiter, out SimulationWaiter.Claim claim))
+            {
+                state.Signaled = false;
+                claim.Complete(true);
+            }
         }
-    }
-
-    private static void Complete(Waiter waiter)
-    {
-        waiter.Deadline?.Cancel();
-        waiter.Completion.TrySetResult(true);
     }
 
     private static void ReleaseNextWaiter(MutexState state)
@@ -407,14 +389,16 @@ public static class ControlledWaitHandle
         while (state.Waiters.Count > 0)
         {
             Waiter waiter = state.Waiters[0];
-            state.Waiters.RemoveAt(0);
             if (!state.TryAcquire(waiter.OwnerId))
             {
-                continue;
+                return;
             }
 
-            Complete(waiter);
-            return;
+            if (SimulationWaiter.TryTake(state.Waiters, waiter, out SimulationWaiter.Claim claim))
+            {
+                claim.Complete(true);
+                return;
+            }
         }
     }
 
@@ -425,10 +409,12 @@ public static class ControlledWaitHandle
         while (state.Count > 0 && state.Waiters.Count > 0)
         {
             Waiter waiter = state.Waiters[0];
-            state.Waiters.RemoveAt(0);
             if (state.TryAcquire(waiter.OwnerId))
             {
-                Complete(waiter);
+                if (SimulationWaiter.TryTake(state.Waiters, waiter, out SimulationWaiter.Claim claim))
+                {
+                    claim.Complete(true);
+                }
             }
         }
     }
@@ -458,20 +444,25 @@ public static class ControlledWaitHandle
         state.Waiters.Add(waiter);
         if (millisecondsTimeout != Timeout.Infinite)
         {
-            waiter.Deadline = SimulationTaskRuntime.RegisterTimeout(
+            SimulationWaiter.AttachDeadline(
+                waiter,
                 TimeSpan.FromMilliseconds(millisecondsTimeout),
-                onElapsed: () =>
+                api,
+                pendingWaiter =>
                 {
-                    if (state.Waiters.Remove(waiter))
+                    if (SimulationWaiter.TryTake(
+                        state.Waiters,
+                        pendingWaiter,
+                        out SimulationWaiter.Claim claim,
+                        cancelDeadline: false))
                     {
-                        waiter.Completion.TrySetResult(false);
+                        claim.Complete(false);
                     }
-                },
-                api);
+                });
         }
 
-        SimulationTaskRuntime.DrainUntil(() => waiter.Completion.Task.IsCompleted, api);
-        return waiter.Completion.Task.GetAwaiter().GetResult();
+        SimulationTaskRuntime.DrainUntil(() => waiter.Task.IsCompleted, api);
+        return waiter.Task.GetAwaiter().GetResult();
     }
 
     // ---- WaitOne overloads (receiver-first) ----
@@ -709,8 +700,8 @@ public static class ControlledWaitHandle
         }
 
         ArmMultiWaiterTimeout(waiter, millisecondsTimeout, WaitAnyApi);
-        SimulationTaskRuntime.DrainUntil(() => !waiter.Pending, WaitAnyApi);
-        return waiter.Completion.Task.GetAwaiter().GetResult()
+        SimulationTaskRuntime.DrainUntil(() => !waiter.IsPending, WaitAnyApi);
+        return waiter.Task.GetAwaiter().GetResult()
             ? waiter.WinnerIndex
             : WaitTimeout;
     }
@@ -743,8 +734,8 @@ public static class ControlledWaitHandle
         }
 
         ArmMultiWaiterTimeout(waiter, millisecondsTimeout, WaitAllApi);
-        SimulationTaskRuntime.DrainUntil(() => !waiter.Pending, WaitAllApi);
-        return waiter.Completion.Task.GetAwaiter().GetResult();
+        SimulationTaskRuntime.DrainUntil(() => !waiter.IsPending, WaitAllApi);
+        return waiter.Task.GetAwaiter().GetResult();
     }
 
     private static bool SignalAndWaitControlled(WaitHandle toSignal, WaitHandle toWaitOn, int millisecondsTimeout)
@@ -849,15 +840,19 @@ public static class ControlledWaitHandle
 
     private static void ArmMultiWaiterTimeout(MultiWaiter waiter, int millisecondsTimeout, string api)
     {
-        if (millisecondsTimeout == Timeout.Infinite || !waiter.Pending)
+        if (millisecondsTimeout == Timeout.Infinite || !waiter.IsPending)
         {
             return;
         }
 
-        waiter.Deadline = SimulationTaskRuntime.RegisterTimeout(
+        SimulationWaiter.AttachDeadline(
+            waiter,
             TimeSpan.FromMilliseconds(millisecondsTimeout),
-            () => CompleteMultiWaiter(waiter, succeeded: false),
-            api);
+            api,
+            pendingWaiter => CompleteMultiWaiter(
+                pendingWaiter,
+                succeeded: false,
+                cancelDeadline: false));
     }
 
     private static void NotifyMultiWaiters(HandleState state)
@@ -870,7 +865,7 @@ public static class ControlledWaitHandle
 
     private static bool TryResolveMultiWaiter(MultiWaiter waiter)
     {
-        if (!waiter.Pending)
+        if (!waiter.IsPending)
         {
             return false;
         }
@@ -898,40 +893,37 @@ public static class ControlledWaitHandle
         return true;
     }
 
-    private static void CompleteMultiWaiter(MultiWaiter waiter, bool succeeded)
+    private static void CompleteMultiWaiter(
+        MultiWaiter waiter,
+        bool succeeded,
+        bool cancelDeadline = true)
     {
-        if (!waiter.Pending)
+        if (!waiter.TryClaim(out SimulationWaiter.Claim claim, cancelDeadline))
         {
             return;
         }
 
-        waiter.Pending = false;
         foreach (HandleState state in UniqueStates(waiter.States))
         {
             state.MultiWaiters.Remove(waiter);
         }
 
-        waiter.Deadline?.Cancel();
-        waiter.Deadline = null;
-        waiter.Completion.TrySetResult(succeeded);
+        claim.Complete(succeeded);
     }
 
     private static void FaultMultiWaiter(MultiWaiter waiter, Exception exception)
     {
-        if (!waiter.Pending)
+        if (!waiter.TryClaim(out SimulationWaiter.Claim claim))
         {
             return;
         }
 
-        waiter.Pending = false;
         foreach (HandleState state in UniqueStates(waiter.States))
         {
             state.MultiWaiters.Remove(waiter);
         }
 
-        waiter.Deadline?.Cancel();
-        waiter.Deadline = null;
-        waiter.Completion.TrySetException(exception);
+        claim.Fault(exception);
     }
 
     private static IEnumerable<HandleState> UniqueStates(HandleState[] states)
@@ -1013,16 +1005,21 @@ public static class ControlledWaitHandle
         state.Waiters.Add(waiter);
         if (millisecondsTimeout != Timeout.Infinite)
         {
-            waiter.Deadline = SimulationTaskRuntime.RegisterTimeout(
+            SimulationWaiter.AttachDeadline(
+                waiter,
                 TimeSpan.FromMilliseconds(millisecondsTimeout),
-                onElapsed: () =>
+                api,
+                pendingWaiter =>
                 {
-                    if (state.Waiters.Remove(waiter))
+                    if (SimulationWaiter.TryTake(
+                        state.Waiters,
+                        pendingWaiter,
+                        out SimulationWaiter.Claim claim,
+                        cancelDeadline: false))
                     {
-                        waiter.Completion.TrySetResult(false);
+                        claim.Complete(false);
                     }
-                },
-                api);
+                });
         }
 
         return waiter;
@@ -1037,9 +1034,10 @@ public static class ControlledWaitHandle
     /// <param name="waiter">The pending waiter to cancel.</param>
     internal static void CancelRegisteredWaiter(HandleState state, Waiter waiter)
     {
-        state.Waiters.Remove(waiter);
-        waiter.Deadline?.Cancel();
-        waiter.Completion.TrySetResult(false);
+        if (SimulationWaiter.TryTake(state.Waiters, waiter, out SimulationWaiter.Claim claim))
+        {
+            claim.Complete(false);
+        }
     }
 
     /// <summary>
@@ -1068,13 +1066,12 @@ public static class ControlledWaitHandle
         if (States.TryGetValue(instance, out HandleState? state))
         {
             state.Disposed = true;
-            foreach (Waiter waiter in state.Waiters)
+            List<SimulationWaiter.Claim> waiters = SimulationWaiter.TakeAll(state.Waiters);
+            foreach (SimulationWaiter.Claim waiter in waiters)
             {
-                waiter.Deadline?.Cancel();
-                waiter.Completion.TrySetException(new ObjectDisposedException(nameof(WaitHandle)));
+                waiter.Fault(new ObjectDisposedException(nameof(WaitHandle)));
             }
 
-            state.Waiters.Clear();
             foreach (MultiWaiter waiter in state.MultiWaiters.ToArray())
             {
                 FaultMultiWaiter(waiter, new ObjectDisposedException(nameof(WaitHandle)));

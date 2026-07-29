@@ -37,25 +37,37 @@ public sealed record InstrumentationRequest
     /// <summary>
     /// Gets the path the closure manifest is written to. Defaults to
     /// <c>&lt;StagingDirectory&gt;.manifest.json</c> (a sibling of the staging directory, so it never
-    /// ships inside the instrumented closure).
+    /// ships inside the instrumented closure). A path within the staging directory is supported as a
+    /// reserved metadata file only when it does not collide with a staged closure asset. It must
+    /// always be outside the source directory.
     /// </summary>
     public string ManifestPath
     {
-        get => _manifestPath ?? Path.GetFullPath(StagingDirectory).TrimEnd(
+        get => _manifestPath ?? InstrumentationPath.GetFullPath(
+            StagingDirectory,
+            nameof(StagingDirectory)).TrimEnd(
             Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + ".manifest.json";
         init => _manifestPath = value;
     }
 
     /// <summary>
-    /// Gets the path the incremental cache key is written to. Defaults to
+    /// Gets the path the authenticated incremental cache record is written to. The bounded record
+    /// binds the incremental key to the exact closure-manifest bytes. Defaults to
     /// <c>&lt;StagingDirectory&gt;.cache</c> (a sibling, so it survives clearing the staging directory).
+    /// It must be outside both the source and staging directories and distinct from
+    /// <see cref="ManifestPath"/>.
     /// </summary>
     public string CachePath
     {
-        get => _cachePath ?? Path.GetFullPath(StagingDirectory).TrimEnd(
+        get => _cachePath ?? InstrumentationPath.GetFullPath(
+            StagingDirectory,
+            nameof(StagingDirectory)).TrimEnd(
             Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + ".cache";
         init => _cachePath = value;
     }
+
+    internal string? ManifestPathOverride => _manifestPath;
+    internal string? CachePathOverride => _cachePath;
 
     private readonly string? _manifestPath;
     private readonly string? _cachePath;

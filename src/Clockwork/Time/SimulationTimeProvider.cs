@@ -12,34 +12,30 @@ namespace Clockwork;
 /// This enables fully deterministic simulation testing where task execution order is controlled.
 /// </para>
 /// <para>
-/// Time is tracked centrally by the <see cref="SimulationClock"/> - this provider
-/// delegates all time queries to the clock.
+/// Time is tracked centrally by the scheduler which owns the lane. Time queries continue to use
+/// that scheduler after the lane is detached, while timer creation retains the lane's detachment
+/// checks.
 /// </para>
 /// </summary>
 public sealed class SimulationTimeProvider : TimeProvider
 {
     private readonly SimulationSchedulerLane _schedulerLane;
-    private readonly SimulationClock _clock;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="SimulationTimeProvider"/> class with a scheduler lane and clock.
+    /// Initializes a new instance of the <see cref="SimulationTimeProvider"/> class with a scheduler lane.
     /// </summary>
     /// <param name="schedulerLane">The scheduler lane for timer callbacks.</param>
-    /// <param name="clock">The simulation clock for time queries.</param>
-    public SimulationTimeProvider(SimulationSchedulerLane schedulerLane, SimulationClock clock)
+    public SimulationTimeProvider(SimulationSchedulerLane schedulerLane)
     {
         ArgumentNullException.ThrowIfNull(schedulerLane);
-        ArgumentNullException.ThrowIfNull(clock);
-
         _schedulerLane = schedulerLane;
-        _clock = clock;
     }
 
     /// <inheritdoc />
-    public override DateTimeOffset GetUtcNow() => _clock.UtcNow;
+    public override DateTimeOffset GetUtcNow() => _schedulerLane.Scheduler.UtcNow;
 
     /// <inheritdoc />
-    public override long GetTimestamp() => _clock.UtcNow.Ticks;
+    public override long GetTimestamp() => _schedulerLane.Scheduler.UtcNow.Ticks;
 
     /// <inheritdoc />
     public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Utc;

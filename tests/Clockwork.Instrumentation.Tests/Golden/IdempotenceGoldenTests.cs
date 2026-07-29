@@ -116,7 +116,7 @@ public sealed class IdempotenceGoldenTests
         RewriteDiagnostic diagnostic = Assert.Single(
             second.Errors,
             error => error.Id == RewriteDiagnosticIds.IncompatibleRewriteVersion);
-        Assert.Equal("2.0.0", current.Version);
+        Assert.Equal("3.0.0", current.Version);
         Assert.Contains(
             "'clockwork.bcl.deterministic' v1.0.0",
             diagnostic.Message,
@@ -175,7 +175,7 @@ public sealed class IdempotenceGoldenTests
     }
 
     [Fact]
-    public void PassThroughReasonChangesRuleSetSignature()
+    public void DescriptionChangesRuleSetSignature()
     {
         RewriteRule firstRule = RewriteTestContext.StandardRuleSet().Rules[0] with { Description = "first reason" };
         RewriteRule secondRule = firstRule with { Description = "second reason" };

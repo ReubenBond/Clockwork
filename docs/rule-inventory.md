@@ -8,7 +8,7 @@ This is the exact, exhaustive surface the built-in rule sets redirect. Every oth
 # Deterministic BCL rule set
 
 Rule set id: `clockwork.bcl.deterministic`
-Version: `2.0.0`
+Version: `3.0.0`
 Shim assembly: `Clockwork`
 
 ## Clock family
@@ -49,19 +49,22 @@ Policy: **Controlled**. `Random.Shared` and unseeded `new Random()` become per-n
 
 ## Crypto family
 
-Policy: **Rejected**. Static entropy APIs are redirected to `ControlledRandomNumberGenerator`. The default under simulation is a precise rejected-call diagnostic; a test-only opt-in can serve bytes from `SimulationInsecureRandomNumberGenerator`. Uninstrumented production binaries retain ordinary cryptographic BCL behavior.
+Policy: **Controlled**. Static random APIs are redirected to `ControlledRandomNumberGenerator` and draw from a deterministic, per-node non-cryptographic stream. Uninstrumented production binaries retain ordinary BCL behavior.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
-| `clockwork.bcl.rng.create` | `System.Security.Cryptography.RandomNumberGenerator::Create()` | `Clockwork!Clockwork.Shims.System.Security.Cryptography.ControlledRandomNumberGenerator::Create()` | Rejected |
-| `clockwork.bcl.rng.create.named` | `System.Security.Cryptography.RandomNumberGenerator::Create(System.String)` | `Clockwork!Clockwork.Shims.System.Security.Cryptography.ControlledRandomNumberGenerator::Create(System.String)` | Rejected |
-| `clockwork.bcl.rng.fill` | `System.Security.Cryptography.RandomNumberGenerator::Fill(System.Span`1<System.Byte>)` | `Clockwork!Clockwork.Shims.System.Security.Cryptography.ControlledRandomNumberGenerator::Fill(System.Span`1<System.Byte>)` | Rejected |
-| `clockwork.bcl.rng.getbytes.count` | `System.Security.Cryptography.RandomNumberGenerator::GetBytes(System.Int32)` | `Clockwork!Clockwork.Shims.System.Security.Cryptography.ControlledRandomNumberGenerator::GetBytes(System.Int32)` | Rejected |
-| `clockwork.bcl.rng.getint32.exclusive` | `System.Security.Cryptography.RandomNumberGenerator::GetInt32(System.Int32)` | `Clockwork!Clockwork.Shims.System.Security.Cryptography.ControlledRandomNumberGenerator::GetInt32(System.Int32)` | Rejected |
-| `clockwork.bcl.rng.getint32.range` | `System.Security.Cryptography.RandomNumberGenerator::GetInt32(System.Int32,System.Int32)` | `Clockwork!Clockwork.Shims.System.Security.Cryptography.ControlledRandomNumberGenerator::GetInt32(System.Int32,System.Int32)` | Rejected |
-| `clockwork.bcl.rng.gethexstring.span` | `System.Security.Cryptography.RandomNumberGenerator::GetHexString(System.Span`1<System.Char>,System.Boolean)` | `Clockwork!Clockwork.Shims.System.Security.Cryptography.ControlledRandomNumberGenerator::GetHexString(System.Span`1<System.Char>,System.Boolean)` | Rejected |
-| `clockwork.bcl.rng.gethexstring.length` | `System.Security.Cryptography.RandomNumberGenerator::GetHexString(System.Int32,System.Boolean)` | `Clockwork!Clockwork.Shims.System.Security.Cryptography.ControlledRandomNumberGenerator::GetHexString(System.Int32,System.Boolean)` | Rejected |
-| `clockwork.bcl.rng.getstring` | `System.Security.Cryptography.RandomNumberGenerator::GetString(System.ReadOnlySpan`1<System.Char>,System.Int32)` | `Clockwork!Clockwork.Shims.System.Security.Cryptography.ControlledRandomNumberGenerator::GetString(System.ReadOnlySpan`1<System.Char>,System.Int32)` | Rejected |
+| `clockwork.bcl.rng.create` | `System.Security.Cryptography.RandomNumberGenerator::Create()` | `Clockwork!Clockwork.Shims.System.Security.Cryptography.ControlledRandomNumberGenerator::Create()` | Controlled |
+| `clockwork.bcl.rng.create.named` | `System.Security.Cryptography.RandomNumberGenerator::Create(System.String)` | `Clockwork!Clockwork.Shims.System.Security.Cryptography.ControlledRandomNumberGenerator::Create(System.String)` | Controlled |
+| `clockwork.bcl.rng.fill` | `System.Security.Cryptography.RandomNumberGenerator::Fill(System.Span`1<System.Byte>)` | `Clockwork!Clockwork.Shims.System.Security.Cryptography.ControlledRandomNumberGenerator::Fill(System.Span`1<System.Byte>)` | Controlled |
+| `clockwork.bcl.rng.getbytes.count` | `System.Security.Cryptography.RandomNumberGenerator::GetBytes(System.Int32)` | `Clockwork!Clockwork.Shims.System.Security.Cryptography.ControlledRandomNumberGenerator::GetBytes(System.Int32)` | Controlled |
+| `clockwork.bcl.rng.getint32.exclusive` | `System.Security.Cryptography.RandomNumberGenerator::GetInt32(System.Int32)` | `Clockwork!Clockwork.Shims.System.Security.Cryptography.ControlledRandomNumberGenerator::GetInt32(System.Int32)` | Controlled |
+| `clockwork.bcl.rng.getint32.range` | `System.Security.Cryptography.RandomNumberGenerator::GetInt32(System.Int32,System.Int32)` | `Clockwork!Clockwork.Shims.System.Security.Cryptography.ControlledRandomNumberGenerator::GetInt32(System.Int32,System.Int32)` | Controlled |
+| `clockwork.bcl.rng.getitems.span` | `System.Security.Cryptography.RandomNumberGenerator::GetItems(System.ReadOnlySpan`1<!!0>,System.Span`1<!!0>)` | `Clockwork!Clockwork.Shims.System.Security.Cryptography.ControlledRandomNumberGenerator::GetItems(System.ReadOnlySpan`1<T>,System.Span`1<T>)` | Controlled |
+| `clockwork.bcl.rng.getitems.length` | `System.Security.Cryptography.RandomNumberGenerator::GetItems(System.ReadOnlySpan`1<!!0>,System.Int32)` | `Clockwork!Clockwork.Shims.System.Security.Cryptography.ControlledRandomNumberGenerator::GetItems(System.ReadOnlySpan`1<T>,System.Int32)` | Controlled |
+| `clockwork.bcl.rng.gethexstring.span` | `System.Security.Cryptography.RandomNumberGenerator::GetHexString(System.Span`1<System.Char>,System.Boolean)` | `Clockwork!Clockwork.Shims.System.Security.Cryptography.ControlledRandomNumberGenerator::GetHexString(System.Span`1<System.Char>,System.Boolean)` | Controlled |
+| `clockwork.bcl.rng.gethexstring.length` | `System.Security.Cryptography.RandomNumberGenerator::GetHexString(System.Int32,System.Boolean)` | `Clockwork!Clockwork.Shims.System.Security.Cryptography.ControlledRandomNumberGenerator::GetHexString(System.Int32,System.Boolean)` | Controlled |
+| `clockwork.bcl.rng.getstring` | `System.Security.Cryptography.RandomNumberGenerator::GetString(System.ReadOnlySpan`1<System.Char>,System.Int32)` | `Clockwork!Clockwork.Shims.System.Security.Cryptography.ControlledRandomNumberGenerator::GetString(System.ReadOnlySpan`1<System.Char>,System.Int32)` | Controlled |
+| `clockwork.bcl.rng.shuffle` | `System.Security.Cryptography.RandomNumberGenerator::Shuffle(System.Span`1<!!0>)` | `Clockwork!Clockwork.Shims.System.Security.Cryptography.ControlledRandomNumberGenerator::Shuffle(System.Span`1<T>)` | Controlled |
 
 # Controlled task rule set
 
@@ -715,7 +718,7 @@ These nondeterministic or entropy-drawing surfaces are intentionally **not** cov
 remain real BCL calls even under simulation:
 
 - `Stopwatch` instance APIs (`Start`/`Stop`/`Restart`/`Elapsed`/`ElapsedMilliseconds`/`ElapsedTicks`) remain uncontrolled because their mutable lifecycle would require whole-type substitution. `GetElapsedTime(long, long)` is intentionally not rewritten or analyzed: it is deterministic arithmetic over caller-supplied timestamps (use controlled `GetTimestamp()` values).
-- Generic cryptographic helpers `RandomNumberGenerator.GetItems<T>` and `Shuffle<T>`, and any `GetString`/`GetHexString` overloads beyond those listed above.
+- Any `RandomNumberGenerator` overloads beyond those listed above.
 - `DateTime`/`DateTimeOffset` parsing/formatting and any culture-, timezone-, or kind-conversion helpers other than the `Now`/`UtcNow`/`Today` clocks above.
 - Synchronous blocking on `ValueTask`/`ValueTask<T>` (`.Result`/`.GetResult()` outside an awaiter): a value task may be consumed only once, so a blocking drain is unsafe. `await` is the supported controlled path.
 - Named/cross-process synchronization (named `EventWaitHandle`/`Mutex`/`Semaphore` and their `OpenExisting`/`TryOpenExisting` APIs): a single-process simulation cannot model kernel-object sharing, so these are rejected.

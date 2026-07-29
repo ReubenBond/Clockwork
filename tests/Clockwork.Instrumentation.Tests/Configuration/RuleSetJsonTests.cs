@@ -1,4 +1,5 @@
 using Clockwork.Instrumentation.Configuration;
+using Clockwork.Instrumentation.Orchestration;
 using Clockwork.Instrumentation.Rules;
 using Clockwork.Runtime.Policy;
 
@@ -7,13 +8,13 @@ namespace Clockwork.Instrumentation.Tests.Configuration;
 /// <summary>
 /// Verifies the strict rule-set JSON loader: valid documents parse to the expected rule model,
 /// round-tripping is signature-stable, and every class of malformed document fails with a
-/// <see cref="RuleSetFormatException"/> rather than silently producing a degenerate rule set.
+/// <see cref="ConfigurationException"/> rather than silently producing a degenerate rule set.
 /// </summary>
 public sealed class RuleSetJsonTests
 {
     private const string ValidDocument = """
         {
-          "schemaVersion": 1,
+          "schemaVersion": 2,
           "id": "clockwork.example",
           "version": "1.0",
           "rules": [
@@ -23,7 +24,6 @@ public sealed class RuleSetJsonTests
               "target": { "type": "System.DateTime", "member": "get_UtcNow", "parameters": [] },
               "replacement": { "assembly": "Shims", "type": "Shims.Clock", "member": "UtcNow", "parameters": [] },
               "policy": "Controlled",
-              "fallback": "Fail",
               "supportedRuntimes": { "min": "10.0", "max": null },
               "description": "redirect the clock"
             },
@@ -100,7 +100,7 @@ public sealed class RuleSetJsonTests
     [InlineData("""{ "id": "s", "version": "1", "rules": [ { "id": "r", "operation": "Nope", "target": {"type":"T","member":"M"}, "replacement": {"assembly":"A","type":"R","member":"M"} } ] }""", "not one of")]
     public void RejectsMalformedDocuments(string json, string expectedFragment)
     {
-        RuleSetFormatException ex = Assert.Throws<RuleSetFormatException>(() => RuleSetJson.Parse(json));
+        ConfigurationException ex = Assert.Throws<ConfigurationException>(() => RuleSetJson.Parse(json));
         Assert.Contains(expectedFragment, ex.Message, StringComparison.Ordinal);
     }
 
@@ -117,7 +117,7 @@ public sealed class RuleSetJsonTests
             }
             """;
 
-        RuleSetFormatException ex = Assert.Throws<RuleSetFormatException>(() => RuleSetJson.Parse(doc));
+        ConfigurationException ex = Assert.Throws<ConfigurationException>(() => RuleSetJson.Parse(doc));
         Assert.Contains("dup", ex.Message, StringComparison.Ordinal);
     }
 
@@ -131,7 +131,7 @@ public sealed class RuleSetJsonTests
             }
             """;
 
-        Assert.Throws<RuleSetFormatException>(() => RuleSetJson.Parse(doc));
+        Assert.Throws<ConfigurationException>(() => RuleSetJson.Parse(doc));
     }
 
     [Fact]
@@ -144,7 +144,7 @@ public sealed class RuleSetJsonTests
             }
             """;
 
-        Assert.Throws<RuleSetFormatException>(() => RuleSetJson.Parse(doc));
+        Assert.Throws<ConfigurationException>(() => RuleSetJson.Parse(doc));
     }
 
     [Fact]
@@ -157,7 +157,101 @@ public sealed class RuleSetJsonTests
             }
             """;
 
-        RuleSetFormatException ex = Assert.Throws<RuleSetFormatException>(() => RuleSetJson.Parse(doc));
+        ConfigurationException ex = Assert.Throws<ConfigurationException>(() => RuleSetJson.Parse(doc));
         Assert.Contains("must not specify an 'assembly'", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("fallback", "\"fallback\":\"Fail\"", "unknown property 'fallback'")]
+    [InlineData("pass-through policy", "\"policy\":\"PassThrough\"", "'policy' value 'PassThrough' is not one of")]
+    public void RejectsRemovedRuleFieldsAndValues(string name, string property, string expectedFragment)
+    {
+        _ = name;
+        string doc = $$"""
+            {
+              "id": "s", "version": "1",
+              "rules": [{
+                "id": "r", "operation": "RedirectCall",
+                "target": {"type":"T","member":"M"},
+                "replacement": {"assembly":"A","type":"R","member":"M"},
+                {{property}}
+              }]
+            }
+            """;
+
+        ConfigurationException ex = Assert.Throws<ConfigurationException>(() => RuleSetJson.Parse(doc));
+        Assert.Contains(expectedFragment, ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void WriterOmitsRemovedFallbackField()
+    {
+        string written = RuleSetJson.Write(RuleSetJson.Parse(ValidDocument));
+
+        Assert.DoesNotContain("fallback", written, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("\"schemaVersion\": 2", written, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MaximumLengthRuleIdentifiersAreAccepted()
+    {
+        string identifier = new('i', ClosureManifestLimits.MaxStringLength);
+        string document = $$"""
+            {
+              "id": {{System.Text.Json.JsonSerializer.Serialize(identifier)}},
+              "version": "1",
+              "rules": [{
+                "id": {{System.Text.Json.JsonSerializer.Serialize(identifier)}},
+                "operation": "RedirectCall",
+                "target": {"type":"T","member":"M"},
+                "replacement": {"assembly":"A","type":"R","member":"M"}
+              }]
+            }
+            """;
+
+        RewriteRuleSet ruleSet = RuleSetJson.Parse(document);
+
+        Assert.Equal(identifier, ruleSet.Id);
+        Assert.Equal(identifier, Assert.Single(ruleSet.Rules).Id);
+    }
+
+    [Theory]
+    [InlineData("ruleSet")]
+    [InlineData("rule")]
+    public void OverLimitRuleIdentifierIsRejectedAtAcceptance(string identifierKind)
+    {
+        string valid = "valid";
+        string overLimit = new('i', ClosureManifestLimits.MaxStringLength + 1);
+        string ruleSetId = identifierKind == "ruleSet" ? overLimit : valid;
+        string ruleId = identifierKind == "rule" ? overLimit : valid;
+        string document = $$"""
+            {
+              "id": {{System.Text.Json.JsonSerializer.Serialize(ruleSetId)}},
+              "version": "1",
+              "rules": [{
+                "id": {{System.Text.Json.JsonSerializer.Serialize(ruleId)}},
+                "operation": "RedirectCall",
+                "target": {"type":"T","member":"M"},
+                "replacement": {"assembly":"A","type":"R","member":"M"}
+              }]
+            }
+            """;
+
+        ConfigurationException exception =
+            Assert.Throws<ConfigurationException>(() => RuleSetJson.Parse(document));
+
+        Assert.Contains("length", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("exceeds", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ProgrammaticRuleSetRejectsOverLimitIdentifier()
+    {
+        string overLimit = new('i', ClosureManifestLimits.MaxStringLength + 1);
+
+        ArgumentException exception = Assert.Throws<ArgumentException>(
+            () => new RewriteRuleSet(overLimit, "1", []));
+
+        Assert.Contains("Identifier length", exception.Message, StringComparison.Ordinal);
     }
 }

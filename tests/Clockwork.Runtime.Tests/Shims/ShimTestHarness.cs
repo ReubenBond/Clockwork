@@ -26,9 +26,8 @@ internal static class ShimTestHarness
     public static TestEnvironment CreateEnvironment(
         MutableClock clock,
         int rootSeed = 12345,
-        TimeZoneInfo? localTimeZone = null,
-        SimulationCryptoRandomnessPolicy cryptoPolicy = SimulationCryptoRandomnessPolicy.Reject) =>
-        new(clock, rootSeed, localTimeZone ?? TimeZoneInfo.Utc, cryptoPolicy);
+        TimeZoneInfo? localTimeZone = null) =>
+        new(clock, rootSeed, localTimeZone ?? TimeZoneInfo.Utc);
 
     /// <summary>
     /// Runs <paramref name="body"/> inside an active simulation with the given environment registered
@@ -45,8 +44,7 @@ internal static class ShimTestHarness
             activeRuntime,
             new SimulationSeedAuthority(environment.RootSeed),
             environment.Clock.UtcNow,
-            environment.LocalTimeZone,
-            environment.CryptoPolicy);
+            environment.LocalTimeZone);
         environment.Clock.Bind(scheduler);
 
         using (SimulationExecutionContext.EnterRuntime(activeRuntime))
@@ -111,19 +109,16 @@ internal static class ShimTestHarness
         public TestEnvironment(
             MutableClock clock,
             int rootSeed,
-            TimeZoneInfo localTimeZone,
-            SimulationCryptoRandomnessPolicy cryptoPolicy)
+            TimeZoneInfo localTimeZone)
         {
             Clock = clock;
             RootSeed = rootSeed;
             LocalTimeZone = localTimeZone;
-            CryptoPolicy = cryptoPolicy;
             _inner = new SimulationRuntimeEnvironment(
                 new SimulationSeedAuthority(rootSeed),
                 () => clock.UtcNow,
                 localTimeZone,
-                Origin,
-                cryptoPolicy);
+                Origin);
         }
 
         public MutableClock Clock { get; }
@@ -131,8 +126,6 @@ internal static class ShimTestHarness
         public int RootSeed { get; }
 
         public TimeZoneInfo LocalTimeZone { get; }
-
-        public SimulationCryptoRandomnessPolicy CryptoPolicy { get; }
 
         public DateTimeOffset GetUtcNow(SimulationNodeIdentity? node) => _inner.GetUtcNow(node);
 
@@ -149,7 +142,7 @@ internal static class ShimTestHarness
         public void FillIdentityBytes(SimulationNodeIdentity? node, Span<byte> destination) =>
             _inner.FillIdentityBytes(node, destination);
 
-        public void FillInsecureCryptoBytes(SimulationNodeIdentity? node, Span<byte> destination) =>
-            _inner.FillInsecureCryptoBytes(node, destination);
+        public void FillCryptoRandomBytes(SimulationNodeIdentity? node, Span<byte> destination) =>
+            _inner.FillCryptoRandomBytes(node, destination);
     }
 }

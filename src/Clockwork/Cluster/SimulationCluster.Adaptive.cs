@@ -1,11 +1,10 @@
 namespace Clockwork;
 
 /// <summary>
-/// Adaptive execution-budget overloads for <see cref="SimulationCluster{TNode}"/> that spare callers from
+/// Adaptive execution-budget overloads for <see cref="SimulationCluster"/> that spare callers from
 /// picking a size-specific <c>maxIterations</c> value.
 /// </summary>
-public abstract partial class SimulationCluster<TNode>
-    where TNode : SimulationNode
+public sealed partial class SimulationCluster
 {
     /// <summary>
     /// <para>
@@ -57,7 +56,7 @@ public abstract partial class SimulationCluster<TNode>
     {
         ArgumentNullException.ThrowIfNull(condition);
         ArgumentNullException.ThrowIfNull(budget);
-        using var control = _scheduler.EnterControlScope();
+        using var control = Scheduler.EnterControlScope();
         using var _ = Guard.Enter();
         return RunAdaptiveCore(
             budget,
@@ -91,7 +90,7 @@ public abstract partial class SimulationCluster<TNode>
     public SimulationExecutionResult RunUntilIdle(AdaptiveExecutionBudget budget, TimeSpan? maxTimeAdvance = null)
     {
         ArgumentNullException.ThrowIfNull(budget);
-        using var control = _scheduler.EnterControlScope();
+        using var control = Scheduler.EnterControlScope();
         using var _ = Guard.Enter();
         return RunAdaptiveCore(
             budget,

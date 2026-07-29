@@ -20,11 +20,8 @@ namespace Clockwork.Instrumentation.Rules.BuiltIn;
 /// the selection even though the id and version are stable.
 /// </para>
 /// <para>
-/// The clock, identity, and random families are <see cref="SimulationApiPolicy.Controlled"/>
-/// redirections. The crypto family is classified <see cref="SimulationApiPolicy.Rejected"/> - the
-/// operation is still a redirect to <c>ControlledRandomNumberGenerator</c>, but the shim rejects the call by
-/// default at runtime and only serves deterministic-insecure bytes under an explicit test-only opt-in.
-/// Controlled rewrite targets require an active simulation.
+/// The clock, identity, random, and crypto families are <see cref="SimulationApiPolicy.Controlled"/>
+/// redirections. Controlled rewrite targets require an active simulation.
 /// </para>
 /// </remarks>
 public static class BuiltInRuleSets
@@ -33,7 +30,7 @@ public static class BuiltInRuleSets
     public const string DeterministicBclId = "clockwork.bcl.deterministic";
 
     /// <summary>The version of the deterministic BCL rule set.</summary>
-    public const string DeterministicBclVersion = "2.0.0";
+    public const string DeterministicBclVersion = "3.0.0";
 
     /// <summary>The stable id of the controlled task / async machinery rule set.</summary>
     public const string ControlledTasksId = "clockwork.tasks.controlled";
@@ -78,6 +75,10 @@ public static class BuiltInRuleSets
     private const string SpanByte = "System.Span`1<System.Byte>";
     private const string SpanChar = "System.Span`1<System.Char>";
     private const string ReadOnlySpanChar = "System.ReadOnlySpan`1<System.Char>";
+    private const string ReadOnlySpanGenericArg0 = "System.ReadOnlySpan`1<!!0>";
+    private const string SpanGenericArg0 = "System.Span`1<!!0>";
+    private const string ReadOnlySpanTDecl = "System.ReadOnlySpan`1<T>";
+    private const string SpanTDecl = "System.Span`1<T>";
 
     // Cecil full names for the controlled-task overload parameters.
     private const string Task = "System.Threading.Tasks.Task";
@@ -1619,25 +1620,31 @@ public static class BuiltInRuleSets
             MemberSignature.Constructor("System.Random", Int32),
             Shim(RandomShim, "CreateSeeded", Int32))));
 
-        // ---- Crypto family: rejected-by-default policy shims for OS-entropy statics ----
-        Crypto(builder, "clockwork.bcl.rng.create", "Create", Shim(CryptoShim, "Create"),
+        // ---- Crypto family: deterministic non-cryptographic shims for static RNG APIs ----
+        Crypto(builder, "clockwork.bcl.rng.create", Shim(CryptoShim, "Create"),
             MemberSignature.Method("System.Security.Cryptography.RandomNumberGenerator", "Create"));
-        Crypto(builder, "clockwork.bcl.rng.create.named", "Create", Shim(CryptoShim, "Create", String),
+        Crypto(builder, "clockwork.bcl.rng.create.named", Shim(CryptoShim, "Create", String),
             MemberSignature.Method("System.Security.Cryptography.RandomNumberGenerator", "Create", String));
-        Crypto(builder, "clockwork.bcl.rng.fill", "Fill", Shim(CryptoShim, "Fill", SpanByte),
+        Crypto(builder, "clockwork.bcl.rng.fill", Shim(CryptoShim, "Fill", SpanByte),
             MemberSignature.Method("System.Security.Cryptography.RandomNumberGenerator", "Fill", SpanByte));
-        Crypto(builder, "clockwork.bcl.rng.getbytes.count", "GetBytes", Shim(CryptoShim, "GetBytes", Int32),
+        Crypto(builder, "clockwork.bcl.rng.getbytes.count", Shim(CryptoShim, "GetBytes", Int32),
             MemberSignature.Method("System.Security.Cryptography.RandomNumberGenerator", "GetBytes", Int32));
-        Crypto(builder, "clockwork.bcl.rng.getint32.exclusive", "GetInt32", Shim(CryptoShim, "GetInt32", Int32),
+        Crypto(builder, "clockwork.bcl.rng.getint32.exclusive", Shim(CryptoShim, "GetInt32", Int32),
             MemberSignature.Method("System.Security.Cryptography.RandomNumberGenerator", "GetInt32", Int32));
-        Crypto(builder, "clockwork.bcl.rng.getint32.range", "GetInt32", Shim(CryptoShim, "GetInt32", Int32, Int32),
+        Crypto(builder, "clockwork.bcl.rng.getint32.range", Shim(CryptoShim, "GetInt32", Int32, Int32),
             MemberSignature.Method("System.Security.Cryptography.RandomNumberGenerator", "GetInt32", Int32, Int32));
-        Crypto(builder, "clockwork.bcl.rng.gethexstring.span", "GetHexString", Shim(CryptoShim, "GetHexString", SpanChar, Boolean),
+        Crypto(builder, "clockwork.bcl.rng.getitems.span", Shim(CryptoShim, "GetItems", ReadOnlySpanTDecl, SpanTDecl),
+            MemberSignature.Method("System.Security.Cryptography.RandomNumberGenerator", "GetItems", ReadOnlySpanGenericArg0, SpanGenericArg0));
+        Crypto(builder, "clockwork.bcl.rng.getitems.length", Shim(CryptoShim, "GetItems", ReadOnlySpanTDecl, Int32),
+            MemberSignature.Method("System.Security.Cryptography.RandomNumberGenerator", "GetItems", ReadOnlySpanGenericArg0, Int32));
+        Crypto(builder, "clockwork.bcl.rng.gethexstring.span", Shim(CryptoShim, "GetHexString", SpanChar, Boolean),
             MemberSignature.Method("System.Security.Cryptography.RandomNumberGenerator", "GetHexString", SpanChar, Boolean));
-        Crypto(builder, "clockwork.bcl.rng.gethexstring.length", "GetHexString", Shim(CryptoShim, "GetHexString", Int32, Boolean),
+        Crypto(builder, "clockwork.bcl.rng.gethexstring.length", Shim(CryptoShim, "GetHexString", Int32, Boolean),
             MemberSignature.Method("System.Security.Cryptography.RandomNumberGenerator", "GetHexString", Int32, Boolean));
-        Crypto(builder, "clockwork.bcl.rng.getstring", "GetString", Shim(CryptoShim, "GetString", ReadOnlySpanChar, Int32),
+        Crypto(builder, "clockwork.bcl.rng.getstring", Shim(CryptoShim, "GetString", ReadOnlySpanChar, Int32),
             MemberSignature.Method("System.Security.Cryptography.RandomNumberGenerator", "GetString", ReadOnlySpanChar, Int32));
+        Crypto(builder, "clockwork.bcl.rng.shuffle", Shim(CryptoShim, "Shuffle", SpanTDecl),
+            MemberSignature.Method("System.Security.Cryptography.RandomNumberGenerator", "Shuffle", SpanGenericArg0));
 
         return builder.ToImmutable();
     }
@@ -1659,13 +1666,11 @@ public static class BuiltInRuleSets
     private static void Crypto(
         ImmutableArray<BuiltInRuleEntry>.Builder builder,
         string id,
-        string member,
         RewriteReplacement replacement,
         MemberSignature target)
     {
-        _ = member;
         builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Crypto, RewriteRule.RedirectCall(
-            id, target, replacement, SimulationApiPolicy.Rejected)));
+            id, target, replacement)));
     }
 
     // A collection expression always yields a non-default ImmutableArray - even when empty - so the

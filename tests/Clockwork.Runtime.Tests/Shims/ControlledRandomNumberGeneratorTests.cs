@@ -4,49 +4,58 @@ using Clockwork.Runtime.Shims;
 namespace Clockwork.Runtime.Tests.Shims;
 
 /// <summary>
-/// Conformance tests for <see cref="ControlledRandomNumberGenerator"/>: reject-by-default diagnostics for
-/// every controlled static, inactive-simulation rejection, and the explicit deterministic-insecure opt-in
-/// (determinism, replay, and instance-generator behaviour).
+/// Conformance tests for <see cref="ControlledRandomNumberGenerator"/>: deterministic static and
+/// instance behavior, inactive-simulation rejection, replay, validation, and seed-domain isolation.
 /// </summary>
 public sealed class ControlledRandomNumberGeneratorTests
 {
-    private static ShimTestHarness.TestEnvironment RejectEnvironment() =>
+    private static ShimTestHarness.TestEnvironment Environment() =>
         ShimTestHarness.CreateEnvironment(ShimTestHarness.CreateClock());
 
-    private static ShimTestHarness.TestEnvironment InsecureEnvironment() =>
-        ShimTestHarness.CreateEnvironment(
-            ShimTestHarness.CreateClock(),
-            cryptoPolicy: SimulationCryptoRandomnessPolicy.DeterministicInsecureForTesting);
-
     [Fact]
-    public void RejectPolicyRejectsEveryControlledStaticWithAPreciseDiagnostic()
+    public void EveryControlledStaticIsDeterministic()
     {
-        var env = RejectEnvironment();
-
-        ShimTestHarness.RunInSimulation(env, () =>
+        static string[] Observe()
         {
-            AssertRejected(() => ControlledRandomNumberGenerator.Create(), "RandomNumberGenerator.Create");
-            AssertRejected(() => ControlledRandomNumberGenerator.Create("SHA1PRNG"), "RandomNumberGenerator.Create");
-            AssertRejected(() => ControlledRandomNumberGenerator.GetBytes(16), "RandomNumberGenerator.GetBytes");
-            AssertRejected(() => ControlledRandomNumberGenerator.GetInt32(100), "RandomNumberGenerator.GetInt32");
-            AssertRejected(() => ControlledRandomNumberGenerator.GetInt32(1, 100), "RandomNumberGenerator.GetInt32");
-            AssertRejected(() => ControlledRandomNumberGenerator.GetHexString(8), "RandomNumberGenerator.GetHexString");
-            AssertRejected(() => ControlledRandomNumberGenerator.GetString("abcdef", 8), "RandomNumberGenerator.GetString");
-            AssertRejected(
-                () =>
+            var env = Environment();
+            return ShimTestHarness.RunInSimulation(env, () =>
+            {
+                using RandomNumberGenerator instance = ControlledRandomNumberGenerator.Create();
+                var instanceArray = new byte[8];
+                instance.GetBytes(instanceArray);
+                Span<byte> instanceSpan = stackalloc byte[8];
+                instance.GetBytes(instanceSpan);
+
+                Span<byte> filled = stackalloc byte[8];
+                ControlledRandomNumberGenerator.Fill(filled);
+                Span<char> hex = stackalloc char[8];
+                ControlledRandomNumberGenerator.GetHexString(hex, lowercase: true);
+                ReadOnlySpan<int> choices = [10, 20, 30, 40];
+                Span<int> selected = stackalloc int[6];
+                ControlledRandomNumberGenerator.GetItems(choices, selected);
+                int[] selectedArray = ControlledRandomNumberGenerator.GetItems(choices, 6);
+                int[] shuffled = [1, 2, 3, 4, 5, 6];
+                ControlledRandomNumberGenerator.Shuffle(shuffled);
+
+                return new string[]
                 {
-                    Span<byte> buf = stackalloc byte[8];
-                    ControlledRandomNumberGenerator.Fill(buf);
-                },
-                "RandomNumberGenerator.Fill");
-            AssertRejected(
-                () =>
-                {
-                    Span<char> hex = stackalloc char[8];
-                    ControlledRandomNumberGenerator.GetHexString(hex);
-                },
-                "RandomNumberGenerator.GetHexString");
-        });
+                    Convert.ToHexString(instanceArray),
+                    Convert.ToHexString(instanceSpan),
+                    Convert.ToHexString(filled),
+                    Convert.ToHexString(ControlledRandomNumberGenerator.GetBytes(8)),
+                    ControlledRandomNumberGenerator.GetInt32(100).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    ControlledRandomNumberGenerator.GetInt32(-100, 100).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    new string(hex),
+                    ControlledRandomNumberGenerator.GetHexString(8),
+                    ControlledRandomNumberGenerator.GetString("abcdef", 8),
+                    string.Join(",", selected.ToArray()),
+                    string.Join(",", selectedArray),
+                    string.Join(",", shuffled),
+                };
+            });
+        }
+
+        Assert.Equal(Observe(), Observe());
     }
 
     [Fact]
@@ -94,11 +103,11 @@ public sealed class ControlledRandomNumberGeneratorTests
     }
 
     [Fact]
-    public void InsecurePolicyProducesDeterministicBytesThatReplay()
+    public void ProducesDeterministicBytesThatReplay()
     {
         byte[] Draw()
         {
-            var env = InsecureEnvironment();
+            var env = Environment();
             return ShimTestHarness.RunInSimulation(env, () => ControlledRandomNumberGenerator.GetBytes(32));
         }
 
@@ -106,11 +115,11 @@ public sealed class ControlledRandomNumberGeneratorTests
     }
 
     [Fact]
-    public void InsecurePolicyGetInt32StaysInRangeAndReplays()
+    public void GetInt32StaysInRangeAndReplays()
     {
         int Draw()
         {
-            var env = InsecureEnvironment();
+            var env = Environment();
             return ShimTestHarness.RunInSimulation(env, () => ControlledRandomNumberGenerator.GetInt32(10, 20));
         }
 
@@ -120,11 +129,11 @@ public sealed class ControlledRandomNumberGeneratorTests
     }
 
     [Fact]
-    public void InsecurePolicyHexStringIsDeterministicAndWellFormed()
+    public void HexStringIsDeterministicAndWellFormed()
     {
         string Draw()
         {
-            var env = InsecureEnvironment();
+            var env = Environment();
             return ShimTestHarness.RunInSimulation(env, () => ControlledRandomNumberGenerator.GetHexString(16, lowercase: true));
         }
 
@@ -135,13 +144,13 @@ public sealed class ControlledRandomNumberGeneratorTests
     }
 
     [Fact]
-    public void InsecurePolicyGetStringDrawsOnlyFromChoices()
+    public void GetStringDrawsOnlyFromChoices()
     {
         const string Choices = "XYZ";
 
         string Draw()
         {
-            var env = InsecureEnvironment();
+            var env = Environment();
             return ShimTestHarness.RunInSimulation(env, () => ControlledRandomNumberGenerator.GetString(Choices, 12));
         }
 
@@ -152,11 +161,11 @@ public sealed class ControlledRandomNumberGeneratorTests
     }
 
     [Fact]
-    public void InsecurePolicyCreateReturnsADeterministicInstanceGenerator()
+    public void CreateReturnsADeterministicInstanceGenerator()
     {
         byte[] Draw()
         {
-            var env = InsecureEnvironment();
+            var env = Environment();
             return ShimTestHarness.RunInSimulation(env, () =>
             {
                 using var rng = ControlledRandomNumberGenerator.Create();
@@ -170,15 +179,16 @@ public sealed class ControlledRandomNumberGeneratorTests
     }
 
     [Fact]
-    public void InsecureInstanceGeneratorGetNonZeroBytesHasNoZeros()
+    public void InstanceGeneratorArrayAndSpanGetNonZeroBytesHaveNoZeros()
     {
-        var env = InsecureEnvironment();
+        var env = Environment();
 
         var bytes = ShimTestHarness.RunInSimulation(env, () =>
         {
             using var rng = ControlledRandomNumberGenerator.Create();
-            var buffer = new byte[64];
+            var buffer = new byte[128];
             rng.GetNonZeroBytes(buffer);
+            rng.GetNonZeroBytes(buffer.AsSpan(64));
             return buffer;
         });
 
@@ -186,18 +196,36 @@ public sealed class ControlledRandomNumberGeneratorTests
     }
 
     [Fact]
+    public void CryptoStreamReplaysPerSeedAndIsIsolatedPerNode()
+    {
+        static byte[] Draw(int seed, string node)
+        {
+            var env = ShimTestHarness.CreateEnvironment(ShimTestHarness.CreateClock(), rootSeed: seed);
+            return ShimTestHarness.RunInSimulation(
+                env,
+                () => ControlledRandomNumberGenerator.GetBytes(32),
+                nodeAddress: node);
+        }
+
+        byte[] baseline = Draw(17, "node-a");
+        Assert.Equal(baseline, Draw(17, "node-a"));
+        Assert.False(baseline.SequenceEqual(Draw(17, "node-b")));
+        Assert.False(baseline.SequenceEqual(Draw(18, "node-a")));
+    }
+
+    [Fact]
     public void CryptoConsumptionDoesNotPerturbApplicationRandomOrIdentityStreams()
     {
         (int Random, Guid Identity) WithoutCrypto()
         {
-            var env = InsecureEnvironment();
+            var env = Environment();
             return ShimTestHarness.RunInSimulation(env, () =>
                 (ControlledRandom.GetShared().Next(), ControlledGuid.NewGuid()));
         }
 
         (int Random, Guid Identity) WithCrypto()
         {
-            var env = InsecureEnvironment();
+            var env = Environment();
             return ShimTestHarness.RunInSimulation(env, () =>
             {
                 _ = ControlledRandomNumberGenerator.GetBytes(16);
@@ -208,19 +236,13 @@ public sealed class ControlledRandomNumberGeneratorTests
         Assert.Equal(WithoutCrypto(), WithCrypto());
     }
 
-    private static void AssertRejected(Action action, string expectedApiFragment)
-    {
-        var ex = Assert.Throws<SimulationRejectedCallException>(action);
-        Assert.Contains(expectedApiFragment, ex.ApiName);
-    }
-
     [Theory]
     [InlineData(-1)]
     [InlineData(int.MinValue)]
     public void GetBytesNegativeCountMatchesBclExceptionShape(int count)
     {
         Exception? bclError = Record.Exception(() => _ = RandomNumberGenerator.GetBytes(count));
-        var env = InsecureEnvironment();
+        var env = Environment();
         Exception? controlledError = ShimTestHarness.RunInSimulation(
             env,
             () => Record.Exception(() => _ = ControlledRandomNumberGenerator.GetBytes(count)));
@@ -235,7 +257,7 @@ public sealed class ControlledRandomNumberGeneratorTests
     public void GetInt32SingleBoundRejectsNonPositiveValuesLikeBcl(int toExclusive)
     {
         Exception? bclError = Record.Exception(() => _ = RandomNumberGenerator.GetInt32(toExclusive));
-        var env = InsecureEnvironment();
+        var env = Environment();
         Exception? controlledError = ShimTestHarness.RunInSimulation(
             env,
             () => Record.Exception(() => _ = ControlledRandomNumberGenerator.GetInt32(toExclusive)));
@@ -251,7 +273,7 @@ public sealed class ControlledRandomNumberGeneratorTests
     {
         Exception? bclError = Record.Exception(
             () => _ = RandomNumberGenerator.GetInt32(fromInclusive, toExclusive));
-        var env = InsecureEnvironment();
+        var env = Environment();
         Exception? controlledError = ShimTestHarness.RunInSimulation(
             env,
             () => Record.Exception(
@@ -270,12 +292,12 @@ public sealed class ControlledRandomNumberGeneratorTests
 
         byte[] Draw()
         {
-            var env = InsecureEnvironment();
+            var env = Environment();
             return ShimTestHarness.RunInSimulation(env, () =>
             {
                 using RandomNumberGenerator? generator =
                     ControlledRandomNumberGenerator.Create("RandomNumberGenerator");
-                var deterministic = Assert.IsType<SimulationInsecureRandomNumberGenerator>(generator);
+                var deterministic = Assert.IsType<SimulationRandomNumberGenerator>(generator);
                 var bytes = new byte[24];
                 deterministic.GetBytes(bytes);
                 return bytes;
@@ -301,7 +323,7 @@ public sealed class ControlledRandomNumberGeneratorTests
 #pragma warning restore SYSLIB0045
         Assert.Null(bclGenerator);
 
-        var env = InsecureEnvironment();
+        var env = Environment();
         using RandomNumberGenerator? controlledGenerator = ShimTestHarness.RunInSimulation(
             env,
             () => ControlledRandomNumberGenerator.Create(UnknownName));
@@ -325,14 +347,14 @@ public sealed class ControlledRandomNumberGeneratorTests
     [Fact]
     public void GetBytesZeroCountReturnsEmptyWithoutConsumingCryptoState()
     {
-        var withBoundaryEnvironment = InsecureEnvironment();
+        var withBoundaryEnvironment = Environment();
         (byte[] Empty, byte[] Following) observation = ShimTestHarness.RunInSimulation(
             withBoundaryEnvironment,
             () => (
                 ControlledRandomNumberGenerator.GetBytes(0),
                 ControlledRandomNumberGenerator.GetBytes(24)));
 
-        var baselineEnvironment = InsecureEnvironment();
+        var baselineEnvironment = Environment();
         byte[] baseline = ShimTestHarness.RunInSimulation(
             baselineEnvironment,
             () => ControlledRandomNumberGenerator.GetBytes(24));

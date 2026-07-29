@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Clockwork.Instrumentation.Orchestration;
 using Clockwork.Instrumentation.Rules;
 using Clockwork.Runtime.Policy;
 
@@ -12,13 +13,13 @@ namespace Clockwork.Instrumentation.Configuration;
 /// sets, are supplied to the build task and CLI: rules are <em>pure data</em>, so loading a rule set
 /// never compiles or executes arbitrary code. Every field is validated (unknown enum values, missing
 /// required members, malformed signatures, and duplicate rule ids are hard errors) so that authoring
-/// mistakes surface as a <see cref="RuleSetFormatException"/> rather than a silent misrewrite.
+/// mistakes surface as a <see cref="ConfigurationException"/> rather than a silent misrewrite.
 /// </summary>
 /// <remarks>
 /// The schema is intentionally a faithful projection of the in-memory rule model:
 /// <code>
 /// {
-///   "schemaVersion": 1,
+///   "schemaVersion": 2,
 ///   "id": "clockwork.example",
 ///   "version": "1.0",
 ///   "rules": [
@@ -28,7 +29,6 @@ namespace Clockwork.Instrumentation.Configuration;
 ///       "target":      { "type": "System.DateTime", "member": "get_UtcNow", "parameters": [] },
 ///       "replacement": { "assembly": "Shims", "type": "Shims.Clock", "member": "UtcNow", "parameters": [] },
 ///       "policy": "Controlled",
-///       "fallback": "Fail",
 ///       "supportedRuntimes": { "min": "10.0", "max": null },
 ///       "description": "optional"
 ///     }
@@ -41,38 +41,54 @@ namespace Clockwork.Instrumentation.Configuration;
 public static class RuleSetJson
 {
     /// <summary>The rule-set document schema version this loader understands.</summary>
-    public const int SchemaVersion = 1;
+    public const int SchemaVersion = 2;
 
     /// <summary>Loads and validates a rule set from a JSON file.</summary>
     /// <param name="path">The path of the rule-set document.</param>
     /// <returns>The parsed, validated rule set.</returns>
-    /// <exception cref="RuleSetFormatException">The document is malformed or fails validation.</exception>
+    /// <exception cref="ConfigurationException">The document is malformed or fails validation.</exception>
     public static RewriteRuleSet Load(string path)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
-        if (!File.Exists(path))
+        string fullPath;
+        try
         {
-            throw new RuleSetFormatException($"Rule-set document '{path}' was not found.");
+            fullPath = InstrumentationPath.GetFullPath(path, "Rule-set document");
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException
+                or NotSupportedException
+                or IOException
+                or UnauthorizedAccessException)
+        {
+            throw new ConfigurationException(
+                $"Rule-set document '{path}' is not a valid path: {exception.Message}",
+                exception);
+        }
+
+        if (!File.Exists(fullPath))
+        {
+            throw new ConfigurationException($"Rule-set document '{path}' was not found.");
         }
 
         string json;
         try
         {
-            json = File.ReadAllText(path);
+            json = File.ReadAllText(fullPath);
         }
-        catch (IOException ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            throw new RuleSetFormatException($"Rule-set document '{path}' could not be read: {ex.Message}", ex);
+            throw new ConfigurationException($"Rule-set document '{path}' could not be read: {ex.Message}", ex);
         }
 
-        return Parse(json, path);
+        return Parse(json, fullPath);
     }
 
     /// <summary>Parses and validates a rule set from a JSON string.</summary>
     /// <param name="json">The rule-set document text.</param>
     /// <param name="sourceName">A name for the source used in error messages (e.g. the file path).</param>
     /// <returns>The parsed, validated rule set.</returns>
-    /// <exception cref="RuleSetFormatException">The document is malformed or fails validation.</exception>
+    /// <exception cref="ConfigurationException">The document is malformed or fails validation.</exception>
     public static RewriteRuleSet Parse(string json, string? sourceName = null)
     {
         string origin = sourceName is null ? "rule-set document" : $"rule-set document '{sourceName}'";
@@ -83,7 +99,7 @@ public static class RuleSetJson
         }
         catch (JsonException ex)
         {
-            throw new RuleSetFormatException($"{origin} is not valid JSON: {ex.Message}", ex);
+            throw new ConfigurationException($"{origin} is not valid JSON: {ex.Message}", ex);
         }
 
         using (document)
@@ -91,13 +107,15 @@ public static class RuleSetJson
             JsonElement root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object)
             {
-                throw new RuleSetFormatException($"{origin} must be a JSON object.");
+                throw new ConfigurationException($"{origin} must be a JSON object.");
             }
+
+            EnsureOnlyProperties(root, origin, "schemaVersion", "id", "version", "rules");
 
             int schema = GetOptionalInt(root, "schemaVersion", origin) ?? SchemaVersion;
             if (schema != SchemaVersion)
             {
-                throw new RuleSetFormatException(
+                throw new ConfigurationException(
                     $"{origin} declares unsupported schemaVersion {schema}; this engine supports version {SchemaVersion}.");
             }
 
@@ -106,7 +124,7 @@ public static class RuleSetJson
 
             if (!root.TryGetProperty("rules", out JsonElement rules) || rules.ValueKind != JsonValueKind.Array)
             {
-                throw new RuleSetFormatException($"{origin} must contain a 'rules' array.");
+                throw new ConfigurationException($"{origin} must contain a 'rules' array.");
             }
 
             var parsed = new List<RewriteRule>();
@@ -123,7 +141,7 @@ public static class RuleSetJson
             }
             catch (ArgumentException ex)
             {
-                throw new RuleSetFormatException($"{origin} is invalid: {ex.Message}", ex);
+                throw new ConfigurationException($"{origin} is invalid: {ex.Message}", ex);
             }
         }
     }
@@ -145,7 +163,6 @@ public static class RuleSetJson
                 ["target"] = WriteSignature(rule.Target.DeclaringTypeFullName, rule.Target.MemberName, rule.Target.ParameterTypeFullNames, assembly: null),
                 ["replacement"] = WriteSignature(rule.Replacement.DeclaringTypeFullName, rule.Replacement.MemberName, rule.Replacement.ParameterTypeFullNames, rule.Replacement.AssemblyName),
                 ["policy"] = rule.Policy.ToString(),
-                ["fallback"] = rule.Fallback.ToString(),
                 ["supportedRuntimes"] = new JsonObject
                 {
                     ["min"] = rule.SupportedRuntimes.Minimum?.ToString(),
@@ -195,8 +212,19 @@ public static class RuleSetJson
         string context = $"{origin}, rule[{index}]";
         if (element.ValueKind != JsonValueKind.Object)
         {
-            throw new RuleSetFormatException($"{context} must be a JSON object.");
+            throw new ConfigurationException($"{context} must be a JSON object.");
         }
+
+        EnsureOnlyProperties(
+            element,
+            context,
+            "id",
+            "operation",
+            "target",
+            "replacement",
+            "policy",
+            "supportedRuntimes",
+            "description");
 
         string id = GetRequiredString(element, "id", context);
         context = $"{origin}, rule '{id}'";
@@ -209,12 +237,12 @@ public static class RuleSetJson
         bool isTypeOperation = operation == RewriteOperationKind.SubstituteType;
         if (isTypeOperation && targetMember is not null)
         {
-            throw new RuleSetFormatException($"{context}: a SubstituteType rule must target a type, so 'target.member' must be omitted.");
+            throw new ConfigurationException($"{context}: a SubstituteType rule must target a type, so 'target.member' must be omitted.");
         }
 
         if (!isTypeOperation && targetMember is null)
         {
-            throw new RuleSetFormatException($"{context}: operation '{operation}' targets a member, so 'target.member' is required.");
+            throw new ConfigurationException($"{context}: operation '{operation}' targets a member, so 'target.member' is required.");
         }
 
         MemberSignature target = targetParameters.IsDefault
@@ -226,12 +254,12 @@ public static class RuleSetJson
 
         if (isTypeOperation && replacementMember is not null)
         {
-            throw new RuleSetFormatException($"{context}: a SubstituteType rule's 'replacement.member' must be omitted (it names a substitute type).");
+            throw new ConfigurationException($"{context}: a SubstituteType rule's 'replacement.member' must be omitted (it names a substitute type).");
         }
 
         if (!isTypeOperation && replacementMember is null)
         {
-            throw new RuleSetFormatException($"{context}: operation '{operation}' requires 'replacement.member'.");
+            throw new ConfigurationException($"{context}: operation '{operation}' requires 'replacement.member'.");
         }
 
         var replacement = new RewriteReplacement(
@@ -244,10 +272,6 @@ public static class RuleSetJson
             ? ParseEnum<SimulationApiPolicy>(RequireString(policyElement, "policy", context), "policy", context)
             : SimulationApiPolicy.Controlled;
 
-        RewriteFallback fallback = element.TryGetProperty("fallback", out JsonElement fallbackElement) && fallbackElement.ValueKind != JsonValueKind.Null
-            ? ParseEnum<RewriteFallback>(RequireString(fallbackElement, "fallback", context), "fallback", context)
-            : RewriteFallback.Fail;
-
         RuntimeVersionRange runtimes = ParseRuntimeRange(element, context);
         string? description = GetOptionalString(element, "description", context);
 
@@ -258,7 +282,6 @@ public static class RuleSetJson
             Target = target,
             Replacement = replacement,
             Policy = policy,
-            Fallback = fallback,
             SupportedRuntimes = runtimes,
             Description = description,
         };
@@ -269,14 +292,16 @@ public static class RuleSetJson
     {
         if (!parent.TryGetProperty(propertyName, out JsonElement element) || element.ValueKind != JsonValueKind.Object)
         {
-            throw new RuleSetFormatException($"{context}: '{propertyName}' must be a JSON object.");
+            throw new ConfigurationException($"{context}: '{propertyName}' must be a JSON object.");
         }
+
+        EnsureOnlyProperties(element, $"{context}.{propertyName}", "assembly", "type", "member", "parameters");
 
         string type = GetRequiredString(element, "type", $"{context}.{propertyName}");
         string? member = GetOptionalString(element, "member", $"{context}.{propertyName}");
         if (member is not null && member.Length == 0)
         {
-            throw new RuleSetFormatException($"{context}: '{propertyName}.member' must not be empty; omit it to target a type.");
+            throw new ConfigurationException($"{context}: '{propertyName}.member' must not be empty; omit it to target a type.");
         }
 
         string? assembly = null;
@@ -286,7 +311,7 @@ public static class RuleSetJson
         }
         else if (element.TryGetProperty("assembly", out _))
         {
-            throw new RuleSetFormatException($"{context}: 'target' must not specify an 'assembly'; targets match the assembly being rewritten.");
+            throw new ConfigurationException($"{context}: 'target' must not specify an 'assembly'; targets match the assembly being rewritten.");
         }
 
         ImmutableArray<string> parameters = default;
@@ -294,7 +319,7 @@ public static class RuleSetJson
         {
             if (parametersElement.ValueKind != JsonValueKind.Array)
             {
-                throw new RuleSetFormatException($"{context}: '{propertyName}.parameters' must be an array of type full names.");
+                throw new ConfigurationException($"{context}: '{propertyName}.parameters' must be an array of type full names.");
             }
 
             var builder = ImmutableArray.CreateBuilder<string>();
@@ -303,7 +328,7 @@ public static class RuleSetJson
                 string value = RequireString(parameter, $"{propertyName}.parameters[]", context);
                 if (value.Length == 0)
                 {
-                    throw new RuleSetFormatException($"{context}: a '{propertyName}.parameters' entry must be a non-empty type full name.");
+                    throw new ConfigurationException($"{context}: a '{propertyName}.parameters' entry must be a non-empty type full name.");
                 }
 
                 builder.Add(value);
@@ -324,14 +349,16 @@ public static class RuleSetJson
 
         if (range.ValueKind != JsonValueKind.Object)
         {
-            throw new RuleSetFormatException($"{context}: 'supportedRuntimes' must be an object with optional 'min'/'max'.");
+            throw new ConfigurationException($"{context}: 'supportedRuntimes' must be an object with optional 'min'/'max'.");
         }
+
+        EnsureOnlyProperties(range, $"{context}.supportedRuntimes", "min", "max");
 
         Version? min = ParseOptionalVersion(range, "min", context);
         Version? max = ParseOptionalVersion(range, "max", context);
         if (min is not null && max is not null && min > max)
         {
-            throw new RuleSetFormatException($"{context}: 'supportedRuntimes.min' ({min}) is greater than 'max' ({max}).");
+            throw new ConfigurationException($"{context}: 'supportedRuntimes.min' ({min}) is greater than 'max' ({max}).");
         }
 
         return new RuntimeVersionRange(min, max);
@@ -347,7 +374,7 @@ public static class RuleSetJson
         string text = RequireString(value, $"supportedRuntimes.{propertyName}", context);
         if (!Version.TryParse(text, out Version? version))
         {
-            throw new RuleSetFormatException($"{context}: 'supportedRuntimes.{propertyName}' value '{text}' is not a valid version.");
+            throw new ConfigurationException($"{context}: 'supportedRuntimes.{propertyName}' value '{text}' is not a valid version.");
         }
 
         return version;
@@ -362,14 +389,32 @@ public static class RuleSetJson
         }
 
         string allowed = string.Join(", ", Enum.GetNames<TEnum>());
-        throw new RuleSetFormatException($"{context}: '{propertyName}' value '{value}' is not one of: {allowed}.");
+        throw new ConfigurationException($"{context}: '{propertyName}' value '{value}' is not one of: {allowed}.");
+    }
+
+    private static void EnsureOnlyProperties(JsonElement element, string context, params string[] allowedProperties)
+    {
+        var allowed = new HashSet<string>(allowedProperties, StringComparer.Ordinal);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (JsonProperty property in element.EnumerateObject())
+        {
+            if (!allowed.Contains(property.Name))
+            {
+                throw new ConfigurationException($"{context}: unknown property '{property.Name}'.");
+            }
+
+            if (!seen.Add(property.Name))
+            {
+                throw new ConfigurationException($"{context}: property '{property.Name}' is specified more than once.");
+            }
+        }
     }
 
     private static string GetRequiredString(JsonElement element, string propertyName, string context)
     {
         if (!element.TryGetProperty(propertyName, out JsonElement value))
         {
-            throw new RuleSetFormatException($"{context}: required property '{propertyName}' is missing.");
+            throw new ConfigurationException($"{context}: required property '{propertyName}' is missing.");
         }
 
         return RequireString(value, propertyName, context);
@@ -394,7 +439,7 @@ public static class RuleSetJson
 
         if (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out int result))
         {
-            throw new RuleSetFormatException($"{context}: '{propertyName}' must be an integer.");
+            throw new ConfigurationException($"{context}: '{propertyName}' must be an integer.");
         }
 
         return result;
@@ -404,13 +449,19 @@ public static class RuleSetJson
     {
         if (value.ValueKind != JsonValueKind.String)
         {
-            throw new RuleSetFormatException($"{context}: '{propertyName}' must be a string.");
+            throw new ConfigurationException($"{context}: '{propertyName}' must be a string.");
         }
 
         string text = value.GetString() ?? string.Empty;
         if (propertyName is "id" or "version" or "type" or "assembly" && string.IsNullOrWhiteSpace(text))
         {
-            throw new RuleSetFormatException($"{context}: '{propertyName}' must not be empty.");
+            throw new ConfigurationException($"{context}: '{propertyName}' must not be empty.");
+        }
+
+        if (text.Length > ClosureManifestLimits.MaxStringLength)
+        {
+            throw new ConfigurationException(
+                $"{context}: '{propertyName}' length {text.Length} exceeds {ClosureManifestLimits.MaxStringLength}.");
         }
 
         return text;

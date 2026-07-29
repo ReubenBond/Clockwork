@@ -5,7 +5,7 @@ namespace Clockwork;
 /// over scheduled items.
 /// </summary>
 [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1034:Nested types should not be visible", Justification = "C# 14 extension members require this pattern")]
-public static class SimulationSchedulerLaneExtensions
+internal static class SimulationSchedulerLaneExtensions
 {
     extension(SimulationSchedulerLane queue)
     {
@@ -23,7 +23,7 @@ public static class SimulationSchedulerLaneExtensions
 
             var results = new List<TResult>();
 
-            foreach (var item in queue.ScheduledItems)
+            foreach (var item in queue.CaptureItems())
             {
                 if (item is TItem typedItem)
                 {
@@ -47,7 +47,7 @@ public static class SimulationSchedulerLaneExtensions
             where T : ScheduledItem
         {
             var count = 0;
-            foreach (var item in queue.ScheduledItems)
+            foreach (var item in queue.CaptureItems())
             {
                 if (item.DueTime > queue.UtcNow)
                     break; // Queue is sorted by due time, no more ready items
@@ -69,7 +69,7 @@ public static class SimulationSchedulerLaneExtensions
             where T : ScheduledItem
         {
             var count = 0;
-            foreach (var item in queue.ScheduledItems)
+            foreach (var item in queue.CaptureItems())
             {
                 if (item.DueTime > queue.UtcNow && item is T)
                 {
@@ -90,7 +90,7 @@ public static class SimulationSchedulerLaneExtensions
         {
             var results = new List<T>();
 
-            foreach (var item in queue.ScheduledItems)
+            foreach (var item in queue.CaptureItems())
             {
                 if (item.DueTime > queue.UtcNow && item is T typedItem)
                 {

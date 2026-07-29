@@ -79,11 +79,10 @@ public static class RuleSetMerge
 
         var mergedRules = order.Select(id => winning[id]).ToList();
 
-        var canonical = new StringBuilder();
-        foreach (RewriteRule rule in mergedRules)
-        {
-            canonical.Append(rule.ToCanonicalString()).Append('\n');
-        }
+        var canonical = new CanonicalEncoding("MergedRewriteRules");
+        canonical.AddStringSequence(
+            "Rules",
+            mergedRules.Select(static rule => rule.ToCanonicalString()));
 
         string version = Convert.ToHexStringLower(
             SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString())))[..16];
@@ -97,8 +96,7 @@ public static class RuleSetMerge
     /// <summary>Loads and merges the built-in rule sets and rule-set documents referenced by a configuration.</summary>
     /// <param name="configuration">The configuration whose built-in ids and <see cref="InstrumentationConfiguration.RuleSetPaths"/> are loaded.</param>
     /// <returns>The merge result.</returns>
-    /// <exception cref="ConfigurationException">No documents or built-in rule sets are configured, or a built-in selection is invalid.</exception>
-    /// <exception cref="RuleSetFormatException">A rule-set document is malformed.</exception>
+    /// <exception cref="ConfigurationException">No documents or built-in rule sets are configured, a built-in selection is invalid, or a rule-set document is malformed.</exception>
     public static RuleSetMergeResult LoadAndMerge(InstrumentationConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(configuration);
@@ -122,7 +120,24 @@ public static class RuleSetMerge
         {
             foreach (string path in configuration.RuleSetPaths)
             {
-                sources.Add((path, RuleSetJson.Load(path)));
+                RewriteRuleSet ruleSet = RuleSetJson.Load(path);
+                string fullPath;
+                try
+                {
+                    fullPath = InstrumentationPath.GetFullPath(path, "Rule-set document");
+                }
+                catch (Exception exception) when (
+                    exception is ArgumentException
+                        or NotSupportedException
+                        or IOException
+                        or UnauthorizedAccessException)
+                {
+                    throw new ConfigurationException(
+                        $"Rule-set document '{path}' is not a valid path: {exception.Message}",
+                        exception);
+                }
+
+                sources.Add((fullPath, ruleSet));
             }
         }
 
@@ -131,12 +146,11 @@ public static class RuleSetMerge
 
     /// <summary>
     /// Resolves the enabled built-in rule sets for a configuration, applying family include/exclude
-    /// selection and the strict crypto-guard invariant. Returns an empty sequence when no built-in
-    /// rule set is enabled.
+    /// selection. Returns an empty sequence when no built-in rule set is enabled.
     /// </summary>
     /// <param name="configuration">The configuration whose built-in selection is resolved.</param>
     /// <returns>The enabled built-in rule sets, in id order.</returns>
-    /// <exception cref="ConfigurationException">A built-in id or family name is unknown, or a strict build excludes the crypto guard.</exception>
+    /// <exception cref="ConfigurationException">A built-in id or family name is unknown.</exception>
     public static IReadOnlyList<RewriteRuleSet> ResolveBuiltIns(InstrumentationConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(configuration);
@@ -177,13 +191,6 @@ public static class RuleSetMerge
 
         foreach (BuiltInRuleFamily excluded in ParseFamilies(configuration.BuiltInExcludeFamilies, "exclude"))
         {
-            if (excluded == BuiltInRuleFamily.Crypto && configuration.StrictBuiltIns)
-            {
-                throw new ConfigurationException(
-                    "The 'Crypto' built-in rule family cannot be excluded while strict built-in selection is enabled. " +
-                    "Set strictBuiltIns to false to intentionally drop the cryptographic-randomness guard.");
-            }
-
             included.Remove(excluded);
         }
 

@@ -12,19 +12,11 @@
     <ClockworkInstrumentationEnabled Condition="'$(ClockworkInstrumentationEnabled)' == ''">false</ClockworkInstrumentationEnabled>
     <ClockworkInstrumentationMode Condition="'$(ClockworkInstrumentationMode)' == ''">Controlled</ClockworkInstrumentationMode>
 
-    <!-- Policy defaults mirror the safe library defaults. -->
-    <ClockworkExcludeFrameworkAssemblies Condition="'$(ClockworkExcludeFrameworkAssemblies)' == ''">true</ClockworkExcludeFrameworkAssemblies>
-    <ClockworkInstrumentDependencies Condition="'$(ClockworkInstrumentDependencies)' == ''">true</ClockworkInstrumentDependencies>
-    <ClockworkReadyToRunPolicy Condition="'$(ClockworkReadyToRunPolicy)' == ''">Reject</ClockworkReadyToRunPolicy>
-    <ClockworkStrongNamePolicy Condition="'$(ClockworkStrongNamePolicy)' == ''">Fail</ClockworkStrongNamePolicy>
-
     <!--
       Built-in deterministic BCL rule set. Set ClockworkUseBuiltInRules=true to enable the shipped
-      deterministic clock/identity/random/crypto rules without authoring JSON. Strict selection (the
-      default) forbids dropping the cryptographic-randomness guard family.
+      deterministic clock/identity/random/crypto rules without authoring JSON.
     -->
     <ClockworkUseBuiltInRules Condition="'$(ClockworkUseBuiltInRules)' == ''">false</ClockworkUseBuiltInRules>
-    <ClockworkStrictBuiltIns Condition="'$(ClockworkStrictBuiltIns)' == ''">true</ClockworkStrictBuiltIns>
   </PropertyGroup>
 
   <ItemGroup>

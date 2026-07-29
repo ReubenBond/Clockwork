@@ -1,6 +1,5 @@
 using System.Runtime.CompilerServices;
 using System.Threading;
-using System.Threading.Tasks;
 using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks;
 
@@ -14,26 +13,6 @@ public static class ControlledManualResetEventSlim
 {
     private const string TypeName = "System.Threading.ManualResetEventSlim";
     private const string WaitApi = TypeName + ".Wait";
-
-    private enum WaiterOutcome
-    {
-        Pending,
-        Signaled,
-        TimedOut,
-        Canceled,
-        Disposed,
-    }
-
-    private sealed class Waiter
-    {
-        public TaskCompletionSource<bool> Completion { get; } = new();
-
-        public CancellationTokenRegistration Registration;
-
-        public ISimulationTimer? Deadline;
-
-        public WaiterOutcome Outcome;
-    }
 
     private sealed class State
     {
@@ -53,15 +32,8 @@ public static class ControlledManualResetEventSlim
 
         public WaitHandle? WaitHandle { get; set; }
 
-        public List<Waiter> Waiters { get; } = [];
+        public List<SimulationWaiter> Waiters { get; } = [];
     }
-
-    private readonly record struct WaiterCleanup(
-        Waiter Waiter,
-        WaiterOutcome Outcome,
-        CancellationTokenRegistration Registration,
-        ISimulationTimer? Deadline,
-        CancellationToken CancellationToken);
 
     private static readonly ConditionalWeakTable<ManualResetEventSlim, State> States = new();
 
@@ -118,20 +90,14 @@ public static class ControlledManualResetEventSlim
         SimulationRuntimeDispatch.RequireActiveSimulation(TypeName + ".Set");
         ArgumentNullException.ThrowIfNull(instance);
         State state = GetState(instance, TypeName + ".Set");
-        List<WaiterCleanup> completed = [];
+        List<SimulationWaiter.Claim> completed;
         WaitHandle? bridge;
         lock (state.Gate)
         {
             ThrowIfDisposed(state);
             state.IsSet = true;
             bridge = state.WaitHandle;
-            foreach (Waiter waiter in state.Waiters.ToArray())
-            {
-                if (TryResolveUnderLock(state, waiter, WaiterOutcome.Signaled, CancellationToken.None, out WaiterCleanup cleanup))
-                {
-                    completed.Add(cleanup);
-                }
-            }
+            completed = SimulationWaiter.TakeAll(state.Waiters);
         }
 
         if (bridge is not null)
@@ -229,7 +195,7 @@ public static class ControlledManualResetEventSlim
         SimulationRuntimeDispatch.RequireActiveSimulation(TypeName + ".Dispose");
         ArgumentNullException.ThrowIfNull(instance);
         State state = GetState(instance, TypeName + ".Dispose");
-        List<WaiterCleanup> completed = [];
+        List<SimulationWaiter.Claim> completed;
         WaitHandle? bridge;
         lock (state.Gate)
         {
@@ -240,16 +206,10 @@ public static class ControlledManualResetEventSlim
 
             state.Disposed = true;
             bridge = state.WaitHandle;
-            foreach (Waiter waiter in state.Waiters.ToArray())
-            {
-                if (TryResolveUnderLock(state, waiter, WaiterOutcome.Disposed, CancellationToken.None, out WaiterCleanup cleanup))
-                {
-                    completed.Add(cleanup);
-                }
-            }
+            completed = SimulationWaiter.TakeAll(state.Waiters);
         }
 
-        CompleteWaiters(completed);
+        FaultDisposedWaiters(completed);
         ControlledWaitHandle.DisposeBridge(bridge);
     }
 
@@ -278,7 +238,7 @@ public static class ControlledManualResetEventSlim
     private static bool WaitControlled(ManualResetEventSlim instance, int millisecondsTimeout, CancellationToken cancellationToken)
     {
         State state = GetState(instance, WaitApi);
-        Waiter waiter;
+        SimulationWaiter waiter;
         lock (state.Gate)
         {
             // The BCL gives disposal precedence, but for a usable event cancellation takes precedence over
@@ -300,133 +260,78 @@ public static class ControlledManualResetEventSlim
         }
 
         AttachCancellation(state, waiter, cancellationToken);
-        SimulationTaskRuntime.DrainUntil(() => waiter.Completion.Task.IsCompleted, WaitApi);
-        return waiter.Completion.Task.GetAwaiter().GetResult();
+        SimulationTaskRuntime.DrainUntil(() => waiter.Task.IsCompleted, WaitApi);
+        return waiter.Task.GetAwaiter().GetResult();
     }
 
-    private static Waiter EnqueueUnderLock(State state, int millisecondsTimeout)
+    private static SimulationWaiter EnqueueUnderLock(State state, int millisecondsTimeout)
     {
-        var waiter = new Waiter();
+        var waiter = new SimulationWaiter();
         state.Waiters.Add(waiter);
         if (millisecondsTimeout != Timeout.Infinite)
         {
-            waiter.Deadline = SimulationTaskRuntime.RegisterTimeout(
+            SimulationWaiter.AttachDeadline(
+                waiter,
                 TimeSpan.FromMilliseconds(millisecondsTimeout),
-                onElapsed: () => ResolveTimedOut(state, waiter),
-                WaitApi);
+                WaitApi,
+                pendingWaiter => ResolveTimedOut(state, pendingWaiter));
         }
 
         return waiter;
     }
 
-    private static void AttachCancellation(State state, Waiter waiter, CancellationToken cancellationToken)
+    private static void AttachCancellation(State state, SimulationWaiter waiter, CancellationToken cancellationToken) =>
+        SimulationWaiter.AttachCancellation(
+            state.Gate,
+            waiter,
+            (pendingWaiter, token) => ResolveCanceled(state, pendingWaiter, token),
+            cancellationToken);
+
+    private static void ResolveCanceled(State state, SimulationWaiter waiter, CancellationToken cancellationToken)
     {
-        if (!cancellationToken.CanBeCanceled)
-        {
-            return;
-        }
-
-        CancellationTokenRegistration registration = cancellationToken.Register(
-            static callbackState =>
-            {
-                var (eventState, canceledWaiter, token) = ((State, Waiter, CancellationToken))callbackState!;
-                ResolveCanceled(eventState, canceledWaiter, token);
-            },
-            (state, waiter, cancellationToken));
-
-        CancellationTokenRegistration detachedRegistration = default;
+        SimulationWaiter.Claim claim;
         lock (state.Gate)
         {
-            if (waiter.Outcome == WaiterOutcome.Pending && state.Waiters.Contains(waiter))
-            {
-                waiter.Registration = registration;
-            }
-            else
-            {
-                detachedRegistration = registration;
-            }
-        }
-
-        detachedRegistration.Dispose();
-    }
-
-    private static void ResolveCanceled(State state, Waiter waiter, CancellationToken cancellationToken)
-    {
-        WaiterCleanup cleanup;
-        lock (state.Gate)
-        {
-            if (!TryResolveUnderLock(state, waiter, WaiterOutcome.Canceled, cancellationToken, out cleanup))
+            if (!SimulationWaiter.TryTake(state.Waiters, waiter, out claim))
             {
                 return;
             }
         }
 
-        CompleteWaiter(cleanup);
+        claim.Cancel(cancellationToken);
     }
 
-    private static void ResolveTimedOut(State state, Waiter waiter)
+    private static void ResolveTimedOut(State state, SimulationWaiter waiter)
     {
-        WaiterCleanup cleanup;
+        SimulationWaiter.Claim claim;
         lock (state.Gate)
         {
-            if (!TryResolveUnderLock(state, waiter, WaiterOutcome.TimedOut, CancellationToken.None, out cleanup, cancelDeadline: false))
+            if (!SimulationWaiter.TryTake(
+                state.Waiters,
+                waiter,
+                out claim,
+                cancelDeadline: false))
             {
                 return;
             }
         }
 
-        CompleteWaiter(cleanup);
+        claim.Complete(false);
     }
 
-    private static bool TryResolveUnderLock(
-        State state,
-        Waiter waiter,
-        WaiterOutcome outcome,
-        CancellationToken cancellationToken,
-        out WaiterCleanup cleanup,
-        bool cancelDeadline = true)
+    private static void CompleteWaiters(List<SimulationWaiter.Claim> completed)
     {
-        if (waiter.Outcome != WaiterOutcome.Pending || !state.Waiters.Remove(waiter))
+        foreach (SimulationWaiter.Claim claim in completed)
         {
-            cleanup = default;
-            return false;
-        }
-
-        waiter.Outcome = outcome;
-        CancellationTokenRegistration registration = waiter.Registration;
-        waiter.Registration = default;
-        ISimulationTimer? deadline = waiter.Deadline;
-        waiter.Deadline = null;
-        cleanup = new WaiterCleanup(waiter, outcome, registration, cancelDeadline ? deadline : null, cancellationToken);
-        return true;
-    }
-
-    private static void CompleteWaiters(List<WaiterCleanup> completed)
-    {
-        foreach (WaiterCleanup cleanup in completed)
-        {
-            CompleteWaiter(cleanup);
+            claim.Complete(true);
         }
     }
 
-    private static void CompleteWaiter(WaiterCleanup cleanup)
+    private static void FaultDisposedWaiters(List<SimulationWaiter.Claim> completed)
     {
-        cleanup.Deadline?.Cancel();
-        cleanup.Registration.Dispose();
-        switch (cleanup.Outcome)
+        foreach (SimulationWaiter.Claim claim in completed)
         {
-            case WaiterOutcome.Signaled:
-                cleanup.Waiter.Completion.TrySetResult(true);
-                break;
-            case WaiterOutcome.TimedOut:
-                cleanup.Waiter.Completion.TrySetResult(false);
-                break;
-            case WaiterOutcome.Canceled:
-                cleanup.Waiter.Completion.TrySetCanceled(cleanup.CancellationToken);
-                break;
-            case WaiterOutcome.Disposed:
-                cleanup.Waiter.Completion.TrySetException(new ObjectDisposedException(nameof(ManualResetEventSlim)));
-                break;
+            claim.Fault(new ObjectDisposedException(nameof(ManualResetEventSlim)));
         }
     }
 

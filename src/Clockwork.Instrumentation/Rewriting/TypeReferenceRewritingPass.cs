@@ -27,11 +27,14 @@ internal sealed class TypeReferenceRewritingPass : RewritePass
             return instruction;
         }
 
-        TypeReference matchType = type is GenericInstanceType generic ? generic.ElementType : type;
-        if (Session.Matcher.TryMatchType(matchType, out RewriteRule passThrough)
-            && passThrough.Policy == Clockwork.Runtime.Policy.SimulationApiPolicy.PassThrough)
+        IReadOnlyList<RewriteRule> outOfRangeRules = Session.Matcher.GetOutOfRangeTypeRules(type);
+        if (outOfRangeRules.Count > 0)
         {
-            RecordPassThrough(passThrough, instruction);
+            foreach (RewriteRule outOfRangeRule in outOfRangeRules)
+            {
+                ReportRuntimeOutOfRange(outOfRangeRule, instruction, type);
+            }
+
             return instruction;
         }
 
@@ -66,23 +69,6 @@ internal sealed class TypeReferenceRewritingPass : RewritePass
         return instruction;
     }
 
-    private void RecordPassThrough(RewriteRule rule, Instruction instruction)
-    {
-        RewriteSession.TryGetSequencePoint(Method!, instruction, out string? file, out int line);
-        Session.AddTransformation(new ManifestTransformation(
-            rule.Id,
-            rule.Operation,
-            TransformationOutcome.PassedThrough,
-            rule.Policy,
-            rule.Target.ToCanonicalString(),
-            null,
-            CecilNames.FullyQualifiedMethodName(Method!),
-            instruction.Offset,
-            file,
-            line,
-            rule.Description ?? "Explicit PassThrough policy."));
-    }
-
     /// <summary>
     /// Attempts to substitute <paramref name="type"/>. Returns <see langword="true"/> with the rewritten
     /// reference when a rule applies; the <paramref name="rule"/> that matched at the top level is
@@ -109,11 +95,6 @@ internal sealed class TypeReferenceRewritingPass : RewritePass
                 return false;
             }
 
-            if (rule.Policy == Clockwork.Runtime.Policy.SimulationApiPolicy.PassThrough)
-            {
-                return false;
-            }
-
             if (!Session.Resolver.TryResolveType(Session.TargetModule, rule.Replacement, out TypeReference imported, out error))
             {
                 return false;
@@ -133,11 +114,6 @@ internal sealed class TypeReferenceRewritingPass : RewritePass
         }
 
         if (!Session.Matcher.TryMatchType(type, out rule))
-        {
-            return false;
-        }
-
-        if (rule.Policy == Clockwork.Runtime.Policy.SimulationApiPolicy.PassThrough)
         {
             return false;
         }
@@ -166,23 +142,21 @@ internal sealed class TypeReferenceRewritingPass : RewritePass
     private void ReportUnresolved(RewriteRule rule, Instruction instruction, string error)
     {
         string containing = CecilNames.FullyQualifiedMethodName(Method!);
-        if (rule.Fallback == RewriteFallback.Skip)
-        {
-            Session.AddDiagnostic(Diagnostics.RewriteDiagnostic.Warning(
-                Diagnostics.RewriteDiagnosticIds.UnresolvedReplacement,
-                $"{error} Rule '{rule.Id}' was skipped per its fallback policy.",
-                containing,
-                instruction.Offset));
-        }
-        else
-        {
-            Session.AddDiagnostic(Diagnostics.RewriteDiagnostic.Error(
-                Diagnostics.RewriteDiagnosticIds.UnresolvedReplacement,
-                $"{error} Rule '{rule.Id}' could not be applied.",
-                containing,
-                instruction.Offset));
-        }
+        Session.AddDiagnostic(Diagnostics.RewriteDiagnostic.Error(
+            Diagnostics.RewriteDiagnosticIds.UnresolvedReplacement,
+            $"{error} Rule '{rule.Id}' could not be applied.",
+            containing,
+            instruction.Offset));
 
         Session.AddUnresolvedReference(rule.Replacement.ToCanonicalString());
+    }
+
+    private void ReportRuntimeOutOfRange(RewriteRule rule, Instruction instruction, TypeReference type)
+    {
+        Session.AddDiagnostic(Diagnostics.RewriteDiagnostic.Error(
+            Diagnostics.RewriteDiagnosticIds.RuntimeOutOfRange,
+            $"Rule '{rule.Id}' targeted type '{type.FullName}' but the configured target runtime is outside its supported range {rule.SupportedRuntimes.ToCanonicalString()}.",
+            CecilNames.FullyQualifiedMethodName(Method!),
+            instruction.Offset));
     }
 }

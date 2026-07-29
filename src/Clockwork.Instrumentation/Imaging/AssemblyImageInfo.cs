@@ -8,8 +8,8 @@ namespace Clockwork.Instrumentation.Imaging;
 /// questions the build pipeline must ask <em>before</em> attempting a Cecil round-trip: is this a
 /// managed assembly at all, is it IL-only or mixed-mode, is it ReadyToRun (carries an ahead-of-time
 /// native image), and is it Authenticode-signed. Mono.Cecil silently drops native code and
-/// Authenticode signatures on write, so these must be detected and handled by explicit policy rather
-/// than discovered after the fact.
+/// Authenticode signatures on write, so these must be detected and handled deliberately rather than
+/// discovered after the fact.
 /// </summary>
 /// <param name="IsManagedAssembly">Whether the file has a CLI (COR) header, i.e. is a managed assembly.</param>
 /// <param name="IsILOnly">Whether the <c>ILOnly</c> COR flag is set (not mixed-mode).</param>

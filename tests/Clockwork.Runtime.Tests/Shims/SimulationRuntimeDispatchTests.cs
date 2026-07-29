@@ -25,7 +25,7 @@ public sealed class SimulationRuntimeDispatchTests
         ShimTestHarness.RunInSimulation(environment, () =>
         {
             var (_, resolved, node) = SimulationRuntimeDispatch.RequireEnvironment("test.api");
-            Assert.Equal(environment.CryptoPolicy, resolved.CryptoPolicy);
+            Assert.IsType<SimulationRuntimeEnvironment>(resolved);
             Assert.Equal(environment.GetUtcNow(node), resolved.GetUtcNow(node));
             Assert.Equal(ShimTestHarness.DefaultNodeAddress, node?.Address);
         });

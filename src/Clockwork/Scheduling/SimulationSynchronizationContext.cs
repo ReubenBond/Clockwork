@@ -110,6 +110,10 @@ public sealed class SimulationSynchronizationContext(SimulationSchedulerLane sch
         {
             schedulerLane.Enqueue(new ScheduledSyncContextItem(WrappedCallback, state));
         }
+        catch (ObjectDisposedException)
+        {
+            throw;
+        }
         catch (InvalidOperationException ex)
         {
 #pragma warning disable EPC20 // Avoid using default ToString implementation
@@ -131,18 +135,27 @@ public sealed class SimulationSynchronizationContext(SimulationSchedulerLane sch
             {
                 ran = schedulerLane.RunOnce();
             }
+            catch (ObjectDisposedException) when (schedulerLane.IsDetached)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
+                if (schedulerLane.IsDetached)
+                {
+                    throw new InvalidOperationException(
+                        "Send could not complete because the simulation scheduler lane was detached before the scheduled callback executed.",
+                        ex);
+                }
+
                 (failures ??= []).Add(ExceptionDispatchInfo.Capture(ex));
                 continue;
             }
 
             if (!ran)
             {
-                // Unreachable in practice: the scheduled callback is always due immediately (at
-                // UtcNow) and its sequence number guarantees it is eventually the minimum ready
-                // item, so the queue can never go idle before it runs.
-                throw new InvalidOperationException("Send could not complete: the simulation queue went idle before the scheduled callback executed.");
+                throw new InvalidOperationException(
+                    "Send could not complete: the scheduled callback was canceled or the simulation queue went idle before it executed.");
             }
         }
 
@@ -187,7 +200,7 @@ public sealed class SimulationSynchronizationContext(SimulationSchedulerLane sch
     /// scope (no-op) to avoid redundant context switching.
     /// </summary>
     /// <returns>A disposable scope that restores the previous synchronization context when disposed.</returns>
-    public SynchronizationContextScope Install()
+    public IDisposable Install()
     {
         if (IsOnOwningExecutionContext())
         {
@@ -201,6 +214,10 @@ public sealed class SimulationSynchronizationContext(SimulationSchedulerLane sch
 
     private sealed class ScheduledSyncContextItem(SendOrPostCallback callback, object? state) : ScheduledItem
     {
-        protected internal override void Invoke() => callback(state);
+        internal override string Kind => "synchronization-context";
+
+        internal override string Description => "Posted synchronization-context callback";
+
+        internal override void Invoke() => callback(state);
     }
 }

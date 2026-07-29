@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using Clockwork.Instrumentation.Imaging;
 using Clockwork.Instrumentation.Rules;
 using Clockwork.Instrumentation.Signing;
@@ -37,11 +38,13 @@ public sealed class StrongNameTests : IDisposable
             "Signed", "namespace S { public static class C { public static int V() => 1; } }", keyPath);
 
         StrongNameInfo info = StrongNameInspector.Inspect(path);
+        StrongNameKey key = StrongNameKey.Load(keyPath);
 
         Assert.Equal(StrongNameStatus.StrongNameSigned, info.Status);
         Assert.True(info.HasPublicKey);
         Assert.NotNull(info.PublicKeyToken);
         Assert.Equal(16, info.PublicKeyToken!.Length);
+        Assert.Equal(info.PublicKeyToken, key.PublicKeyToken);
     }
 
     [Fact]
@@ -80,6 +83,96 @@ public sealed class StrongNameTests : IDisposable
     public void LoadUnrecognizedBlobFails()
     {
         Assert.Throws<SigningException>(() => StrongNameKey.FromBlob(new byte[16], "garbage"));
+    }
+
+    [Fact]
+    public void PrivateKeyBlobRejectsInvalidHeaderLengthAndTrailingData()
+    {
+        byte[] valid = StrongNameKeys.CreatePrivateKeyBlob();
+        var invalid = new List<byte[]>();
+
+        byte[] version = [.. valid];
+        version[1] = 1;
+        invalid.Add(version);
+
+        byte[] reserved = [.. valid];
+        reserved[2] = 1;
+        invalid.Add(reserved);
+
+        byte[] algorithm = [.. valid];
+        algorithm[4] ^= 1;
+        invalid.Add(algorithm);
+
+        byte[] magic = [.. valid];
+        magic[8] ^= 1;
+        invalid.Add(magic);
+
+        byte[] bitLength = [.. valid];
+        bitLength[12] ^= 8;
+        invalid.Add(bitLength);
+
+        invalid.Add([.. valid, 0]);
+
+        Assert.All(
+            invalid,
+            blob => Assert.Throws<SigningException>(
+                () => StrongNameKey.FromBlob(blob, "invalid private key")));
+    }
+
+    [Fact]
+    public void PrivateKeyBlobRejectsTruncatedPrivateComponents()
+    {
+        byte[] valid = StrongNameKeys.CreatePrivateKeyBlob();
+        int modulusLength = BinaryPrimitives.ReadInt32LittleEndian(valid.AsSpan(12, 4)) / 8;
+        int halfLength = modulusLength / 2;
+        int[] componentEnds =
+        [
+            20 + modulusLength,
+            20 + modulusLength + halfLength,
+            20 + modulusLength + (2 * halfLength),
+            20 + modulusLength + (3 * halfLength),
+            20 + modulusLength + (4 * halfLength),
+            20 + modulusLength + (5 * halfLength),
+            valid.Length,
+        ];
+
+        Assert.All(
+            componentEnds,
+            componentEnd =>
+            {
+                byte[] truncated = valid[..(componentEnd - 1)];
+                SigningException exception = Assert.Throws<SigningException>(
+                    () => StrongNameKey.FromBlob(truncated, "truncated private key"));
+                Assert.Contains("truncated", exception.Message, StringComparison.Ordinal);
+            });
+    }
+
+    [Fact]
+    public void PrivateKeyBlobRejectsInvalidRsaComponents()
+    {
+        byte[] valid = StrongNameKeys.CreatePrivateKeyBlob();
+        int modulusLength = BinaryPrimitives.ReadInt32LittleEndian(valid.AsSpan(12, 4)) / 8;
+        int halfLength = modulusLength / 2;
+        (int Offset, int Length)[] components =
+        [
+            (20, modulusLength),
+            (20 + modulusLength, halfLength),
+            (20 + modulusLength + halfLength, halfLength),
+            (20 + modulusLength + (2 * halfLength), halfLength),
+            (20 + modulusLength + (3 * halfLength), halfLength),
+            (20 + modulusLength + (4 * halfLength), halfLength),
+            (20 + modulusLength + (5 * halfLength), modulusLength),
+        ];
+
+        Assert.All(
+            components,
+            component =>
+            {
+                byte[] invalid = [.. valid];
+                Array.Clear(invalid, component.Offset, component.Length);
+                Assert.Throws<SigningException>(
+                    () => StrongNameKey.FromBlob(invalid, "invalid private key component"));
+            });
     }
 
     [Fact]

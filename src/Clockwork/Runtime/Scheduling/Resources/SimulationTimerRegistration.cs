@@ -1,4 +1,5 @@
 using System.Globalization;
+using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Tasks;
 
 namespace Clockwork.Runtime.Scheduling.Resources;
@@ -58,7 +59,8 @@ internal sealed class SimulationTimerRegistration(
     TimeSpan dueTime,
     long sequence,
     Action? onElapsed,
-    string? diagnosticKind) : ISimulationTimerEntry, ISimulationTimer
+    string? diagnosticKind,
+    SimulationNodeIdentity? node) : ISimulationTimerEntry, ISimulationTimer
 {
     private Action? _onElapsed = onElapsed;
     private int _state;
@@ -68,6 +70,8 @@ internal sealed class SimulationTimerRegistration(
     public long Sequence { get; } = sequence;
 
     public string? DiagnosticKind { get; } = diagnosticKind;
+
+    public SimulationNodeIdentity? Node { get; } = node;
 
     public bool IsCanceled => Volatile.Read(ref _state) == 2;
 

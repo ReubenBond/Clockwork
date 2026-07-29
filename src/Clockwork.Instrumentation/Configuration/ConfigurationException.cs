@@ -1,9 +1,10 @@
 namespace Clockwork.Instrumentation.Configuration;
 
 /// <summary>
-/// Thrown when an <see cref="InstrumentationConfiguration"/> document is malformed or fails strict
-/// validation (invalid JSON, missing/invalid fields, an unknown enum value, or a referenced path
-/// that cannot be resolved). The message identifies the offending element.
+/// Thrown when <see cref="InstrumentationConfiguration"/> or rule-set content is malformed or fails
+/// strict validation (invalid JSON, missing/invalid fields, an unknown enum value, an invalid member
+/// signature, or a referenced path that cannot be resolved). The message identifies the offending
+/// element.
 /// </summary>
 public sealed class ConfigurationException : Exception
 {

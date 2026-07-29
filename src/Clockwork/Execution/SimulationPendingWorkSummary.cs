@@ -5,7 +5,7 @@ namespace Clockwork;
 
 /// <summary>
 /// <para>
-/// A snapshot of outstanding work across a <see cref="SimulationCluster{TNode}"/>'s cluster
+/// A snapshot of outstanding work across a <see cref="SimulationCluster"/>'s cluster
 /// queue and every node queue, captured at the end of a drive-loop execution.
 /// </para>
 /// <para>
@@ -34,7 +34,7 @@ public sealed class SimulationPendingWorkSummary
         RunnableCount = runnableCount;
         WaitingCount = waitingCount;
         BlockedCount = blockedCount;
-        Items = items;
+        Items = Array.AsReadOnly(items.ToArray());
     }
 
     /// <summary>

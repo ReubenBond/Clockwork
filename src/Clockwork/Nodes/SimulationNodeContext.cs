@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Clockwork.Runtime.Execution;
+using Clockwork.Runtime.Scheduling;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -23,6 +24,14 @@ public enum SimulationNodeState
     Suspended,
 }
 
+internal enum SimulationNodeAttachmentState
+{
+    Attaching,
+    Attached,
+    Disposing,
+    Detached,
+}
+
 /// <summary>
 /// <para>
 /// Encapsulates all per-node simulation state, including the node's scheduler lane,
@@ -37,50 +46,51 @@ public enum SimulationNodeState
 [DebuggerDisplay("{DebuggerDisplay,nq}")]
 public sealed partial class SimulationNodeContext
 {
+    private readonly SingleThreadedGuard _guard;
     private readonly SimulationSchedulerLane? _externalSchedulerLane;
+    private readonly List<ScheduledItem> _sharedLaneItems = [];
     private readonly ILogger _logger;
+    private SimulationNodeAttachmentState _attachmentState = SimulationNodeAttachmentState.Attaching;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SimulationNodeContext"/> class.
-    /// Creates a new simulation node context using the specified shared clock and random generator.
+    /// Creates a new simulation node context using the specified scheduler and random generator.
     /// </summary>
-    /// <param name="clock">The shared simulation clock for time coordination.</param>
+    /// <param name="scheduler">The shared simulation scheduler for time and work coordination.</param>
     /// <param name="guard">The shared single-threaded guard for detecting concurrent access.</param>
     /// <param name="random">The deterministic random number generator for this node.</param>
     /// <param name="externalSchedulerLane">Optional external scheduler lane for operations that must run
     /// even when this node is suspended (e.g., auto-resume from SuspendFor). If not provided,
     /// SuspendFor will throw InvalidOperationException.</param>
     /// <param name="logger">Optional logger for suspend/resume operations.</param>
-    /// <param name="runtime">The runtime whose scheduler owns this node's lane.</param>
     /// <param name="node">The node identity attached to work scheduled by this context.</param>
     internal SimulationNodeContext(
-        SimulationClock clock,
+        SimulationScheduler scheduler,
         SingleThreadedGuard guard,
         SimulationRandom random,
         SimulationSchedulerLane? externalSchedulerLane,
         ILogger? logger,
-        SimulationRuntimeIdentity? runtime,
         SimulationNodeIdentity? node)
     {
-        ArgumentNullException.ThrowIfNull(clock);
+        ArgumentNullException.ThrowIfNull(scheduler);
         ArgumentNullException.ThrowIfNull(guard);
         ArgumentNullException.ThrowIfNull(random);
 
-        Clock = clock;
+        Scheduler = scheduler;
         Random = random;
+        _guard = guard;
         _externalSchedulerLane = externalSchedulerLane;
         _logger = logger ?? NullLogger.Instance;
-        ArgumentNullException.ThrowIfNull(runtime);
 
-        SchedulerLane = new SimulationSchedulerLane(runtime.Scheduler, guard, node);
+        SchedulerLane = new SimulationSchedulerLane(scheduler, guard, node);
         TaskScheduler = new SimulationTaskScheduler(SchedulerLane);
-        TimeProvider = new SimulationTimeProvider(SchedulerLane, clock);
+        TimeProvider = new SimulationTimeProvider(SchedulerLane);
     }
 
     /// <summary>
-    /// Gets the shared simulation clock.
+    /// Gets the shared scheduler which owns this node's work and virtual time.
     /// </summary>
-    public SimulationClock Clock { get; }
+    public SimulationScheduler Scheduler { get; }
 
     /// <summary>
     /// Gets the deterministic random number generator for this node.
@@ -132,14 +142,11 @@ public sealed partial class SimulationNodeContext
                 return false;
 
             // Check if the lane has any items due at or before the current time
-            var items = SchedulerLane.ScheduledItems;
+            var items = SchedulerLane.CaptureScheduledItems();
             if (items.Count == 0)
                 return false;
 
-            // The first item in the sorted set has the earliest due time
-            // Use FirstOrDefault since IReadOnlySet doesn't have Min
-            var firstItem = items.FirstOrDefault();
-            return firstItem != null && firstItem.DueTime <= Clock.UtcNow;
+            return items[0].DueTime <= Scheduler.UtcNow;
         }
     }
 
@@ -179,8 +186,14 @@ public sealed partial class SimulationNodeContext
     /// </summary>
     public void Suspend()
     {
+        using var _ = _guard.Enter();
+        ThrowIfDetached();
         State = SimulationNodeState.Suspended;
-        SchedulerLane.SetEnabled(enabled: false);
+        if (_attachmentState != SimulationNodeAttachmentState.Disposing)
+        {
+            SchedulerLane.SetEnabled(enabled: false);
+        }
+
         Log.NodeSuspended(_logger);
     }
 
@@ -190,8 +203,14 @@ public sealed partial class SimulationNodeContext
     /// </summary>
     public void Resume()
     {
+        using var _ = _guard.Enter();
+        ThrowIfDetached();
         State = SimulationNodeState.Running;
-        SchedulerLane.SetEnabled(enabled: true);
+        if (_attachmentState != SimulationNodeAttachmentState.Disposing)
+        {
+            SchedulerLane.SetEnabled(enabled: true);
+        }
+
         Log.NodeResumed(_logger);
     }
 
@@ -206,21 +225,171 @@ public sealed partial class SimulationNodeContext
     {
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(duration, TimeSpan.Zero);
 
+        using var _ = _guard.Enter();
+        ThrowIfDetached();
         if (_externalSchedulerLane is null)
         {
             throw new InvalidOperationException(
                 "SuspendFor requires an external scheduler lane to be provided at construction time.");
         }
 
-        Suspend();
-        Log.NodeSuspendedFor(_logger, duration);
+        SimulationNodeState priorState = State;
+        ScheduledActionItem? resume = null;
+        resume = new ScheduledActionItem(() =>
+        {
+            RemoveSharedLaneItem(resume);
+            Resume();
+        });
+        try
+        {
+            // Schedule before committing the suspended state so delay overflow, a detached lane, or
+            // a scheduler failure leaves this context unchanged.
+            _externalSchedulerLane.EnqueueAfter(resume, duration);
+            AddSharedLaneItem(resume);
+            Suspend();
+            Log.NodeSuspendedFor(_logger, duration);
+        }
+        catch
+        {
+            RemoveSharedLaneItem(resume);
+            resume.Dispose();
+            State = priorState;
+            if (_attachmentState != SimulationNodeAttachmentState.Disposing)
+            {
+                SchedulerLane.SetEnabled(priorState == SimulationNodeState.Running);
+            }
 
-        // Schedule auto-resume on the external queue (not this node's queue,
-        // since it won't run while suspended)
-        _externalSchedulerLane.EnqueueAfter(Resume, duration);
+            throw;
+        }
     }
 
-    private string DebuggerDisplay => $"SimulationNodeContext({State}, Tasks={SchedulerLane.ScheduledItems.Count})";
+    internal bool IsAttachmentInProgress
+    {
+        get
+        {
+            using var _ = _guard.Enter();
+            return _attachmentState == SimulationNodeAttachmentState.Attaching;
+        }
+    }
+
+    internal bool HasPendingAttachmentWork
+    {
+        get
+        {
+            using var _ = _guard.Enter();
+            return SchedulerLane.HasPendingWork || _sharedLaneItems.Count > 0;
+        }
+    }
+
+    internal void CompleteAttachment()
+    {
+        using var _ = _guard.Enter();
+        if (_attachmentState != SimulationNodeAttachmentState.Attaching)
+        {
+            throw new InvalidOperationException(
+                $"Cannot attach a node context while it is {_attachmentState}.");
+        }
+
+        _attachmentState = SimulationNodeAttachmentState.Attached;
+        SchedulerLane.SetEnabled(State == SimulationNodeState.Running);
+    }
+
+    internal void BeginAttachmentCleanup()
+    {
+        using var _ = _guard.Enter();
+        if (_attachmentState == SimulationNodeAttachmentState.Disposing
+            || _attachmentState == SimulationNodeAttachmentState.Detached)
+        {
+            return;
+        }
+
+        if (_attachmentState != SimulationNodeAttachmentState.Attaching
+            && _attachmentState != SimulationNodeAttachmentState.Attached)
+        {
+            throw new InvalidOperationException(
+                $"Cannot begin node attachment cleanup while the context is {_attachmentState}.");
+        }
+
+        _attachmentState = SimulationNodeAttachmentState.Disposing;
+        State = SimulationNodeState.Running;
+        SchedulerLane.SetEnabled(enabled: true);
+    }
+
+    internal void CompleteAttachmentCleanup()
+    {
+        ScheduledItem[] laneItems;
+        ScheduledItem[] sharedLaneItems;
+        using (var _ = _guard.Enter())
+        {
+            if (_attachmentState == SimulationNodeAttachmentState.Detached)
+            {
+                return;
+            }
+
+            _attachmentState = SimulationNodeAttachmentState.Detached;
+            laneItems = SchedulerLane.Detach();
+            sharedLaneItems = [.. _sharedLaneItems];
+            _sharedLaneItems.Clear();
+            State = SimulationNodeState.Running;
+        }
+
+        CancelScheduledItems(laneItems, sharedLaneItems);
+    }
+
+    private void AddSharedLaneItem(ScheduledItem item)
+    {
+        using var _ = _guard.Enter();
+        _sharedLaneItems.Add(item);
+    }
+
+    private void RemoveSharedLaneItem(ScheduledItem? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        using var _ = _guard.Enter();
+        _sharedLaneItems.Remove(item);
+    }
+
+    private static void CancelScheduledItems(params IEnumerable<ScheduledItem>[] itemGroups)
+    {
+        List<Exception>? failures = null;
+        foreach (IEnumerable<ScheduledItem> items in itemGroups)
+        {
+            foreach (ScheduledItem item in items)
+            {
+                try
+                {
+                    item.Dispose();
+                }
+                catch (ObjectDisposedException)
+                {
+                }
+                catch (Exception exception)
+                {
+                    failures ??= [];
+                    failures.Add(exception);
+                }
+            }
+        }
+
+        if (failures is not null)
+        {
+            throw new AggregateException(
+                "One or more scheduled items failed to cancel during node attachment cleanup.",
+                failures);
+        }
+    }
+
+    private void ThrowIfDetached() =>
+        ObjectDisposedException.ThrowIf(
+            _attachmentState == SimulationNodeAttachmentState.Detached,
+            this);
+
+    private string DebuggerDisplay =>
+        $"SimulationNodeContext({State}, Tasks={SchedulerLane.CaptureScheduledItems().Count})";
 
     private static partial class Log
     {

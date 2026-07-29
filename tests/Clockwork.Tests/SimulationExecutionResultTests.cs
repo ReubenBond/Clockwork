@@ -5,15 +5,14 @@ namespace Clockwork.Tests;
 /// <summary>
 /// Covers the structured execution outcome API (<see cref="SimulationExecutionResult"/> and
 /// friends) introduced alongside the consolidated drive-loop engine: every distinguishable
-/// termination reason, hook-firing
-/// behavior, pending-work diagnostics, deterministic formatting, and boundary values.
+/// termination reason, pending-work diagnostics, deterministic formatting, and boundary values.
 /// </summary>
 public sealed class SimulationExecutionResultTests
 {
     [Fact]
     public async Task RunUntilReportsConditionMetWithNoPendingWork()
     {
-        await using var cluster = new RecordingCluster(seed: 1);
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
         var node = cluster.AddNode("node-1");
         var executed = false;
         node.Context.SchedulerLane.EnqueueAfter(() => executed = true, TimeSpan.FromSeconds(5));
@@ -28,14 +27,12 @@ public sealed class SimulationExecutionResultTests
         Assert.Equal(1, result.StepsExecuted);
         Assert.True(result.TimeAdvanceCount >= 1);
         Assert.Equal(0, result.PendingWork.PendingCount);
-        Assert.Equal(1, cluster.HookCounts.GetValueOrDefault("OnConditionMet"));
-        Assert.DoesNotContain("OnSimulationIdleNoPendingWork", cluster.HookCounts.Keys);
     }
 
     [Fact]
     public async Task RunUntilReportsIdleWhenConditionNeverMetAndNoPendingWork()
     {
-        await using var cluster = new RecordingCluster(seed: 1);
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
         _ = cluster.AddNode("node-1");
 
         var result = cluster.RunUntil(() => false, maxIterations: 100);
@@ -43,14 +40,12 @@ public sealed class SimulationExecutionResultTests
         Assert.Equal(SimulationExecutionReason.Idle, result.Reason);
         Assert.False(result.ConditionMet);
         Assert.Equal(0, result.PendingWork.PendingCount);
-        Assert.Equal(1, cluster.HookCounts.GetValueOrDefault("OnSimulationIdleNoPendingWork"));
-        Assert.DoesNotContain("OnSimulationReachedIdleState", cluster.HookCounts.Keys);
     }
 
     [Fact]
     public async Task RunUntilIdleReportsIdleOnAnEmptyCluster()
     {
-        await using var cluster = new RecordingCluster(seed: 1);
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
 
         var result = cluster.RunUntilIdle();
 
@@ -59,16 +54,15 @@ public sealed class SimulationExecutionResultTests
         Assert.Equal(0, result.Iterations);
         Assert.Equal(0, result.PendingWork.PendingCount);
         Assert.Empty(result.PendingWork.Items);
-        Assert.Equal(1, cluster.HookCounts.GetValueOrDefault("OnSimulationReachedIdleState"));
     }
 
     [Fact]
     public async Task IdleWithPendingWorkIsReportedWhenASuspendedNodeHoldsAReadyItem()
     {
-        await using var cluster = new RecordingCluster(seed: 1);
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
         var node = cluster.AddNode("node-1");
         node.Suspend();
-        node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => { }));
+        node.Context.SchedulerLane.Enqueue(() => { });
 
         var result = cluster.RunUntilIdle();
 
@@ -80,19 +74,18 @@ public sealed class SimulationExecutionResultTests
 
         var item = Assert.Single(result.PendingWork.Items);
         Assert.Equal("node-1", item.QueueIdentity);
-        Assert.Equal(nameof(ScheduledActionItem), item.ItemType);
+        Assert.Equal("action", item.Kind);
+        Assert.Equal("Scheduled action", item.Description);
         Assert.True(item.IsReady);
         Assert.True(item.IsBlocked);
 
-        // Reaching idle-with-pending-work still fires the same hook as a plain idle state -
-        // this is purely additive diagnostic information, not a behavioral change.
-        Assert.Equal(1, cluster.HookCounts.GetValueOrDefault("OnSimulationReachedIdleState"));
+        // Idle-with-pending-work is additive diagnostic information, not a behavioral change.
     }
 
     [Fact]
     public async Task PendingWorkItemsAreOrderedDeterministicallyByDueTimeThenSequenceThenQueue()
     {
-        await using var cluster = new RecordingCluster(seed: 1);
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
         var nodeB = cluster.AddNode("node-2");
         var nodeA = cluster.AddNode("node-1");
         nodeA.Suspend();
@@ -100,8 +93,8 @@ public sealed class SimulationExecutionResultTests
 
         // Both items become due at the same simulated instant with independent per-queue sequence
         // numbers (0 each) - the queue identity is the only remaining, deterministic tiebreaker.
-        nodeB.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => { }));
-        nodeA.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => { }));
+        nodeB.Context.SchedulerLane.Enqueue(() => { });
+        nodeA.Context.SchedulerLane.Enqueue(() => { });
 
         var result = cluster.RunUntilIdle();
 
@@ -113,7 +106,7 @@ public sealed class SimulationExecutionResultTests
     [Fact]
     public async Task MaxSimulatedTimeAdvanceExceededReportsTheAttemptedAdvance()
     {
-        await using var cluster = new RecordingCluster(seed: 1) { MaxSimulatedTimeAdvance = TimeSpan.FromSeconds(1) };
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch) { MaxSimulatedTimeAdvance = TimeSpan.FromSeconds(1) };
         var node = cluster.AddNode("node-1");
         node.Context.SchedulerLane.EnqueueAfter(() => { }, TimeSpan.FromSeconds(10));
 
@@ -121,13 +114,13 @@ public sealed class SimulationExecutionResultTests
 
         Assert.Equal(SimulationExecutionReason.MaxSimulatedTimeAdvanceExceeded, result.Reason);
         Assert.Equal(TimeSpan.FromSeconds(10), result.AttemptedTimeAdvance);
-        Assert.Equal(1, cluster.HookCounts.GetValueOrDefault("OnSimulationStuckMaxTime"));
+        cluster.MaxSimulatedTimeAdvance = TimeSpan.FromMinutes(10);
     }
 
     [Fact]
     public async Task MaxConsecutiveTimeAdvancesExceededIsReportedWhenManyAdvancesNeverExecuteWork()
     {
-        await using var cluster = new RecordingCluster(seed: 1) { MaxConsecutiveTimeAdvances = 2 };
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch) { MaxConsecutiveTimeAdvances = 2 };
         var node = cluster.AddNode("node-1");
         node.Suspend();
 
@@ -143,38 +136,35 @@ public sealed class SimulationExecutionResultTests
         Assert.Equal(SimulationExecutionReason.MaxConsecutiveTimeAdvancesExceeded, result.Reason);
         Assert.Equal(3, result.ConsecutiveTimeAdvanceCount);
         Assert.Equal(3, result.TimeAdvanceCount);
-        Assert.Equal(1, cluster.HookCounts.GetValueOrDefault("OnSimulationStuckConsecutiveTimeAdvances"));
     }
 
     [Fact]
     public async Task MaxIterationsReachedStopsBeforeAnyOtherReason()
     {
-        await using var cluster = new RecordingCluster(seed: 1);
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
         var node = cluster.AddNode("node-1");
-        node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => { }));
+        node.Context.SchedulerLane.Enqueue(() => { });
 
         var result = cluster.RunUntil(() => false, maxIterations: 1);
 
         Assert.Equal(SimulationExecutionReason.MaxIterationsReached, result.Reason);
         Assert.Equal(1, result.Iterations);
         Assert.Equal(1, result.StepsExecuted);
-        Assert.Equal(1, cluster.HookCounts.GetValueOrDefault("OnMaxIterationsReached"));
     }
 
     [Fact]
     public async Task TeardownCancellationRequestedStopsRunUntilIdleImmediately()
     {
         using var cts = new CancellationTokenSource();
-        await using var cluster = new RecordingCluster(seed: 1, cancellationToken: cts.Token);
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch, cancellationToken: cts.Token);
         var node = cluster.AddNode("node-1");
-        node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => { }));
+        node.Context.SchedulerLane.Enqueue(() => { });
         await cts.CancelAsync();
 
         var result = cluster.RunUntilIdle();
 
         Assert.Equal(SimulationExecutionReason.TeardownCancellationRequested, result.Reason);
         Assert.Equal(0, result.Iterations);
-        Assert.Equal(1, cluster.HookCounts.GetValueOrDefault("OnTeardownCancellationRequested"));
     }
 
     [Fact]
@@ -183,19 +173,18 @@ public sealed class SimulationExecutionResultTests
         // RunUntil never checked teardown cancellation in the original
         // implementation; only the RunUntilIdle family does. This must stay true.
         using var cts = new CancellationTokenSource();
-        await using var cluster = new RecordingCluster(seed: 1, cancellationToken: cts.Token);
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch, cancellationToken: cts.Token);
         await cts.CancelAsync();
 
         var result = cluster.RunUntil(() => false, maxIterations: 5);
 
         Assert.Equal(SimulationExecutionReason.Idle, result.Reason);
-        Assert.DoesNotContain("OnTeardownCancellationRequested", cluster.HookCounts.Keys);
     }
 
     [Fact]
     public async Task RunForReportsIdleAfterProcessingTimerWork()
     {
-        await using var cluster = new RecordingCluster(seed: 1);
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
         var node = cluster.AddNode("node-1");
         var fired = false;
         node.Context.SchedulerLane.EnqueueAfter(() => fired = true, TimeSpan.FromSeconds(2));
@@ -208,20 +197,19 @@ public sealed class SimulationExecutionResultTests
         Assert.Equal(cluster.StartDateTime, result.StartTime);
         Assert.Equal(cluster.StartDateTime + TimeSpan.FromSeconds(5), result.EndTime);
         Assert.Equal(1, result.StepsExecuted);
-        Assert.Equal(1, cluster.HookCounts.GetValueOrDefault("OnTimeAdvancing"));
     }
 
     [Fact]
     public async Task RunForReachesTheExactTargetThenDrainsWorkDueAtThatInstant()
     {
-        await using var cluster = new RecordingCluster(seed: 1);
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
         var node = cluster.AddNode("node-1");
         var events = new List<string>();
         node.Context.SchedulerLane.EnqueueAfter(
             () =>
             {
                 events.Add("timer");
-                node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => events.Add("continuation")));
+                node.Context.SchedulerLane.Enqueue(() => events.Add("continuation"));
             },
             TimeSpan.FromSeconds(5));
 
@@ -235,7 +223,7 @@ public sealed class SimulationExecutionResultTests
     [Fact]
     public async Task RunForDoesNotExecuteWorkBeyondTheTarget()
     {
-        await using var cluster = new RecordingCluster(seed: 1);
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
         var node = cluster.AddNode("node-1");
         var events = new List<string>();
         node.Context.SchedulerLane.EnqueueAfter(() => events.Add("within"), TimeSpan.FromSeconds(2));
@@ -251,7 +239,7 @@ public sealed class SimulationExecutionResultTests
     [Fact]
     public async Task RunForWithZeroDurationIsANoOp()
     {
-        await using var cluster = new RecordingCluster(seed: 1);
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
         _ = cluster.AddNode("node-1");
 
         var result = cluster.RunFor(TimeSpan.Zero);
@@ -260,27 +248,26 @@ public sealed class SimulationExecutionResultTests
         Assert.Equal(0, result.Iterations);
         Assert.Equal(0, result.TimeAdvanceCount);
         Assert.Equal(result.StartTime, result.EndTime);
-        Assert.DoesNotContain("OnTimeAdvancing", cluster.HookCounts.Keys);
     }
 
     [Fact]
     public async Task RunForRejectsNegativeDuration()
     {
-        await using var cluster = new RecordingCluster(seed: 1);
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
         Assert.Throws<ArgumentOutOfRangeException>(() => cluster.RunFor(TimeSpan.FromSeconds(-1)));
     }
 
     [Fact]
     public async Task RunUntilRejectsNullCondition()
     {
-        await using var cluster = new RecordingCluster(seed: 1);
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
         Assert.Throws<ArgumentNullException>(() => cluster.RunUntil(null!));
     }
 
     [Fact]
     public async Task MaxIterationsBoundaryOfZeroNeverEvaluatesTheCondition()
     {
-        await using var cluster = new RecordingCluster(seed: 1);
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
         var conditionEvaluated = false;
 
         var result = cluster.RunUntil(() => { conditionEvaluated = true; return true; }, maxIterations: 0);
@@ -293,7 +280,7 @@ public sealed class SimulationExecutionResultTests
     [Fact]
     public async Task MaxConsecutiveTimeAdvancesBoundaryOfZeroTripsOnTheFirstAdvance()
     {
-        await using var cluster = new RecordingCluster(seed: 1) { MaxConsecutiveTimeAdvances = 0 };
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch) { MaxConsecutiveTimeAdvances = 0 };
         var node = cluster.AddNode("node-1");
         node.Context.SchedulerLane.EnqueueAfter(() => { }, TimeSpan.FromSeconds(1));
 
@@ -316,10 +303,10 @@ public sealed class SimulationExecutionResultTests
 
         static async Task<SimulationExecutionResult> RunScriptAsync()
         {
-            await using var cluster = new RecordingCluster(seed: 99);
+            await using var cluster = new SimulationCluster(seed: 99, DateTimeOffset.UnixEpoch);
             var node = cluster.AddNode("node-1");
             node.Suspend();
-            node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => { }));
+            node.Context.SchedulerLane.Enqueue(() => { });
             return cluster.RunUntilIdle();
         }
     }
@@ -350,57 +337,10 @@ public sealed class SimulationExecutionResultTests
 
         static async Task<SimulationExecutionResult> RunScriptAsync()
         {
-            await using var cluster = new RecordingCluster(seed: 1);
+            await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
             var node = cluster.AddNode("node-1");
             node.Context.SchedulerLane.EnqueueAfter(() => { }, TimeSpan.FromSeconds(1.5));
             return cluster.RunUntilIdle();
         }
-    }
-
-    private sealed class RecordingCluster : SimulationCluster<TestNode>
-    {
-        public RecordingCluster(int seed, DateTimeOffset? startDateTime = null, CancellationToken cancellationToken = default)
-            : base(seed, startDateTime ?? DateTimeOffset.UnixEpoch, cancellationToken: cancellationToken)
-        {
-        }
-
-        public Dictionary<string, int> HookCounts { get; } = new(StringComparer.Ordinal);
-
-        public TestNode AddNode(string address)
-        {
-            var context = CreateNodeContext(address);
-            var node = new TestNode(address, context);
-            RegisterNode(node);
-            return node;
-        }
-
-        protected override void OnConditionMet(int iterations) => Record(nameof(OnConditionMet));
-
-        protected override void OnSimulationIdleNoPendingWork(int iterations) => Record(nameof(OnSimulationIdleNoPendingWork));
-
-        protected override void OnSimulationStuckMaxTime(TimeSpan timeDelta) => Record(nameof(OnSimulationStuckMaxTime));
-
-        protected override void OnSimulationStuckConsecutiveTimeAdvances(int count) => Record(nameof(OnSimulationStuckConsecutiveTimeAdvances));
-
-        protected override void OnMaxIterationsReached(int maxIterations) => Record(nameof(OnMaxIterationsReached));
-
-        protected override void OnTeardownCancellationRequested() => Record(nameof(OnTeardownCancellationRequested));
-
-        protected override void OnSimulationReachedIdleState() => Record(nameof(OnSimulationReachedIdleState));
-
-        protected override void OnTimeAdvancing(TimeSpan delta) => Record(nameof(OnTimeAdvancing));
-
-        protected override ValueTask DisposeAsyncCore() => ValueTask.CompletedTask;
-
-        private void Record(string hookName) => HookCounts[hookName] = HookCounts.GetValueOrDefault(hookName) + 1;
-    }
-
-    private sealed class TestNode(string address, SimulationNodeContext context) : SimulationNode
-    {
-        public override SimulationNodeContext Context { get; } = context;
-
-        public override string NetworkAddress { get; } = address;
-
-        public override bool IsInitialized => true;
     }
 }

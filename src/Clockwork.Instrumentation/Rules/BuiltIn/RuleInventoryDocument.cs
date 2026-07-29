@@ -70,7 +70,7 @@ public static class RuleInventoryDocument
         Line("remain real BCL calls even under simulation:");
         Line();
         Line("- `Stopwatch` instance APIs (`Start`/`Stop`/`Restart`/`Elapsed`/`ElapsedMilliseconds`/`ElapsedTicks`) remain uncontrolled because their mutable lifecycle would require whole-type substitution. `GetElapsedTime(long, long)` is intentionally not rewritten or analyzed: it is deterministic arithmetic over caller-supplied timestamps (use controlled `GetTimestamp()` values).");
-        Line("- Generic cryptographic helpers `RandomNumberGenerator.GetItems<T>` and `Shuffle<T>`, and any `GetString`/`GetHexString` overloads beyond those listed above.");
+        Line("- Any `RandomNumberGenerator` overloads beyond those listed above.");
         Line("- `DateTime`/`DateTimeOffset` parsing/formatting and any culture-, timezone-, or kind-conversion helpers other than the `Now`/`UtcNow`/`Today` clocks above.");
         Line("- Synchronous blocking on `ValueTask`/`ValueTask<T>` (`.Result`/`.GetResult()` outside an awaiter): a value task may be consumed only once, so a blocking drain is unsafe. `await` is the supported controlled path.");
         Line("- Named/cross-process synchronization (named `EventWaitHandle`/`Mutex`/`Semaphore` and their `OpenExisting`/`TryOpenExisting` APIs): a single-process simulation cannot model kernel-object sharing, so these are rejected.");
@@ -142,10 +142,9 @@ public static class RuleInventoryDocument
             "the scheduler/network/Buggify seed domains; explicitly seeded `new Random(int)` preserves the " +
             "caller's seed exactly. Stable seed derivation uses `SimulationStableHash`.",
         BuiltInRuleFamily.Crypto =>
-            "Static entropy APIs are redirected to `ControlledRandomNumberGenerator`. The default under " +
-            "simulation is a precise rejected-call diagnostic; a test-only opt-in can serve bytes from " +
-            "`SimulationInsecureRandomNumberGenerator`. Uninstrumented production binaries retain ordinary " +
-            "cryptographic BCL behavior.",
+            "Static random APIs are redirected to `ControlledRandomNumberGenerator` and draw from a " +
+            "deterministic, per-node non-cryptographic stream. Uninstrumented production binaries retain " +
+            "ordinary BCL behavior.",
         BuiltInRuleFamily.TaskCombinators =>
             "`Task.WhenAll`/`WhenAny` (the non-generic `Task[]`, `IEnumerable<Task>`, .NET 9+ params " +
             "`ReadOnlySpan<Task>`, and two-argument overloads, plus their generic `Task<TResult>` " +

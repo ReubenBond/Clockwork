@@ -41,12 +41,12 @@ public readonly record struct RewriteReplacement(
     /// <summary>Returns a stable canonical string for signature hashing and diagnostics.</summary>
     public string ToCanonicalString()
     {
-        string parameters = ParameterTypeFullNames.IsDefault
-            ? "*"
-            : "(" + string.Join(",", ParameterTypeFullNames) + ")";
-        return MemberName is null
-            ? $"{AssemblyName}!{DeclaringTypeFullName}"
-            : $"{AssemblyName}!{DeclaringTypeFullName}::{MemberName}{parameters}";
+        var canonical = new CanonicalEncoding(nameof(RewriteReplacement));
+        canonical.AddString(nameof(AssemblyName), AssemblyName);
+        canonical.AddString(nameof(DeclaringTypeFullName), DeclaringTypeFullName);
+        canonical.AddString(nameof(MemberName), MemberName);
+        canonical.AddStringArray(nameof(ParameterTypeFullNames), ParameterTypeFullNames);
+        return canonical.ToString();
     }
 
     /// <inheritdoc/>

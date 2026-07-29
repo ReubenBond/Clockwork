@@ -9,7 +9,7 @@ using Microsoft.CodeAnalysis.Diagnostics;
 namespace Clockwork.Analyzers.Tests;
 
 /// <summary>
-/// Verifies that <see cref="NondeterministicApiAnalyzer"/> reports the same controlled and rejected
+/// Verifies that <see cref="NondeterministicApiAnalyzer"/> reports the same controlled
 /// BCL surface that the built-in <c>clockwork.bcl.deterministic</c> rewrite rule set redirects, so
 /// compile-time guidance stays aligned with rewrite-time behaviour.
 /// </summary>
@@ -39,12 +39,12 @@ public sealed class NondeterministicApiAnalyzerTests
     [InlineData("using var timer = new System.Threading.Timer(_ => { });", "CW1001")]
     [InlineData("using var timer = new System.Threading.PeriodicTimer(System.TimeSpan.FromSeconds(1));", "CW1001")]
     [InlineData("using var source = new System.Threading.CancellationTokenSource(1);", "CW1001")]
-    [InlineData("_ = System.Security.Cryptography.RandomNumberGenerator.GetBytes(16);", "CW1002")]
-    [InlineData("_ = System.Security.Cryptography.RandomNumberGenerator.GetInt32(100);", "CW1002")]
-    [InlineData("System.Security.Cryptography.RandomNumberGenerator.Fill(System.Span<byte>.Empty);", "CW1002")]
-    [InlineData("using var r = System.Security.Cryptography.RandomNumberGenerator.Create();", "CW1002")]
-    [InlineData("_ = System.Security.Cryptography.RandomNumberGenerator.GetItems<int>([1, 2], 1);", "CW1002")]
-    [InlineData("System.Security.Cryptography.RandomNumberGenerator.Shuffle<int>(System.Span<int>.Empty);", "CW1002")]
+    [InlineData("_ = System.Security.Cryptography.RandomNumberGenerator.GetBytes(16);", "CW1001")]
+    [InlineData("_ = System.Security.Cryptography.RandomNumberGenerator.GetInt32(100);", "CW1001")]
+    [InlineData("System.Security.Cryptography.RandomNumberGenerator.Fill(System.Span<byte>.Empty);", "CW1001")]
+    [InlineData("using var r = System.Security.Cryptography.RandomNumberGenerator.Create();", "CW1001")]
+    [InlineData("_ = System.Security.Cryptography.RandomNumberGenerator.GetItems<int>([1, 2], 1);", "CW1001")]
+    [InlineData("System.Security.Cryptography.RandomNumberGenerator.Shuffle<int>(System.Span<int>.Empty);", "CW1001")]
     [InlineData("_ = System.Threading.Tasks.Task.Run(() => { });", "CW1001")]
     [InlineData("System.Threading.Thread.Sleep(1);", "CW1001")]
     [InlineData("System.Threading.ThreadPool.QueueUserWorkItem(_ => { });", "CW1001")]
@@ -76,8 +76,7 @@ public sealed class NondeterministicApiAnalyzerTests
     {
         ImmutableArray<Diagnostic> diagnostics = await AnalyzeAsync(Wrap(statement));
 
-        // At most a single controlled diagnostic (e.g. DateTime.Now / new Random(int)); never a crypto report.
-        Assert.DoesNotContain(diagnostics, d => d.Id == "CW1002");
+        // At most a single controlled diagnostic (e.g. DateTime.Now / new Random(int)).
         Assert.True(diagnostics.Length <= 1);
     }
 
@@ -150,7 +149,7 @@ public sealed class NondeterministicApiAnalyzerTests
             .Length;
 
         Assert.Equal(publicStaticCount, diagnostics.Length);
-        Assert.All(diagnostics, diagnostic => Assert.Equal("CW1002", diagnostic.Id));
+        Assert.All(diagnostics, diagnostic => Assert.Equal("CW1001", diagnostic.Id));
     }
 
     [Fact]
@@ -261,7 +260,7 @@ public sealed class NondeterministicApiAnalyzerTests
             [new NondeterministicApiAnalyzer()]);
 
         ImmutableArray<Diagnostic> analyzerDiagnostics = await withAnalyzers.GetAnalyzerDiagnosticsAsync();
-        return [.. analyzerDiagnostics.Where(d => d.Id is "CW1001" or "CW1002" or "CW1003")];
+        return [.. analyzerDiagnostics.Where(d => d.Id is "CW1001" or "CW1003")];
     }
 
     private static readonly MetadataReference[] ReferenceAssemblies = LoadReferences();

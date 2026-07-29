@@ -9,7 +9,7 @@ namespace Clockwork.Instrumentation.Closure;
 /// Discovers the deterministic set of assets in an application output or publish directory and
 /// classifies each as a managed-IL rewrite candidate or a verbatim copy. Discovery is bounded to the
 /// closure root (it never follows paths outside it), respects include/exclude patterns and the
-/// framework-assembly exclusion, treats satellite resource assemblies and native libraries as
+/// mandatory framework-assembly boundary, treats satellite resource assemblies and native libraries as
 /// copy-only, and detects the entry assembly from a <c>*.runtimeconfig.json</c> when present. The
 /// result keeps a closure runnable: everything that is not rewritten is copied unchanged.
 /// </summary>
@@ -44,18 +44,14 @@ public static class ClosureDiscovery
         FrameworkAssemblyClassifier classifier = frameworkClassifier ?? FrameworkAssemblyClassifier.Default;
 
         string? entryRelative = ResolveEntryRelativePath(root, entryAssemblyName);
-        if (!configuration.InstrumentDependencies && entryRelative is null)
-        {
-            throw new ClosureException(
-                "Dependency rewriting is disabled but the entry assembly could not be determined. Specify the entry " +
-                "assembly name, or ensure a single '*.runtimeconfig.json' is present in the closure root.");
-        }
 
         var assets = new List<ClosureAsset>();
         foreach (string file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
         {
             string relative = NormalizeRelative(Path.GetRelativePath(root, file));
-            assets.Add(Classify(file, relative, configuration, classifier, entryRelative));
+            bool isEntry = entryRelative is not null
+                && string.Equals(relative, entryRelative, StringComparison.OrdinalIgnoreCase);
+            assets.Add(Classify(file, relative, configuration, classifier, isEntry));
         }
 
         ImmutableArray<ClosureAsset> ordered =
@@ -68,7 +64,7 @@ public static class ClosureDiscovery
         string relative,
         InstrumentationConfiguration configuration,
         FrameworkAssemblyClassifier classifier,
-        string? entryRelative)
+        bool isEntry)
     {
         string fileName = Path.GetFileName(file);
         string extension = Path.GetExtension(fileName).ToLowerInvariant();
@@ -98,7 +94,7 @@ public static class ClosureDiscovery
             return Copy(file, relative, AssetKind.Other, null);
         }
 
-        return ClassifyManagedCandidate(file, relative, fileName, configuration, classifier, entryRelative);
+        return ClassifyManagedCandidate(file, relative, fileName, configuration, classifier, isEntry);
     }
 
     private static ClosureAsset ClassifyManagedCandidate(
@@ -107,7 +103,7 @@ public static class ClosureDiscovery
         string fileName,
         InstrumentationConfiguration configuration,
         FrameworkAssemblyClassifier classifier,
-        string? entryRelative)
+        bool isEntry)
     {
         AssemblyImageInfo image;
         try
@@ -116,12 +112,24 @@ public static class ClosureDiscovery
         }
         catch (Exception ex) when (ex is BadImageFormatException or IOException)
         {
+            if (isEntry)
+            {
+                throw new ClosureException(
+                    $"Entry assembly '{relative}' is not a valid managed PE image with usable IL.");
+            }
+
             // Not a readable PE: treat as an opaque native/content asset and copy it unchanged.
             return Copy(file, relative, AssetKind.NativeLibrary, null);
         }
 
         if (!image.IsManagedAssembly)
         {
+            if (isEntry)
+            {
+                throw new ClosureException(
+                    $"Entry assembly '{relative}' is native-only and does not contain usable managed IL.");
+            }
+
             return Copy(file, relative, AssetKind.NativeLibrary, null);
         }
 
@@ -131,16 +139,9 @@ public static class ClosureDiscovery
             return Copy(file, relative, AssetKind.SatelliteAssembly, "satellite resource assembly");
         }
 
-        if (configuration.ExcludeFrameworkAssemblies && classifier.IsFrameworkAssembly(simpleName))
+        if (classifier.IsFrameworkAssembly(simpleName))
         {
             return Copy(file, relative, AssetKind.ManagedAssembly, "framework assembly");
-        }
-
-        bool isEntry = entryRelative is not null &&
-            string.Equals(relative, entryRelative, StringComparison.OrdinalIgnoreCase);
-        if (!configuration.InstrumentDependencies && !isEntry)
-        {
-            return Copy(file, relative, AssetKind.ManagedAssembly, "dependency rewriting disabled");
         }
 
         if (Matches(configuration.ExcludePatterns, relative, fileName))

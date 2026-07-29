@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>Roslyn analyzers that flag nondeterministic BCL usage at compile time. Diagnostics mirror the Clockwork built-in deterministic rule set: controlled time/identity/random surfaces that require instrumentation (CW1001) and cryptographic randomness surfaces that are rejected under simulation by default (CW1002).</Description>
+    <Description>Roslyn analyzers that flag nondeterministic BCL usage at compile time. Diagnostics mirror the Clockwork built-in deterministic rule sets and identify surfaces that require instrumentation.</Description>
     <RootNamespace>Clockwork.Analyzers</RootNamespace>
     <IsPackable>false</IsPackable>
     <!-- Analyzers load into the C# compiler host and must target netstandard2.0. -->
