@@ -19,14 +19,16 @@ namespace Clockwork;
 /// An optional absolute ceiling for simulated time. Work due at this instant is drained, but the
 /// scheduler's virtual time never advances beyond it.
 /// </param>
+/// <param name="CancellationToken">The caller-controlled token checked before each loop iteration.</param>
 internal readonly record struct SimulationDriveLoopOptions(
     Func<bool>? Condition,
     TimeSpan MaxSimulatedTimeAdvance,
     int MaxIterations,
     int MaxConsecutiveTimeAdvances,
     bool ObserveTeardownCancellation,
-    int InitialConsecutiveTimeAdvances = 0,
-    DateTimeOffset? EndTime = null);
+    int InitialConsecutiveTimeAdvances,
+    DateTimeOffset? EndTime,
+    CancellationToken CancellationToken);
 
 /// <summary>
 /// <para>
@@ -45,13 +47,15 @@ internal readonly record struct SimulationDriveLoopOptions(
 /// <param name="getNextWaitingDueTime">Returns the earliest due time of any not-yet-ready item, or null.</param>
 /// <param name="advanceVirtualTime">Advances scheduler-owned virtual time by the given, non-negative amount.</param>
 /// <param name="capturePendingWorkSummary">Captures a snapshot of runnable/waiting/blocked work.</param>
+/// <param name="hasPendingOperations">Returns whether the scheduler still owns non-terminal operations.</param>
 /// <param name="teardownCancellationToken">The cluster's teardown cancellation token.</param>
 internal sealed class SimulationDriveLoop(
     Func<DateTimeOffset> getUtcNow,
-    Func<bool> runOneTaskRoundRobin,
+    Func<CancellationToken, bool> runOneTaskRoundRobin,
     Func<DateTimeOffset?> getNextWaitingDueTime,
     Action<TimeSpan> advanceVirtualTime,
     Func<SimulationPendingWorkSummary> capturePendingWorkSummary,
+    Func<bool> hasPendingOperations,
     CancellationToken teardownCancellationToken)
 {
     /// <summary>
@@ -66,6 +70,7 @@ internal sealed class SimulationDriveLoop(
         var consecutiveTimeAdvances = options.InitialConsecutiveTimeAdvances;
         var totalTimeAdvances = 0;
         var stepsExecuted = 0;
+        options.CancellationToken.ThrowIfCancellationRequested();
 
         for (var iteration = 0; iteration < options.MaxIterations; iteration++)
         {
@@ -79,7 +84,7 @@ internal sealed class SimulationDriveLoop(
                 return Complete(SimulationExecutionReason.ConditionMet, iteration);
             }
 
-            if (runOneTaskRoundRobin())
+            if (runOneTaskRoundRobin(options.CancellationToken))
             {
                 stepsExecuted++;
                 consecutiveTimeAdvances = 0; // Reset the stuck-detection counter when real work happens.
@@ -91,6 +96,11 @@ internal sealed class SimulationDriveLoop(
             if (options.EndTime is { } endTime && now >= endTime)
             {
                 return CompleteIdle(iteration);
+            }
+
+            if (options.Condition is not null || options.EndTime is not null)
+            {
+                options.CancellationToken.ThrowIfCancellationRequested();
             }
 
             var nextDueTime = getNextWaitingDueTime();
@@ -107,6 +117,8 @@ internal sealed class SimulationDriveLoop(
                 // "there is work, but it cannot run" (e.g. a ready item on a suspended node's queue).
                 return CompleteIdle(iteration);
             }
+
+            options.CancellationToken.ThrowIfCancellationRequested();
 
             if (options.EndTime is { } ceiling && nextDueTime.Value > ceiling)
             {
@@ -135,6 +147,36 @@ internal sealed class SimulationDriveLoop(
             }
         }
 
+        if (options.MaxIterations > 0)
+        {
+            if (options.ObserveTeardownCancellation && teardownCancellationToken.IsCancellationRequested)
+            {
+                return Complete(SimulationExecutionReason.TeardownCancellationRequested, options.MaxIterations);
+            }
+
+            if (options.Condition is { } finalCondition && finalCondition())
+            {
+                return Complete(SimulationExecutionReason.ConditionMet, options.MaxIterations);
+            }
+
+            if (options.Condition is null)
+            {
+                var pendingWork = capturePendingWorkSummary();
+                if (!hasPendingOperations() &&
+                    pendingWork.RunnableCount == 0 &&
+                    pendingWork.WaitingCount == 0)
+                {
+                    return Complete(
+                        pendingWork.BlockedCount > 0
+                            ? SimulationExecutionReason.IdleWithPendingWork
+                            : SimulationExecutionReason.Idle,
+                        options.MaxIterations,
+                        pendingWork);
+                }
+            }
+        }
+
+        options.CancellationToken.ThrowIfCancellationRequested();
         return Complete(SimulationExecutionReason.MaxIterationsReached, options.MaxIterations);
 
         SimulationExecutionResult CompleteIdle(int iteration)

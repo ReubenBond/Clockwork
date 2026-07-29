@@ -31,7 +31,7 @@ public sealed class SimulationOperationDecisionWiringTests
             recorded = log.Record(request);
         });
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.NotNull(recorded);
         Assert.Equal(op.LogicalExecutionId, recorded!.LogicalExecutionId);
@@ -55,7 +55,7 @@ public sealed class SimulationOperationDecisionWiringTests
                 selectedResult: "7")),
             new SimulationNodeIdentity("node-7"));
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.NotNull(recorded);
         Assert.Equal("node-7", recorded!.NodeId);
@@ -72,7 +72,7 @@ public sealed class SimulationOperationDecisionWiringTests
         var opB = scheduler.Schedule("b", () => log.Record(SimulationDecisionRequest.FromAmbientContext(
             SimulationSeedDomain.Scheduler, SimulationDecisionKind.Choice, "b")));
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         var records = log.Records;
         Assert.Equal(2, records.Count);
@@ -108,7 +108,7 @@ public sealed class SimulationOperationDecisionWiringTests
                     Timeout.InfiniteTimeSpan,
                     SimulationPauseReason.ResourceWait("race"),
                     cancellation.Token));
-            Assert.True(recorder.RunStep());
+            Assert.True(recorder.RunStep(TestContext.Current.CancellationToken));
 
             using var start = new Barrier(2);
             var testCancellation = TestContext.Current.CancellationToken;
@@ -132,7 +132,7 @@ public sealed class SimulationOperationDecisionWiringTests
             canceler.Start();
             Assert.True(signaler.Join(TimeSpan.FromSeconds(5)));
             Assert.True(canceler.Join(TimeSpan.FromSeconds(5)));
-            recorder.Drain();
+            recorder.Drain(TestContext.Current.CancellationToken);
             recordedOutcome = Assert.IsType<SimulationWaitOutcome>(outcome);
         }
 
@@ -154,7 +154,7 @@ public sealed class SimulationOperationDecisionWiringTests
                 Timeout.InfiniteTimeSpan,
                 SimulationPauseReason.ResourceWait("race"),
                 replayCancellation.Token));
-        Assert.True(replay.RunStep());
+        Assert.True(replay.RunStep(TestContext.Current.CancellationToken));
 
         if (recordedOutcome == SimulationWaitOutcome.Signaled)
         {
@@ -167,7 +167,7 @@ public sealed class SimulationOperationDecisionWiringTests
             replay.SignalOne(replayResource);
         }
 
-        replay.Drain();
+        replay.Drain(TestContext.Current.CancellationToken);
         replay.ValidateReplayComplete();
         Assert.Equal(recordedOutcome, replayedOutcome);
     }

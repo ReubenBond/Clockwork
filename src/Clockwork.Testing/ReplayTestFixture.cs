@@ -150,10 +150,6 @@ public sealed class ReplayTestFixture
         _configuration.TestClassName,
         _configuration.TestMethodName);
 
-    /// <summary>Records or environment-replays a fresh controlled scenario.</summary>
-    public ReplayTestResult Run(Action<SimulationScheduler> scenario) =>
-        Run(scenario, CancellationToken.None);
-
     /// <summary>Records or environment-replays a fresh controlled scenario with explicit cancellation.</summary>
     public ReplayTestResult Run(
         Action<SimulationScheduler> scenario,

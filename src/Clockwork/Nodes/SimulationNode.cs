@@ -55,8 +55,9 @@ public abstract class SimulationNode
     /// <summary>
     /// Executes one ready task from this node's queue.
     /// </summary>
+    /// <param name="cancellationToken">A token checked before dispatching the task.</param>
     /// <returns>True if a task was executed; false if no tasks are ready or the node is suspended.</returns>
-    public bool Step() => Context.Step();
+    public bool Step(CancellationToken cancellationToken) => Context.Step(cancellationToken);
 }
 
 /// <summary>

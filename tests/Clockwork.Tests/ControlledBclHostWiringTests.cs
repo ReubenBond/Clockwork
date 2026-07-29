@@ -29,7 +29,7 @@ public sealed class ControlledBclHostWiringTests
 
         DateTime captured = default;
         node.Context.SchedulerLane.Enqueue(() => captured = ControlledDateTime.GetUtcNow());
-        cluster.RunUntilIdle();
+        cluster.RunUntilIdle(TestContext.Current.CancellationToken);
 
         Assert.Equal(Start.UtcDateTime, captured);
         Assert.Equal(DateTimeKind.Utc, captured.Kind);
@@ -48,7 +48,7 @@ public sealed class ControlledBclHostWiringTests
             timestamp = ControlledStopwatch.GetTimestamp();
             tickCount64 = ControlledEnvironment.GetTickCount64();
         });
-        cluster.RunUntilIdle();
+        cluster.RunUntilIdle(TestContext.Current.CancellationToken);
 
         // Origin is StartDateTime, so with no time advanced both read zero elapsed - fully virtual,
         // never the host machine's real Stopwatch/Environment counters.
@@ -67,7 +67,7 @@ public sealed class ControlledBclHostWiringTests
         int firstB = 0;
         a.Context.SchedulerLane.Enqueue(() => firstA = ControlledRandom.GetShared().Next());
         b.Context.SchedulerLane.Enqueue(() => firstB = ControlledRandom.GetShared().Next());
-        cluster.RunUntilIdle();
+        cluster.RunUntilIdle(TestContext.Current.CancellationToken);
 
         // Distinct nodes draw from independent application-domain streams, so a draw on one node does
         // not consume or perturb the other node's stream.
@@ -89,7 +89,7 @@ public sealed class ControlledBclHostWiringTests
                 guid = ControlledGuid.NewGuid();
                 random = ControlledRandom.GetShared().Next();
             });
-            cluster.RunUntilIdle();
+            cluster.RunUntilIdle(TestContext.Current.CancellationToken);
             return (guid, random);
         }
 
@@ -111,7 +111,7 @@ public sealed class ControlledBclHostWiringTests
 
             Guid guid = default;
             node.Context.SchedulerLane.Enqueue(() => guid = ControlledGuid.NewGuid());
-            cluster.RunUntilIdle();
+            cluster.RunUntilIdle(TestContext.Current.CancellationToken);
             return guid;
         }
 

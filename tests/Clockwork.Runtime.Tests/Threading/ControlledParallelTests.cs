@@ -115,6 +115,39 @@ public sealed class ControlledParallelTests
     }
 
     [Fact]
+    public void CancellationByFirstBodyPreventsLaterBodiesFromRunning()
+    {
+        var coordinator = new SimulationSchedulerTestHost();
+        using var cancellation = new CancellationTokenSource();
+        var executed = new List<int>();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var options = new ParallelOptions { CancellationToken = cancellation.Token };
+
+            var exception = Assert.Throws<OperationCanceledException>(
+                () => ControlledParallel.For(
+                    0,
+                    3,
+                    options,
+                    index =>
+                    {
+                        executed.Add(index);
+                        if (index == 0)
+                        {
+                            cancellation.Cancel();
+                        }
+                    }));
+
+            Assert.Equal(cancellation.Token, exception.CancellationToken);
+            Assert.Equal([0], executed);
+        });
+
+        coordinator.Scheduler.Drain(TestContext.Current.CancellationToken);
+        Assert.Equal([0], executed);
+    }
+
+    [Fact]
     public void RejectUnsupportedThrows()
     {
         var coordinator = new SimulationSchedulerTestHost();

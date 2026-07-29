@@ -141,7 +141,7 @@ public sealed class ControlledTaskCompletionSourceTests
             Assert.False(completed);
 
             coordinator.Scheduler.Schedule(() => tcs.SetResult(99));
-            coordinator.Scheduler.DrainUntil(() => completed, "test");
+            coordinator.Scheduler.DrainUntil(() => completed, "test", TestContext.Current.CancellationToken);
 
             Assert.Equal(99, observed);
         });

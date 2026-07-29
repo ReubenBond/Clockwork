@@ -317,7 +317,7 @@ public sealed class ControlledThreadTests
             Assert.Null(coordinator.Scheduler.NextTimerDue);
             Assert.False(coordinator.Scheduler.IsIdle);
 
-            Assert.Equal(1, coordinator.Scheduler.RunUntilIdle());
+            Assert.Equal(1, coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken));
             Assert.Equal(1, runs);
             Assert.True(ControlledThread.Join(thread, 0));
             Assert.Equal(TimeSpan.Zero, coordinator.Scheduler.VirtualTime);
@@ -584,7 +584,7 @@ public sealed class ControlledThreadTests
 
             ControlledThread.Start(sleeper);
             ControlledThread.Start(follower);
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
 
             Assert.True(sleeperEntered);
             Assert.False(sleeperResumed);
@@ -687,7 +687,7 @@ public sealed class ControlledThreadTests
             Assert.Null(coordinator.Scheduler.NextTimerDue);
             Assert.False(coordinator.Scheduler.IsIdle);
 
-            Assert.Equal(1, coordinator.Scheduler.RunUntilIdle());
+            Assert.Equal(1, coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken));
             Assert.Equal(1, runs);
             Assert.True(
                 useTimeSpan
@@ -768,7 +768,7 @@ public sealed class ControlledThreadTests
             Assert.False(coordinator.Scheduler.IsIdle);
             Assert.Equal(TimeSpan.Zero, coordinator.Scheduler.VirtualTime);
 
-            Assert.Equal(1, coordinator.Scheduler.RunUntilIdle());
+            Assert.Equal(1, coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken));
             Assert.Equal(["first", "second"], order);
             Assert.Equal(TimeSpan.Zero, coordinator.Scheduler.VirtualTime);
             AssertLoopIsEmpty(coordinator);

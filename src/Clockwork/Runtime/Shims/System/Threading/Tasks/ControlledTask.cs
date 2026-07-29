@@ -239,7 +239,10 @@ public static class ControlledTask
     {
         SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.Wait");
         ArgumentNullException.ThrowIfNull(task);
-        SimulationTaskRuntime.DrainUntilCompleted(task, "System.Threading.Tasks.Task.Wait");
+        SimulationTaskRuntime.DrainUntilCompleted(
+            task,
+            "System.Threading.Tasks.Task.Wait",
+            CancellationToken.None);
         RaceSynchronization.Wait(task);
         task.Wait();
     }
@@ -256,7 +259,10 @@ public static class ControlledTask
     {
         SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task`1.get_Result");
         ArgumentNullException.ThrowIfNull(task);
-        SimulationTaskRuntime.DrainUntilCompleted(task, "System.Threading.Tasks.Task`1.get_Result");
+        SimulationTaskRuntime.DrainUntilCompleted(
+            task,
+            "System.Threading.Tasks.Task`1.get_Result",
+            CancellationToken.None);
         RaceSynchronization.Wait(task);
         return task.Result;
     }
@@ -268,7 +274,10 @@ public static class ControlledTask
         SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WaitAll");
         ArgumentNullException.ThrowIfNull(tasks);
         ValidateNoNullTasks(tasks);
-        SimulationTaskRuntime.DrainUntil(() => AllCompleted(tasks), "System.Threading.Tasks.Task.WaitAll");
+        SimulationTaskRuntime.DrainUntil(
+            () => AllCompleted(tasks),
+            "System.Threading.Tasks.Task.WaitAll",
+            CancellationToken.None);
         foreach (Task task in tasks)
         {
             RaceSynchronization.Wait(task);
@@ -285,7 +294,10 @@ public static class ControlledTask
         SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WaitAny");
         ArgumentNullException.ThrowIfNull(tasks);
         ValidateNoNullTasks(tasks);
-        SimulationTaskRuntime.DrainUntil(() => AnyCompleted(tasks), "System.Threading.Tasks.Task.WaitAny");
+        SimulationTaskRuntime.DrainUntil(
+            () => AnyCompleted(tasks),
+            "System.Threading.Tasks.Task.WaitAny",
+            CancellationToken.None);
         int winner = Task.WaitAny(tasks);
         RaceSynchronization.Wait(tasks[winner]);
         return winner;

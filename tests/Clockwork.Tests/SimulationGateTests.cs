@@ -31,7 +31,7 @@ public sealed class SimulationGateTests
         gate.Open();
         Assert.False(task.IsCompleted); // Release is scheduled, not applied inline.
 
-        Assert.True(queue.RunOnce());
+        Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
         Assert.True(task.IsCompletedSuccessfully);
     }
 
@@ -47,16 +47,16 @@ public sealed class SimulationGateTests
 
         gate.Open();
 
-        Assert.True(queue.RunOnce());
+        Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
         Assert.True(first.IsCompletedSuccessfully);
         Assert.False(second.IsCompleted);
         Assert.False(third.IsCompleted);
 
-        Assert.True(queue.RunOnce());
+        Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
         Assert.True(second.IsCompletedSuccessfully);
         Assert.False(third.IsCompleted);
 
-        Assert.True(queue.RunOnce());
+        Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
         Assert.True(third.IsCompletedSuccessfully);
     }
 
@@ -67,7 +67,7 @@ public sealed class SimulationGateTests
         var gate = new SimulationGate(queue);
 
         gate.Open(); // No waiters registered yet - nothing to release.
-        Assert.Equal(0, queue.RunUntilIdle());
+        Assert.Equal(0, queue.RunUntilIdle(TestContext.Current.CancellationToken));
 
         gate.Close();
         Assert.False(gate.IsOpen);
@@ -76,7 +76,7 @@ public sealed class SimulationGateTests
         Assert.False(task.IsCompleted);
 
         gate.Open();
-        Assert.Equal(1, queue.RunUntilIdle());
+        Assert.Equal(1, queue.RunUntilIdle(TestContext.Current.CancellationToken));
         Assert.True(task.IsCompletedSuccessfully);
     }
 
@@ -122,7 +122,7 @@ public sealed class SimulationGateTests
 
         Assert.False(task.IsCompleted);
 
-        Assert.True(queue.RunOnce());
+        Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
         Assert.True(task.IsCompletedSuccessfully);
     }
 
@@ -135,7 +135,7 @@ public sealed class SimulationGateTests
 
         var task = gate.WaitAsync(cts.Token);
         gate.Open();
-        Assert.True(queue.RunOnce());
+        Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
         Assert.True(task.IsCompletedSuccessfully);
 
         cts.Cancel();
@@ -166,7 +166,7 @@ public sealed class SimulationGateTests
             start.Set();
             gate.Open();
             await cancellation.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
-            queue.RunUntilIdle();
+            queue.RunUntilIdle(TestContext.Current.CancellationToken);
 
             Assert.True(racingTask.IsCanceled || racingTask.IsCompletedSuccessfully);
             Assert.True(survivor.IsCompletedSuccessfully);
@@ -189,10 +189,10 @@ public sealed class SimulationGateTests
         gate.Open();
 
         Assert.True(canceled.IsCanceled);
-        Assert.True(queue.RunOnce());
+        Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
         Assert.True(first.IsCompletedSuccessfully);
         Assert.False(third.IsCompleted);
-        Assert.True(queue.RunOnce());
+        Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
         Assert.True(third.IsCompletedSuccessfully);
         Assert.False(queue.HasItems);
     }
@@ -238,7 +238,7 @@ public sealed class SimulationGateTests
         Assert.Same(release, completed);
         await release;
 
-        Assert.True(queue.RunOnce());
+        Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
         Assert.True(task.IsCompletedSuccessfully);
     }
 
@@ -260,7 +260,7 @@ public sealed class SimulationGateTests
         var reference = new WeakReference(gate);
 
         gate.Open();
-        Assert.Equal(1, queue.RunUntilIdle());
+        Assert.Equal(1, queue.RunUntilIdle(TestContext.Current.CancellationToken));
         Assert.True(task.IsCompletedSuccessfully);
         return reference;
     }

@@ -126,6 +126,7 @@ scheduler.SchedulingStrategy = SimulationSchedulingStrategies.Replay(recordedDec
 The core API accepts an explicit controlled-scheduler scenario:
 
 ```csharp
+using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 var recorded = ReplayRunner.Record(
     new ReplayRecordingOptions
     {
@@ -137,7 +138,8 @@ var recorded = ReplayRunner.Record(
     {
         scheduler.Schedule("worker-a", scheduler.Yield);
         scheduler.Schedule("worker-b", () => { /* controlled work */ });
-    });
+    },
+    timeout.Token);
 
 ReplayArtifactSerializer.Write("failure.cwr.json", recorded.Artifact);
 
@@ -148,7 +150,9 @@ var replayed = ReplayRunner.Replay(
     {
         scheduler.Schedule("worker-a", scheduler.Yield);
         scheduler.Schedule("worker-b", () => { /* same controlled scenario */ });
-    });
+    },
+    maxSteps: 1_000_000,
+    cancellationToken: timeout.Token);
 ```
 
 `ScheduleExplorer.Explore` runs a bounded serial seed corpus while keeping `RootSeed` unchanged.
@@ -167,12 +171,13 @@ using Clockwork;
 await using var cluster = new SimulationCluster(
     seed: 12345,
     startDateTime: DateTimeOffset.UnixEpoch);
+using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 var node1 = cluster.AddNode("node-1", state: 0); // SimulationNode<int>
 var node2 = cluster.AddNode("node-2");           // SimulationNode<object?>
 
 var handled = false;
 node1.Context.SchedulerLane.EnqueueAfter(() => handled = true, TimeSpan.FromSeconds(30));
-cluster.RunUntil(() => handled, AdaptiveExecutionBudget.Default);
+cluster.RunUntil(() => handled, AdaptiveExecutionBudget.Default, timeout.Token);
 
 cluster.Network.CreateBidirectionalPartition(node1.NetworkAddress, node2.NetworkAddress);
 ```
@@ -217,6 +222,7 @@ cluster's state. Clockwork does not provide `IHost` integration.
 
 ```csharp
 await using var cluster = new SimulationCluster(seed: 12345);
+using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 var node1 = cluster.AddNode("node-1");
 var node2 = cluster.AddNode("node-2");
 
@@ -225,24 +231,25 @@ node1.Context.SchedulerLane.EnqueueAfter(
     () => completed = true,
     TimeSpan.FromSeconds(30));
 
-cluster.RunUntil(() => completed);
+cluster.RunUntil(() => completed, timeout.Token);
 
 cluster.Network.CreateBidirectionalPartition(node1.NetworkAddress, node2.NetworkAddress);
-cluster.RunFor(TimeSpan.FromMinutes(5));
+cluster.RunFor(TimeSpan.FromMinutes(5), timeout.Token);
 cluster.Network.HealBidirectionalPartition(node1.NetworkAddress, node2.NetworkAddress);
 ```
 
 `RunUntil`, `RunUntilIdle`, and `RunFor` execute one queued operation at a time and advance the
 scheduler's virtual time only when no work is ready. All three return `SimulationExecutionResult`,
 including the stop reason, counters, limits, and pending-work snapshot. They share one drive-loop
-engine, so time advancement and stuck detection remain consistent.
+engine, so time advancement and stuck detection remain consistent. Every drive method requires a
+`CancellationToken` and observes it between simulation dispatches.
 
 ## Execution results and diagnostics
 
 Every drive method returns a `SimulationExecutionResult` describing exactly why the run stopped:
 
 ```csharp
-var result = cluster.RunUntil(() => completed, maxIterations: 10_000);
+var result = cluster.RunUntil(() => completed, timeout.Token, maxIterations: 10_000);
 
 if (result.Reason != SimulationExecutionReason.ConditionMet)
 {
@@ -253,9 +260,9 @@ if (result.Reason != SimulationExecutionReason.ConditionMet)
 }
 ```
 
-- `RunUntil(Func<bool>, int)` - drives until the condition or another stop reason.
-- `RunUntilIdle(TimeSpan?, int)` - drains until idle or a configured bound.
-- `RunFor(TimeSpan, int)` - reaches the exact target time, then drains work due at that instant.
+- `RunUntil(Func<bool>, CancellationToken, int)` - drives until the condition or another stop reason.
+- `RunUntilIdle(CancellationToken, TimeSpan?, int)` - drains until idle or a configured bound.
+- `RunFor(TimeSpan, CancellationToken, int)` - reaches the exact target time, then drains work due at that instant.
 
 `SimulationExecutionResult.Reason` (a `SimulationExecutionReason`) distinguishes every way a run
 can stop: `ConditionMet`, `Idle`, `IdleWithPendingWork` (idle, but a suspended node has ready work
@@ -272,7 +279,7 @@ alongside the existing `MaxSimulatedTimeAdvance` property.
 records for a single lane. Each record exposes only queue identity, kind, description, due time,
 sequence number, and ready/blocked status; scheduler implementation objects are never returned.
 
-`RunToCompletion(Func<Task>, ...)` drives async work under the cluster synchronization context and
+`RunToCompletion(Func<Task>, CancellationToken, ...)` drives async work under the cluster synchronization context and
 controlled scheduler. Generic overloads return `Task<T>` results directly. Fixed and adaptive
 budgets are selected by argument type; an incomplete task throws `TimeoutException` containing the
 detailed execution result, while task faults propagate unchanged.
@@ -286,8 +293,8 @@ var budget = new AdaptiveExecutionBudget(
     initialMaxIterations: 500,
     growthFactor: 8.0,
     maxTotalIterations: 5_000_000);
-var result = cluster.RunUntil(() => allNodesConverged, budget);
-var idleResult = cluster.RunUntilIdle(budget);
+var result = cluster.RunUntil(() => allNodesConverged, budget, timeout.Token);
+var idleResult = cluster.RunUntilIdle(budget, timeout.Token);
 ```
 
 Both return a `SimulationExecutionResult`, combined across every batch actually run (summed

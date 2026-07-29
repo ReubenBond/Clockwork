@@ -364,7 +364,8 @@ public static class ControlledReaderWriterLockSlim
 
         SimulationTaskRuntime.DrainUntil(
             () => waiter.Outcome != WaitOutcome.Pending || CanAcquire(state, kind, owner, waiter),
-            api);
+            api,
+            CancellationToken.None);
 
         if (waiter.Outcome == WaitOutcome.Disposed)
         {

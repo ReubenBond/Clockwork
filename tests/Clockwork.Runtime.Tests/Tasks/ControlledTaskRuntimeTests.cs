@@ -47,7 +47,7 @@ public sealed class ControlledTaskRuntimeTests
 
             // The continuation must not run inline - it is queued on the coordinator's loop.
             Assert.False(ran);
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             Assert.True(ran);
         });
     }
@@ -62,7 +62,7 @@ public sealed class ControlledTaskRuntimeTests
         {
             SimulationTaskRuntime.ScheduleYield(() => ran = true, "test.yield", flowExecutionContext: false);
             Assert.False(ran);
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             Assert.True(ran);
         });
     }
@@ -77,7 +77,10 @@ public sealed class ControlledTaskRuntimeTests
         {
             // Completing the task is itself scheduled work; the drain must run it.
             coordinator.Scheduler.Schedule(() => tcs.SetResult());
-            SimulationTaskRuntime.DrainUntilCompleted(tcs.Task, "test.wait");
+            SimulationTaskRuntime.DrainUntilCompleted(
+                tcs.Task,
+                "test.wait",
+                TestContext.Current.CancellationToken);
             Assert.True(tcs.Task.IsCompleted);
         });
     }
@@ -91,7 +94,30 @@ public sealed class ControlledTaskRuntimeTests
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             Assert.Throws<SimulationSynchronousWaitDeadlockException>(
-                () => SimulationTaskRuntime.DrainUntilCompleted(tcs.Task, "test.wait"));
+                () => SimulationTaskRuntime.DrainUntilCompleted(
+                    tcs.Task,
+                    "test.wait",
+                    TestContext.Current.CancellationToken));
+        });
+    }
+
+    [Fact]
+    public void DrainUntilCompletedHonorsCallerCancellation()
+    {
+        var coordinator = new SimulationSchedulerTestHost();
+        var tcs = new System.Threading.Tasks.TaskCompletionSource();
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var exception = Assert.Throws<OperationCanceledException>(
+                () => SimulationTaskRuntime.DrainUntilCompleted(
+                    tcs.Task,
+                    "test.wait",
+                    cancellation.Token));
+
+            Assert.Equal(cancellation.Token, exception.CancellationToken);
         });
     }
 

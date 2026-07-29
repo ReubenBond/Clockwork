@@ -17,7 +17,7 @@ public sealed class ControlledCancellationTokenSourceTests
             Assert.False(source.IsCancellationRequested);
 
             coordinator.Scheduler.AdvanceVirtualTimeTo(TimeSpan.FromMilliseconds(25));
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
 
             Assert.True(source.IsCancellationRequested);
         });
@@ -44,11 +44,11 @@ public sealed class ControlledCancellationTokenSourceTests
             using var source = new CancellationTokenSource();
             ControlledCancellationTokenSource.CancelAfter(source, 0);
             ControlledCancellationTokenSource.CancelAfter(source, 10);
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             Assert.False(source.IsCancellationRequested);
 
             coordinator.Scheduler.AdvanceVirtualTimeTo(TimeSpan.FromMilliseconds(10));
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             Assert.True(source.IsCancellationRequested);
         });
     }
@@ -130,7 +130,10 @@ public sealed class ControlledCancellationTokenSourceTests
             Task cancellation = ControlledCancellationTokenSource.CancelAsync(source);
             Assert.False(cancellation.IsCompleted);
 
-            coordinator.Scheduler.DrainUntil(() => cancellation.IsCompleted, "test.cancel");
+            coordinator.Scheduler.DrainUntil(
+                () => cancellation.IsCompleted,
+                "test.cancel",
+                TestContext.Current.CancellationToken);
 
             Assert.True(cancellation.IsCompletedSuccessfully);
             Assert.True(source.IsCancellationRequested);

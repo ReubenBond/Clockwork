@@ -375,7 +375,7 @@ public static class ControlledMonitor
             // A zero-timeout Wait releases and immediately reacquires without ever parking; no pulse can
             // have arrived, so it reports failure after reacquiring.
             state.WaitSet.Remove(waiter);
-            SimulationTaskRuntime.DrainUntil(() => state.Owner == Unowned, WaitApi);
+            SimulationTaskRuntime.DrainUntil(() => state.Owner == Unowned, WaitApi, CancellationToken.None);
             state.Owner = me;
             state.Recursion = savedRecursion;
             TrackReacquisition(obj, savedRecursion);
@@ -395,7 +395,8 @@ public static class ControlledMonitor
                 WaitApi);
             SimulationTaskRuntime.DrainUntil(
                 () => (waiter.Pulsed || waiter.TimedOut) && state.Owner == Unowned,
-                WaitApi);
+                WaitApi,
+                CancellationToken.None);
             deadline.Cancel();
             state.WaitSet.Remove(waiter);
             state.Owner = me;
@@ -406,7 +407,10 @@ public static class ControlledMonitor
 
         // Park until pulsed and the lock is free. Reacquisition sets ownership synchronously, so at most
         // one pulsed waiter wins even when several are ready.
-        SimulationTaskRuntime.DrainUntil(() => waiter.Pulsed && state.Owner == Unowned, WaitApi);
+        SimulationTaskRuntime.DrainUntil(
+            () => waiter.Pulsed && state.Owner == Unowned,
+            WaitApi,
+            CancellationToken.None);
         state.WaitSet.Remove(waiter);
         state.Owner = me;
         state.Recursion = savedRecursion;
@@ -439,7 +443,7 @@ public static class ControlledMonitor
 
         // Pump the loop until the lock is free. When DrainUntil returns the predicate held and no
         // cooperative yield has happened since, so no other strand can have taken the lock in between.
-        SimulationTaskRuntime.DrainUntil(() => state.Owner == Unowned, EnterApi);
+        SimulationTaskRuntime.DrainUntil(() => state.Owner == Unowned, EnterApi, CancellationToken.None);
         state.Owner = me;
         state.Recursion = 1;
         RaceSynchronization.Enter(obj);
@@ -475,7 +479,10 @@ public static class ControlledMonitor
             TimeSpan.FromMilliseconds(millisecondsTimeout),
             onElapsed: null,
             TryEnterApi);
-        SimulationTaskRuntime.DrainUntil(() => state.Owner == Unowned || deadline.IsElapsed, TryEnterApi);
+        SimulationTaskRuntime.DrainUntil(
+            () => state.Owner == Unowned || deadline.IsElapsed,
+            TryEnterApi,
+            CancellationToken.None);
 
         // Acquisition wins over the timeout whenever the lock is free: the loop only fires the deadline when
         // nothing else could run, so a release at the current instant is observed first.

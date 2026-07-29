@@ -281,7 +281,7 @@ public sealed class ControlledCountdownEvent : IDisposable
         }
 
         AttachCancellation(waiter!, cancellationToken);
-        SimulationTaskRuntime.DrainUntil(() => waiter!.Task.IsCompleted, WaitApi);
+        SimulationTaskRuntime.DrainUntil(() => waiter!.Task.IsCompleted, WaitApi, cancellationToken);
         return waiter!.Task.GetAwaiter().GetResult();
     }
 

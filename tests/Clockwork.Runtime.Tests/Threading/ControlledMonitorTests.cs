@@ -574,7 +574,7 @@ public sealed class ControlledMonitorTests
 
             Assert.True(accepted);
             Assert.Equal(1, coordinator.Scheduler.RunnableOperationCount);
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
 
             Assert.True(ControlledMonitor.IsEntered(gate));
             ControlledMonitor.Exit(gate);
@@ -631,7 +631,7 @@ public sealed class ControlledMonitorTests
                 antecedent.SetResult();
             }
 
-            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test", TestContext.Current.CancellationToken);
 
             Assert.Equal(TaskStatus.RanToCompletion, task.Status);
             Assert.True(ControlledMonitor.IsEntered(gate));
@@ -697,7 +697,8 @@ public sealed class ControlledMonitorTests
 
                 coordinator.Scheduler.DrainUntil(
                     () => innerOperation.IsCompleted,
-                    "nested queued Monitor ownership probe");
+                    "nested queued Monitor ownership probe",
+                    TestContext.Current.CancellationToken);
 
                 outerOwnedAfterInner = ControlledMonitor.IsEntered(gate);
                 ControlledMonitor.Exit(gate);
@@ -707,7 +708,8 @@ public sealed class ControlledMonitorTests
             Assert.False(outerOperation.IsCompleted);
             coordinator.Scheduler.DrainUntil(
                 () => outerOperation.IsCompleted,
-                "outer queued Monitor ownership probe");
+                "outer queued Monitor ownership probe",
+                TestContext.Current.CancellationToken);
 
             AssertQueuedOperationCompleted(outerOperation);
             Assert.NotNull(innerOperation);

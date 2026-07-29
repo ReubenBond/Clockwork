@@ -5,8 +5,8 @@ namespace Clockwork;
 /// <summary>
 /// <para>
 /// Configures the escalating iteration budget used by the adaptive
-/// <see cref="SimulationCluster.RunUntil(Func{bool}, AdaptiveExecutionBudget)"/> and
-/// <see cref="SimulationCluster.RunUntilIdle(AdaptiveExecutionBudget, TimeSpan?)"/> overloads. These entry points spare
+/// <see cref="SimulationCluster.RunUntil(Func{bool}, AdaptiveExecutionBudget, CancellationToken)"/> and
+/// <see cref="SimulationCluster.RunUntilIdle(AdaptiveExecutionBudget, CancellationToken, TimeSpan?)"/> methods. These entry points spare
 /// callers from having to pick a <c>maxIterations</c> value sized to their specific scenario:
 /// instead of one fixed budget, the drive loop is run in successive batches, starting at
 /// <see cref="InitialMaxIterations"/> and multiplying by <see cref="GrowthFactor"/> after each

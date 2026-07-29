@@ -135,7 +135,7 @@ public sealed class ControlledContextFlowTests
             ControlledTask.Run(() => values.Add((ambient.Value, SimulationSynchronizationFlow.CurrentId)));
             ambient.Value = 9;
 
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
 
             Assert.Equal(2, values.Count);
             Assert.All(values, entry =>
@@ -170,7 +170,7 @@ public sealed class ControlledContextFlowTests
                 flowExecutionContext: false);
             ambient.Value = 9;
 
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
 
             Assert.Equal(5, safe);
             Assert.Equal(0, unsafeValue);
@@ -214,7 +214,7 @@ public sealed class ControlledContextFlowTests
                 Assert.Equal(1, context.Started);
                 Assert.Equal(1, context.Completed);
 
-                coordinator.Scheduler.RunUntilIdle();
+                coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
                 Assert.True(postRan);
                 Assert.Null(context.ObservedPostContext);
             }
@@ -257,7 +257,7 @@ public sealed class ControlledContextFlowTests
 
             SynchronizationContext? childContext = first;
             ControlledThreadPool.QueueUserWorkItem(_ => childContext = ControlledSynchronizationContext.Current());
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
 
             Assert.Null(childContext);
             ControlledSynchronizationContext.SetSynchronizationContext(first);

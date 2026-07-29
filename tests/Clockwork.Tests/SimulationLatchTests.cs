@@ -40,7 +40,7 @@ public sealed class SimulationLatchTests
         Assert.True(latch.IsSignaled);
         Assert.False(task.IsCompleted); // Release is scheduled, not applied inline.
 
-        Assert.True(queue.RunOnce());
+        Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
         Assert.True(task.IsCompletedSuccessfully);
     }
 
@@ -67,16 +67,16 @@ public sealed class SimulationLatchTests
 
         latch.Signal();
 
-        Assert.True(queue.RunOnce());
+        Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
         Assert.True(first.IsCompletedSuccessfully);
         Assert.False(second.IsCompleted);
         Assert.False(third.IsCompleted);
 
-        Assert.True(queue.RunOnce());
+        Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
         Assert.True(second.IsCompletedSuccessfully);
         Assert.False(third.IsCompleted);
 
-        Assert.True(queue.RunOnce());
+        Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
         Assert.True(third.IsCompletedSuccessfully);
     }
 
@@ -148,7 +148,7 @@ public sealed class SimulationLatchTests
         Assert.True(canceledTask.IsCanceled);
 
         latch.Signal();
-        Assert.True(queue.RunOnce());
+        Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
         Assert.True(otherTask.IsCompletedSuccessfully);
         Assert.False(queue.HasItems); // Only the surviving waiter was enqueued for release.
     }
@@ -176,7 +176,7 @@ public sealed class SimulationLatchTests
             start.Set();
             latch.Signal();
             await cancellation.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
-            queue.RunUntilIdle();
+            queue.RunUntilIdle(TestContext.Current.CancellationToken);
 
             Assert.True(racingTask.IsCanceled || racingTask.IsCompletedSuccessfully);
             Assert.True(survivor.IsCompletedSuccessfully);

@@ -178,9 +178,9 @@ public struct ControlledSpinLock
                 // A struct instance cannot be captured by the predicate accepted by DrainUntil. Pump one
                 // controlled work item at a time so this exact referenced struct remains observable to a
                 // nested strand; when no work can run, delegate deadlock detection to the scheduler.
-                if (!SimulationTaskRuntime.RunOne(EnterApi))
+                if (!SimulationTaskRuntime.RunOne(EnterApi, CancellationToken.None))
                 {
-                    SimulationTaskRuntime.DrainUntil(static () => false, EnterApi);
+                    SimulationTaskRuntime.DrainUntil(static () => false, EnterApi, CancellationToken.None);
                 }
             }
 
@@ -194,12 +194,12 @@ public struct ControlledSpinLock
             TryEnterApi);
         while (_isHeld && !timedOut)
         {
-            if (!SimulationTaskRuntime.RunOne(TryEnterApi))
+            if (!SimulationTaskRuntime.RunOne(TryEnterApi, CancellationToken.None))
             {
                 // With no ready work, the only possible progress is a modelled deadline. Draining to the
                 // local timeout advances virtual time without consuming CPU; if another deadline causes
                 // work to become ready, the next loop iteration evaluates the shared struct again.
-                SimulationTaskRuntime.DrainUntil(() => timedOut, TryEnterApi);
+                SimulationTaskRuntime.DrainUntil(() => timedOut, TryEnterApi, CancellationToken.None);
             }
         }
 

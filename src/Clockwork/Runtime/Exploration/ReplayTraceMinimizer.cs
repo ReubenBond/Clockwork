@@ -172,18 +172,21 @@ public static class ReplayTraceMinimizer
     public static ReplayMinimizationResult Minimize(
         ReplayArtifact artifact,
         ReplayMinimizationOptions configuration,
-        Func<ReplayArtifact, ReplayFailureObservation> failurePredicate)
+        Func<ReplayArtifact, ReplayFailureObservation> failurePredicate,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(artifact);
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(failurePredicate);
         ValidateConfiguration(configuration);
+        cancellationToken.ThrowIfCancellationRequested();
         if (artifact.Outcome.Kind == ReplayTerminationKind.Aborted)
         {
             throw new ReplayMinimizationException("Replay artifacts with an Aborted outcome cannot be minimized.");
         }
 
         ReplayFailureObservation baseline = failurePredicate(artifact);
+        cancellationToken.ThrowIfCancellationRequested();
         if (!MatchesTarget(artifact.Outcome, baseline))
         {
             throw new ReplayMinimizationException(
@@ -202,7 +205,8 @@ public static class ReplayTraceMinimizer
             failurePredicate,
             stopwatch,
             progress,
-            ref attempts);
+            ref attempts,
+            cancellationToken);
         if (configuration.MinimizeChoiceAlternatives && CanAttempt(configuration, stopwatch, attempts))
         {
             current = MinimizeAlternatives(
@@ -212,7 +216,8 @@ public static class ReplayTraceMinimizer
                 failurePredicate,
                 stopwatch,
                 progress,
-                ref attempts);
+                ref attempts,
+                cancellationToken);
             current = MinimizeSubsequences(
                 current,
                 artifact.Outcome,
@@ -220,10 +225,13 @@ public static class ReplayTraceMinimizer
                 failurePredicate,
                 stopwatch,
                 progress,
-                ref attempts);
+                ref attempts,
+                cancellationToken);
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         ReplayFailureObservation final = failurePredicate(current);
+        cancellationToken.ThrowIfCancellationRequested();
         bool verified = MatchesTarget(artifact.Outcome, final);
         if (!verified)
         {
@@ -248,16 +256,19 @@ public static class ReplayTraceMinimizer
         Func<ReplayArtifact, ReplayFailureObservation> predicate,
         Stopwatch stopwatch,
         List<ReplayMinimizationProgress> progress,
-        ref int attempts)
+        ref int attempts,
+        CancellationToken cancellationToken)
     {
         var granularity = 2;
         while (current.Decisions.Count > 1 && CanAttempt(configuration, stopwatch, attempts))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             int count = current.Decisions.Count;
             int chunkSize = (count + granularity - 1) / granularity;
             var reduced = false;
             for (var start = 0; start < count && CanAttempt(configuration, stopwatch, attempts); start += chunkSize)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 int length = Math.Min(chunkSize, count - start);
                 ReplayArtifact candidate = WithDecisions(
                     current,
@@ -268,7 +279,8 @@ public static class ReplayTraceMinimizer
                     $"remove[{start.ToString(CultureInfo.InvariantCulture)}..{(start + length).ToString(CultureInfo.InvariantCulture)})",
                     predicate,
                     progress,
-                    ref attempts))
+                    ref attempts,
+                    cancellationToken))
                 {
                     current = candidate;
                     granularity = Math.Max(2, granularity - 1);
@@ -300,16 +312,19 @@ public static class ReplayTraceMinimizer
         Func<ReplayArtifact, ReplayFailureObservation> predicate,
         Stopwatch stopwatch,
         List<ReplayMinimizationProgress> progress,
-        ref int attempts)
+        ref int attempts,
+        CancellationToken cancellationToken)
     {
         for (var index = 0;
              index < current.Decisions.Count && CanAttempt(configuration, stopwatch, attempts);
              index++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             ReplayDecision decision = current.Decisions[index];
             string[] alternatives = ParseAlternatives(decision);
             foreach (string alternative in alternatives)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (string.Equals(alternative, decision.SelectedResult, StringComparison.Ordinal) ||
                     !CanAttempt(configuration, stopwatch, attempts))
                 {
@@ -324,7 +339,8 @@ public static class ReplayTraceMinimizer
                     $"choice[{index.ToString(CultureInfo.InvariantCulture)}]={alternative}",
                     predicate,
                     progress,
-                    ref attempts))
+                    ref attempts,
+                    cancellationToken))
                 {
                     current = candidate;
                     decision = replacement;
@@ -341,7 +357,8 @@ public static class ReplayTraceMinimizer
                         $"choice[{index.ToString(CultureInfo.InvariantCulture)}]={alternative};truncate",
                         predicate,
                         progress,
-                        ref attempts))
+                        ref attempts,
+                        cancellationToken))
                     {
                         return candidate;
                     }
@@ -358,10 +375,13 @@ public static class ReplayTraceMinimizer
         string action,
         Func<ReplayArtifact, ReplayFailureObservation> predicate,
         List<ReplayMinimizationProgress> progress,
-        ref int attempts)
+        ref int attempts,
+        CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         attempts++;
         ReplayFailureObservation observation = predicate(candidate);
+        cancellationToken.ThrowIfCancellationRequested();
         bool accepted = MatchesTarget(target, observation);
         progress.Add(new ReplayMinimizationProgress
         {

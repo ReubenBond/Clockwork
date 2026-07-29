@@ -156,13 +156,13 @@ public sealed class RaceDetectionTests
             RaceInstrumentation.WriteStatic("Fx.State::Value", "producer", 1, null, -1);
             RaceSynchronization.Signal(signal);
         });
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
         scheduler.Schedule("consumer", () =>
         {
             RaceSynchronization.Wait(signal);
             RaceInstrumentation.ReadStatic("Fx.State::Value", "consumer", 2, null, -1);
         });
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Null(scheduler.FirstRace);
     }
@@ -178,13 +178,13 @@ public sealed class RaceDetectionTests
             RaceInstrumentation.WriteStatic("Fx.State::Value", "producer", 1, null, -1);
             completion.SetResult();
         });
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
         scheduler.Schedule("consumer", () =>
         {
             ControlledTask.Wait(completion!.Task);
             RaceInstrumentation.ReadStatic("Fx.State::Value", "consumer", 2, null, -1);
         });
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Null(scheduler.FirstRace);
     }
@@ -200,13 +200,13 @@ public sealed class RaceDetectionTests
             RaceInstrumentation.WriteStatic("Fx.State::Value", "producer", 1, null, -1);
             completion.SetResult();
         });
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
         scheduler.Schedule("consumer", () =>
         {
             new ControlledTaskAwaiter(completion!.Task).GetResult();
             RaceInstrumentation.ReadStatic("Fx.State::Value", "consumer", 2, null, -1);
         });
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Null(scheduler.FirstRace);
     }
@@ -225,14 +225,14 @@ public sealed class RaceDetectionTests
             first.SetResult();
             second.SetResult();
         });
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
         scheduler.Schedule("consumer", () =>
         {
             Task proxy = ControlledTask.WhenAll(first!.Task, second!.Task);
             new ControlledTaskAwaiter(proxy).GetResult();
             RaceInstrumentation.ReadStatic("Fx.State::Value", "consumer", 2, null, -1);
         });
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Null(scheduler.FirstRace);
     }
@@ -243,10 +243,10 @@ public sealed class RaceDetectionTests
         ReaderWriterLockSlim? rwLock = null;
         using var scheduler = SchedulerTestHarness.NewScheduler();
         scheduler.Schedule("setup", () => rwLock = ControlledReaderWriterLockSlim.Create());
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
         scheduler.Schedule("first", () => WriteUnderReadLock(rwLock!));
         scheduler.Schedule("second", () => WriteUnderReadLock(rwLock!));
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.NotNull(scheduler.FirstRace);
     }
@@ -257,10 +257,10 @@ public sealed class RaceDetectionTests
         ReaderWriterLockSlim? rwLock = null;
         using var scheduler = SchedulerTestHarness.NewScheduler();
         scheduler.Schedule("setup", () => rwLock = ControlledReaderWriterLockSlim.Create());
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
         scheduler.Schedule("first-reader", () => ReadUnderReadLock(rwLock!));
         scheduler.Schedule("second-reader", () => ReadUnderReadLock(rwLock!));
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
         scheduler.Schedule("writer", () =>
         {
             ControlledReaderWriterLockSlim.EnterWriteLock(rwLock!);
@@ -273,7 +273,7 @@ public sealed class RaceDetectionTests
                 ControlledReaderWriterLockSlim.ExitWriteLock(rwLock!);
             }
         });
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Null(scheduler.FirstRace);
     }
@@ -310,20 +310,20 @@ public sealed class RaceDetectionTests
         SemaphoreSlim? semaphore = null;
         using var scheduler = SchedulerTestHarness.NewScheduler();
         scheduler.Schedule("setup", () => semaphore = ControlledSemaphoreSlim.Create(0, 1));
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
         scheduler.Schedule("producer", () =>
         {
             RaceInstrumentation.WriteStatic("Fx.State::Value", "producer", 1, null, -1);
             ControlledSemaphoreSlim.Release(semaphore!);
         });
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
         scheduler.Schedule("consumer", () =>
         {
             Task<bool> wait = ControlledSemaphoreSlim.WaitAsync(semaphore!, Timeout.Infinite);
             Assert.True(new ControlledTaskAwaiter<bool>(wait).GetResult());
             RaceInstrumentation.ReadStatic("Fx.State::Value", "consumer", 2, null, -1);
         });
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Null(scheduler.FirstRace);
     }
@@ -340,7 +340,7 @@ public sealed class RaceDetectionTests
             SimulationSynchronizationFlow.RunAsNewStrand(
                 () => nestedStrand = SimulationSynchronizationFlow.CurrentId);
         });
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.True(schedulerStrand < 0);
         Assert.True(nestedStrand > 0);
@@ -358,13 +358,13 @@ public sealed class RaceDetectionTests
             scheduler.WaitOnResource(resource, SimulationPauseReason.ResourceWait("race-event"));
             RaceInstrumentation.ReadStatic("Fx.State::Value", "consumer", 2, null, -1);
         });
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
         scheduler.Schedule("producer", () =>
         {
             RaceInstrumentation.WriteStatic("Fx.State::Value", "producer", 1, null, -1);
             scheduler.SignalOne(resource);
         });
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Null(scheduler.FirstRace);
     }
@@ -382,17 +382,17 @@ public sealed class RaceDetectionTests
             scheduler.WaitOnResource(resource, SimulationPauseReason.ResourceWait("clocked-event"));
             RaceInstrumentation.ReadStatic("Fx.State::Y", "consumer", 4, null, -1);
         });
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
 
         scheduler.Schedule("first-signal", () => scheduler.SignalOne(resource), priority: 5);
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
 
         scheduler.Schedule("later-signal", () =>
         {
             RaceInstrumentation.WriteStatic("Fx.State::Y", "later", 3, null, -1);
             scheduler.SignalOne(resource);
         }, priority: 10);
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.NotNull(scheduler.FirstRace);
     }
@@ -403,7 +403,7 @@ public sealed class RaceDetectionTests
         using var scheduler = SchedulerTestHarness.NewScheduler();
         WeakReference? weak = null;
         scheduler.Schedule("access", () => weak = AccessTemporaryTarget());
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         ForceCollection();
 
@@ -424,7 +424,7 @@ public sealed class RaceDetectionTests
         var scheduler = SchedulerTestHarness.NewScheduler();
         scheduler.Schedule("first", first);
         scheduler.Schedule("second", second);
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
         return scheduler;
     }
 
@@ -504,7 +504,7 @@ public sealed class RaceDetectionTests
         scheduler.SchedulingStrategy = SimulationSchedulingStrategies.SeededRandom(seed);
         scheduler.Schedule("first", () => AccessStatic(RaceAccessKind.Write, "A"));
         scheduler.Schedule("second", () => AccessStatic(RaceAccessKind.Read, "B"));
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
         return Assert.IsType<RaceReport>(scheduler.FirstRace).ToDetailedString();
     }
 

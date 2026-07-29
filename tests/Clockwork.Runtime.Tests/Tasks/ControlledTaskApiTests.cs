@@ -26,7 +26,7 @@ public sealed class ControlledTaskApiTests
 
             coordinator.Scheduler.Schedule(() => a.SetResult(1));
             coordinator.Scheduler.Schedule(() => b.SetResult(2));
-            coordinator.Scheduler.DrainUntil(() => all.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => all.IsCompleted, "test", TestContext.Current.CancellationToken);
 
             Assert.Equal([1, 2], all.Result);
         });
@@ -46,7 +46,7 @@ public sealed class ControlledTaskApiTests
             // b is completed first on the loop, so WhenAny must resolve to b, deterministically.
             coordinator.Scheduler.Schedule(() => b.SetResult(2));
             coordinator.Scheduler.Schedule(() => a.SetResult(1));
-            coordinator.Scheduler.DrainUntil(() => any.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => any.IsCompleted, "test", TestContext.Current.CancellationToken);
 
             Assert.Same(b.Task, any.Result);
         });
@@ -163,7 +163,10 @@ public sealed class ControlledTaskApiTests
                 tcs.SetResult(5);
                 ranInline = continuation.IsCompleted;
             });
-            coordinator.Scheduler.DrainUntil(() => continuation.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(
+                () => continuation.IsCompleted,
+                "test",
+                TestContext.Current.CancellationToken);
 
             Assert.False(ranInline);
             Assert.True(continuation.IsCompletedSuccessfully);
@@ -181,7 +184,10 @@ public sealed class ControlledTaskApiTests
             var continuation = ControlledTask.ContinueWith(tcs.Task, t => ((Task<int>)t).Result * 2);
 
             coordinator.Scheduler.Schedule(() => tcs.SetResult(21));
-            coordinator.Scheduler.DrainUntil(() => continuation.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(
+                () => continuation.IsCompleted,
+                "test",
+                TestContext.Current.CancellationToken);
 
             Assert.Equal(42, continuation.Result);
         });
@@ -199,7 +205,10 @@ public sealed class ControlledTaskApiTests
             var continuation = ControlledTask.ContinueWith(tcs.Task, t => observedFault = t.IsFaulted);
 
             coordinator.Scheduler.Schedule(() => tcs.SetException(new InvalidTimeZoneException()));
-            coordinator.Scheduler.DrainUntil(() => continuation.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(
+                () => continuation.IsCompleted,
+                "test",
+                TestContext.Current.CancellationToken);
 
             Assert.True(observedFault);
             Assert.True(continuation.IsCompletedSuccessfully);
@@ -229,7 +238,7 @@ public sealed class ControlledTaskApiTests
         {
             Task task = delay();
             Assert.False(task.IsCompleted);
-            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test.delay");
+            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test.delay", TestContext.Current.CancellationToken);
             Assert.True(task.IsCompletedSuccessfully);
             Assert.Equal(TimeSpan.FromMilliseconds(100), coordinator.Scheduler.VirtualTime);
         });
@@ -249,7 +258,7 @@ public sealed class ControlledTaskApiTests
             Assert.False(ran);
             Assert.False(task.IsCompleted);
 
-            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test", TestContext.Current.CancellationToken);
 
             Assert.True(ran);
             Assert.True(task.IsCompletedSuccessfully);
@@ -264,7 +273,7 @@ public sealed class ControlledTaskApiTests
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var task = ControlledTask.Run(() => 42);
-            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test", TestContext.Current.CancellationToken);
             Assert.Equal(42, task.Result);
         });
     }
@@ -280,11 +289,11 @@ public sealed class ControlledTaskApiTests
             var task = ControlledTask.Run(() => inner.Task);
 
             // The outer task must not complete until the unwrapped inner task completes.
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             Assert.False(task.IsCompleted);
 
             coordinator.Scheduler.Schedule(() => inner.SetResult(7));
-            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test", TestContext.Current.CancellationToken);
 
             Assert.Equal(7, task.Result);
         });
@@ -299,7 +308,7 @@ public sealed class ControlledTaskApiTests
         {
             var boom = new InvalidTimeZoneException("boom");
             var task = ControlledTask.Run(() => throw boom);
-            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test", TestContext.Current.CancellationToken);
 
             Assert.Equal(TaskStatus.Faulted, task.Status);
             Assert.Same(boom, task.Exception!.InnerException);
@@ -317,7 +326,7 @@ public sealed class ControlledTaskApiTests
             cts.Cancel();
             var ran = false;
             var task = ControlledTask.Run(() => { ran = true; }, cts.Token);
-            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test", TestContext.Current.CancellationToken);
 
             Assert.False(ran);
             Assert.Equal(TaskStatus.Canceled, task.Status);
@@ -359,7 +368,7 @@ public sealed class ControlledTaskApiTests
             Assert.False(ran);
             Assert.False(task.IsCompleted);
 
-            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test", TestContext.Current.CancellationToken);
 
             Assert.True(ran);
             Assert.True(task.IsCompletedSuccessfully);
@@ -374,7 +383,7 @@ public sealed class ControlledTaskApiTests
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var task = ControlledTaskFactory.StartNew(Task.Factory, () => 99);
-            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test", TestContext.Current.CancellationToken);
             Assert.Equal(99, task.Result);
         });
     }
@@ -407,7 +416,10 @@ public sealed class ControlledTaskApiTests
                 TaskCreationOptions.None,
                 TaskScheduler.Default);
 
-            coordinator.Scheduler.DrainUntil(() => action.IsCompleted && result.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(
+                () => action.IsCompleted && result.IsCompleted,
+                "test",
+                TestContext.Current.CancellationToken);
 
             Assert.Equal(17L, actionState);
             Assert.Equal(17L, action.AsyncState);
@@ -435,7 +447,7 @@ public sealed class ControlledTaskApiTests
                 TaskCreationOptions.None,
                 TaskScheduler.Default);
 
-            coordinator.Scheduler.DrainUntil(() => result.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => result.IsCompleted, "test", TestContext.Current.CancellationToken);
             Assert.Equal(42, result.Result);
             Assert.Equal(21, result.AsyncState);
         });
@@ -505,7 +517,7 @@ public sealed class ControlledTaskApiTests
 
             Assert.True(canceled.IsCanceled);
             Assert.False(ran);
-            coordinator.Scheduler.DrainUntil(() => faulted.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => faulted.IsCompleted, "test", TestContext.Current.CancellationToken);
             Assert.Equal(TaskStatus.Faulted, faulted.Status);
             Assert.IsType<OperationCanceledException>(faulted.Exception!.InnerException);
         });
@@ -542,7 +554,7 @@ public sealed class ControlledTaskApiTests
             Assert.False(projected.IsCompleted);
 
             coordinator.Scheduler.Schedule(() => source.SetResult(7));
-            coordinator.Scheduler.DrainUntil(() => projected.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => projected.IsCompleted, "test", TestContext.Current.CancellationToken);
 
             Assert.Equal("7", projected.Result);
         });
@@ -560,7 +572,10 @@ public sealed class ControlledTaskApiTests
             var continuation = ControlledTask.ContinueWith(source.Task, t => { seen = t.Result; });
 
             coordinator.Scheduler.Schedule(() => source.SetResult(11));
-            coordinator.Scheduler.DrainUntil(() => continuation.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(
+                () => continuation.IsCompleted,
+                "test",
+                TestContext.Current.CancellationToken);
 
             Assert.Equal(11, seen);
             Assert.True(continuation.IsCompletedSuccessfully);
@@ -673,7 +688,7 @@ public sealed class ControlledTaskApiTests
             Assert.Equal(-1, seen);
             ambient.Value = 9;
 
-            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test", TestContext.Current.CancellationToken);
 
             Assert.Equal(5, seen);
             Assert.Equal(TaskStatus.RanToCompletion, task.Status);
@@ -760,7 +775,10 @@ public sealed class ControlledTaskApiTests
                 antecedent.SetResult();
             }
 
-            coordinator.Scheduler.DrainUntil(() => continuation.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(
+                () => continuation.IsCompleted,
+                "test",
+                TestContext.Current.CancellationToken);
 
             Assert.Equal(5, seen);
             Assert.Equal(TaskStatus.RanToCompletion, continuation.Status);
@@ -869,7 +887,7 @@ public sealed class ControlledTaskApiTests
 #pragma warning restore xUnit1051
 
             Assert.False(task.IsCompleted);
-            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test", TestContext.Current.CancellationToken);
 
             bool shouldCancel = oceCase == StartNewOceCase.MatchingRequested;
             Assert.Equal(shouldCancel, associatedSource.IsCancellationRequested);
@@ -946,7 +964,10 @@ public sealed class ControlledTaskApiTests
 
             Assert.False(continuation.IsCompleted);
             coordinator.Scheduler.Schedule(completeAntecedent);
-            coordinator.Scheduler.DrainUntil(() => continuation.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(
+                () => continuation.IsCompleted,
+                "test",
+                TestContext.Current.CancellationToken);
 
             Assert.Equal(oceCase == TokenlessOceCase.Requested, thrownSource.IsCancellationRequested);
             AssertOceTaskCompletion(continuation, thrown, shouldCancel: false);
@@ -967,7 +988,7 @@ public sealed class ControlledTaskApiTests
 #pragma warning restore xUnit1051
 
             Task outer = ControlledTask.Run(() => inner);
-            coordinator.Scheduler.DrainUntil(() => outer.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => outer.IsCompleted, "test", TestContext.Current.CancellationToken);
 
             Assert.Equal(TaskStatus.Canceled, inner.Status);
             Assert.Equal(TaskStatus.Canceled, outer.Status);
@@ -993,7 +1014,7 @@ public sealed class ControlledTaskApiTests
 #pragma warning restore xUnit1051
 
             Task<int> outer = ControlledTask.Run(() => inner);
-            coordinator.Scheduler.DrainUntil(() => outer.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => outer.IsCompleted, "test", TestContext.Current.CancellationToken);
 
             Assert.Equal(TaskStatus.Canceled, inner.Status);
             Assert.Equal(TaskStatus.Canceled, outer.Status);
@@ -1174,7 +1195,7 @@ public sealed class ControlledTaskApiTests
 #pragma warning restore xUnit1051
 
             Assert.False(task.IsCompleted);
-            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test", TestContext.Current.CancellationToken);
 
             bool shouldCancel = oceCase == StartNewOceCase.MatchingRequested;
             Assert.Equal(shouldCancel, associatedSource.IsCancellationRequested);
@@ -1253,7 +1274,10 @@ public sealed class ControlledTaskApiTests
 
             Assert.False(continuation.IsCompleted);
             coordinator.Scheduler.Schedule(completeAntecedent);
-            coordinator.Scheduler.DrainUntil(() => continuation.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(
+                () => continuation.IsCompleted,
+                "test",
+                TestContext.Current.CancellationToken);
 
             Assert.Equal(oceCase == TokenlessOceCase.Requested, thrownSource.IsCancellationRequested);
             AssertOceTaskCompletion(continuation, thrown, shouldCancel: false);

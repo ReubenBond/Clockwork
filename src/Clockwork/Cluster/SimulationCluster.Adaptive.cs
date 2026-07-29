@@ -11,10 +11,10 @@ public sealed partial class SimulationCluster
     /// Runs the simulation until <paramref name="condition"/> becomes true, automatically
     /// escalating the iteration budget across successive batches instead of requiring a single
     /// <c>maxIterations</c> value sized to the scenario. This is the adaptive counterpart to
-    /// <see cref="RunUntil(Func{bool}, int)"/>.
+    /// <see cref="RunUntil(Func{bool}, CancellationToken, int)"/>.
     /// </para>
     /// <para>
-    /// <b>Progress heuristic:</b> each batch is run with <see cref="RunUntil(Func{bool}, int)"/>.
+    /// <b>Progress heuristic:</b> each batch is run with <see cref="RunUntil(Func{bool}, CancellationToken, int)"/>.
     /// If a batch stops for any reason other than <see cref="SimulationExecutionReason.MaxIterationsReached"/>,
     /// execution stops immediately and that result is returned - the goal was met
     /// (<see cref="SimulationExecutionReason.ConditionMet"/>), or the simulation is genuinely stuck
@@ -41,7 +41,7 @@ public sealed partial class SimulationCluster
     /// while still needing more iterations, the returned result's
     /// <see cref="SimulationExecutionResult.Reason"/> is
     /// <see cref="SimulationExecutionReason.MaxIterationsReached"/>, exactly as it would be for a
-    /// plain <see cref="RunUntil(Func{bool}, int)"/> call whose fixed budget ran out. The
+    /// plain <see cref="RunUntil(Func{bool}, CancellationToken, int)"/> call whose fixed budget ran out. The
     /// returned <see cref="SimulationExecutionResult.Limits"/> reports this overall adaptive ceiling,
     /// not the size of the final batch.
     /// </para>
@@ -51,8 +51,12 @@ public sealed partial class SimulationCluster
     /// The adaptive budget controlling the initial batch size, escalation factor, and hard total
     /// iteration ceiling.
     /// </param>
+    /// <param name="cancellationToken">A token that can cancel the run between simulation dispatches.</param>
     /// <returns>A detailed result describing the whole (possibly multi-batch) execution.</returns>
-    public SimulationExecutionResult RunUntil(Func<bool> condition, AdaptiveExecutionBudget budget)
+    public SimulationExecutionResult RunUntil(
+        Func<bool> condition,
+        AdaptiveExecutionBudget budget,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(condition);
         ArgumentNullException.ThrowIfNull(budget);
@@ -65,7 +69,9 @@ public sealed partial class SimulationCluster
                 MaxSimulatedTimeAdvance,
                 batchMaxIterations,
                 observeTeardownCancellation: false,
-                initialConsecutiveTimeAdvances: consecutiveTimeAdvances));
+                initialConsecutiveTimeAdvances: consecutiveTimeAdvances,
+                absoluteEndTime: null,
+                cancellationToken: cancellationToken));
     }
 
     /// <summary>
@@ -73,11 +79,11 @@ public sealed partial class SimulationCluster
     /// Runs the simulation until it becomes idle, automatically escalating the iteration budget
     /// across successive batches instead of requiring a single <c>maxIterations</c> value sized to
     /// the scenario. This is the adaptive counterpart to
-    /// <see cref="RunUntilIdle(TimeSpan?, int)"/>.
+    /// <see cref="RunUntilIdle(CancellationToken, TimeSpan?, int)"/>.
     /// </para>
     /// <para>
     /// Follows the same progress heuristic and hard-cap behavior as
-    /// <see cref="RunUntil(Func{bool}, AdaptiveExecutionBudget)"/> - see its remarks for
+    /// <see cref="RunUntil(Func{bool}, AdaptiveExecutionBudget, CancellationToken)"/> - see its remarks for
     /// the precise rules governing when escalation happens and when it stops.
     /// </para>
     /// </summary>
@@ -85,9 +91,14 @@ public sealed partial class SimulationCluster
     /// The adaptive budget controlling the initial batch size, escalation factor, and hard total
     /// iteration ceiling.
     /// </param>
+    /// <param name="cancellationToken">A token that can cancel the run between simulation dispatches.</param>
     /// <param name="maxTimeAdvance">The maximum simulated-time gap to jump in a single advance. Defaults to <see cref="MaxSimulatedTimeAdvance"/>.</param>
     /// <returns>A detailed result describing the whole (possibly multi-batch) execution.</returns>
-    public SimulationExecutionResult RunUntilIdle(AdaptiveExecutionBudget budget, TimeSpan? maxTimeAdvance = null)
+#pragma warning disable CA1068 // Cancellation is required while the time-advance limit retains its established default.
+    public SimulationExecutionResult RunUntilIdle(
+        AdaptiveExecutionBudget budget,
+        CancellationToken cancellationToken,
+        TimeSpan? maxTimeAdvance = null)
     {
         ArgumentNullException.ThrowIfNull(budget);
         using var control = Scheduler.EnterControlScope();
@@ -99,8 +110,11 @@ public sealed partial class SimulationCluster
                 maxTimeAdvance ?? MaxSimulatedTimeAdvance,
                 batchMaxIterations,
                 observeTeardownCancellation: true,
-                initialConsecutiveTimeAdvances: consecutiveTimeAdvances));
+                initialConsecutiveTimeAdvances: consecutiveTimeAdvances,
+                absoluteEndTime: null,
+                cancellationToken: cancellationToken));
     }
+#pragma warning restore CA1068
 
     /// <summary>
     /// Shared escalation loop for the adaptive RunUntil and RunUntilIdle overloads.

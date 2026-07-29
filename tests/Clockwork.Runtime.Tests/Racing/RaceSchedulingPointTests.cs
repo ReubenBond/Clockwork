@@ -22,7 +22,7 @@ public sealed class RaceSchedulingPointTests
                 "Subject.cs",
                 17));
 
-        Assert.Equal(2, scheduler.Drain());
+        Assert.Equal(2, scheduler.Drain(TestContext.Current.CancellationToken));
 
         RaceSchedulingPoint point = Assert.Single(scheduler.CaptureRaceSchedulingPoints());
         Assert.Equal(RaceAccessKind.Write, point.Kind);
@@ -57,7 +57,7 @@ public sealed class RaceSchedulingPointTests
         scheduler.DecisionLog = new SimulationDecisionLog();
         scheduler.Schedule("a", () => AccessTwice("A"));
         scheduler.Schedule("b", () => AccessTwice("B"));
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.NotEmpty(scheduler.DecisionLog.Records);
         return string.Join(

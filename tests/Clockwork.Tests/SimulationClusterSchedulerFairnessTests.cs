@@ -161,5 +161,5 @@ public sealed class SimulationClusterSchedulerFairnessTests
     }
 
     private static bool RunOneStep(SimulationCluster cluster) =>
-        cluster.RunUntil(static () => false, maxIterations: 1).StepsExecuted == 1;
+        cluster.RunUntil(static () => false, TestContext.Current.CancellationToken, maxIterations: 1).StepsExecuted == 1;
 }

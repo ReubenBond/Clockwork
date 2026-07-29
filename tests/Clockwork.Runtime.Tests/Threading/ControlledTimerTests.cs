@@ -24,7 +24,7 @@ public sealed class ControlledTimerTests
             using var timer = new ControlledTimer(state => observed = state);
             Assert.Equal(0, ControlledTimer.ActiveCount);
             Assert.True(timer.Change(TimeSpan.Zero, Timeout.InfiniteTimeSpan));
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             Assert.Same(timer, observed);
             Assert.Equal(0, ControlledTimer.ActiveCount);
         });
@@ -46,9 +46,9 @@ public sealed class ControlledTimerTests
 
             Assert.Equal(TimeSpan.FromMilliseconds(10), coordinator.Scheduler.NextTimerDue);
             coordinator.Scheduler.AdvanceVirtualTimeTo(TimeSpan.FromMilliseconds(10));
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             coordinator.Scheduler.AdvanceVirtualTimeTo(TimeSpan.FromMilliseconds(30));
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
 
             Assert.Equal([TimeSpan.FromMilliseconds(10), TimeSpan.FromMilliseconds(30)], fired);
             Assert.Equal(TimeSpan.FromMilliseconds(50), coordinator.Scheduler.NextTimerDue);
@@ -78,11 +78,11 @@ public sealed class ControlledTimerTests
                 2);
 
             coordinator.Scheduler.AdvanceVirtualTimeTo(TimeSpan.FromMilliseconds(1));
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             Assert.Equal(TimeSpan.FromMilliseconds(6), coordinator.Scheduler.NextTimerDue);
 
             coordinator.Scheduler.AdvanceVirtualTimeTo(TimeSpan.FromMilliseconds(6));
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
 
             Assert.Equal([TimeSpan.FromMilliseconds(1), TimeSpan.FromMilliseconds(6)], fired);
             Assert.Null(coordinator.Scheduler.NextTimerDue);
@@ -100,7 +100,7 @@ public sealed class ControlledTimerTests
         {
             var timer = new ControlledTimer(_ => fired = true, null, 0, Timeout.Infinite);
             timer.Dispose();
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
         });
 
         Assert.False(fired);
@@ -118,7 +118,7 @@ public sealed class ControlledTimerTests
             local.Value = "captured";
             using var timer = new ControlledTimer(_ => observed = local.Value, null, 0, Timeout.Infinite);
             local.Value = "changed";
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
         });
 
         Assert.Equal("captured", observed);
@@ -135,7 +135,7 @@ public sealed class ControlledTimerTests
             using var first = new ControlledTimer(_ => order.Add(1), null, 5, Timeout.Infinite);
             using var second = new ControlledTimer(_ => order.Add(2), null, 5, Timeout.Infinite);
             coordinator.Scheduler.AdvanceVirtualTimeTo(TimeSpan.FromMilliseconds(5));
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
         });
 
         Assert.Equal([1, 2], order);

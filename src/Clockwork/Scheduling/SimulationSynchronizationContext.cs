@@ -32,7 +32,7 @@ public sealed class SimulationSynchronizationContext(SimulationSchedulerLane sch
     /// 2. The calling thread is not on the owning operation, but no other thread currently holds
     /// the queue's single-threaded guard. The callback is scheduled onto the queue (preserving
     /// deterministic FIFO ordering relative to anything already pending) and this call then
-    /// synchronously pumps the queue - via repeated <see cref="SimulationSchedulerLane.RunOnce"/> calls
+    /// synchronously pumps the queue - via repeated <see cref="SimulationSchedulerLane.RunOnce(CancellationToken)"/> calls
     /// on the calling thread - until the callback has executed, at which point <see cref="Send"/>
     /// returns. This can never deadlock: the calling thread does its own pumping rather than
     /// waiting for another thread to make progress, and every item already in the queue has a
@@ -133,7 +133,7 @@ public sealed class SimulationSynchronizationContext(SimulationSchedulerLane sch
             bool ran;
             try
             {
-                ran = schedulerLane.RunOnce();
+                ran = schedulerLane.RunOnce(CancellationToken.None);
             }
             catch (ObjectDisposedException) when (schedulerLane.IsDetached)
             {

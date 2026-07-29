@@ -204,7 +204,7 @@ public sealed class ControlledManualResetEventSlimTests
 
             ControlledManualResetEventSlim.Set(evt);
             Assert.True(ControlledWaitHandle.WaitOne(bridge, 0));
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             Assert.Equal(1, callbacks);
 
             ControlledManualResetEventSlim.Reset(evt);

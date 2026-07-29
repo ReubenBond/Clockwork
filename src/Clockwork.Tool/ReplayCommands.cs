@@ -63,7 +63,8 @@ internal static class ReplayCommands
                 MaxSteps = maxSteps,
                 Instrumentation = instrumentation,
             },
-            scheduler => factory().Configure(scheduler));
+            scheduler => factory().Configure(scheduler),
+            CancellationToken.None);
         ReplayArtifactSerializer.Write(artifactPath, result.Artifact);
         WriteExecution(output, result, Path.GetFullPath(artifactPath), json);
         return ExitForOutcome(result.Artifact.Outcome);
@@ -90,7 +91,8 @@ internal static class ReplayCommands
             artifact,
             requirements,
             scheduler => factory().Configure(scheduler),
-            maxSteps);
+            maxSteps,
+            CancellationToken.None);
         WriteExecution(
             output,
             result,
@@ -130,7 +132,8 @@ internal static class ReplayCommands
                 TimeLimit = timeLimit,
                 Instrumentation = instrumentation,
             },
-            scheduler => factory().Configure(scheduler));
+            scheduler => factory().Configure(scheduler),
+            CancellationToken.None);
 
         Directory.CreateDirectory(outputDirectory);
         var paths = new SortedDictionary<string, string>(StringComparer.Ordinal);
@@ -178,7 +181,8 @@ internal static class ReplayCommands
                 MaxAttempts = maxAttempts,
                 TimeLimit = timeLimit,
             },
-            predicate);
+            predicate,
+            CancellationToken.None);
         ReplayArtifactSerializer.Write(outputPath, result.MinimizedArtifact);
         WriteMinimization(output, result, Path.GetFullPath(outputPath), json);
         return ExitCode.Success;

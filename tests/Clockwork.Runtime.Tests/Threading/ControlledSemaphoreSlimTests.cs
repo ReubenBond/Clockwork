@@ -427,7 +427,7 @@ public sealed class ControlledSemaphoreSlimTests
 
             // Drive the loop: with nothing else runnable, modelled time advances to the deadline, which
             // completes the task with false.
-            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test-drive");
+            coordinator.Scheduler.DrainUntil(() => task.IsCompleted, "test-drive", TestContext.Current.CancellationToken);
 
             Assert.True(task.IsCompletedSuccessfully);
             Assert.False(task.Result);
@@ -493,7 +493,7 @@ public sealed class ControlledSemaphoreSlimTests
                 Assert.True(task.IsCanceled);
                 Assert.Null(coordinator.Scheduler.NextTimerDue);
                 Assert.Equal(TimeSpan.Zero, coordinator.Scheduler.VirtualTime);
-                Assert.Equal(0, coordinator.Scheduler.RunUntilIdle());
+                Assert.Equal(0, coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken));
             }
             finally
             {

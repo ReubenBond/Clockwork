@@ -105,7 +105,7 @@ public struct ControlledSpinWait
             return;
         }
 
-        SimulationTaskRuntime.DrainUntil(condition, SpinUntilApi);
+        SimulationTaskRuntime.DrainUntil(condition, SpinUntilApi, CancellationToken.None);
     }
 
     /// <summary>
@@ -136,7 +136,7 @@ public struct ControlledSpinWait
 
         if (millisecondsTimeout == Timeout.Infinite)
         {
-            SimulationTaskRuntime.DrainUntil(condition, SpinUntilApi);
+            SimulationTaskRuntime.DrainUntil(condition, SpinUntilApi, CancellationToken.None);
             return true;
         }
 
@@ -149,7 +149,7 @@ public struct ControlledSpinWait
             onElapsed: () => timedOut = true,
             SpinUntilApi);
 
-        SimulationTaskRuntime.DrainUntil(() => timedOut || condition(), SpinUntilApi);
+        SimulationTaskRuntime.DrainUntil(() => timedOut || condition(), SpinUntilApi, CancellationToken.None);
 
         bool met = condition();
         if (met)

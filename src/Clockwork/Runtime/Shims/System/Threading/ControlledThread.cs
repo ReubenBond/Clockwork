@@ -192,7 +192,7 @@ public static class ControlledThread
     public static bool Yield()
     {
         SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Thread.Yield");
-        return SimulationTaskRuntime.RunOne("System.Threading.Thread.Yield");
+        return SimulationTaskRuntime.RunOne("System.Threading.Thread.Yield", CancellationToken.None);
     }
 
     // ---- OS-specific surface that cannot be modelled faithfully: rejected precisely under simulation ----
@@ -320,7 +320,10 @@ public static class ControlledThread
         // Pumps the deterministic loop until the thread's body completes. If the thread was never started
         // (or its body can never complete) this surfaces as the standard controlled deadlock diagnostic
         // rather than a real-time hang.
-        SimulationTaskRuntime.DrainUntilCompleted(registration.Completion.Task, JoinApi);
+        SimulationTaskRuntime.DrainUntilCompleted(
+            registration.Completion.Task,
+            JoinApi,
+            CancellationToken.None);
     }
 
     private static bool JoinControlled(Thread instance, int millisecondsTimeout)
@@ -333,7 +336,10 @@ public static class ControlledThread
 
         if (millisecondsTimeout == Timeout.Infinite)
         {
-            SimulationTaskRuntime.DrainUntilCompleted(registration.Completion.Task, JoinApi);
+            SimulationTaskRuntime.DrainUntilCompleted(
+                registration.Completion.Task,
+                JoinApi,
+                CancellationToken.None);
             return true;
         }
 
@@ -345,7 +351,8 @@ public static class ControlledThread
         {
             SimulationTaskRuntime.DrainUntil(
                 () => registration.Completion.Task.IsCompleted || timeout.IsElapsed,
-                JoinApi);
+                JoinApi,
+                CancellationToken.None);
             return registration.Completion.Task.IsCompleted;
         }
         finally
@@ -376,7 +383,7 @@ public static class ControlledThread
     {
         if (millisecondsTimeout == 0)
         {
-            SimulationTaskRuntime.RunOne(SleepApi);
+            SimulationTaskRuntime.RunOne(SleepApi, CancellationToken.None);
             return;
         }
 
@@ -392,7 +399,7 @@ public static class ControlledThread
             SleepApi);
         try
         {
-            SimulationTaskRuntime.DrainUntil(() => timeout.IsElapsed, SleepApi);
+            SimulationTaskRuntime.DrainUntil(() => timeout.IsElapsed, SleepApi, CancellationToken.None);
         }
         finally
         {

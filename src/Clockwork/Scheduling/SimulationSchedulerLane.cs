@@ -214,25 +214,21 @@ public sealed class SimulationSchedulerLane
     }
 
     /// <summary>Runs one scheduler operation without advancing virtual time.</summary>
-    public bool RunOnce()
+    /// <param name="cancellationToken">A token checked before dispatching the operation.</param>
+    public bool RunOnce(CancellationToken cancellationToken)
     {
         ThrowIfDetached();
         using var control = _scheduler.EnterControlScope();
-        return _scheduler.RunStep();
+        return _scheduler.RunStep(cancellationToken);
     }
 
     /// <summary>Runs scheduler operations until none is currently eligible.</summary>
-    public int RunUntilIdle()
+    /// <param name="cancellationToken">A token that can cancel the run between scheduler dispatches.</param>
+    public int RunUntilIdle(CancellationToken cancellationToken)
     {
         ThrowIfDetached();
         using var control = _scheduler.EnterControlScope();
-        var count = 0;
-        while (_scheduler.RunStep())
-        {
-            count++;
-        }
-
-        return count;
+        return _scheduler.RunUntilIdle(cancellationToken);
     }
 
     internal void SetEnabled(bool enabled)

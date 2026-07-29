@@ -404,7 +404,7 @@ public static class ControlledSemaphoreSlim
         }
 
         AttachCancellation(state, waiter, cancellationToken);
-        SimulationTaskRuntime.DrainUntil(() => waiter.Task.IsCompleted, WaitApi);
+        SimulationTaskRuntime.DrainUntil(() => waiter.Task.IsCompleted, WaitApi, cancellationToken);
 
         // The waiter completes as served (true), timed-out (false), or cancelled. GetResult rethrows the
         // OperationCanceledException for a cancelled waiter, so synchronous cancellation observes the same

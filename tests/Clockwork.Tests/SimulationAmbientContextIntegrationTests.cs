@@ -23,7 +23,7 @@ public sealed class SimulationAmbientContextIntegrationTests
         SimulationExecutionSnapshot? captured = null;
         node.Context.SchedulerLane.Enqueue(() => captured = SimulationExecutionContext.Current);
 
-        cluster.RunUntilIdle();
+        cluster.RunUntilIdle(TestContext.Current.CancellationToken);
 
         Assert.NotNull(captured);
         Assert.Equal(cluster.RuntimeIdentity.Id, captured!.Runtime.Id);
@@ -40,7 +40,7 @@ public sealed class SimulationAmbientContextIntegrationTests
         SimulationExecutionSnapshot? captured = null;
         cluster.SchedulerLane.Enqueue(() => captured = SimulationExecutionContext.Current);
 
-        cluster.RunUntilIdle();
+        cluster.RunUntilIdle(TestContext.Current.CancellationToken);
 
         Assert.NotNull(captured);
         Assert.Equal(cluster.RuntimeIdentity.Id, captured!.Runtime.Id);
@@ -65,7 +65,7 @@ public sealed class SimulationAmbientContextIntegrationTests
             nodeB.Context.SchedulerLane.Enqueue(() => observedAddressesInsideB.Add(SimulationExecutionContext.Current?.Node?.Address));
         }
 
-        cluster.RunUntilIdle();
+        cluster.RunUntilIdle(TestContext.Current.CancellationToken);
 
         Assert.Equal(5, observedAddressesInsideA.Count);
         Assert.Equal(5, observedAddressesInsideB.Count);
@@ -82,7 +82,7 @@ public sealed class SimulationAmbientContextIntegrationTests
         node.Context.SchedulerLane.Enqueue(() => { });
 
         Assert.False(SimulationExecutionContext.IsActive);
-        cluster.RunUntilIdle();
+        cluster.RunUntilIdle(TestContext.Current.CancellationToken);
         Assert.False(SimulationExecutionContext.IsActive);
     }
 
@@ -95,7 +95,7 @@ public sealed class SimulationAmbientContextIntegrationTests
         var executed = false;
         node.Context.SchedulerLane.EnqueueAfter(() => executed = true, TimeSpan.FromSeconds(1));
 
-        Assert.Equal(SimulationExecutionReason.ConditionMet, cluster.RunUntil(() => executed).Reason);
+        Assert.Equal(SimulationExecutionReason.ConditionMet, cluster.RunUntil(() => executed, TestContext.Current.CancellationToken).Reason);
         Assert.False(SimulationExecutionContext.IsActive);
     }
 
@@ -113,8 +113,8 @@ public sealed class SimulationAmbientContextIntegrationTests
         var observedActiveInsideNodeCallback = true; // Overwritten below; starts true so a missed callback fails loudly.
         node.Context.SchedulerLane.Enqueue(() => observedActiveInsideNodeCallback = SimulationExecutionContext.IsActive);
 
-        cluster.RunUntilIdle();
-        node.Context.RunUntilIdle();
+        cluster.RunUntilIdle(TestContext.Current.CancellationToken);
+        node.Context.RunUntilIdle(TestContext.Current.CancellationToken);
 
         Assert.NotNull(capturedOnClusterQueue);
         Assert.Equal(cluster.RuntimeIdentity.Id, capturedOnClusterQueue!.Runtime.Id);
@@ -131,7 +131,7 @@ public sealed class SimulationAmbientContextIntegrationTests
         var observedActiveInsideNodeCallback = false;
         node.Context.SchedulerLane.Enqueue(() => observedActiveInsideNodeCallback = SimulationExecutionContext.IsActive);
 
-        cluster.RunUntilIdle();
+        cluster.RunUntilIdle(TestContext.Current.CancellationToken);
 
         Assert.True(observedActiveInsideNodeCallback);
     }

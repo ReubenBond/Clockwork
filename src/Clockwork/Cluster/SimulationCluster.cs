@@ -83,6 +83,7 @@ public sealed partial class SimulationCluster : IAsyncDisposable
             GetNextWaitingDueTime,
             AdvanceVirtualTime,
             CapturePendingWorkSummary,
+            () => Scheduler.PendingOperationCount > 0,
             TeardownCancellationToken);
         Network = new SimulationNetwork(
             () => Nodes,
@@ -382,26 +383,38 @@ public sealed partial class SimulationCluster : IAsyncDisposable
     /// </summary>
     /// <param name="condition">The condition that ends the run when it becomes true.</param>
     /// <param name="maxIterations">The maximum number of loop iterations to execute.</param>
+    /// <param name="cancellationToken">A token that can cancel the run between simulation dispatches.</param>
     /// <returns>A detailed result describing the execution.</returns>
-    public SimulationExecutionResult RunUntil(Func<bool> condition, int maxIterations = 100_000)
+#pragma warning disable CA1068 // Cancellation is required while the execution limit retains its established default.
+    public SimulationExecutionResult RunUntil(
+        Func<bool> condition,
+        CancellationToken cancellationToken,
+        int maxIterations = 100_000)
     {
         ArgumentNullException.ThrowIfNull(condition);
-        return ExecuteDriveLoop(condition, MaxSimulatedTimeAdvance, maxIterations, observeTeardownCancellation: false);
+        return ExecuteDriveLoop(
+            condition,
+            MaxSimulatedTimeAdvance,
+            maxIterations,
+            observeTeardownCancellation: false,
+            initialConsecutiveTimeAdvances: 0,
+            absoluteEndTime: null,
+            cancellationToken: cancellationToken);
     }
 
     /// <summary>
     /// Attempts to execute one eligible operation on the unified scheduler.
     /// </summary>
-    private bool RunOneTaskRoundRobin()
+    private bool RunOneTaskRoundRobin(CancellationToken cancellationToken)
     {
         using var control = Scheduler.EnterControlScope();
         using var _ = Guard.Enter();
         if (_disposalFailures is not { } failures)
         {
-            return Scheduler.RunStep();
+            return Scheduler.RunStepForPump(cancellationToken);
         }
 
-        bool result = Scheduler.RunStepCapturingCallbackFailure(out Exception? callbackFailure);
+        bool result = Scheduler.RunStepCapturingCallbackFailure(cancellationToken, out Exception? callbackFailure);
         if (callbackFailure is not null)
         {
             AddDisposalFailure(failures, callbackFailure);
@@ -434,25 +447,43 @@ public sealed partial class SimulationCluster : IAsyncDisposable
     /// <summary>
     /// Runs the simulation until it becomes idle.
     /// </summary>
-    /// <param name="maxTimeAdvance">The maximum simulated-time gap to jump in a single advance. Defaults to <see cref="MaxSimulatedTimeAdvance"/>.</param>
+    /// <param name="cancellationToken">A token that can cancel the run between simulation dispatches.</param>
+    /// <param name="maxTimeAdvance">The maximum simulated-time gap to jump in a single advance, or <see langword="null"/> to use <see cref="MaxSimulatedTimeAdvance"/>.</param>
     /// <param name="maxIterations">The maximum number of loop iterations to execute.</param>
     /// <returns>A detailed result describing the execution.</returns>
-    public SimulationExecutionResult RunUntilIdle(TimeSpan? maxTimeAdvance = null, int maxIterations = 100_000) =>
-        ExecuteDriveLoop(condition: null, maxTimeAdvance ?? MaxSimulatedTimeAdvance, maxIterations, observeTeardownCancellation: true);
+    public SimulationExecutionResult RunUntilIdle(
+        CancellationToken cancellationToken,
+        TimeSpan? maxTimeAdvance = null,
+        int maxIterations = 100_000) =>
+        ExecuteDriveLoop(
+            condition: null,
+            maxTimeAdvance ?? MaxSimulatedTimeAdvance,
+            maxIterations,
+            observeTeardownCancellation: true,
+            initialConsecutiveTimeAdvances: 0,
+            absoluteEndTime: null,
+            cancellationToken: cancellationToken);
 
     /// <summary>
     /// Drives a task to completion by running the simulation.
     /// The task factory is invoked with the cluster's synchronization context installed,
     /// ensuring async continuations are captured on the simulation scheduler.
     /// </summary>
-    public void RunToCompletion(Func<Task> taskFactory, int maxIterations = 1_000_000)
+    /// <param name="taskFactory">The asynchronous work to execute.</param>
+    /// <param name="maxIterations">The maximum number of loop iterations to execute.</param>
+    /// <param name="cancellationToken">A token that can cancel the run between simulation dispatches.</param>
+    public void RunToCompletion(
+        Func<Task> taskFactory,
+        CancellationToken cancellationToken,
+        int maxIterations = 1_000_000)
     {
         ArgumentNullException.ThrowIfNull(taskFactory);
+        cancellationToken.ThrowIfCancellationRequested();
         using var control = Scheduler.EnterControlScope();
         using var lockScope = Guard.Enter();
 
         Task task = StartTask(taskFactory);
-        SimulationExecutionResult result = RunUntil(() => task.IsCompleted, maxIterations);
+        SimulationExecutionResult result = RunUntil(() => task.IsCompleted, cancellationToken, maxIterations);
         EnsureTaskCompleted(task, result);
         task.GetAwaiter().GetResult();
     }
@@ -460,15 +491,22 @@ public sealed partial class SimulationCluster : IAsyncDisposable
     /// <summary>
     /// Drives a task to completion using an adaptive execution budget.
     /// </summary>
-    public void RunToCompletion(Func<Task> taskFactory, AdaptiveExecutionBudget budget)
+    /// <param name="taskFactory">The asynchronous work to execute.</param>
+    /// <param name="budget">The adaptive execution budget.</param>
+    /// <param name="cancellationToken">A token that can cancel the run between simulation dispatches.</param>
+    public void RunToCompletion(
+        Func<Task> taskFactory,
+        AdaptiveExecutionBudget budget,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(taskFactory);
         ArgumentNullException.ThrowIfNull(budget);
+        cancellationToken.ThrowIfCancellationRequested();
         using var control = Scheduler.EnterControlScope();
         using var lockScope = Guard.Enter();
 
         Task task = StartTask(taskFactory);
-        SimulationExecutionResult result = RunUntil(() => task.IsCompleted, budget);
+        SimulationExecutionResult result = RunUntil(() => task.IsCompleted, budget, cancellationToken);
         EnsureTaskCompleted(task, result);
         task.GetAwaiter().GetResult();
     }
@@ -476,14 +514,21 @@ public sealed partial class SimulationCluster : IAsyncDisposable
     /// <summary>
     /// Drives a task to completion and returns its result.
     /// </summary>
-    public T RunToCompletion<T>(Func<Task<T>> taskFactory, int maxIterations = 1_000_000)
+    /// <param name="taskFactory">The asynchronous work to execute.</param>
+    /// <param name="maxIterations">The maximum number of loop iterations to execute.</param>
+    /// <param name="cancellationToken">A token that can cancel the run between simulation dispatches.</param>
+    public T RunToCompletion<T>(
+        Func<Task<T>> taskFactory,
+        CancellationToken cancellationToken,
+        int maxIterations = 1_000_000)
     {
         ArgumentNullException.ThrowIfNull(taskFactory);
+        cancellationToken.ThrowIfCancellationRequested();
         using var control = Scheduler.EnterControlScope();
         using var lockScope = Guard.Enter();
 
         Task<T> task = StartTask(taskFactory);
-        SimulationExecutionResult result = RunUntil(() => task.IsCompleted, maxIterations);
+        SimulationExecutionResult result = RunUntil(() => task.IsCompleted, cancellationToken, maxIterations);
         EnsureTaskCompleted(task, result);
         return task.GetAwaiter().GetResult();
     }
@@ -491,15 +536,22 @@ public sealed partial class SimulationCluster : IAsyncDisposable
     /// <summary>
     /// Drives a task to completion using an adaptive execution budget and returns its result.
     /// </summary>
-    public T RunToCompletion<T>(Func<Task<T>> taskFactory, AdaptiveExecutionBudget budget)
+    /// <param name="taskFactory">The asynchronous work to execute.</param>
+    /// <param name="budget">The adaptive execution budget.</param>
+    /// <param name="cancellationToken">A token that can cancel the run between simulation dispatches.</param>
+    public T RunToCompletion<T>(
+        Func<Task<T>> taskFactory,
+        AdaptiveExecutionBudget budget,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(taskFactory);
         ArgumentNullException.ThrowIfNull(budget);
+        cancellationToken.ThrowIfCancellationRequested();
         using var control = Scheduler.EnterControlScope();
         using var lockScope = Guard.Enter();
 
         Task<T> task = StartTask(taskFactory);
-        SimulationExecutionResult result = RunUntil(() => task.IsCompleted, budget);
+        SimulationExecutionResult result = RunUntil(() => task.IsCompleted, budget, cancellationToken);
         EnsureTaskCompleted(task, result);
         return task.GetAwaiter().GetResult();
     }
@@ -546,9 +598,15 @@ public sealed partial class SimulationCluster : IAsyncDisposable
     /// <param name="duration">The amount of time to advance.</param>
     /// <param name="maxIterations">Maximum iterations to run while processing tasks.</param>
     /// <returns>A detailed result describing the execution.</returns>
-    public SimulationExecutionResult RunFor(TimeSpan duration, int maxIterations = 100_000)
+    /// <param name="cancellationToken">A token that can cancel the run between simulation dispatches.</param>
+    /// <returns>A detailed result describing the execution.</returns>
+    public SimulationExecutionResult RunFor(
+        TimeSpan duration,
+        CancellationToken cancellationToken,
+        int maxIterations = 100_000)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(duration, TimeSpan.Zero);
+        cancellationToken.ThrowIfCancellationRequested();
 
         using var control = Scheduler.EnterControlScope();
         using var lockScope = Guard.Enter();
@@ -575,8 +633,11 @@ public sealed partial class SimulationCluster : IAsyncDisposable
             maxSimulatedTimeAdvance: duration,
             maxIterations,
             observeTeardownCancellation: true,
-            absoluteEndTime: targetTime);
+            initialConsecutiveTimeAdvances: 0,
+            absoluteEndTime: targetTime,
+            cancellationToken: cancellationToken);
     }
+#pragma warning restore CA1068
 
     /// <summary>Runs the consolidated drive-loop engine for one logical operation.</summary>
     private SimulationExecutionResult ExecuteDriveLoop(
@@ -584,8 +645,9 @@ public sealed partial class SimulationCluster : IAsyncDisposable
         TimeSpan maxSimulatedTimeAdvance,
         int maxIterations,
         bool observeTeardownCancellation,
-        int initialConsecutiveTimeAdvances = 0,
-        DateTimeOffset? absoluteEndTime = null)
+        int initialConsecutiveTimeAdvances,
+        DateTimeOffset? absoluteEndTime,
+        CancellationToken cancellationToken)
     {
         using var control = Scheduler.EnterControlScope();
         using var _ = Guard.Enter();
@@ -596,12 +658,13 @@ public sealed partial class SimulationCluster : IAsyncDisposable
             MaxConsecutiveTimeAdvances,
             observeTeardownCancellation,
             initialConsecutiveTimeAdvances,
-            absoluteEndTime);
+            absoluteEndTime,
+            cancellationToken);
         return _driveLoop.Execute(options);
     }
 
     /// <summary>
-    /// Combines the two RunUntilIdle passes of <see cref="RunFor"/> (plus the
+    /// Combines the two RunUntilIdle passes of <see cref="RunFor(TimeSpan, CancellationToken, int)"/> (plus the
     /// forced advance to the target time, if any) into a single result describing the whole operation.
     /// </summary>
     private static SimulationExecutionResult CombineExecutionResults(
@@ -830,7 +893,10 @@ public sealed partial class SimulationCluster : IAsyncDisposable
                 () => contexts.All(static context => !context.HasPendingAttachmentWork),
                 MaxSimulatedTimeAdvance,
                 DisposalMaxIterations,
-                observeTeardownCancellation: false);
+                observeTeardownCancellation: false,
+                initialConsecutiveTimeAdvances: 0,
+                absoluteEndTime: null,
+                cancellationToken: CancellationToken.None);
             if (contexts.Any(static context => context.HasPendingAttachmentWork))
             {
                 AddDisposalFailure(
@@ -1016,7 +1082,7 @@ public sealed partial class SimulationCluster : IAsyncDisposable
         _disposalFailures = failures;
         try
         {
-            RunToCompletion(taskFactory, DisposalMaxIterations);
+            RunToCompletion(taskFactory, CancellationToken.None, DisposalMaxIterations);
         }
         catch (Exception exception)
         {

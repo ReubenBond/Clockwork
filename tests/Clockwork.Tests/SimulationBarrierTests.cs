@@ -36,15 +36,15 @@ public sealed class SimulationBarrierTests
         Assert.Equal(0, barrier.ArrivedCount); // Reset immediately upon release.
         Assert.False(first.IsCompleted); // Release is scheduled, not applied inline.
 
-        Assert.True(queue.RunOnce());
+        Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
         Assert.True(first.IsCompletedSuccessfully);
         Assert.False(second.IsCompleted);
 
-        Assert.True(queue.RunOnce());
+        Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
         Assert.True(second.IsCompletedSuccessfully);
         Assert.False(third.IsCompleted);
 
-        Assert.True(queue.RunOnce());
+        Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
         Assert.True(third.IsCompletedSuccessfully);
     }
 
@@ -56,14 +56,14 @@ public sealed class SimulationBarrierTests
 
         _ = barrier.ArriveAndWaitAsync(TestContext.Current.CancellationToken);
         _ = barrier.ArriveAndWaitAsync(TestContext.Current.CancellationToken);
-        Assert.Equal(2, queue.RunUntilIdle());
+        Assert.Equal(2, queue.RunUntilIdle(TestContext.Current.CancellationToken));
 
         var thirdRoundFirst = barrier.ArriveAndWaitAsync(TestContext.Current.CancellationToken);
         Assert.Equal(1, barrier.ArrivedCount);
         Assert.False(thirdRoundFirst.IsCompleted);
 
         var thirdRoundSecond = barrier.ArriveAndWaitAsync(TestContext.Current.CancellationToken);
-        Assert.Equal(2, queue.RunUntilIdle());
+        Assert.Equal(2, queue.RunUntilIdle(TestContext.Current.CancellationToken));
         Assert.True(thirdRoundFirst.IsCompletedSuccessfully);
         Assert.True(thirdRoundSecond.IsCompletedSuccessfully);
     }
@@ -91,7 +91,7 @@ public sealed class SimulationBarrierTests
         var fourth = barrier.ArriveAndWaitAsync(TestContext.Current.CancellationToken);
         Assert.Equal(0, barrier.ArrivedCount);
 
-        Assert.Equal(3, queue.RunUntilIdle());
+        Assert.Equal(3, queue.RunUntilIdle(TestContext.Current.CancellationToken));
         Assert.True(first.IsCompletedSuccessfully);
         Assert.True(third.IsCompletedSuccessfully);
         Assert.True(fourth.IsCompletedSuccessfully);
@@ -126,7 +126,7 @@ public sealed class SimulationBarrierTests
 
         var task = barrier.ArriveAndWaitAsync(TestContext.Current.CancellationToken);
 
-        Assert.True(queue.RunOnce());
+        Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
         Assert.True(task.IsCompletedSuccessfully);
     }
 
@@ -152,7 +152,7 @@ public sealed class SimulationBarrierTests
             start.Set();
             var second = barrier.ArriveAndWaitAsync(TestContext.Current.CancellationToken);
             await cancellation.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
-            queue.RunUntilIdle();
+            queue.RunUntilIdle(TestContext.Current.CancellationToken);
 
             if (first.IsCanceled)
             {
@@ -160,7 +160,7 @@ public sealed class SimulationBarrierTests
                 Assert.False(second.IsCompleted);
 
                 var replacement = barrier.ArriveAndWaitAsync(TestContext.Current.CancellationToken);
-                Assert.Equal(2, queue.RunUntilIdle());
+                Assert.Equal(2, queue.RunUntilIdle(TestContext.Current.CancellationToken));
                 Assert.True(second.IsCompletedSuccessfully);
                 Assert.True(replacement.IsCompletedSuccessfully);
             }

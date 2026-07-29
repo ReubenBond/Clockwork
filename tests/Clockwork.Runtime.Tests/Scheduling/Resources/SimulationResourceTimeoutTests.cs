@@ -26,7 +26,7 @@ public sealed class SimulationResourceTimeoutTests
             parked = true;
         });
 
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
         Assert.Equal(SimulationWaitOutcome.TimedOut, outcome);
         Assert.True(parked);
         Assert.Equal(SimulationOperationState.Completed, op.State);
@@ -46,9 +46,9 @@ public sealed class SimulationResourceTimeoutTests
         });
 
         // Park on the resource with a deadline.
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
         Assert.Equal(SimulationOperationState.Paused, op.State);
-        Assert.False(scheduler.RunStep());
+        Assert.False(scheduler.RunStep(TestContext.Current.CancellationToken));
         Assert.Single(scheduler.CapturePendingTimeouts());
 
         // Nothing runnable -> advancing virtual time fires the timeout.
@@ -56,7 +56,7 @@ public sealed class SimulationResourceTimeoutTests
         Assert.Equal(TimeSpan.FromSeconds(5), scheduler.VirtualTime);
         Assert.Equal(SimulationOperationState.Runnable, op.State);
 
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
         Assert.Equal(SimulationWaitOutcome.TimedOut, outcome);
         Assert.Empty(scheduler.CapturePendingTimeouts());
     }
@@ -72,7 +72,7 @@ public sealed class SimulationResourceTimeoutTests
             outcome = scheduler.WaitOnResource(resource, TimeSpan.FromMilliseconds(250), Reason("m"));
         });
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Equal(SimulationWaitOutcome.TimedOut, outcome);
         Assert.Equal(TimeSpan.FromMilliseconds(250), scheduler.VirtualTime);
@@ -91,7 +91,7 @@ public sealed class SimulationResourceTimeoutTests
         });
         scheduler.Schedule("signaler", () => scheduler.SignalOne(resource));
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         // The signal ran while time was still 0; the same-instant timeout never fired.
         Assert.Equal(SimulationWaitOutcome.Signaled, outcome);
@@ -110,7 +110,7 @@ public sealed class SimulationResourceTimeoutTests
             outcome = scheduler.WaitOnResource(resource, Timeout.InfiniteTimeSpan, Reason("m"));
         });
 
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
         Assert.Equal(SimulationOperationState.Paused, op.State);
         Assert.Empty(scheduler.CapturePendingTimeouts());
 
@@ -119,7 +119,7 @@ public sealed class SimulationResourceTimeoutTests
         Assert.Equal(SimulationOperationState.Paused, op.State);
 
         Assert.NotNull(scheduler.SignalOne(resource));
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
         Assert.Equal(SimulationWaitOutcome.Signaled, outcome);
     }
 
@@ -142,7 +142,7 @@ public sealed class SimulationResourceTimeoutTests
 
         for (var i = 0; i < 3; i++)
         {
-            Assert.True(scheduler.RunStep());
+            Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
         }
 
         Assert.Equal(3, scheduler.CapturePendingTimeouts().Count);
@@ -152,7 +152,7 @@ public sealed class SimulationResourceTimeoutTests
         Assert.Equal(TimeSpan.FromSeconds(2), scheduler.VirtualTime);
         Assert.Empty(scheduler.CapturePendingTimeouts());
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
         Assert.Equal(["w1", "w2", "w3"], order);
     }
 
@@ -174,7 +174,7 @@ public sealed class SimulationResourceTimeoutTests
             wokeAt.Add(("early", scheduler.VirtualTime));
         });
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Equal(2, wokeAt.Count);
         Assert.Equal("early", wokeAt[0].Name);
@@ -194,13 +194,13 @@ public sealed class SimulationResourceTimeoutTests
         scheduler.Schedule("b", () => results["b"] = scheduler.WaitOnResource(resource, TimeSpan.FromSeconds(4), Reason("sem")));
 
         // Park both.
-        Assert.True(scheduler.RunStep());
-        Assert.True(scheduler.RunStep());
-        Assert.False(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
+        Assert.False(scheduler.RunStep(TestContext.Current.CancellationToken));
 
         // Signal exactly one (FIFO -> "a"), then let time fire the other's deadline.
         Assert.NotNull(scheduler.SignalOne(resource));
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Equal(SimulationWaitOutcome.Signaled, results["a"]);
         Assert.Equal(SimulationWaitOutcome.TimedOut, results["b"]);
@@ -225,7 +225,7 @@ public sealed class SimulationResourceTimeoutTests
             }
         });
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
         Assert.NotNull(caught);
     }
 
@@ -238,7 +238,7 @@ public sealed class SimulationResourceTimeoutTests
         scheduler.Schedule("other", () => { });
 
         // Park the waiter; "other" is still runnable.
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
         Assert.False(scheduler.TryAdvanceVirtualTime());
         Assert.Equal(TimeSpan.Zero, scheduler.VirtualTime);
     }
@@ -253,13 +253,13 @@ public sealed class SimulationResourceTimeoutTests
         scheduler.Schedule(
             "to-max",
             () => outcomes.Add(scheduler.WaitOnResource(resource, TimeSpan.MaxValue, Reason("max"))));
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
         Assert.Equal(TimeSpan.MaxValue, scheduler.VirtualTime);
 
         scheduler.Schedule(
             "past-max",
             () => outcomes.Add(scheduler.WaitOnResource(resource, TimeSpan.FromTicks(1), Reason("saturated"))));
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Equal([SimulationWaitOutcome.TimedOut, SimulationWaitOutcome.TimedOut], outcomes);
         Assert.Equal(TimeSpan.MaxValue, scheduler.VirtualTime);

@@ -32,7 +32,7 @@ public sealed class SimulationNodeContextTests
         context.Suspend();
 
         Assert.True(context.IsSuspended);
-        Assert.False(context.Step());
+        Assert.False(context.Step(TestContext.Current.CancellationToken));
         Assert.False(executed);
     }
 
@@ -47,7 +47,7 @@ public sealed class SimulationNodeContextTests
         context.Resume();
 
         Assert.False(context.IsSuspended);
-        Assert.True(context.Step());
+        Assert.True(context.Step(TestContext.Current.CancellationToken));
         Assert.True(executed);
     }
 
@@ -59,7 +59,21 @@ public sealed class SimulationNodeContextTests
         context.SchedulerLane.Enqueue(() => { });
         context.Suspend();
 
-        Assert.Equal(0, context.RunUntilIdle());
+        Assert.Equal(0, context.RunUntilIdle(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public void StepAndRunUntilIdleHonorCancellationWhileSuspended()
+    {
+        var context = CreateContext();
+        context.Suspend();
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        Assert.Throws<OperationCanceledException>(
+            () => context.Step(cancellation.Token));
+        Assert.Throws<OperationCanceledException>(
+            () => context.RunUntilIdle(cancellation.Token));
     }
 
     [Fact]
@@ -100,7 +114,7 @@ public sealed class SimulationNodeContextTests
         Advance(scheduler, TimeSpan.FromSeconds(5));
         Assert.True(context.IsSuspended);
 
-        Assert.True(externalQueue.RunOnce());
+        Assert.True(externalQueue.RunOnce(TestContext.Current.CancellationToken));
         Assert.False(context.IsSuspended);
     }
 
@@ -125,7 +139,7 @@ public sealed class SimulationNodeContextTests
 
         Assert.Equal(SimulationNodeState.Running, context.State);
         Assert.False(context.IsSuspended);
-        Assert.True(context.Step());
+        Assert.True(context.Step(TestContext.Current.CancellationToken));
         Assert.True(executed);
         Assert.False(context.HasPendingAttachmentWork);
     }
@@ -142,7 +156,7 @@ public sealed class SimulationNodeContextTests
 
         context.SuspendFor(TimeSpan.FromSeconds(1));
         Advance(scheduler, TimeSpan.FromSeconds(1));
-        Assert.True(externalQueue.RunOnce());
+        Assert.True(externalQueue.RunOnce(TestContext.Current.CancellationToken));
 
         Assert.False(context.IsSuspended);
         Assert.False(context.HasPendingAttachmentWork);

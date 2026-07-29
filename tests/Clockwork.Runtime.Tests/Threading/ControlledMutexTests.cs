@@ -19,7 +19,7 @@ public sealed class ControlledMutexTests
             var acquired = true;
             Thread contender = ControlledThread.Create(() => acquired = ControlledWaitHandle.WaitOne(mutex, 0));
             ControlledThread.Start(contender);
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
 
             Assert.False(acquired);
             ControlledMutex.ReleaseMutex(mutex);
@@ -32,7 +32,7 @@ public sealed class ControlledMutexTests
                 ControlledMutex.ReleaseMutex(mutex);
             });
             ControlledThread.Start(next);
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             Assert.True(afterRelease);
         });
     }
@@ -90,7 +90,7 @@ public sealed class ControlledMutexTests
             Thread nonOwner = ControlledThread.Create(() => exception = Record.Exception(() => ControlledMutex.ReleaseMutex(mutex)));
 
             ControlledThread.Start(nonOwner);
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
 
             Assert.IsType<ApplicationException>(exception);
             ControlledMutex.ReleaseMutex(mutex);
@@ -108,9 +108,9 @@ public sealed class ControlledMutexTests
             Thread contender = ControlledThread.Create(() => acquired = ControlledWaitHandle.WaitOne(mutex, 100));
 
             ControlledThread.Start(contender);
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             coordinator.Scheduler.AdvanceVirtualTimeTo(TimeSpan.FromMilliseconds(100));
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             Assert.False(acquired);
 
             ControlledMutex.ReleaseMutex(mutex);
@@ -142,7 +142,7 @@ public sealed class ControlledMutexTests
                 ControlledMutex.ReleaseMutex(mutex);
             });
             ControlledThread.Start(contender);
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             Assert.True(acquired);
         });
     }

@@ -264,7 +264,7 @@ public sealed class SimulationSynchronizationContextTests
             TaskCreationOptions.None,
             scheduler);
 
-        Assert.True(queue.RunOnce());
+        Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
         await task;
 
         Assert.True(executed);
@@ -284,7 +284,7 @@ public sealed class SimulationSynchronizationContextTests
             releaseBlocker.Wait(TestContext.Current.CancellationToken);
         });
 
-        var backgroundThread = new Thread(() => queue.RunOnce())
+        var backgroundThread = new Thread(() => queue.RunOnce(TestContext.Current.CancellationToken))
         {
             IsBackground = true,
         };
@@ -343,7 +343,7 @@ public sealed class SimulationSynchronizationContextTests
         queue.SynchronizationContext.Post(_ => executed = true, null);
 
         Assert.False(executed);
-        Assert.True(queue.RunOnce());
+        Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
         Assert.True(executed);
     }
 

@@ -277,7 +277,7 @@ public sealed class ControlledBarrier : IDisposable
         }
 
         AttachCancellation(waiter!, cancellationToken);
-        SimulationTaskRuntime.DrainUntil(() => waiter!.Task.IsCompleted, SignalAndWaitApi);
+        SimulationTaskRuntime.DrainUntil(() => waiter!.Task.IsCompleted, SignalAndWaitApi, cancellationToken);
         return waiter!.Task.GetAwaiter().GetResult();
     }
 

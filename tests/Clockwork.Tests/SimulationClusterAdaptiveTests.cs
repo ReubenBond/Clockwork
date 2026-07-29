@@ -24,7 +24,7 @@ public sealed class SimulationClusterAdaptiveTests
         // reaching ConditionMet here is only possible if adaptive RunUntil escalated across several
         // batches on its own.
         var budget = new AdaptiveExecutionBudget(initialMaxIterations: 2, growthFactor: 2.0, maxTotalIterations: 1000);
-        var result = cluster.RunUntil(() => counter >= stepsNeeded, budget);
+        var result = cluster.RunUntil(() => counter >= stepsNeeded, budget, TestContext.Current.CancellationToken);
 
         Assert.Equal(SimulationExecutionReason.ConditionMet, result.Reason);
         Assert.True(result.ConditionMet);
@@ -43,7 +43,7 @@ public sealed class SimulationClusterAdaptiveTests
         // would report far more than a handful of iterations. An empty, condition-never-met cluster
         // must stop at Idle well before that.
         var budget = new AdaptiveExecutionBudget(initialMaxIterations: 1000, growthFactor: 2.0, maxTotalIterations: 1_000_000);
-        var result = cluster.RunUntil(() => false, budget);
+        var result = cluster.RunUntil(() => false, budget, TestContext.Current.CancellationToken);
 
         Assert.Equal(SimulationExecutionReason.Idle, result.Reason);
         Assert.False(result.ConditionMet);
@@ -76,7 +76,7 @@ public sealed class SimulationClusterAdaptiveTests
         // A single batch's worth of iterations (well under the initial budget) is all it should take
         // to detect the stuck condition - escalating further would not help and must not happen.
         var budget = new AdaptiveExecutionBudget(initialMaxIterations: 1000, growthFactor: 2.0, maxTotalIterations: 1_000_000);
-        var result = cluster.RunUntil(() => false, budget);
+        var result = cluster.RunUntil(() => false, budget, TestContext.Current.CancellationToken);
 
         Assert.Equal(expectedReason, result.Reason);
         Assert.True(result.Iterations < budget.InitialMaxIterations);
@@ -103,7 +103,7 @@ public sealed class SimulationClusterAdaptiveTests
         RunForever();
 
         var budget = new AdaptiveExecutionBudget(initialMaxIterations: 3, growthFactor: 2.0, maxTotalIterations: 20);
-        var result = cluster.RunUntil(() => false, budget);
+        var result = cluster.RunUntil(() => false, budget, TestContext.Current.CancellationToken);
 
         Assert.Equal(SimulationExecutionReason.MaxIterationsReached, result.Reason);
         Assert.Equal(budget.MaxTotalIterations, result.Iterations);
@@ -117,17 +117,80 @@ public sealed class SimulationClusterAdaptiveTests
         await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
         _ = cluster.AddNode("node-1");
 
-        var result = cluster.RunUntil(() => true, AdaptiveExecutionBudget.Default);
+        var result = cluster.RunUntil(() => true, AdaptiveExecutionBudget.Default, TestContext.Current.CancellationToken);
 
         Assert.Equal(SimulationExecutionReason.ConditionMet, result.Reason);
         Assert.Equal(0, result.Iterations);
     }
 
     [Fact]
+    public async Task AdaptiveRunsHonorCallerCancellation()
+    {
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var budget = new AdaptiveExecutionBudget(maxTotalIterations: 1_000);
+
+        var untilException = Assert.Throws<OperationCanceledException>(
+            () => cluster.RunUntil(
+                () => false,
+                budget,
+                cancellation.Token));
+        var idleException = Assert.Throws<OperationCanceledException>(
+            () => cluster.RunUntilIdle(
+                budget,
+                cancellationToken: cancellation.Token));
+
+        Assert.Equal(cancellation.Token, untilException.CancellationToken);
+        Assert.Equal(cancellation.Token, idleException.CancellationToken);
+    }
+
+    [Fact]
+    public async Task AdaptiveCompletionWinsCancellationAtBatchBoundary()
+    {
+        var budget = new AdaptiveExecutionBudget(
+            initialMaxIterations: 1,
+            growthFactor: 2,
+            maxTotalIterations: 1_000);
+
+        await using (var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch))
+        using (var cancellation = new CancellationTokenSource())
+        {
+            var node = cluster.AddNode("node-1");
+            var completed = false;
+            node.Context.SchedulerLane.Enqueue(() =>
+            {
+                completed = true;
+                cancellation.Cancel();
+            });
+
+            SimulationExecutionResult result = cluster.RunUntil(
+                () => completed,
+                budget,
+                cancellation.Token);
+
+            Assert.Equal(SimulationExecutionReason.ConditionMet, result.Reason);
+        }
+
+        await using (var cluster = new SimulationCluster(seed: 2, DateTimeOffset.UnixEpoch))
+        using (var cancellation = new CancellationTokenSource())
+        {
+            var node = cluster.AddNode("node-1");
+            node.Context.SchedulerLane.Enqueue(cancellation.Cancel);
+
+            SimulationExecutionResult result = cluster.RunUntilIdle(
+                budget,
+                cancellation.Token);
+
+            Assert.Equal(SimulationExecutionReason.Idle, result.Reason);
+        }
+    }
+
+    [Fact]
     public async Task AdaptiveRunUntilRejectsNullCondition()
     {
         await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
-        Assert.Throws<ArgumentNullException>(() => cluster.RunUntil(null!, AdaptiveExecutionBudget.Default));
+        Assert.Throws<ArgumentNullException>(() => cluster.RunUntil(null!, AdaptiveExecutionBudget.Default, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -142,7 +205,7 @@ public sealed class SimulationClusterAdaptiveTests
         }
 
         var budget = new AdaptiveExecutionBudget(initialMaxIterations: 2, growthFactor: 2.0, maxTotalIterations: 1000);
-        var result = cluster.RunUntilIdle(budget);
+        var result = cluster.RunUntilIdle(budget, TestContext.Current.CancellationToken);
 
         Assert.Equal(SimulationExecutionReason.Idle, result.Reason);
         Assert.Equal(stepsToDrain, result.StepsExecuted);
@@ -162,7 +225,7 @@ public sealed class SimulationClusterAdaptiveTests
         await cts.CancelAsync();
 
         var budget = new AdaptiveExecutionBudget(initialMaxIterations: 1000, growthFactor: 2.0, maxTotalIterations: 1_000_000);
-        var result = cluster.RunUntilIdle(budget);
+        var result = cluster.RunUntilIdle(budget, TestContext.Current.CancellationToken);
 
         Assert.Equal(SimulationExecutionReason.TeardownCancellationRequested, result.Reason);
         Assert.Equal(0, result.Iterations);
@@ -185,7 +248,7 @@ public sealed class SimulationClusterAdaptiveTests
         node.Context.SchedulerLane.EnqueueAfter(() => { }, TimeSpan.FromSeconds(2));
 
         var budget = new AdaptiveExecutionBudget(initialMaxIterations: 1, growthFactor: 2.0, maxTotalIterations: 1000);
-        var result = cluster.RunUntilIdle(budget);
+        var result = cluster.RunUntilIdle(budget, TestContext.Current.CancellationToken);
 
         // Each timer contributes one time advance (to reach its due time) plus one step (to execute
         // its callback once ready), on top of the immediate steps.
@@ -207,7 +270,7 @@ public sealed class SimulationClusterAdaptiveTests
         await using var cluster = CreateClusterWithBlockedTimers();
         var budget = new AdaptiveExecutionBudget(initialMaxIterations: 1, growthFactor: 2.0, maxTotalIterations: 100);
 
-        var result = cluster.RunUntil(() => false, budget);
+        var result = cluster.RunUntil(() => false, budget, TestContext.Current.CancellationToken);
 
         Assert.Equal(SimulationExecutionReason.MaxConsecutiveTimeAdvancesExceeded, result.Reason);
         Assert.Equal(3, result.TimeAdvanceCount);
@@ -221,7 +284,7 @@ public sealed class SimulationClusterAdaptiveTests
         await using var cluster = CreateClusterWithBlockedTimers();
         var budget = new AdaptiveExecutionBudget(initialMaxIterations: 1, growthFactor: 2.0, maxTotalIterations: 100);
 
-        var result = cluster.RunUntilIdle(budget);
+        var result = cluster.RunUntilIdle(budget, TestContext.Current.CancellationToken);
 
         Assert.Equal(SimulationExecutionReason.MaxConsecutiveTimeAdvancesExceeded, result.Reason);
         Assert.Equal(3, result.TimeAdvanceCount);

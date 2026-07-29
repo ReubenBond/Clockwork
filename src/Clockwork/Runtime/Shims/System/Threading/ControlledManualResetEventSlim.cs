@@ -260,7 +260,7 @@ public static class ControlledManualResetEventSlim
         }
 
         AttachCancellation(state, waiter, cancellationToken);
-        SimulationTaskRuntime.DrainUntil(() => waiter.Task.IsCompleted, WaitApi);
+        SimulationTaskRuntime.DrainUntil(() => waiter.Task.IsCompleted, WaitApi, cancellationToken);
         return waiter.Task.GetAwaiter().GetResult();
     }
 

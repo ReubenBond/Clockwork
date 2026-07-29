@@ -58,7 +58,7 @@ internal sealed class SimulationHost : IDisposable
             },
             TimeSpan.Zero);
 
-        _cluster.RunUntilIdle();
+        _cluster.RunUntilIdle(TestContext.Current.CancellationToken);
 
         if (error is not null)
         {
@@ -101,7 +101,7 @@ internal sealed class SimulationHost : IDisposable
             node.Context.SchedulerLane.EnqueueAfter(captured, TimeSpan.Zero);
         }
 
-        _cluster.RunUntilIdle();
+        _cluster.RunUntilIdle(TestContext.Current.CancellationToken);
 
         if (error is not null)
         {

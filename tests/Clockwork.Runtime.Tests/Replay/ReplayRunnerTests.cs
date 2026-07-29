@@ -235,6 +235,39 @@ public sealed class ReplayRunnerTests
         MaxSteps = 10_000,
     };
 
+    [Fact]
+    public void ReplayPropagatesOrchestrationCancellationInsteadOfOutcomeMismatch()
+    {
+        ReplayExecutionResult recorded = Record(
+            SeededConfiguration(scheduleSeed: 1),
+            scheduler => scheduler.Schedule("complete", static () => { }));
+        using var cancellation = new CancellationTokenSource();
+
+        var exception = Assert.Throws<OperationCanceledException>(
+            () => ReplayRunner.Replay(
+                recorded.Artifact,
+                ReplayCompatibilityRequirements.Current(),
+                scheduler => scheduler.Schedule("complete", cancellation.Cancel),
+                maxSteps: 1_000_000,
+                cancellationToken: cancellation.Token));
+
+        Assert.Equal(cancellation.Token, exception.CancellationToken);
+    }
+
+    [Fact]
+    public void RecordPropagatesOrchestrationCancellationAtQuiescence()
+    {
+        using var cancellation = new CancellationTokenSource();
+
+        var exception = Assert.Throws<OperationCanceledException>(
+            () => ReplayRunner.Record(
+                SeededConfiguration(scheduleSeed: 1),
+                scheduler => scheduler.Schedule("complete", cancellation.Cancel),
+                cancellation.Token));
+
+        Assert.Equal(cancellation.Token, exception.CancellationToken);
+    }
+
     private static ReplayExecutionResult Record(
         ReplayRecordingOptions configuration,
         Action<SimulationScheduler> scenario) =>

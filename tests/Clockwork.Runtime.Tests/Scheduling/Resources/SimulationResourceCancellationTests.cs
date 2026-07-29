@@ -29,7 +29,7 @@ public sealed class SimulationResourceCancellationTests
             paused = true;
         });
 
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
         Assert.Equal(SimulationWaitOutcome.Canceled, outcome);
         Assert.True(paused);
         Assert.Equal(SimulationOperationState.Completed, op.State);
@@ -46,7 +46,7 @@ public sealed class SimulationResourceCancellationTests
         SimulationWaitOutcome? outcome = null;
         scheduler.Schedule("op", () => outcome = scheduler.WaitOnResource(resource, TimeSpan.Zero, Reason("sem"), cts.Token));
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
         Assert.Equal(SimulationWaitOutcome.Canceled, outcome);
     }
 
@@ -63,11 +63,11 @@ public sealed class SimulationResourceCancellationTests
         scheduler.Schedule("canceller", cts.Cancel);
 
         // Park the waiter.
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
         Assert.Equal(SimulationOperationState.Paused, waiter.State);
         Assert.Equal(1, resource.WaiterCount);
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Equal(SimulationWaitOutcome.Canceled, outcome);
         Assert.Equal(SimulationOperationState.Completed, waiter.State);
@@ -86,7 +86,7 @@ public sealed class SimulationResourceCancellationTests
             outcome = scheduler.WaitOnResource(resource, TimeSpan.FromSeconds(30), Reason("m"), cts.Token));
         scheduler.Schedule("canceller", cts.Cancel);
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Equal(SimulationWaitOutcome.Canceled, outcome);
         // Cancellation happened during execution; virtual time never had to advance.
@@ -107,7 +107,7 @@ public sealed class SimulationResourceCancellationTests
         scheduler.Schedule("signaler", () => scheduler.SignalOne(resource));
         scheduler.Schedule("canceller", cts.Cancel);
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         // Signaler (id 2) runs before canceller (id 3); the waiter is already resolved Signaled, so
         // the later cancellation is a no-op.
@@ -125,7 +125,7 @@ public sealed class SimulationResourceCancellationTests
             outcome = scheduler.WaitOnResource(resource, TimeSpan.FromSeconds(2), Reason("m"), cts.Token));
 
         // No one cancels; the deadline fires deterministically.
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Equal(SimulationWaitOutcome.TimedOut, outcome);
         Assert.Equal(TimeSpan.FromSeconds(2), scheduler.VirtualTime);
@@ -143,7 +143,7 @@ public sealed class SimulationResourceCancellationTests
             outcome = scheduler.WaitOnResource(resource, Timeout.InfiniteTimeSpan, Reason("m"), cts.Token));
         scheduler.Schedule("signaler", () => scheduler.SignalOne(resource));
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
         Assert.Equal(SimulationWaitOutcome.Signaled, outcome);
         Assert.Equal(SimulationOperationState.Completed, waiter.State);
 
@@ -169,21 +169,21 @@ public sealed class SimulationResourceCancellationTests
         scheduler.Schedule("canceller", canceledCts.Cancel);
 
         // Park a and b.
-        Assert.True(scheduler.RunStep());
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
         Assert.Equal(2, resource.WaiterCount);
 
         // Cancel; only "a" is removed. "b" is still parked.
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
         Assert.Equal(1, resource.WaiterCount);
 
         // Wake "a" so it can record its Canceled outcome, then signal the remaining waiter "b".
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
         Assert.Equal(SimulationWaitOutcome.Canceled, results["a"]);
         Assert.False(results.ContainsKey("b"));
 
         Assert.NotNull(scheduler.SignalOne(resource));
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
         Assert.Equal(SimulationWaitOutcome.Signaled, results["b"]);
     }
 }

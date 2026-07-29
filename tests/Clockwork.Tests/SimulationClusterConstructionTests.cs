@@ -17,7 +17,7 @@ public sealed class SimulationClusterConstructionTests
         Assert.NotNull(cluster.Network);
         Assert.Same(cluster.Scheduler, cluster.RuntimeIdentity.Scheduler);
         Assert.Same(cluster.Scheduler, cluster.SchedulerLane.Scheduler);
-        Assert.Equal(SimulationExecutionReason.Idle, cluster.RunUntilIdle().Reason);
+        Assert.Equal(SimulationExecutionReason.Idle, cluster.RunUntilIdle(TestContext.Current.CancellationToken).Reason);
     }
 
     [Fact]
@@ -107,11 +107,11 @@ public sealed class SimulationClusterConstructionTests
         });
 
         Assert.True(node.IsSuspended);
-        _ = cluster.RunUntilIdle();
+        _ = cluster.RunUntilIdle(TestContext.Current.CancellationToken);
         Assert.False(workRan);
 
         node.Resume();
-        _ = cluster.RunUntilIdle();
+        _ = cluster.RunUntilIdle(TestContext.Current.CancellationToken);
         Assert.True(workRan);
     }
 
@@ -129,14 +129,14 @@ public sealed class SimulationClusterConstructionTests
         });
 
         Assert.True(node.IsSuspended);
-        _ = cluster.RunFor(TimeSpan.FromSeconds(1));
+        _ = cluster.RunFor(TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken);
         Assert.True(node.IsSuspended);
         Assert.False(workRan);
 
         Assert.Equal(
             SimulationExecutionReason.ConditionMet,
-            cluster.RunUntil(() => !node.IsSuspended).Reason);
-        _ = cluster.RunUntilIdle();
+            cluster.RunUntil(() => !node.IsSuspended, TestContext.Current.CancellationToken).Reason);
+        _ = cluster.RunUntilIdle(TestContext.Current.CancellationToken);
         Assert.True(workRan);
     }
 
@@ -180,7 +180,7 @@ public sealed class SimulationClusterConstructionTests
             "second",
             context => new CustomNode("second", context));
         Assert.Same(second, cluster.FindNode("second"));
-        _ = cluster.RunUntilIdle();
+        _ = cluster.RunUntilIdle(TestContext.Current.CancellationToken);
         Assert.True(orphanedWorkRan);
         Assert.False(SimulationExecutionContext.IsActive);
     }
@@ -208,7 +208,7 @@ public sealed class SimulationClusterConstructionTests
         reused.Context.SchedulerLane.Enqueue(
             () => reusedNodeLaneWorkRan = true);
 
-        Assert.True(reused.Step());
+        Assert.True(reused.Step(TestContext.Current.CancellationToken));
         Assert.True(reusedNodeLaneWorkRan);
         Assert.True(staleNodeLaneWorkRan);
         Assert.False(reused.IsSuspended);
@@ -219,16 +219,16 @@ public sealed class SimulationClusterConstructionTests
             () => blockedWorkRan = true);
         Assert.Equal(
             SimulationExecutionReason.IdleWithPendingWork,
-            cluster.RunFor(TimeSpan.FromSeconds(1)).Reason);
+            cluster.RunFor(TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken).Reason);
         Assert.True(reused.IsSuspended);
         Assert.False(blockedWorkRan);
         Assert.True(staleNodeLaneWorkRan);
 
         Assert.Equal(
             SimulationExecutionReason.ConditionMet,
-            cluster.RunUntil(() => !reused.IsSuspended).Reason);
+            cluster.RunUntil(() => !reused.IsSuspended, TestContext.Current.CancellationToken).Reason);
         Assert.False(reused.IsSuspended);
-        Assert.True(reused.Context.RunUntilIdle() > 0);
+        Assert.True(reused.Context.RunUntilIdle(TestContext.Current.CancellationToken) > 0);
         Assert.True(blockedWorkRan);
     }
 
@@ -256,8 +256,8 @@ public sealed class SimulationClusterConstructionTests
             () => staleLane.Enqueue(() => reusedWorkRan = true));
         Assert.Throws<ObjectDisposedException>(
             () => staleLane.EnqueueAfter(() => reusedWorkRan = true, TimeSpan.Zero));
-        Assert.Throws<ObjectDisposedException>(() => staleLane.RunOnce());
-        Assert.Throws<ObjectDisposedException>(() => staleLane.RunUntilIdle());
+        Assert.Throws<ObjectDisposedException>(() => staleLane.RunOnce(TestContext.Current.CancellationToken));
+        Assert.Throws<ObjectDisposedException>(() => staleLane.RunUntilIdle(TestContext.Current.CancellationToken));
         Assert.Throws<ObjectDisposedException>(() => staleLane.CaptureScheduledItems());
         Assert.Throws<ObjectDisposedException>(() => staleLane.HasItems);
         Assert.Throws<ObjectDisposedException>(() => staleLane.NextWaitingDueTime);
@@ -267,12 +267,12 @@ public sealed class SimulationClusterConstructionTests
         Assert.Throws<ObjectDisposedException>(
             () => staleContext.SuspendFor(TimeSpan.FromSeconds(1)));
         Assert.Throws<ObjectDisposedException>(() => staleContext.Resume());
-        Assert.Throws<ObjectDisposedException>(() => staleContext.Step());
-        Assert.Throws<ObjectDisposedException>(() => staleContext.RunUntilIdle());
+        Assert.Throws<ObjectDisposedException>(() => staleContext.Step(TestContext.Current.CancellationToken));
+        Assert.Throws<ObjectDisposedException>(() => staleContext.RunUntilIdle(TestContext.Current.CancellationToken));
 
         reused.Context.SchedulerLane.Enqueue(
             () => reusedWorkRan = true);
-        Assert.Equal(SimulationExecutionReason.Idle, cluster.RunUntilIdle().Reason);
+        Assert.Equal(SimulationExecutionReason.Idle, cluster.RunUntilIdle(TestContext.Current.CancellationToken).Reason);
         Assert.True(reusedWorkRan);
     }
 
@@ -305,7 +305,7 @@ public sealed class SimulationClusterConstructionTests
                         () => laterWorkRan = true);
                     Assert.Equal(
                         SimulationExecutionReason.ConditionMet,
-                        cluster.RunUntil(() => laterWorkRan).Reason);
+                        cluster.RunUntil(() => laterWorkRan, TestContext.Current.CancellationToken).Reason);
                     return failedNode;
                 }));
 
@@ -480,7 +480,7 @@ public sealed class SimulationClusterConstructionTests
             () => node.Context.SchedulerLane.CaptureScheduledItems());
         Assert.Empty(cluster.SchedulerLane.CaptureScheduledItems());
         Assert.Empty(cluster.Nodes);
-        Assert.Equal(SimulationExecutionReason.Idle, cluster.RunUntilIdle().Reason);
+        Assert.Equal(SimulationExecutionReason.Idle, cluster.RunUntilIdle(TestContext.Current.CancellationToken).Reason);
     }
 
     [Fact]
@@ -517,7 +517,7 @@ public sealed class SimulationClusterConstructionTests
             () => node.Context.SchedulerLane.CaptureScheduledItems());
         Assert.Empty(cluster.SchedulerLane.CaptureScheduledItems());
         Assert.Empty(cluster.Nodes);
-        Assert.Equal(SimulationExecutionReason.Idle, cluster.RunUntilIdle().Reason);
+        Assert.Equal(SimulationExecutionReason.Idle, cluster.RunUntilIdle(TestContext.Current.CancellationToken).Reason);
         Assert.False(dependencies.ResidualWorkRan);
         Assert.False(SimulationExecutionContext.IsActive);
     }
@@ -558,7 +558,7 @@ public sealed class SimulationClusterConstructionTests
         Assert.Throws<ObjectDisposedException>(
             () => node.Context.SchedulerLane.CaptureScheduledItems());
         Assert.Empty(cluster.Nodes);
-        Assert.Equal(SimulationExecutionReason.Idle, cluster.RunUntilIdle().Reason);
+        Assert.Equal(SimulationExecutionReason.Idle, cluster.RunUntilIdle(TestContext.Current.CancellationToken).Reason);
     }
 
     [Fact]
@@ -657,7 +657,7 @@ public sealed class SimulationClusterConstructionTests
         cluster.SchedulerLane.Enqueue(() => laterWorkRan = true);
         Assert.Equal(
             SimulationExecutionReason.ConditionMet,
-            cluster.RunUntil(() => laterWorkRan).Reason);
+            cluster.RunUntil(() => laterWorkRan, TestContext.Current.CancellationToken).Reason);
         Assert.True(node.IsSuspended);
         Assert.False(preexistingWorkRan);
 

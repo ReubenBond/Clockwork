@@ -212,6 +212,7 @@ public static class ControlledParallel
                 {
                     try
                     {
+                        cancellationToken.ThrowIfCancellationRequested();
                         body();
                     }
                     catch (Exception exception)
@@ -226,7 +227,8 @@ public static class ControlledParallel
                 api);
         }
 
-        SimulationTaskRuntime.DrainUntil(() => AllCompleted(completions), api);
+        SimulationTaskRuntime.DrainUntil(() => AllCompleted(completions), api, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
 
         if (faults.Count > 0)
         {

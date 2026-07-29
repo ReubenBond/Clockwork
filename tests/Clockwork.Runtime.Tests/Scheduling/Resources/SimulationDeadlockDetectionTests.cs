@@ -25,7 +25,7 @@ public sealed class SimulationDeadlockDetectionTests
         scheduler.MarkResourceOwner(ra, opA);
         scheduler.MarkResourceOwner(rb, opB);
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         var report = scheduler.DetectDeadlock();
         Assert.Equal(SimulationLivenessState.Deadlocked, report.Liveness);
@@ -57,7 +57,7 @@ public sealed class SimulationDeadlockDetectionTests
         scheduler.MarkResourceOwner(rb, opB);
         scheduler.MarkResourceOwner(rc, opC);
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         var report = scheduler.DetectDeadlock();
         Assert.Equal(SimulationLivenessState.Deadlocked, report.Liveness);
@@ -79,7 +79,7 @@ public sealed class SimulationDeadlockDetectionTests
         scheduler.MarkResourceOwner(rb, opB);
         // rc intentionally left unowned.
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         var report = scheduler.DetectDeadlock();
         Assert.False(report.IsDeadlocked);
@@ -101,9 +101,9 @@ public sealed class SimulationDeadlockDetectionTests
         scheduler.MarkResourceOwner(rb, opB);
 
         // Park both without advancing time.
-        Assert.True(scheduler.RunStep());
-        Assert.True(scheduler.RunStep());
-        Assert.False(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
+        Assert.False(scheduler.RunStep(TestContext.Current.CancellationToken));
 
         var report = scheduler.DetectDeadlock();
         Assert.False(report.IsDeadlocked);
@@ -133,11 +133,11 @@ public sealed class SimulationDeadlockDetectionTests
         scheduler.MarkResourceOwner(rb, opB);
         scheduler.MarkResourceOwner(rc, opC);
 
-        Assert.True(scheduler.RunStep());
-        Assert.True(scheduler.RunStep());
-        Assert.True(scheduler.RunStep());
-        Assert.True(scheduler.RunStep());
-        Assert.False(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
+        Assert.False(scheduler.RunStep(TestContext.Current.CancellationToken));
 
         var beforeDeadline = scheduler.DetectDeadlock();
         Assert.Equal(SimulationLivenessState.PausedUntilTime, beforeDeadline.Liveness);
@@ -146,7 +146,7 @@ public sealed class SimulationDeadlockDetectionTests
         Assert.Equal(1, beforeDeadline.PendingTimeoutCount);
 
         Assert.True(scheduler.TryAdvanceVirtualTime());
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.False(scheduler.DetectDeadlock().IsDeadlocked);
     }
@@ -158,8 +158,8 @@ public sealed class SimulationDeadlockDetectionTests
         var resource = scheduler.CreateResource(SimulationResourceKind.ManualResetEvent, "evt");
         scheduler.Schedule("op", () => scheduler.WaitOnResource(resource, Reason("evt")));
 
-        Assert.True(scheduler.RunStep());
-        Assert.False(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
+        Assert.False(scheduler.RunStep(TestContext.Current.CancellationToken));
 
         var report = scheduler.DetectDeadlock();
         Assert.Equal(SimulationLivenessState.ExternallyCompletable, report.Liveness);
@@ -178,7 +178,7 @@ public sealed class SimulationDeadlockDetectionTests
             () => scheduler.WaitOnResource(resource, Reason("self")));
         scheduler.MarkResourceOwner(resource, operation);
 
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
 
         var report = scheduler.DetectDeadlock();
         Assert.Equal(SimulationLivenessState.Deadlocked, report.Liveness);
@@ -213,7 +213,7 @@ public sealed class SimulationDeadlockDetectionTests
         scheduler.Schedule("worker", () => { });
 
         // Park the waiter; "worker" is still runnable.
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
 
         var report = scheduler.DetectDeadlock();
         Assert.Equal(SimulationLivenessState.Progressing, report.Liveness);
@@ -226,7 +226,7 @@ public sealed class SimulationDeadlockDetectionTests
         using var scheduler = SchedulerTestHarness.NewScheduler();
         scheduler.Schedule("a", () => { });
         scheduler.Schedule("b", () => { });
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         var report = scheduler.DetectDeadlock();
         Assert.Equal(SimulationLivenessState.Quiescent, report.Liveness);
@@ -246,7 +246,7 @@ public sealed class SimulationDeadlockDetectionTests
         scheduler.MarkResourceOwner(ra, opA);
         scheduler.MarkResourceOwner(rb, opB);
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
         Assert.True(scheduler.DetectDeadlock().IsDeadlocked);
 
         // Breaking the cycle by signaling one waiter must clear the deadlock classification.

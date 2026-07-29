@@ -93,7 +93,7 @@ public sealed class ControlledCountdownEventTests
 
             countdown.Signal();
             Assert.True(ControlledWaitHandle.WaitOne(bridge, 0));
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             Assert.Equal(1, callbacks);
 
             countdown.Reset(1);

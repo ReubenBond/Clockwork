@@ -32,7 +32,7 @@ public sealed class SimulationResourceWaitTests
             scheduler.SignalOne(resource);
         });
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Equal(["wait", "signal", "woke"], log);
         Assert.Equal(SimulationWaitOutcome.Signaled, outcome);
@@ -47,17 +47,17 @@ public sealed class SimulationResourceWaitTests
         var resource = scheduler.CreateResource(SimulationResourceKind.Monitor, "m");
         var op = scheduler.Schedule("waiter", () => scheduler.WaitOnResource(resource, Reason("m")));
 
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
         Assert.Equal(SimulationOperationState.Paused, op.State);
         Assert.Equal(SimulationOperationPauseReason.ResourceWait, op.PauseReason!.Kind);
         Assert.True(resource.HasPendingWaiters);
 
         // Nothing else runnable while it is parked on the resource.
-        Assert.False(scheduler.RunStep());
+        Assert.False(scheduler.RunStep(TestContext.Current.CancellationToken));
 
         Assert.NotNull(scheduler.SignalOne(resource));
         Assert.Equal(SimulationOperationState.Runnable, op.State);
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
         Assert.Equal(SimulationOperationState.Completed, op.State);
     }
 
@@ -82,17 +82,17 @@ public sealed class SimulationResourceWaitTests
         // Park all three.
         for (var i = 0; i < 3; i++)
         {
-            Assert.True(scheduler.RunStep());
+            Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
         }
 
-        Assert.False(scheduler.RunStep());
+        Assert.False(scheduler.RunStep(TestContext.Current.CancellationToken));
         Assert.Equal(3, resource.WaiterCount);
 
         // Signal one at a time; each wakes the earliest-enqueued waiter, then completes on its step.
         for (var i = 0; i < 3; i++)
         {
             Assert.NotNull(scheduler.SignalOne(resource));
-            Assert.True(scheduler.RunStep());
+            Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
         }
 
         Assert.Equal(["w1", "w2", "w3"], wakeOrder);
@@ -117,7 +117,7 @@ public sealed class SimulationResourceWaitTests
 
         for (var i = 0; i < 4; i++)
         {
-            Assert.True(scheduler.RunStep());
+            Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
         }
 
         var woken = scheduler.SignalAll(resource);
@@ -125,7 +125,7 @@ public sealed class SimulationResourceWaitTests
         Assert.Equal([1L, 2L, 3L, 4L], woken.Select(o => o.Id.Value));
         Assert.Equal(0, resource.WaiterCount);
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
         Assert.Equal(["w1", "w2", "w3", "w4"], wakeOrder);
     }
 
@@ -178,7 +178,7 @@ public sealed class SimulationResourceWaitTests
 
         // Bounded drive: run steps and advance until everything settles.
         var guard = 0;
-        while (scheduler.RunStep())
+        while (scheduler.RunStep(TestContext.Current.CancellationToken))
         {
             Assert.True(++guard < 100_000, "drive did not converge");
         }
@@ -200,7 +200,7 @@ public sealed class SimulationResourceWaitTests
             afterWaitRan = true;
         });
 
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
         Assert.Equal(SimulationOperationState.Paused, op.State);
         Assert.Equal(1, resource.WaiterCount);
 
@@ -241,7 +241,7 @@ public sealed class SimulationResourceWaitTests
                 caught = ex;
             }
         });
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.NotNull(caught);
     }

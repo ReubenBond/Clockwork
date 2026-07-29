@@ -42,7 +42,7 @@ public sealed class SimulationSchedulerStressTests
             });
         }
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Equal(0, violations);
         Assert.Equal(1, maxObserved);
@@ -68,7 +68,7 @@ public sealed class SimulationSchedulerStressTests
             });
         }
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         // Lowest-id selection means all round-0 slices run (in registration order) before any
         // round-1 slice, and so on: a stable, deterministic round-robin.
@@ -91,7 +91,7 @@ public sealed class SimulationSchedulerStressTests
             ops.Add(scheduler.Schedule($"op-{i}", () => Thread.SpinWait(100)));
         }
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         foreach (var op in ops)
         {
@@ -109,7 +109,7 @@ public sealed class SimulationSchedulerStressTests
             scheduler.Schedule($"op-{i}", () => { });
         }
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Equal(0, scheduler.ActiveOperationCount);
         Assert.Equal(100, scheduler.CaptureStatus().Count);
@@ -133,10 +133,10 @@ public sealed class SimulationSchedulerStressTests
         // Drive each operation once so all of them park in the paused state.
         for (var i = 0; i < count; i++)
         {
-            Assert.True(scheduler.RunStep());
+            Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
         }
 
-        Assert.False(scheduler.RunStep());
+        Assert.False(scheduler.RunStep(TestContext.Current.CancellationToken));
         Assert.Equal(count, scheduler.PendingOperationCount);
 
         var threads = new HashSet<Thread>();
@@ -174,12 +174,12 @@ public sealed class SimulationSchedulerStressTests
         using var scheduler = SchedulerTestHarness.NewScheduler();
         Thread? firstThread = null;
         var first = scheduler.Schedule("first", () => firstThread = Thread.CurrentThread);
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
         Assert.True(SpinUntilDead(firstThread!));
 
         Thread? secondThread = null;
         var second = scheduler.Schedule("second", () => secondThread = Thread.CurrentThread);
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Equal(SimulationOperationState.Completed, first.State);
         Assert.Equal(SimulationOperationState.Completed, second.State);
@@ -210,7 +210,7 @@ public sealed class SimulationSchedulerStressTests
                     SimulationPauseReason.ResourceWait("race"),
                     cancellation.Token));
 
-            Assert.True(scheduler.RunStep());
+            Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
             Assert.Equal(SimulationOperationState.Paused, operation.State);
 
             using var start = new Barrier(2);
@@ -269,7 +269,7 @@ public sealed class SimulationSchedulerStressTests
 
             if (race != CancellationRace.Dispose)
             {
-                scheduler.Drain();
+                scheduler.Drain(TestContext.Current.CancellationToken);
                 Assert.Empty(scheduler.CapturePendingTimeouts());
                 scheduler.Dispose();
             }

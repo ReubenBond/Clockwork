@@ -66,7 +66,7 @@ public sealed class SimulationSchedulingStrategyTests
         ScheduleYielding(scheduler, order, priority: 10);
         ScheduleYielding(scheduler, order, priority: 5);
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Equal([2L, 2L, 2L, 3L, 3L, 3L, 1L, 1L, 1L], order);
     }
@@ -82,7 +82,7 @@ public sealed class SimulationSchedulingStrategyTests
         ScheduleYielding(scheduler, order, priority: 5);
         ScheduleYielding(scheduler, order, priority: 5);
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         // All equal priority collapses to plain round-robin.
         Assert.Equal([1L, 2L, 3L, 1L, 2L, 3L, 1L, 2L, 3L], order);
@@ -231,7 +231,7 @@ public sealed class SimulationSchedulingStrategyTests
         ScheduleYielding(scheduler, order);
         ScheduleYielding(scheduler, order);
 
-        Assert.Throws<SimulationDecisionReplayMismatchException>(() => scheduler.Drain());
+        Assert.Throws<SimulationDecisionReplayMismatchException>(() => scheduler.Drain(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -247,7 +247,7 @@ public sealed class SimulationSchedulingStrategyTests
         scheduler.Schedule("first", () => { });
         scheduler.Schedule("second", () => { });
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
         var exception = Assert.Throws<SimulationDecisionReplayMismatchException>(scheduler.ValidateReplayComplete);
 
         Assert.Contains("unconsumed", exception.Message, StringComparison.OrdinalIgnoreCase);
@@ -263,7 +263,7 @@ public sealed class SimulationSchedulingStrategyTests
             new SimulationInMemoryDecisionReplayReader([extra]));
         scheduler.Schedule("only", () => { });
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
         var exception = Assert.Throws<SimulationDecisionReplayMismatchException>(scheduler.ValidateReplayComplete);
 
         Assert.Equal(extra, exception.Expected);
@@ -282,7 +282,7 @@ public sealed class SimulationSchedulingStrategyTests
         scheduler.Schedule("first", () => { });
         scheduler.Schedule("second", () => { });
 
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
         Assert.Throws<SimulationSchedulerException>(scheduler.ValidateReplayComplete);
     }
 
@@ -298,11 +298,11 @@ public sealed class SimulationSchedulingStrategyTests
 
         scheduler.Schedule("batch-one-a", () => { });
         scheduler.Schedule("batch-one-b", () => { });
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         scheduler.Schedule("batch-two-a", () => { });
         scheduler.Schedule("batch-two-b", () => { });
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
         scheduler.ValidateReplayComplete();
     }
 
@@ -349,7 +349,7 @@ public sealed class SimulationSchedulingStrategyTests
         ScheduleYielding(scheduler, order);
         ScheduleYielding(scheduler, order);
         ScheduleYielding(scheduler, order);
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
         return order;
     }
 

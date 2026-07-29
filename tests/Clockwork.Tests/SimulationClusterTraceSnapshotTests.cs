@@ -34,11 +34,11 @@ public sealed class SimulationClusterTraceSnapshotTests
 
         // RunFor advances time (emitting TimeAdvancing) and drains work until idle
         // (emitting ReachedIdleState), covering the suspend/resume + delayed work interaction.
-        Record(cluster.RunFor(TimeSpan.FromSeconds(3)));
+        Record(cluster.RunFor(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken));
 
         // The condition is already satisfied at this point, so this only exercises the
         // ConditionMet result without doing any further work.
-        Record(cluster.RunUntil(() => messagesDelivered == 1));
+        Record(cluster.RunUntil(() => messagesDelivered == 1, TestContext.Current.CancellationToken));
 
         return trace;
 

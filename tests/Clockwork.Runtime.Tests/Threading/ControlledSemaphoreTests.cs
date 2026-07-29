@@ -153,12 +153,12 @@ public sealed class ControlledSemaphoreTests
                 executeOnlyOnce: true);
 
             ControlledSemaphore.Release(semaphore);
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             Assert.Equal(1, callbacks);
             Assert.False(ControlledWaitHandle.WaitOne(semaphore, 0));
 
             ControlledSemaphore.Release(semaphore);
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             Assert.Equal(1, callbacks);
             Assert.True(ControlledWaitHandle.WaitOne(semaphore, 0));
         });

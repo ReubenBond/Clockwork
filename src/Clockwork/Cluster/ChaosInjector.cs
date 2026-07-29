@@ -158,17 +158,26 @@ public abstract class ChaosInjector<TNode>(SimulationCluster cluster)
     /// Runs chaos for the specified number of steps.
     /// </summary>
     /// <param name="steps">Number of simulation steps to run.</param>
+    /// <param name="cancellationToken">A token that can cancel chaos execution between simulation dispatches.</param>
     /// <param name="stepInterval">Time to advance between steps.</param>
     /// <returns>The number of faults injected.</returns>
-    public int RunChaos(int steps, TimeSpan? stepInterval = null)
+#pragma warning disable CA1068 // Cancellation is required while the step interval retains its established default.
+    public int RunChaos(
+        int steps,
+        CancellationToken cancellationToken,
+        TimeSpan? stepInterval = null)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var interval = stepInterval ?? TimeSpan.FromMilliseconds(100);
         var faultsInjected = 0;
 
         for (var i = 0; i < steps; i++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             // Execute pending tasks
-            Cluster.SchedulerLane.RunUntilIdle();
+            Cluster.SchedulerLane.RunUntilIdle(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
 
             // Maybe inject a fault
             if (MaybeInjectFault())
@@ -177,11 +186,12 @@ public abstract class ChaosInjector<TNode>(SimulationCluster cluster)
             }
 
             // Advance time and run simulation until idle
-            Cluster.RunFor(interval);
+            Cluster.RunFor(interval, cancellationToken);
         }
 
         return faultsInjected;
     }
+#pragma warning restore CA1068
 
     /// <summary>
     /// Clears all scheduled faults.

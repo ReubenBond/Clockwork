@@ -55,13 +55,13 @@ public sealed class SimulationSchedulerTests
         queueA.EnqueueAfter(() => aExecuted = true, TimeSpan.FromSeconds(5));
         queueB.EnqueueAfter(() => bExecuted = true, TimeSpan.FromSeconds(5));
 
-        Assert.False(queueA.RunOnce());
-        Assert.False(queueB.RunOnce());
+        Assert.False(queueA.RunOnce(TestContext.Current.CancellationToken));
+        Assert.False(queueB.RunOnce(TestContext.Current.CancellationToken));
 
         scheduler.AdvanceVirtualTimeTo(TimeSpan.FromSeconds(5));
 
-        Assert.True(queueA.RunOnce());
-        Assert.True(queueB.RunOnce());
+        Assert.True(queueA.RunOnce(TestContext.Current.CancellationToken));
+        Assert.True(queueB.RunOnce(TestContext.Current.CancellationToken));
         Assert.True(aExecuted);
         Assert.True(bExecuted);
     }
@@ -76,7 +76,7 @@ public sealed class SimulationSchedulerTests
         task.Start(scheduler);
 
         Assert.False(executed);
-        Assert.True(queue.RunOnce());
+        Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
         Assert.True(executed);
     }
 
@@ -93,8 +93,46 @@ public sealed class SimulationSchedulerTests
             task.Start(scheduler);
         }
 
-        Assert.Equal(5, queue.RunUntilIdle());
+        Assert.Equal(5, queue.RunUntilIdle(TestContext.Current.CancellationToken));
         Assert.Equal([0, 1, 2, 3, 4], executionOrder);
+    }
+
+    [Fact]
+    public void RunUntilIdleCanCancelSelfPerpetuatingLaneWork()
+    {
+        var (queue, _, _) = CreateComponents();
+        using var cancellation = new CancellationTokenSource();
+        var executions = 0;
+        Action? runAgain = null;
+        runAgain = () =>
+        {
+            if (++executions == 3)
+            {
+                cancellation.Cancel();
+                queue.Enqueue(() => { });
+                return;
+            }
+
+            queue.Enqueue(runAgain!);
+        };
+        queue.Enqueue(runAgain);
+
+        var exception = Assert.Throws<OperationCanceledException>(
+            () => queue.RunUntilIdle(cancellation.Token));
+
+        Assert.Equal(cancellation.Token, exception.CancellationToken);
+        Assert.Equal(3, executions);
+    }
+
+    [Fact]
+    public void EmptyLanePumpHonorsPreCanceledToken()
+    {
+        var (queue, _, _) = CreateComponents();
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        Assert.Throws<OperationCanceledException>(
+            () => queue.RunUntilIdle(cancellation.Token));
     }
 
     [Fact]
@@ -105,9 +143,9 @@ public sealed class SimulationSchedulerTests
 
         queue.EnqueueAfter(() => executed = true, TimeSpan.FromSeconds(5));
 
-        Assert.False(queue.RunOnce());
+        Assert.False(queue.RunOnce(TestContext.Current.CancellationToken));
         Advance(scheduler, TimeSpan.FromSeconds(5));
-        Assert.True(queue.RunOnce());
+        Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
         Assert.True(executed);
     }
 
@@ -123,7 +161,7 @@ public sealed class SimulationSchedulerTests
 
         Advance(scheduler, TimeSpan.FromSeconds(10));
 
-        Assert.Equal(2, queue.RunUntilIdle());
+        Assert.Equal(2, queue.RunUntilIdle(TestContext.Current.CancellationToken));
         Assert.Equal(["earlier", "later"], executionOrder);
     }
 
@@ -141,7 +179,7 @@ public sealed class SimulationSchedulerTests
 
         Advance(scheduler, TimeSpan.FromSeconds(5));
 
-        Assert.Equal(5, queue.RunUntilIdle());
+        Assert.Equal(5, queue.RunUntilIdle(TestContext.Current.CancellationToken));
         Assert.Equal([0, 1, 2, 3, 4], executionOrder);
     }
 
@@ -175,7 +213,7 @@ public sealed class SimulationSchedulerTests
         queue.SynchronizationContext.Post(_ => executed = true, null);
 
         Assert.False(executed);
-        Assert.True(queue.RunOnce());
+        Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
         Assert.True(executed);
     }
 

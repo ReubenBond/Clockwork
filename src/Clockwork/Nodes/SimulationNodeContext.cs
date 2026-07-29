@@ -165,24 +165,32 @@ public sealed partial class SimulationNodeContext
     /// Executes one ready task from this node's lane.
     /// </summary>
     /// <returns>True if a task was executed; false if no tasks are ready or the node is suspended.</returns>
-    public bool Step()
+    /// <summary>Executes one ready task from this node's lane.</summary>
+    /// <param name="cancellationToken">A token checked before dispatching the task.</param>
+    /// <returns>True if a task was executed; false if no tasks are ready or the node is suspended.</returns>
+    public bool Step(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (State == SimulationNodeState.Suspended)
             return false;
 
-        return SchedulerLane.RunOnce();
+        return SchedulerLane.RunOnce(cancellationToken);
     }
 
     /// <summary>
     /// Executes all ready tasks from this node's lane.
     /// </summary>
     /// <returns>The number of tasks executed. Returns 0 if the node is suspended.</returns>
-    public int RunUntilIdle()
+    /// <summary>Executes ready tasks from this node's lane until idle or cancellation is requested.</summary>
+    /// <param name="cancellationToken">A token that can cancel the run between task dispatches.</param>
+    /// <returns>The number of tasks executed. Returns 0 if the node is suspended.</returns>
+    public int RunUntilIdle(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (State == SimulationNodeState.Suspended)
             return 0;
 
-        return SchedulerLane.RunUntilIdle();
+        return SchedulerLane.RunUntilIdle(cancellationToken);
     }
 
     /// <summary>

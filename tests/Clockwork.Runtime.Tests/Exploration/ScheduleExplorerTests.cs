@@ -75,6 +75,22 @@ public sealed class ScheduleExplorerTests
         Assert.Single(result.RetainedFailures);
     }
 
+    [Fact]
+    public void MidIterationCancellationTerminatesWithoutRecordingFailure()
+    {
+        using var cancellation = new CancellationTokenSource();
+
+        ScheduleExplorationResult result = ScheduleExplorer.Explore(
+            ExploreOptions(maxIterations: 20, maxFailures: 1),
+            scheduler => scheduler.Schedule("cancel", cancellation.Cancel),
+            cancellation.Token);
+
+        Assert.Equal(ExplorationTerminationReason.Canceled, result.TerminationReason);
+        Assert.Empty(result.Iterations);
+        Assert.Equal(0, result.FailureCount);
+        Assert.Empty(result.RetainedFailures);
+    }
+
     private static ScheduleExplorationResult Explore(
         ScheduleExplorationOptions options,
         Action<SimulationScheduler> scenario) =>

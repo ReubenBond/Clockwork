@@ -34,7 +34,7 @@ public sealed class ControlledAsyncStateMachineTests
 
             coordinator.Scheduler.Schedule(() => a.SetResult(3));
             coordinator.Scheduler.Schedule(() => b.SetResult(4));
-            coordinator.Scheduler.DrainUntil(() => result.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => result.IsCompleted, "test", TestContext.Current.CancellationToken);
 
             Assert.Equal(TaskStatus.RanToCompletion, result.Status);
             Assert.Equal(7, result.Result);
@@ -70,7 +70,7 @@ public sealed class ControlledAsyncStateMachineTests
 
             var boom = new InvalidTimeZoneException("boom");
             coordinator.Scheduler.Schedule(() => a.SetException(boom));
-            coordinator.Scheduler.DrainUntil(() => result.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => result.IsCompleted, "test", TestContext.Current.CancellationToken);
 
             Assert.Equal(TaskStatus.Faulted, result.Status);
             Assert.Same(boom, result.Exception!.InnerException);
@@ -89,7 +89,7 @@ public sealed class ControlledAsyncStateMachineTests
             var result = AddAsync(a.Task, b.Task);
 
             coordinator.Scheduler.Schedule(() => a.SetCanceled());
-            coordinator.Scheduler.DrainUntil(() => result.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => result.IsCompleted, "test", TestContext.Current.CancellationToken);
 
             Assert.Equal(TaskStatus.Canceled, result.Status);
         });
@@ -115,7 +115,7 @@ public sealed class ControlledAsyncStateMachineTests
                 resumedInline = result.IsCompleted;
             });
 
-            coordinator.Scheduler.DrainUntil(() => result.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => result.IsCompleted, "test", TestContext.Current.CancellationToken);
 
             Assert.False(resumedInline);
             Assert.Equal(42, result.Result);
@@ -137,7 +137,7 @@ public sealed class ControlledAsyncStateMachineTests
             // The only way this resumes is through the coordinator's loop. If ConfigureAwait(false) had
             // escaped to the thread pool, pumping the loop alone would never complete it.
             coordinator.Scheduler.Schedule(() => a.SetResult(99));
-            coordinator.Scheduler.DrainUntil(() => result.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => result.IsCompleted, "test", TestContext.Current.CancellationToken);
 
             Assert.Equal(100, result.Result);
         });
@@ -156,7 +156,7 @@ public sealed class ControlledAsyncStateMachineTests
             Assert.False(result.IsCompleted);
             Assert.Equal(1, coordinator.Scheduler.RunnableOperationCount);
 
-            coordinator.Scheduler.DrainUntil(() => result.IsCompleted, "test");
+            coordinator.Scheduler.DrainUntil(() => result.IsCompleted, "test", TestContext.Current.CancellationToken);
             Assert.Equal(7, result.Result);
         });
     }

@@ -12,7 +12,7 @@ namespace Clockwork.Runtime.Scheduling;
 /// Notifications are delivered <em>after</em> the transition has been applied and <em>outside</em>
 /// the scheduler's internal lock, so a listener may safely read the operation's public state and
 /// call back into the scheduler for non-driving operations (for example, to resume another operation).
-/// Reentrant <see cref="SimulationScheduler.RunStep"/>/<see cref="SimulationScheduler.Drain"/>
+/// Reentrant <see cref="SimulationScheduler.RunStep(CancellationToken)"/>/<see cref="SimulationScheduler.Drain(CancellationToken)"/>
 /// is rejected because worker handoff cannot occur until the current transition publication completes.
 /// A listener must not throw: an exception from a listener is a diagnostics bug and would corrupt the
 /// scheduling sequence.

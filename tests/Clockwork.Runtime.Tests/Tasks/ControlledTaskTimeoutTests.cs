@@ -57,7 +57,7 @@ public sealed class ControlledTaskTimeoutTests
             var source = new TaskCompletionSource<int>();
             Task<int> wait = ControlledTask.WaitAsync(source.Task, TimeSpan.FromSeconds(5));
             coordinator.Scheduler.Schedule(() => source.SetResult(42));
-            coordinator.Scheduler.DrainUntil(() => wait.IsCompleted, "test.wait");
+            coordinator.Scheduler.DrainUntil(() => wait.IsCompleted, "test.wait", TestContext.Current.CancellationToken);
 
             Assert.Equal(42, wait.Result);
             Assert.Equal(TimeSpan.Zero, coordinator.Scheduler.VirtualTime);
@@ -75,14 +75,20 @@ public sealed class ControlledTaskTimeoutTests
             var faulted = new TaskCompletionSource();
             Task faultWait = ControlledTask.WaitAsync(faulted.Task, TimeSpan.FromSeconds(5));
             coordinator.Scheduler.Schedule(() => faulted.SetException(new FormatException("bad")));
-            coordinator.Scheduler.DrainUntil(() => faultWait.IsCompleted, "test.wait");
+            coordinator.Scheduler.DrainUntil(
+                () => faultWait.IsCompleted,
+                "test.wait",
+                TestContext.Current.CancellationToken);
             Assert.IsType<FormatException>(faultWait.Exception!.InnerException);
 
             using var sourceCancellation = new CancellationTokenSource();
             var canceled = new TaskCompletionSource();
             Task cancelWait = ControlledTask.WaitAsync(canceled.Task, TimeSpan.FromSeconds(5));
             coordinator.Scheduler.Schedule(() => canceled.SetCanceled(sourceCancellation.Token));
-            coordinator.Scheduler.DrainUntil(() => cancelWait.IsCompleted, "test.wait");
+            coordinator.Scheduler.DrainUntil(
+                () => cancelWait.IsCompleted,
+                "test.wait",
+                TestContext.Current.CancellationToken);
             Assert.True(cancelWait.IsCanceled);
         });
     }
@@ -96,7 +102,7 @@ public sealed class ControlledTaskTimeoutTests
             var source = new TaskCompletionSource();
             Task wait = ControlledTask.WaitAsync(source.Task, TimeSpan.FromMilliseconds(25));
 
-            coordinator.Scheduler.DrainUntil(() => wait.IsCompleted, "test.wait");
+            coordinator.Scheduler.DrainUntil(() => wait.IsCompleted, "test.wait", TestContext.Current.CancellationToken);
 
             Assert.IsType<TimeoutException>(wait.Exception!.InnerException);
             Assert.Equal(TimeSpan.FromMilliseconds(25), coordinator.Scheduler.VirtualTime);

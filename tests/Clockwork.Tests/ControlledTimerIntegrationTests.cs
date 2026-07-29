@@ -22,7 +22,7 @@ public sealed class ControlledTimerIntegrationTests
                 Timeout.InfiniteTimeSpan),
             TimeSpan.Zero);
 
-        SimulationExecutionResult result = simulation.RunUntil(() => timer is not null);
+        SimulationExecutionResult result = simulation.RunUntil(() => timer is not null, TestContext.Current.CancellationToken);
 
         SimulationScheduledItemDiagnostic deadline = Assert.Single(
             result.PendingWork.Items,

@@ -16,7 +16,7 @@ public sealed class SimulationClusterTests
 
         node.Context.SchedulerLane.EnqueueAfter(() => executed = true, TimeSpan.FromSeconds(5));
 
-        Assert.Equal(SimulationExecutionReason.ConditionMet, cluster.RunUntil(() => executed).Reason);
+        Assert.Equal(SimulationExecutionReason.ConditionMet, cluster.RunUntil(() => executed, TestContext.Current.CancellationToken).Reason);
         Assert.Equal(cluster.StartDateTime + TimeSpan.FromSeconds(5), cluster.TimeProvider.GetUtcNow());
     }
 
@@ -29,7 +29,7 @@ public sealed class SimulationClusterTests
         node.SuspendFor(TimeSpan.FromSeconds(5));
 
         Assert.True(node.IsSuspended);
-        Assert.Equal(SimulationExecutionReason.ConditionMet, cluster.RunUntil(() => !node.IsSuspended).Reason);
+        Assert.Equal(SimulationExecutionReason.ConditionMet, cluster.RunUntil(() => !node.IsSuspended, TestContext.Current.CancellationToken).Reason);
     }
 
     [Fact]
@@ -54,7 +54,7 @@ public sealed class SimulationClusterTests
         await using var cluster = new SimulationCluster(seed: 12345, DateTimeOffset.UnixEpoch);
         _ = cluster.AddNode("node-1");
 
-        Assert.Equal(SimulationExecutionReason.Idle, cluster.RunUntil(() => false, maxIterations: 100).Reason);
+        Assert.Equal(SimulationExecutionReason.Idle, cluster.RunUntil(() => false, TestContext.Current.CancellationToken, maxIterations: 100).Reason);
     }
 
     [Fact]
@@ -71,7 +71,7 @@ public sealed class SimulationClusterTests
 
         Assert.Equal(
             SimulationExecutionReason.MaxSimulatedTimeAdvanceExceeded,
-            cluster.RunUntil(() => false, maxIterations: 100).Reason);
+            cluster.RunUntil(() => false, TestContext.Current.CancellationToken, maxIterations: 100).Reason);
         cluster.MaxSimulatedTimeAdvance = TimeSpan.FromMinutes(10);
     }
 
@@ -87,7 +87,7 @@ public sealed class SimulationClusterTests
             node.Context.SchedulerLane.Enqueue(() => executedCount++);
         }
 
-        Assert.Equal(3, cluster.RunUntilIdle().StepsExecuted);
+        Assert.Equal(3, cluster.RunUntilIdle(TestContext.Current.CancellationToken).StepsExecuted);
         Assert.Equal(3, executedCount);
     }
 
@@ -101,26 +101,26 @@ public sealed class SimulationClusterTests
         {
             _ = new ControlledLock();
             return Task.CompletedTask;
-        });
+        }, TestContext.Current.CancellationToken);
         cluster.RunToCompletion(
             () =>
             {
                 _ = new ControlledLock();
                 return Task.CompletedTask;
             },
-            budget);
+            budget, TestContext.Current.CancellationToken);
         Assert.True(cluster.RunToCompletion(() =>
         {
             _ = new ControlledLock();
             return Task.FromResult(true);
-        }));
+        }, TestContext.Current.CancellationToken));
         Assert.True(cluster.RunToCompletion(
             () =>
             {
                 _ = new ControlledLock();
                 return Task.FromResult(true);
             },
-            budget));
+            budget, TestContext.Current.CancellationToken));
     }
 
     [Fact]

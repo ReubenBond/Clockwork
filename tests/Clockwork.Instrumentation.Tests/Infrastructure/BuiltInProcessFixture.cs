@@ -79,7 +79,7 @@ internal sealed class BuiltInProcessFixture : IDisposable
                 var node = simulation.AddNode("node");
                 string output = "";
                 node.Context.SchedulerLane.EnqueueAfter(() => output = Probe.Run(), TimeSpan.Zero);
-                simulation.RunUntilIdle();
+                simulation.RunUntilIdle(System.Threading.CancellationToken.None);
                 Console.WriteLine(output);
                 return 0;
             }

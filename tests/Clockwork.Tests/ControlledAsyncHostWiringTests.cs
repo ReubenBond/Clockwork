@@ -34,7 +34,7 @@ public sealed class ControlledAsyncHostWiringTests
                 cluster.RuntimeIdentity.Scheduler);
         });
 
-        Assert.Equal(SimulationExecutionReason.ConditionMet, cluster.RunUntil(() => active).Reason);
+        Assert.Equal(SimulationExecutionReason.ConditionMet, cluster.RunUntil(() => active, TestContext.Current.CancellationToken).Reason);
         Assert.True(active);
         Assert.True(resolved);
     }
@@ -62,7 +62,7 @@ public sealed class ControlledAsyncHostWiringTests
 
         Assert.Equal(
             SimulationExecutionReason.ConditionMet,
-            cluster.RunUntil(() => machineTask is { IsCompleted: true }).Reason);
+            cluster.RunUntil(() => machineTask is { IsCompleted: true }, TestContext.Current.CancellationToken).Reason);
 
         Assert.Equal(42, await machineTask!);
     }

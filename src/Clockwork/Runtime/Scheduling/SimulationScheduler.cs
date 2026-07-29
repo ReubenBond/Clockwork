@@ -36,11 +36,11 @@ namespace Clockwork.Runtime.Scheduling;
 /// </para>
 /// <para>
 /// <b>Threading contract.</b> The "controlling thread" is whichever thread calls
-/// <see cref="RunStep"/>/<see cref="Drain"/>; only one thread may drive the scheduler at a time.
+/// <see cref="RunStep(CancellationToken)"/>/<see cref="Drain(CancellationToken)"/>; only one thread may drive the scheduler at a time.
 /// <see cref="Register"/>, <see cref="Admit"/>, <see cref="Resume"/>, and <see cref="Cancel"/> take
 /// the scheduler lock and may be called from the controlling thread or from within a running
 /// operation's body (which is how nested scheduling and cross-operation resume work); while an
-/// operation body runs, the controlling thread is blocked inside <see cref="RunStep"/>, so state
+/// operation body runs, the controlling thread is blocked inside <see cref="RunStep(CancellationToken)"/>, so state
 /// transitions are always serialized.
 /// </para>
 /// </summary>
@@ -255,7 +255,7 @@ public sealed class SimulationScheduler : IDisposable
     /// Marks the calling thread as this scheduler's controlling thread until the returned scope is
     /// disposed, so <see cref="IsSimulationThread"/> reports <see langword="true"/> for it. A host
     /// integrating a single-threaded guard wraps the code that drives the scheduler (dequeue plus
-    /// <see cref="RunStep"/>) in this scope so the guard treats the controlling thread and the
+    /// <see cref="RunStep(CancellationToken)"/>) in this scope so the guard treats the controlling thread and the
     /// operation threads as one logical owner.
     /// </summary>
     /// <returns>A disposable that restores the previous controlling-thread marker.</returns>
@@ -530,8 +530,9 @@ public sealed class SimulationScheduler : IDisposable
     internal ISimulationWorkRegistration ScheduleWhenReady(Func<bool> isReady, Action continuation) =>
         ScheduleWhenReady(node: null, isReady, continuation);
 
-    internal bool RunOne()
+    internal bool RunOne(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (CurrentOperation is not null)
         {
             long before;
@@ -541,6 +542,7 @@ public sealed class SimulationScheduler : IDisposable
             }
 
             Yield();
+            cancellationToken.ThrowIfCancellationRequested();
 
             lock (_gate)
             {
@@ -551,11 +553,11 @@ public sealed class SimulationScheduler : IDisposable
             }
         }
 
-        return RunStep();
+        return RunStep(cancellationToken);
     }
 
-    internal void DrainUntil(Func<bool> completed) =>
-        DrainUntil(completed, "Clockwork.Runtime.Tasks synchronous wait");
+    internal void DrainUntil(Func<bool> completed, CancellationToken cancellationToken) =>
+        DrainUntil(completed, "Clockwork.Runtime.Tasks synchronous wait", cancellationToken);
 
     internal ISimulationTimer RegisterTimer(
         SimulationNodeIdentity? node,
@@ -691,15 +693,24 @@ public sealed class SimulationScheduler : IDisposable
         }
     }
 
-    internal void DrainUntil(Func<bool> completed, string apiName)
+    internal void DrainUntil(
+        Func<bool> completed,
+        string apiName,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(completed);
         ArgumentException.ThrowIfNullOrEmpty(apiName);
+        cancellationToken.ThrowIfCancellationRequested();
         if (CurrentOperation is { } operation)
         {
             while (!completed())
             {
-                var wait = ReadinessWait.ForSynchronousWait(this, completed, operation, apiName);
+                cancellationToken.ThrowIfCancellationRequested();
+                var wait = ReadinessWait.ForSynchronousWait(
+                    this,
+                    () => completed() || cancellationToken.IsCancellationRequested,
+                    operation,
+                    apiName);
                 lock (_gate)
                 {
                     ThrowIfDisposed();
@@ -715,7 +726,8 @@ public sealed class SimulationScheduler : IDisposable
 
         while (!completed())
         {
-            if (RunStep())
+            cancellationToken.ThrowIfCancellationRequested();
+            if (RunStep(cancellationToken))
             {
                 continue;
             }
@@ -857,21 +869,29 @@ public sealed class SimulationScheduler : IDisposable
     /// </para>
     /// </summary>
     /// <returns><see langword="true"/> if an operation ran; <see langword="false"/> if none was runnable.</returns>
-    public bool RunStep()
+    /// <summary>Runs one scheduler operation unless cancellation has already been requested.</summary>
+    /// <param name="cancellationToken">A token checked before dispatching the operation.</param>
+    /// <returns><see langword="true"/> if an operation ran; <see langword="false"/> if none was runnable.</returns>
+    public bool RunStep(CancellationToken cancellationToken)
     {
-        bool result = RunStepCore(out ExceptionDispatchInfo? callbackFailure);
+        cancellationToken.ThrowIfCancellationRequested();
+        bool result = RunStepCore(cancellationToken, out ExceptionDispatchInfo? callbackFailure);
         callbackFailure?.Throw();
         return result;
     }
 
-    internal bool RunStepCapturingCallbackFailure(out Exception? callbackFailure)
+    internal bool RunStepCapturingCallbackFailure(
+        CancellationToken cancellationToken,
+        out Exception? callbackFailure)
     {
-        bool result = RunStepCore(out ExceptionDispatchInfo? failure);
+        bool result = RunStepCore(cancellationToken, out ExceptionDispatchInfo? failure);
         callbackFailure = failure?.SourceException;
         return result;
     }
 
-    private bool RunStepCore(out ExceptionDispatchInfo? callbackFailure)
+    private bool RunStepCore(
+        CancellationToken cancellationToken,
+        out ExceptionDispatchInfo? callbackFailure)
     {
         callbackFailure = null;
         if (Monitor.IsEntered(_transitionPublicationGate))
@@ -895,19 +915,21 @@ public sealed class SimulationScheduler : IDisposable
                         "The scheduler is already being driven by another thread. RunStep/Drain must be driven by a single controlling thread at a time.");
                 }
 
-                var next = SelectRunnable();
-                if (next is null && !_clock.HasPending)
+                var hasRunnable = HasRunnableUnderLock();
+                if (!hasRunnable && !_clock.HasPending && HasResumableDeadlockedSynchronousWaitUnderLock())
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     resumedDeadlock = ResumeDeadlockedSynchronousWaitUnderLock();
-                    next = SelectRunnable();
+                    hasRunnable = HasRunnableUnderLock();
                 }
 
-                if (next is null)
+                if (!hasRunnable)
                 {
                     return false;
                 }
 
-                operation = next;
+                cancellationToken.ThrowIfCancellationRequested();
+                operation = SelectRunnable() ?? throw new UnreachableException();
                 operation.ApplyTransition(SimulationOperationState.Running);
                 _dispatchSequence++;
                 _current = operation;
@@ -1014,6 +1036,19 @@ public sealed class SimulationScheduler : IDisposable
         return null;
     }
 
+    private bool HasResumableDeadlockedSynchronousWaitUnderLock()
+    {
+        foreach (var wait in _readinessWaits)
+        {
+            if (wait.IsSynchronous && !wait.IsIndefinite && !wait.IsCanceled)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private void CancelReadinessWait(ReadinessWait wait)
     {
         SimulationOperation? operation = null;
@@ -1045,16 +1080,26 @@ public sealed class SimulationScheduler : IDisposable
     /// iterations themselves.
     /// </summary>
     /// <returns>The number of steps executed.</returns>
-    public int Drain()
+    /// <summary>Drains scheduler work until quiescence or cancellation is requested.</summary>
+    /// <param name="cancellationToken">A token that can cancel the drain between scheduler dispatches.</param>
+    /// <returns>The number of steps executed.</returns>
+    public int Drain(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var steps = 0;
         while (true)
         {
-            while (RunStep())
+            while (RunStepForPump(cancellationToken))
             {
                 steps++;
             }
 
+            if (NextTimerDue is null)
+            {
+                break;
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
             if (!TryAdvanceVirtualTime())
             {
                 break;
@@ -1069,10 +1114,14 @@ public sealed class SimulationScheduler : IDisposable
     /// advancing virtual time.
     /// </summary>
     /// <returns>The number of operations dispatched.</returns>
-    internal int RunUntilIdle()
+    /// <summary>Runs currently runnable operations until idle or cancellation is requested.</summary>
+    /// <param name="cancellationToken">A token that can cancel the run between scheduler dispatches.</param>
+    /// <returns>The number of operations dispatched.</returns>
+    internal int RunUntilIdle(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var steps = 0;
-        while (RunStep())
+        while (RunStepForPump(cancellationToken))
         {
             steps++;
         }
@@ -1080,12 +1129,19 @@ public sealed class SimulationScheduler : IDisposable
         return steps;
     }
 
+    internal bool RunStepForPump(CancellationToken cancellationToken)
+    {
+        bool result = RunStepCore(cancellationToken, out ExceptionDispatchInfo? callbackFailure);
+        callbackFailure?.Throw();
+        return result;
+    }
+
     /// <summary>
     /// Validates that decision and scheduling replay streams were consumed completely at an explicit
     /// successful end-of-run boundary.
     /// </summary>
     /// <remarks>
-    /// <see cref="Drain"/> does not call this automatically because a scheduler is reusable: a quiescent
+    /// <see cref="Drain(CancellationToken)"/> does not call this automatically because a scheduler is reusable: a quiescent
     /// batch can be followed by more scheduled work whose replay records remain unread. Call this once
     /// the overall run is known to be complete. Partial or aborted runs must omit this call.
     /// </remarks>
@@ -1324,7 +1380,7 @@ public sealed class SimulationScheduler : IDisposable
 
     /// <summary>
     /// Resumes a <see cref="SimulationOperationState.Paused"/> operation, transitioning it back to
-    /// <see cref="SimulationOperationState.Runnable"/> so a subsequent <see cref="RunStep"/> can grant
+    /// <see cref="SimulationOperationState.Runnable"/> so a subsequent <see cref="RunStep(CancellationToken)"/> can grant
     /// it the baton again. Its physical thread stays parked (not busy-spinning) until then.
     /// </summary>
     /// <param name="operation">The paused operation to resume.</param>

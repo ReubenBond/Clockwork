@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Clockwork.Runtime.Decisions;
 using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Scheduling;
 
@@ -40,7 +41,7 @@ public sealed class SimulationSchedulerTests
         var ran = false;
         var op = scheduler.Schedule("w", () => ran = true);
 
-        var steps = scheduler.Drain();
+        var steps = scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.True(ran);
         Assert.Equal(1, steps);
@@ -49,10 +50,88 @@ public sealed class SimulationSchedulerTests
     }
 
     [Fact]
+    public void DrainCanCancelAnOperationWhichContinuesYielding()
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        using var cancellation = new CancellationTokenSource();
+        var dispatches = 0;
+        scheduler.Schedule("yielding", () =>
+        {
+            while (true)
+            {
+                if (++dispatches == 3)
+                {
+                    cancellation.Cancel();
+                    scheduler.Yield();
+                    return;
+                }
+
+                scheduler.Yield();
+            }
+        });
+
+        var exception = Assert.Throws<OperationCanceledException>(
+            () => scheduler.Drain(cancellation.Token));
+
+        Assert.Equal(cancellation.Token, exception.CancellationToken);
+        Assert.Equal(3, dispatches);
+    }
+
+    [Fact]
+    public void DrainCompletionWinsCancellationRequestedByTheLastOperation()
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        using var cancellation = new CancellationTokenSource();
+        scheduler.Schedule("complete-and-cancel", cancellation.Cancel);
+
+        int steps = scheduler.Drain(cancellation.Token);
+
+        Assert.Equal(1, steps);
+    }
+
+    [Fact]
     public void RunStepReturnsFalseWhenNothingRunnable()
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();
-        Assert.False(scheduler.RunStep());
+        Assert.False(scheduler.RunStep(TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public void EmptyPumpsHonorPreCanceledTokens()
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        Assert.Throws<OperationCanceledException>(
+            () => scheduler.RunStep(cancellation.Token));
+        Assert.Throws<OperationCanceledException>(
+            () => scheduler.RunUntilIdle(cancellation.Token));
+        Assert.Throws<OperationCanceledException>(
+            () => scheduler.Drain(cancellation.Token));
+    }
+
+    [Fact]
+    public void CanceledDispatchDoesNotConsumeSchedulingDecision()
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        var decisionLog = new SimulationDecisionLog();
+        scheduler.DecisionLog = decisionLog;
+        var order = new List<string>();
+        scheduler.Schedule("first", () => order.Add("first"));
+        scheduler.Schedule("second", () => order.Add("second"));
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        Assert.Throws<OperationCanceledException>(
+            () => scheduler.RunStep(cancellation.Token));
+
+        Assert.Empty(decisionLog.Records);
+        Assert.Empty(order);
+
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
+        Assert.Single(decisionLog.Records);
+        Assert.Equal(["first"], order);
     }
 
     [Fact]
@@ -64,7 +143,7 @@ public sealed class SimulationSchedulerTests
         var b = scheduler.Schedule("b", () => order.Add(2));
         var c = scheduler.Schedule("c", () => order.Add(3));
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Equal([1L, 2L, 3L], order);
         Assert.True(a.Id < b.Id && b.Id < c.Id);
@@ -82,7 +161,7 @@ public sealed class SimulationSchedulerTests
             observedLogical = observed!.LogicalExecutionId.Value;
         });
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.NotNull(observed);
         Assert.Same(scheduler.Runtime, observed!.Runtime);
@@ -102,7 +181,7 @@ public sealed class SimulationSchedulerTests
             managed = Environment.CurrentManagedThreadId;
         });
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Equal(op.LogicalExecutionId.Value, logical);
         // The logical identity is a scheduler-assigned value, not the physical thread id.
@@ -116,7 +195,7 @@ public sealed class SimulationSchedulerTests
         string? address = null;
         scheduler.Schedule("w", () => address = SimulationExecutionContext.Current!.Node?.Address, new SimulationNodeIdentity("node-A"));
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Equal("node-A", address);
     }
@@ -128,7 +207,7 @@ public sealed class SimulationSchedulerTests
         SimulationOperation? seen = null;
         var op = scheduler.Schedule("w", () => seen = scheduler.CurrentOperation);
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Same(op, seen);
         Assert.Null(scheduler.CurrentOperation);
@@ -141,7 +220,7 @@ public sealed class SimulationSchedulerTests
         var boom = new InvalidOperationException("boom");
         var op = scheduler.Schedule("w", () => throw boom);
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Equal(SimulationOperationState.Faulted, op.State);
         Assert.Same(boom, op.TerminalException);
@@ -153,7 +232,7 @@ public sealed class SimulationSchedulerTests
         using var scheduler = SchedulerTestHarness.NewScheduler();
         var op = scheduler.Schedule("w", () => throw new OperationCanceledException());
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Equal(SimulationOperationState.Canceled, op.State);
         Assert.Null(op.TerminalException);
@@ -173,18 +252,18 @@ public sealed class SimulationSchedulerTests
         });
 
         // First step runs until the pause.
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
         Assert.Equal(SimulationOperationState.Paused, op!.State);
         Assert.Equal(SimulationOperationPauseReason.ResourceWait, op.PauseReason!.Kind);
         Assert.Equal(["before"], log);
 
         // Nothing runnable while it is paused.
-        Assert.False(scheduler.RunStep());
+        Assert.False(scheduler.RunStep(TestContext.Current.CancellationToken));
 
         // Resume makes it runnable again; the next step continues from the pause point.
         scheduler.Resume(op);
         Assert.Equal(SimulationOperationState.Runnable, op.State);
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
 
         Assert.Equal(SimulationOperationState.Completed, op.State);
         Assert.Null(op.PauseReason);
@@ -203,14 +282,14 @@ public sealed class SimulationSchedulerTests
             () => scheduler.WaitOnResource(
                 resource,
                 SimulationPauseReason.ResourceWait("resource-wait")));
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
 
         var exception = Assert.Throws<SimulationSchedulerException>(() => scheduler.Resume(operation));
 
         Assert.Contains("active resource waiter", exception.Message, StringComparison.Ordinal);
         Assert.Equal(SimulationOperationState.Paused, operation.State);
         scheduler.SignalOne(resource);
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -227,7 +306,7 @@ public sealed class SimulationSchedulerTests
             }
         });
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Equal(3, iterations);
         Assert.Equal(SimulationOperationState.Completed, op.State);
@@ -251,7 +330,7 @@ public sealed class SimulationSchedulerTests
             child = scheduler.Schedule("child", () => { });
         });
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.NotNull(child);
         Assert.Equal(parent.Id, child!.ParentId);
@@ -274,10 +353,10 @@ public sealed class SimulationSchedulerTests
         scheduler.RemovePendingWork(removedNode);
         unrelatedReady = true;
 
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
         Assert.False(removedRan);
         Assert.True(unrelatedRan);
-        Assert.False(scheduler.RunStep());
+        Assert.False(scheduler.RunStep(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -303,16 +382,16 @@ public sealed class SimulationSchedulerTests
                     TimeSpan.FromSeconds(2));
             },
             node);
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
         Assert.True(scheduler.TryAdvanceVirtualTime());
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
 
         Assert.Equal(node, callbackNode);
         Assert.True(scheduler.HasPendingWork(node));
         scheduler.RemovePendingWork(node);
 
         Assert.False(scheduler.HasPendingWork(node));
-        Assert.Equal(0, scheduler.Drain());
+        Assert.Equal(0, scheduler.Drain(TestContext.Current.CancellationToken));
         Assert.False(detachedCallbackRan);
         elapsedRegistration!.Dispose();
         detachedRegistration!.Dispose();
@@ -329,7 +408,7 @@ public sealed class SimulationSchedulerTests
 
         Assert.Equal(SimulationOperationState.Canceled, op.State);
         Assert.False(ran);
-        Assert.False(scheduler.RunStep());
+        Assert.False(scheduler.RunStep(TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -342,7 +421,7 @@ public sealed class SimulationSchedulerTests
         scheduler.Cancel(op);
 
         Assert.Equal(SimulationOperationState.Canceled, op.State);
-        Assert.False(scheduler.RunStep());
+        Assert.False(scheduler.RunStep(TestContext.Current.CancellationToken));
         Assert.False(ran);
     }
 
@@ -359,7 +438,7 @@ public sealed class SimulationSchedulerTests
             afterPauseRan = true;
         });
 
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
         Assert.Equal(SimulationOperationState.Paused, op.State);
 
         scheduler.Cancel(op);
@@ -374,7 +453,7 @@ public sealed class SimulationSchedulerTests
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();
         var op = scheduler.Schedule("w", () => { });
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
         Assert.Equal(SimulationOperationState.Completed, op.State);
 
         // Canceling an already-completed operation is a no-op, not an illegal transition.
@@ -400,7 +479,7 @@ public sealed class SimulationSchedulerTests
             }
         });
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.IsType<SimulationSchedulerException>(caught);
         Assert.Equal(SimulationOperationState.Completed, op!.State);
@@ -412,7 +491,7 @@ public sealed class SimulationSchedulerTests
         var listener = new RecordingListener();
         using var scheduler = SchedulerTestHarness.NewScheduler(listener);
         scheduler.Schedule("w", () => { });
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Equal(["1:Created", "1:Runnable", "1:Running", "1:Completed"], listener.Formatted);
     }
@@ -423,9 +502,9 @@ public sealed class SimulationSchedulerTests
         var listener = new RecordingListener();
         using var scheduler = SchedulerTestHarness.NewScheduler(listener);
         var op = scheduler.Schedule("w", () => scheduler.Pause(SimulationPauseReason.Yield));
-        scheduler.RunStep();
+        scheduler.RunStep(TestContext.Current.CancellationToken);
         scheduler.Resume(op);
-        scheduler.RunStep();
+        scheduler.RunStep(TestContext.Current.CancellationToken);
 
         Assert.Equal(
             ["1:Created", "1:Runnable", "1:Running", "1:Paused", "1:Runnable", "1:Running", "1:Completed"],
@@ -450,7 +529,7 @@ public sealed class SimulationSchedulerTests
                 SimulationPauseReason.ResourceWait("listener-race"),
                 cancellation.Token));
 
-        var driver = new Thread(() => scheduler.RunStep()) { IsBackground = true };
+        var driver = new Thread(() => scheduler.RunStep(TestContext.Current.CancellationToken)) { IsBackground = true };
         driver.Start();
         Assert.True(listener.PausedEntered.Wait(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
 
@@ -461,7 +540,7 @@ public sealed class SimulationSchedulerTests
         listener.ReleasePaused.Set();
         Assert.True(canceler.Join(TimeSpan.FromSeconds(5)));
         Assert.True(driver.Join(TimeSpan.FromSeconds(5)));
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Equal(
             [
@@ -483,7 +562,7 @@ public sealed class SimulationSchedulerTests
         listener.Scheduler = scheduler;
         var operation = scheduler.Schedule("complete", () => { });
 
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
 
         Assert.Equal(SimulationOperationState.Completed, operation.State);
         Assert.Contains(SimulationOperationState.Completed, listener.Events);
@@ -508,13 +587,13 @@ public sealed class SimulationSchedulerTests
                 Timeout.InfiniteTimeSpan,
                 SimulationPauseReason.ResourceWait("pending-cancellation"),
                 cancellation.Token));
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
         Assert.Equal(SimulationOperationState.Paused, victim.State);
 
         using var probeRegistration = cancellation.Token.Register(listener.CancellationStarted.Set);
         scheduler.Schedule("dispose-trigger", () => { });
 
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
         Assert.NotNull(listener.CancellationThread);
         Assert.True(listener.CancellationThread!.Join(TimeSpan.FromSeconds(5)));
         Assert.Equal(SimulationOperationState.Canceled, victim.State);
@@ -530,7 +609,7 @@ public sealed class SimulationSchedulerTests
 
         var exception = Assert.IsType<SimulationSchedulerException>(listener.Exception);
         Assert.Contains("reentrantly", exception.Message, StringComparison.Ordinal);
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -543,7 +622,7 @@ public sealed class SimulationSchedulerTests
             "pause",
             () => scheduler.Pause(SimulationPauseReason.ResourceWait("pause")));
 
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
 
         var exception = Assert.IsType<SimulationSchedulerException>(listener.Exception);
         Assert.Contains("before it hands control back", exception.Message, StringComparison.Ordinal);
@@ -566,13 +645,13 @@ public sealed class SimulationSchedulerTests
         var second = scheduler.Schedule(
             "second",
             () => scheduler.WaitOnResource(resource, SimulationPauseReason.ResourceWait("signal-all")));
-        Assert.True(scheduler.RunStep());
-        Assert.True(scheduler.RunStep());
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
         listener.TriggerId = first.Id;
         listener.Target = second;
 
         var woken = scheduler.SignalAll(resource);
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Equal([first], woken);
         Assert.Equal(
@@ -707,7 +786,7 @@ public sealed class SimulationSchedulerTests
 
             try
             {
-                Scheduler.RunStep();
+                Scheduler.RunStep(TestContext.Current.CancellationToken);
             }
             catch (Exception exception)
             {

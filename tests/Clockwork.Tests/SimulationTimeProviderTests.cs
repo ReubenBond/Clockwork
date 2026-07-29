@@ -45,10 +45,10 @@ public sealed class SimulationTimeProviderTests
         var fireCount = 0;
         using var timer = provider.CreateTimer(_ => fireCount++, null, TimeSpan.FromSeconds(5), Timeout.InfiniteTimeSpan);
 
-        Assert.False(queue.RunOnce());
+        Assert.False(queue.RunOnce(TestContext.Current.CancellationToken));
         Advance(scheduler, TimeSpan.FromSeconds(5));
 
-        Assert.True(queue.RunOnce());
+        Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
         Assert.Equal(1, fireCount);
     }
 
@@ -60,9 +60,9 @@ public sealed class SimulationTimeProviderTests
         using var timer = provider.CreateTimer(_ => fireCount++, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2));
 
         Advance(scheduler, TimeSpan.FromSeconds(1));
-        Assert.True(queue.RunOnce());
+        Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
         Advance(scheduler, TimeSpan.FromSeconds(2));
-        Assert.True(queue.RunOnce());
+        Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
 
         Assert.Equal(2, fireCount);
     }
@@ -77,7 +77,7 @@ public sealed class SimulationTimeProviderTests
         timer.Dispose();
         Advance(scheduler, TimeSpan.FromSeconds(1));
 
-        Assert.False(queue.RunOnce());
+        Assert.False(queue.RunOnce(TestContext.Current.CancellationToken));
         Assert.False(fired);
     }
 
@@ -102,16 +102,16 @@ public sealed class SimulationTimeProviderTests
         using (timer)
         {
             Advance(scheduler, TimeSpan.FromSeconds(1));
-            Assert.True(queue.RunOnce());
+            Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
             AssertSinglePendingTimer(queue, scheduler.UtcNow + TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(2));
 
             Advance(scheduler, TimeSpan.FromSeconds(3));
-            Assert.True(queue.RunOnce());
+            Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
             Assert.Equal(2, fireCount);
             AssertSinglePendingTimer(queue, scheduler.UtcNow + TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
 
             Advance(scheduler, TimeSpan.FromSeconds(2));
-            Assert.True(queue.RunOnce());
+            Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
             Assert.Equal(3, fireCount);
             AssertSinglePendingTimer(queue, scheduler.UtcNow + TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
         }
@@ -138,16 +138,16 @@ public sealed class SimulationTimeProviderTests
         using (timer)
         {
             Advance(scheduler, TimeSpan.FromSeconds(1));
-            Assert.True(queue.RunOnce());
+            Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
             AssertSinglePendingTimer(queue, scheduler.UtcNow + TimeSpan.FromSeconds(3), TimeSpan.Zero);
 
             Advance(scheduler, TimeSpan.FromSeconds(3));
-            Assert.True(queue.RunOnce());
+            Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
             Assert.Equal(2, fireCount);
             Assert.DoesNotContain(
                 queue.CaptureScheduledItems(),
                 static item => item.Kind == "timer");
-            Assert.False(queue.RunOnce());
+            Assert.False(queue.RunOnce(TestContext.Current.CancellationToken));
         }
     }
 
@@ -169,14 +169,14 @@ public sealed class SimulationTimeProviderTests
         using (timer)
         {
             Advance(scheduler, TimeSpan.FromSeconds(1));
-            Assert.True(queue.RunOnce());
+            Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
 
             Assert.Equal(1, fireCount);
             Assert.DoesNotContain(
                 queue.CaptureScheduledItems(),
                 static item => item.Kind == "timer");
             Advance(scheduler, TimeSpan.FromSeconds(10));
-            Assert.False(queue.RunOnce());
+            Assert.False(queue.RunOnce(TestContext.Current.CancellationToken));
         }
     }
 
@@ -203,16 +203,16 @@ public sealed class SimulationTimeProviderTests
         using (timer)
         {
             Advance(scheduler, TimeSpan.FromSeconds(1));
-            Assert.True(queue.RunOnce());
+            Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
             AssertSinglePendingTimer(queue, scheduler.UtcNow + TimeSpan.FromSeconds(4), TimeSpan.Zero);
 
             Advance(scheduler, TimeSpan.FromSeconds(4));
-            Assert.True(queue.RunOnce());
+            Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
             Assert.Equal(2, fireCount);
             Assert.DoesNotContain(
                 queue.CaptureScheduledItems(),
                 static item => item.Kind == "timer");
-            Assert.False(queue.RunOnce());
+            Assert.False(queue.RunOnce(TestContext.Current.CancellationToken));
         }
     }
 
@@ -233,14 +233,14 @@ public sealed class SimulationTimeProviderTests
             TimeSpan.FromSeconds(1));
 
         Advance(scheduler, TimeSpan.FromSeconds(1));
-        Assert.True(queue.RunOnce());
+        Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
 
         Assert.Equal(1, fireCount);
         Assert.DoesNotContain(
             queue.CaptureScheduledItems(),
             static item => item.Kind == "timer");
         Advance(scheduler, TimeSpan.FromSeconds(10));
-        Assert.False(queue.RunOnce());
+        Assert.False(queue.RunOnce(TestContext.Current.CancellationToken));
     }
 
     private static void AssertSinglePendingTimer(

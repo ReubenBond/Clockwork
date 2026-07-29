@@ -461,7 +461,7 @@ public static class ControlledWaitHandle
                 });
         }
 
-        SimulationTaskRuntime.DrainUntil(() => waiter.Task.IsCompleted, api);
+        SimulationTaskRuntime.DrainUntil(() => waiter.Task.IsCompleted, api, CancellationToken.None);
         return waiter.Task.GetAwaiter().GetResult();
     }
 
@@ -700,7 +700,7 @@ public static class ControlledWaitHandle
         }
 
         ArmMultiWaiterTimeout(waiter, millisecondsTimeout, WaitAnyApi);
-        SimulationTaskRuntime.DrainUntil(() => !waiter.IsPending, WaitAnyApi);
+        SimulationTaskRuntime.DrainUntil(() => !waiter.IsPending, WaitAnyApi, CancellationToken.None);
         return waiter.Task.GetAwaiter().GetResult()
             ? waiter.WinnerIndex
             : WaitTimeout;
@@ -734,7 +734,7 @@ public static class ControlledWaitHandle
         }
 
         ArmMultiWaiterTimeout(waiter, millisecondsTimeout, WaitAllApi);
-        SimulationTaskRuntime.DrainUntil(() => !waiter.IsPending, WaitAllApi);
+        SimulationTaskRuntime.DrainUntil(() => !waiter.IsPending, WaitAllApi, CancellationToken.None);
         return waiter.Task.GetAwaiter().GetResult();
     }
 

@@ -22,7 +22,7 @@ public sealed class SimulationResourceTeardownTests
         try
         {
             op = scheduler.Schedule("waiter", () => scheduler.WaitOnResource(resource, Reason("m")));
-            Assert.True(scheduler.RunStep());
+            Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
             Assert.Equal(SimulationOperationState.Paused, op.State);
             Assert.Equal(1, resource.WaiterCount);
         }
@@ -46,7 +46,7 @@ public sealed class SimulationResourceTeardownTests
             op = scheduler.Schedule(
                 "timed",
                 () => scheduler.WaitOnResource(resource, TimeSpan.FromSeconds(5), Reason("sem")));
-            Assert.True(scheduler.RunStep());
+            Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
             Assert.Equal(SimulationOperationState.Paused, op.State);
 
             // The finite wait registered exactly one pending virtual-time timeout.
@@ -73,7 +73,7 @@ public sealed class SimulationResourceTeardownTests
             op = scheduler.Schedule(
                 "cancelable",
                 () => scheduler.WaitOnResource(resource, Timeout.InfiniteTimeSpan, Reason("wh"), cts.Token));
-            Assert.True(scheduler.RunStep());
+            Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
             Assert.Equal(SimulationOperationState.Paused, op.State);
         }
         finally
@@ -106,7 +106,7 @@ public sealed class SimulationResourceTeardownTests
         };
 
         // Park every operation in its distinct paused state.
-        while (scheduler.RunStep())
+        while (scheduler.RunStep(TestContext.Current.CancellationToken))
         {
         }
 

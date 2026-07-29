@@ -95,12 +95,6 @@ public sealed record ScheduleExplorationResult
 /// <summary>Runs bounded serial exploration while keeping model/application seeds fixed.</summary>
 public static class ScheduleExplorer
 {
-    /// <summary>Explores schedule seeds serially.</summary>
-    public static ScheduleExplorationResult Explore(
-        ScheduleExplorationOptions configuration,
-        Action<SimulationScheduler> scenario) =>
-        Explore(configuration, scenario, CancellationToken.None);
-
     /// <summary>Explores schedule seeds serially with explicit cancellation.</summary>
     public static ScheduleExplorationResult Explore(
         ScheduleExplorationOptions configuration,
@@ -133,17 +127,27 @@ public static class ScheduleExplorer
             }
 
             int scheduleSeed = DeriveScheduleSeed(configuration.FirstScheduleSeed, index);
-            ReplayExecutionResult execution = ReplayRunner.Record(
-                new ReplayRecordingOptions
-                {
-                    RootSeed = configuration.RootSeed,
-                    SchedulingPolicy = ReplaySchedulingPolicy.SeededRandom,
-                    ScheduleSeed = scheduleSeed,
-                    MaxSteps = configuration.MaxStepsPerIteration,
-                    Instrumentation = configuration.Instrumentation,
-                },
-                scenario,
-                cancellationToken);
+            ReplayExecutionResult execution;
+            try
+            {
+                execution = ReplayRunner.Record(
+                    new ReplayRecordingOptions
+                    {
+                        RootSeed = configuration.RootSeed,
+                        SchedulingPolicy = ReplaySchedulingPolicy.SeededRandom,
+                        ScheduleSeed = scheduleSeed,
+                        MaxSteps = configuration.MaxStepsPerIteration,
+                        Instrumentation = configuration.Instrumentation,
+                    },
+                    scenario,
+                    cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                terminationReason = ExplorationTerminationReason.Canceled;
+                break;
+            }
+
             var iteration = new ScheduleExplorationIteration
             {
                 Index = index,

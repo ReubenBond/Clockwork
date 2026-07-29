@@ -170,11 +170,15 @@ public static class SimulationTaskRuntime
     /// </summary>
     /// <param name="task">The task to wait for.</param>
     /// <param name="apiName">The controlled synchronous-wait API, for diagnostics.</param>
-    public static void DrainUntilCompleted(System.Threading.Tasks.Task task, string apiName)
+    /// <param name="cancellationToken">A token that can cancel the pump between simulation dispatches.</param>
+    public static void DrainUntilCompleted(
+        System.Threading.Tasks.Task task,
+        string apiName,
+        CancellationToken cancellationToken)
     {
         var (scheduler, _) = RequireScheduler(apiName);
         ArgumentNullException.ThrowIfNull(task);
-        scheduler.DrainUntil(() => task.IsCompleted);
+        scheduler.DrainUntil(() => task.IsCompleted, cancellationToken);
     }
 
     /// <summary>
@@ -183,17 +187,21 @@ public static class SimulationTaskRuntime
     /// </summary>
     /// <param name="completed">The predicate that ends the wait.</param>
     /// <param name="apiName">The controlled synchronous-wait API, for diagnostics.</param>
-    public static void DrainUntil(Func<bool> completed, string apiName)
+    /// <param name="cancellationToken">A token that can cancel the pump between simulation dispatches.</param>
+    public static void DrainUntil(
+        Func<bool> completed,
+        string apiName,
+        CancellationToken cancellationToken)
     {
         var (scheduler, _) = RequireScheduler(apiName);
         ArgumentNullException.ThrowIfNull(completed);
-        scheduler.DrainUntil(completed);
+        scheduler.DrainUntil(completed, cancellationToken);
     }
 
-    internal static bool RunOne(string apiName)
+    internal static bool RunOne(string apiName, CancellationToken cancellationToken)
     {
         var (scheduler, _) = RequireScheduler(apiName);
-        return scheduler.RunOne();
+        return scheduler.RunOne(cancellationToken);
     }
 
     internal static void ParkIndefinitely(string apiName)

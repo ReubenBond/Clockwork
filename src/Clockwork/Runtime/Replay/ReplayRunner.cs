@@ -103,12 +103,6 @@ public sealed class ReplayOutcomeMismatchException : InvalidOperationException
 /// </summary>
 public static class ReplayRunner
 {
-    /// <summary>Records one controlled scenario into a complete or explicitly aborted artifact.</summary>
-    public static ReplayExecutionResult Record(
-        ReplayRecordingOptions configuration,
-        Action<SimulationScheduler> scenario) =>
-        Record(configuration, scenario, CancellationToken.None);
-
     /// <summary>Records one controlled scenario with explicit orchestration cancellation.</summary>
     public static ReplayExecutionResult Record(
         ReplayRecordingOptions configuration,
@@ -127,6 +121,7 @@ public static class ReplayRunner
         scheduler.DecisionLog = decisionLog;
 
         DriveResult drive = Drive(scheduler, scenario, configuration.MaxSteps, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         ReplayArtifact artifact = CreateArtifact(
             configuration,
             scheduleSeed,
@@ -143,14 +138,6 @@ public static class ReplayRunner
             Reproduced = false,
         };
     }
-
-    /// <summary>Replays a complete artifact exactly after validating compatibility.</summary>
-    public static ReplayExecutionResult Replay(
-        ReplayArtifact artifact,
-        ReplayCompatibilityRequirements requirements,
-        Action<SimulationScheduler> scenario,
-        int maxSteps = 1_000_000) =>
-        Replay(artifact, requirements, scenario, maxSteps, CancellationToken.None);
 
     /// <summary>Replays a complete artifact exactly with explicit orchestration cancellation.</summary>
     public static ReplayExecutionResult Replay(
@@ -174,6 +161,7 @@ public static class ReplayRunner
             new SimulationInMemoryDecisionReplayReader(records));
 
         DriveResult drive = Drive(scheduler, scenario, maxSteps, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         if (!drive.IsAborted)
         {
             scheduler.ValidateReplayDecisionStreamsComplete();
@@ -238,8 +226,7 @@ public static class ReplayRunner
             scenario(scheduler);
             while (steps < maxSteps)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (scheduler.RunStep())
+                if (scheduler.RunStepForPump(cancellationToken))
                 {
                     steps++;
                     if (scheduler.FirstRace is not null ||
@@ -252,6 +239,12 @@ public static class ReplayRunner
                     continue;
                 }
 
+                if (scheduler.NextTimerDue is null)
+                {
+                    break;
+                }
+
+                cancellationToken.ThrowIfCancellationRequested();
                 if (!scheduler.TryAdvanceVirtualTime())
                 {
                     break;

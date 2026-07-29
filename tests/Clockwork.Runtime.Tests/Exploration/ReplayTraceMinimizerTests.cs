@@ -19,7 +19,8 @@ public sealed class ReplayTraceMinimizerTests
         ReplayMinimizationResult result = ReplayTraceMinimizer.Minimize(
             recorded.Artifact,
             new ReplayMinimizationOptions { MaxAttempts = 200 },
-            predicate);
+            predicate,
+            TestContext.Current.CancellationToken);
 
         Assert.True(result.Verified);
         Assert.True(result.MinimizedDecisionCount < result.OriginalDecisionCount);
@@ -66,16 +67,41 @@ public sealed class ReplayTraceMinimizerTests
         ReplayMinimizationResult first = ReplayTraceMinimizer.Minimize(
             recorded.Artifact,
             new ReplayMinimizationOptions { MaxAttempts = 3 },
-            predicate);
+            predicate,
+            TestContext.Current.CancellationToken);
         ReplayMinimizationResult second = ReplayTraceMinimizer.Minimize(
             recorded.Artifact,
             new ReplayMinimizationOptions { MaxAttempts = 3 },
-            predicate);
+            predicate,
+            TestContext.Current.CancellationToken);
 
         Assert.Equal(3, first.Attempts);
         Assert.Equal(
             first.Progress.Select(static progress => (progress.Action, progress.Accepted)),
             second.Progress.Select(static progress => (progress.Action, progress.Accepted)));
+    }
+
+    [Fact]
+    public void MinimizerHonorsPreCanceledTokenBeforeInvokingPredicate()
+    {
+        ReplayExecutionResult recorded = RecordLongFaultTrace();
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var predicateInvoked = false;
+
+        var exception = Assert.Throws<OperationCanceledException>(
+            () => ReplayTraceMinimizer.Minimize(
+                recorded.Artifact,
+                new ReplayMinimizationOptions(),
+                _ =>
+                {
+                    predicateInvoked = true;
+                    return new ReplayFailureObservation { Reproduced = true };
+                },
+                cancellation.Token));
+
+        Assert.Equal(cancellation.Token, exception.CancellationToken);
+        Assert.False(predicateInvoked);
     }
 
     private static ReplayExecutionResult RecordLongFaultTrace()

@@ -24,7 +24,7 @@ public sealed class ControlledTimerFamilyTests
             timer.Start();
 
             coordinator.Scheduler.AdvanceVirtualTimeTo(TimeSpan.FromMilliseconds(25));
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
 
             Assert.False(timer.Enabled);
             Assert.Single(elapsed);
@@ -49,7 +49,7 @@ public sealed class ControlledTimerFamilyTests
             timer.Start();
             timer.Close();
             coordinator.Scheduler.AdvanceVirtualTimeTo(TimeSpan.FromMilliseconds(100));
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
         });
 
         Assert.Equal(0, count);
@@ -88,9 +88,9 @@ public sealed class ControlledTimerFamilyTests
             using var timer = new ControlledPeriodicTimer(TimeSpan.FromMilliseconds(10));
 
             coordinator.Scheduler.AdvanceVirtualTimeTo(TimeSpan.FromMilliseconds(10));
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             coordinator.Scheduler.AdvanceVirtualTimeTo(TimeSpan.FromMilliseconds(20));
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
 
             ValueTask<bool> tick = timer.WaitForNextTickAsync();
             Assert.True(tick.IsCompletedSuccessfully);
@@ -99,7 +99,7 @@ public sealed class ControlledTimerFamilyTests
             ValueTask<bool> next = timer.WaitForNextTickAsync();
             Assert.False(next.IsCompleted);
             coordinator.Scheduler.AdvanceVirtualTimeTo(TimeSpan.FromMilliseconds(30));
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             Assert.True(next.Result);
         });
     }
@@ -139,7 +139,7 @@ public sealed class ControlledTimerFamilyTests
 
             ValueTask<bool> next = timer.WaitForNextTickAsync();
             coordinator.Scheduler.AdvanceVirtualTimeTo(TimeSpan.FromMilliseconds(10));
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             Assert.True(next.Result);
         });
     }

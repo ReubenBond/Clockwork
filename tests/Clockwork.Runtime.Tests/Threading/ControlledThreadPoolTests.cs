@@ -37,7 +37,7 @@ public sealed class ControlledThreadPoolTests
             Assert.True(accepted);
             Assert.False(ran); // queued, not run inline.
 
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             Assert.True(ran);
         });
     }
@@ -51,7 +51,7 @@ public sealed class ControlledThreadPoolTests
         {
             object? seen = null;
             ControlledThreadPool.QueueUserWorkItem(s => seen = s, "payload");
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             Assert.Equal("payload", seen);
         });
     }
@@ -65,7 +65,7 @@ public sealed class ControlledThreadPoolTests
         {
             var seen = 0;
             ControlledThreadPool.QueueUserWorkItem(s => seen = s, 42, preferLocal: true);
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             Assert.Equal(42, seen);
         });
     }
@@ -81,7 +81,7 @@ public sealed class ControlledThreadPoolTests
             ControlledThreadPool.UnsafeQueueUserWorkItem(item, preferLocal: false);
             Assert.False(item.Executed);
 
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             Assert.True(item.Executed);
         });
     }
@@ -95,7 +95,7 @@ public sealed class ControlledThreadPoolTests
         {
             var seen = 0;
             ControlledThreadPool.UnsafeQueueUserWorkItem(s => seen = s, 7, preferLocal: false);
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             Assert.Equal(7, seen);
         });
     }
@@ -115,7 +115,7 @@ public sealed class ControlledThreadPoolTests
 
             // Mutating the ambient value after enqueue must not affect the flowed snapshot.
             ambient.Value = 9;
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
 
             Assert.Equal(5, seen);
         });
@@ -135,7 +135,7 @@ public sealed class ControlledThreadPoolTests
             ControlledThreadPool.UnsafeQueueUserWorkItem(_ => seen = ambient.Value, state: null);
 
             ambient.Value = 9;
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
 
             Assert.Equal(0, seen);
         });
@@ -168,16 +168,16 @@ public sealed class ControlledThreadPoolTests
             ControlledRegisteredWaitHandle reg = ControlledThreadPool.RegisterWaitForSingleObject(
                 evt, (_, timedOut) => fires.Add(timedOut), state: null, Timeout.Infinite, executeOnlyOnce: true);
 
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             Assert.Empty(fires); // Armed but blocked: no signal yet.
 
             ControlledEventWaitHandle.Set(evt);
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             Assert.Equal([false], fires); // Signalled => timedOut false.
 
             // executeOnlyOnce: a second signal must not fire the callback again.
             ControlledEventWaitHandle.Set(evt);
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             Assert.Equal([false], fires);
 
             Assert.True(reg.Unregister(null));
@@ -244,22 +244,22 @@ public sealed class ControlledThreadPoolTests
             ControlledRegisteredWaitHandle reg = ControlledThreadPool.RegisterWaitForSingleObject(
                 evt, (_, _) => count++, state: null, Timeout.Infinite, executeOnlyOnce: false);
 
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
 
             ControlledEventWaitHandle.Set(evt);
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             Assert.Equal(1, count);
 
             ControlledEventWaitHandle.Set(evt);
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             Assert.Equal(2, count); // Re-armed and fired again.
 
             Assert.True(reg.Unregister(null));
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
 
             // After Unregister a further signal is not delivered.
             ControlledEventWaitHandle.Set(evt);
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             Assert.Equal(2, count);
             Assert.True(coordinator.Scheduler.IsIdle);
         });
@@ -300,11 +300,11 @@ public sealed class ControlledThreadPoolTests
                 executeOnlyOnce: false);
 
             ControlledEventWaitHandle.Set(evt);
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
 
             Assert.Equal(3, count);
             Assert.True(registration.Unregister(null));
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
         });
     }
 
@@ -330,7 +330,7 @@ public sealed class ControlledThreadPoolTests
             try
             {
                 ControlledEventWaitHandle.Set(evt);
-                coordinator.Scheduler.RunUntilIdle();
+                coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             }
             finally
             {
@@ -354,10 +354,10 @@ public sealed class ControlledThreadPoolTests
             ControlledRegisteredWaitHandle reg = ControlledThreadPool.RegisterWaitForSingleObject(
                 evt, (_, _) => { }, state: null, Timeout.Infinite, executeOnlyOnce: false);
 
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
 
             Assert.True(reg.Unregister(done));
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
 
             // The completion handle is signalled once the registration has stopped firing.
             Assert.True(ControlledWaitHandle.WaitOne(done, 0));
@@ -382,7 +382,7 @@ public sealed class ControlledThreadPoolTests
 
             ambient.Value = 9; // Post-registration mutation must not affect the flowed snapshot.
             ControlledEventWaitHandle.Set(evt);
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
 
             Assert.Equal(5, seen);
         });
@@ -407,7 +407,7 @@ public sealed class ControlledThreadPoolTests
 
             ambient.Value = 9;
             ControlledEventWaitHandle.Set(evt);
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
 
             Assert.Equal(0, seen);
         });
@@ -427,7 +427,7 @@ public sealed class ControlledThreadPoolTests
                 evt, (s, _) => seen = s, state: "payload", Timeout.Infinite, executeOnlyOnce: true);
 
             ControlledEventWaitHandle.Set(evt);
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
 
             Assert.Equal("payload", seen);
         });
@@ -478,7 +478,7 @@ public sealed class ControlledThreadPoolTests
     {
         while (true)
         {
-            coordinator.Scheduler.RunUntilIdle();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
             TimeSpan? due = coordinator.Scheduler.NextTimerDue;
             if (due is null)
             {
@@ -545,7 +545,7 @@ public sealed class ControlledThreadPoolTests
             Assert.False(coordinator.Scheduler.IsIdle);
 
             ambient.Value = 9;
-            Assert.Equal(1, coordinator.Scheduler.RunUntilIdle());
+            Assert.Equal(1, coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken));
 
             Assert.Equal(expected, seen);
             Assert.Equal(9, ambient.Value);
