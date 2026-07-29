@@ -9,10 +9,14 @@
     Framework MSBuild (Visual Studio's classic msbuild.exe). Use `dotnet build`/`dotnet msbuild`.
   -->
 
+  <PropertyGroup>
+    <ClockworkInstrumentationTaskAssembly Condition="'$(ClockworkInstrumentationTaskAssembly)' == ''">$(MSBuildThisFileDirectory)..\tasks\net10.0\Clockwork.Instrumentation.Build.dll</ClockworkInstrumentationTaskAssembly>
+  </PropertyGroup>
+
   <UsingTask TaskName="Clockwork.Instrumentation.Build.ClockworkInstrumentTask"
-             AssemblyFile="$(MSBuildThisFileDirectory)..\tasks\net10.0\Clockwork.Instrumentation.Build.dll" />
+             AssemblyFile="$(ClockworkInstrumentationTaskAssembly)" />
   <UsingTask TaskName="Clockwork.Instrumentation.Build.ClockworkValidateInstrumentedTestTask"
-             AssemblyFile="$(MSBuildThisFileDirectory)..\tasks\net10.0\Clockwork.Instrumentation.Build.dll" />
+             AssemblyFile="$(ClockworkInstrumentationTaskAssembly)" />
 
   <PropertyGroup>
     <!-- A simulation test project always instruments, but rule-set selection remains explicit. -->
