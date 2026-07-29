@@ -30,4 +30,20 @@ if (args is ["--trace-readiness", var readinessIterationCount, var pendingWaitCo
     return;
 }
 
+if (args is ["--trace-replay", var replayIterationCount, var replayOperationCount, var replayMode]
+    && int.TryParse(replayIterationCount, out var replayIterations)
+    && replayIterations > 0
+    && int.TryParse(replayOperationCount, out var replayOperations)
+    && replayOperations > 0
+    && 4096 % replayOperations == 0
+    && replayMode is "record" or "replay")
+{
+    Console.WriteLine(
+        ReplayRunnerBenchmarks.RunTrace(
+            replayIterations,
+            replayOperations,
+            replay: replayMode == "replay"));
+    return;
+}
+
 BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args);
