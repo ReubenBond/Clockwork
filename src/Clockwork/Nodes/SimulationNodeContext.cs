@@ -110,6 +110,11 @@ public sealed partial class SimulationNodeContext
     public SimulationTaskScheduler TaskScheduler { get; }
 
     /// <summary>
+    /// Gets the scheduler lane which owns this node's queued work.
+    /// </summary>
+    public SimulationSchedulerLane TaskQueue => SchedulerLane;
+
+    /// <summary>
     /// Gets the synchronization context for this node.
     /// Used for async/await continuations on this node's lane.
     /// </summary>
