@@ -63,7 +63,12 @@
     <ClockworkExclude Include="TUnit%2A.dll" />
     <ClockworkExclude Include="testhost.dll" />
     <ClockworkExclude Include="Clockwork%2A.dll" />
+    <ClockworkExclude Include="%2A.Testing.dll" />
     <ClockworkExclude Include="$(TargetFileName)" />
+    <AssemblyMetadata Include="ClockworkInstrumentationOutputPath" Value="$(ClockworkStagingDirectoryFullPath)" />
+    <AssemblyMetadata Include="ClockworkManifestPath" Value="$(ClockworkManifestPath)" />
+    <AssemblyMetadata Include="ClockworkProjectDirectory" Value="$(MSBuildProjectDirectory)" />
+    <AssemblyMetadata Include="ClockworkIntermediateOutputPath" Value="$(IntermediateOutputPath)" />
   </ItemGroup>
 
   <Target Name="ClockworkValidateInstrumentedTestConfiguration"
