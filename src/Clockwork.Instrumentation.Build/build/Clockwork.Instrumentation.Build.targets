@@ -62,6 +62,7 @@
     <ClockworkExclude Include="MSTest%2A.dll" />
     <ClockworkExclude Include="TUnit%2A.dll" />
     <ClockworkExclude Include="testhost.dll" />
+    <ClockworkExclude Include="Clockwork%2A.dll" />
     <ClockworkExclude Include="$(TargetFileName)" />
   </ItemGroup>
 

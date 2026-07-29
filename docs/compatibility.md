@@ -206,8 +206,8 @@ signature, engine version, configuration, and reference set.
 **Instrumented test projects.** Executable simulation test projects can set
 `ClockworkInstrumentedTestProject=true`. Each build restores the prior pristine output before
 compilation and snapshots the complete ordinary test output under `obj`. It copies the test entry
-assembly and test-host implementation unchanged so async tests can create the simulation, rewrites
-the eligible managed application/dependency closure out of place, validates it, and deploys the
+assembly, test-host implementation, and Clockwork kernel unchanged so async tests can create the
+simulation, rewrites the eligible managed application/dependency closure out of place, validates it, and deploys the
 complete runnable result into the test project's normal `bin` path. Strong-name identities,
 matching closure references, and friend keys are stripped automatically from rewritten assemblies.
 `dotnet build` followed by `dotnet test --no-build` therefore needs no custom runner. Production
