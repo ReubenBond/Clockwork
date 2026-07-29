@@ -111,17 +111,17 @@ public sealed class PackageSmokeTests
 
         AppRunResult pristine = ProcessAppRunner.Run(consumer.UninstrumentedAppPath);
         Assert.Equal(0, pristine.ExitCode);
-        Assert.Contains("ticks=100", pristine.Output);
+        Assert.Contains("instrumented=False", pristine.Output);
 
         AppRunResult deployed = ProcessAppRunner.Run(consumer.OutputAppPath);
         Assert.Equal(0, deployed.ExitCode);
-        Assert.Contains("ticks=999", deployed.Output);
+        Assert.Contains("instrumented=True", deployed.Output);
 
         AppRunResult testRun = consumer.Run("forwarded");
         Assert.True(
             testRun.ExitCode == 0,
             $"Instrumented test run failed ({testRun.ExitCode}):\n{testRun.StandardOutput}\n{testRun.StandardError}");
-        Assert.Contains("ticks=999", testRun.Output);
+        Assert.Contains("instrumented=True", testRun.Output);
         Assert.Contains("argument=forwarded", testRun.Output);
     }
 
@@ -144,7 +144,11 @@ public sealed class PackageSmokeTests
         }
         using (Mono.Cecil.ModuleDefinition deployed = Mono.Cecil.ModuleDefinition.ReadModule(consumer.OutputAppPath))
         {
-            Assert.True(CecilInspect.HasRewriteSignature(deployed));
+            Assert.False(CecilInspect.HasRewriteSignature(deployed));
+        }
+        using (Mono.Cecil.ModuleDefinition subject = Mono.Cecil.ModuleDefinition.ReadModule(consumer.StagedSubjectPath))
+        {
+            Assert.True(CecilInspect.HasRewriteSignature(subject));
         }
 
         AppRunResult testRun = consumer.TestNoBuild();
@@ -467,8 +471,10 @@ public sealed class PackageSmokeTests
             string rootDir = Path.Combine(Root, name);
             string appDir = Path.Combine(rootDir, "app");
             string libDir = Path.Combine(rootDir, "lib");
+            string subjectDir = Path.Combine(rootDir, "subject");
             Directory.CreateDirectory(appDir);
             Directory.CreateDirectory(libDir);
+            Directory.CreateDirectory(subjectDir);
 
             // A single nuget.config at the solution root is discovered by both projects via the
             // standard walk-up, wiring in the freshly packed local feed.
@@ -525,6 +531,29 @@ public sealed class PackageSmokeTests
                   </PropertyGroup>
                 </Project>
                 """);
+            File.WriteAllText(Path.Combine(subjectDir, "SmokeSubject.cs"), """
+                using SmokeApi;
+
+                namespace SmokeSubject;
+
+                public static class Subject
+                {
+                    public static long Capture() => RealClock.UtcNowTicks();
+                }
+                """);
+            File.WriteAllText(Path.Combine(subjectDir, "SmokeSubject.csproj"), """
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                    <Nullable>enable</Nullable>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <AssemblyName>SmokeSubject</AssemblyName>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <ProjectReference Include="../lib/SmokeApi.csproj" />
+                  </ItemGroup>
+                </Project>
+                """);
 
             string programSource = testingPlatformProject && useBuiltInRules
                 ? """
@@ -538,13 +567,18 @@ public sealed class PackageSmokeTests
                     """
                 : testingPlatformProject
                 ? """
-                    using SmokeApi;
+                    using SmokeSubject;
+                    using System.Reflection;
                     using Xunit;
 
                     public sealed class InstrumentedTests
                     {
                         [Fact]
-                        public void UsesRewrittenCallSite() => Assert.Equal(999L, RealClock.UtcNowTicks());
+                        public void UsesRewrittenDependency() =>
+                            Assert.True(
+                                typeof(Subject).Assembly
+                                    .GetCustomAttributes<System.Reflection.AssemblyMetadataAttribute>()
+                                    .Any(attribute => attribute.Key == "Clockwork.RewriteSignature"));
                     }
                     """
                 : useBuiltInRules
@@ -555,9 +589,13 @@ public sealed class PackageSmokeTests
                     """
                 : instrumentedTestProject
                     ? """
-                        using SmokeApi;
+                        using SmokeSubject;
+                        using System.Reflection;
 
-                        System.Console.WriteLine("ticks=" + RealClock.UtcNowTicks());
+                        bool instrumented = typeof(Subject).Assembly
+                            .GetCustomAttributes<System.Reflection.AssemblyMetadataAttribute>()
+                            .Any(attribute => attribute.Key == "Clockwork.RewriteSignature");
+                        System.Console.WriteLine("instrumented=" + instrumented);
                         System.Console.WriteLine("argument=" + args.SingleOrDefault());
                         """
                 : """
@@ -573,11 +611,6 @@ public sealed class PackageSmokeTests
             string testingPackage = testingPlatformProject
                 ? """
                       <PackageReference Include="xunit.v3.mtp-v2" Version="3.2.1" />
-                    """
-                : string.Empty;
-            string instrumentedAssemblyItem = instrumentedTestProject
-                ? """
-                      <ClockworkInstrumentedAssembly Include="SmokeApp.dll" />
                     """
                 : string.Empty;
             string runtimeReference = useBuiltInRules
@@ -629,11 +662,10 @@ public sealed class PackageSmokeTests
                 {runtimeReference}
                   </ItemGroup>
                   <ItemGroup>
-                    <ProjectReference Include="../lib/SmokeApi.csproj" />
+                    <ProjectReference Include="../subject/SmokeSubject.csproj" />
                   </ItemGroup>
                   <ItemGroup>
                 {ruleSetItem}
-                {instrumentedAssemblyItem}
                   </ItemGroup>
                 </Project>
                 """);
@@ -759,6 +791,8 @@ public sealed class PackageSmokeTests
 
         public string StagedAppPath => Path.Combine(StagingDirectory, "SmokeApp.dll");
 
+        public string StagedSubjectPath => Path.Combine(StagingDirectory, "SmokeSubject.dll");
+
         public string ManifestPath => Path.Combine(ProjectDirectory, ManifestRelative);
 
         public string SuccessPath => Path.Combine(
@@ -780,15 +814,21 @@ public sealed class PackageSmokeTests
             string sourcePath = Path.Combine(ProjectDirectory, "Program.cs");
             string source = File.ReadAllText(sourcePath);
             const string existing =
-                "public void UsesRewrittenCallSite() => Assert.Equal(999L, RealClock.UtcNowTicks());";
+                "public void UsesRewrittenDependency() =>";
+            int methodStart = source.IndexOf(existing, StringComparison.Ordinal);
+            int classEnd = source.LastIndexOf('}');
+            if (methodStart < 0 || classEnd < 0)
+            {
+                throw new InvalidOperationException("Could not locate generated test source.");
+            }
+
             File.WriteAllText(
                 sourcePath,
-                source.Replace(
-                    existing,
-                    existing + Environment.NewLine + Environment.NewLine +
+                source.Insert(
+                    classEnd,
+                    Environment.NewLine +
                     "    [Fact]" + Environment.NewLine +
-                    "    public void RebuiltSourceIsUsed() => Assert.True(true);",
-                    StringComparison.Ordinal));
+                    "    public void RebuiltSourceIsUsed() => Assert.True(true);" + Environment.NewLine));
         }
 
         public void SetInstrumentationMode(InstrumentationMode mode)

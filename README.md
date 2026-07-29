@@ -71,8 +71,8 @@ Clockwork snapshots the project's ordinary test output under `obj`, rewrites its
 managed closure out of place, and then deploys it to the simulation test project's `bin` directory.
 Strong-name identities, intra-closure references, and friend-assembly key qualifiers are stripped
 automatically from rewritten assemblies. Test-host implementation assemblies (Microsoft Testing
-Platform, xUnit, NUnit, MSTest, and TUnit) are copied unchanged because they execute before a
-simulation exists. Consequently, `dotnet build` followed by
+Platform, xUnit, NUnit, MSTest, and TUnit) and the test entry assembly are copied unchanged because
+they execute before a simulation exists. Consequently, `dotnet build` followed by
 `dotnet test --no-build` runs the rewritten test copy naturally. Production project outputs and
 projects without the opt-in remain ordinary IL. Do not enable instrumentation globally at the
 solution command line.
