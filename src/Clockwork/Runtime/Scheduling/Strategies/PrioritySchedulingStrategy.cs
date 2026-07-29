@@ -9,8 +9,6 @@ namespace Clockwork.Runtime.Scheduling.Strategies;
 /// </summary>
 internal sealed class PrioritySchedulingStrategy : ISimulationSchedulingStrategy
 {
-    private static readonly RoundRobinSchedulingStrategy TieBreak = new();
-
     /// <inheritdoc/>
     public string Name => "priority";
 
@@ -22,26 +20,27 @@ internal sealed class PrioritySchedulingStrategy : ISimulationSchedulingStrategy
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        var highest = int.MinValue;
-        foreach (var operation in context.Runnable)
+        SimulationOperation wrapTarget = context.Runnable[0];
+        var highest = wrapTarget.Priority;
+        SimulationOperation? firstAfterLast =
+            wrapTarget.Id > context.LastSelected ? wrapTarget : null;
+        for (var index = 1; index < context.Runnable.Count; index++)
         {
+            SimulationOperation operation = context.Runnable[index];
             if (operation.Priority > highest)
             {
                 highest = operation.Priority;
+                wrapTarget = operation;
+                firstAfterLast = operation.Id > context.LastSelected ? operation : null;
             }
-        }
-
-        // Restrict to the highest-priority band (preserving ascending-id order), then apply
-        // round-robin within it so the choice is fair and stable.
-        var topBand = new List<SimulationOperation>(context.Runnable.Count);
-        foreach (var operation in context.Runnable)
-        {
-            if (operation.Priority == highest)
+            else if (operation.Priority == highest
+                && firstAfterLast is null
+                && operation.Id > context.LastSelected)
             {
-                topBand.Add(operation);
+                firstAfterLast = operation;
             }
         }
 
-        return TieBreak.ChooseNext(new SimulationSchedulingContext(topBand, context.LastSelected));
+        return firstAfterLast ?? wrapTarget;
     }
 }

@@ -20,17 +20,16 @@ internal sealed class RoundRobinSchedulingStrategy : ISimulationSchedulingStrate
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        SimulationOperation? firstAfterLast = null;
-        foreach (var operation in context.Runnable)
+        for (var index = 0; index < context.Runnable.Count; index++)
         {
+            SimulationOperation operation = context.Runnable[index];
             if (operation.Id > context.LastSelected)
             {
-                firstAfterLast = operation;
-                break;
+                return operation;
             }
         }
 
         // Runnable is ascending by id and non-empty, so index 0 is the wrap target.
-        return firstAfterLast ?? context.Runnable[0];
+        return context.Runnable[0];
     }
 }
