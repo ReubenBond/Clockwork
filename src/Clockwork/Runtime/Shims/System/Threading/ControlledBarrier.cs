@@ -1,4 +1,3 @@
-using System.Threading.Tasks;
 using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks;
 
@@ -11,24 +10,14 @@ public sealed class ControlledBarrier : IDisposable
     private const string TypeName = "System.Threading.Barrier";
     private const string SignalAndWaitApi = TypeName + ".SignalAndWait";
 
-    private sealed class Waiter
+    private sealed class BarrierWaiter : SimulationWaiter
     {
-        public TaskCompletionSource<bool> Completion { get; } = new();
-
         public long StrandId { get; init; }
-
-        public long Phase { get; init; }
-
-        public CancellationTokenRegistration Registration;
-
-        public ISimulationTimer? Deadline;
-
-        public bool Pending { get; set; } = true;
     }
 
     private readonly object _gate = new();
     private readonly Action<ControlledBarrier>? _postPhaseAction;
-    private readonly List<Waiter> _waiters = [];
+    private readonly List<BarrierWaiter> _waiters = [];
     private readonly HashSet<long> _arrivedStrands = [];
     private bool _disposed;
     private bool _executingPostPhaseAction;
@@ -107,39 +96,39 @@ public sealed class ControlledBarrier : IDisposable
     public void RemoveParticipants(int participantCount) => RemoveParticipantsCore(participantCount, TypeName + ".RemoveParticipants");
 
     /// <summary>Signals arrival and waits for the phase to complete.</summary>
-    public void SignalAndWait() => SignalAndWaitCore(Timeout.Infinite, returnsBoolean: false, cancellationToken: CancellationToken.None);
+    public void SignalAndWait() => SignalAndWaitCore(Timeout.Infinite, CancellationToken.None);
 
     /// <summary>Signals arrival and waits for the phase to complete or cancellation.</summary>
     public void SignalAndWait(CancellationToken cancellationToken) =>
-        SignalAndWaitCore(Timeout.Infinite, returnsBoolean: false, cancellationToken: cancellationToken);
+        SignalAndWaitCore(Timeout.Infinite, cancellationToken);
 
     /// <summary>Signals arrival and waits for the phase to complete or the virtual deadline.</summary>
     public bool SignalAndWait(int millisecondsTimeout) =>
-        SignalAndWaitCore(millisecondsTimeout, returnsBoolean: true, cancellationToken: CancellationToken.None);
+        SignalAndWaitCore(millisecondsTimeout, CancellationToken.None);
 
     /// <summary>Signals arrival and waits for the phase to complete, cancellation, or the virtual deadline.</summary>
     public bool SignalAndWait(int millisecondsTimeout, CancellationToken cancellationToken) =>
-        SignalAndWaitCore(millisecondsTimeout, returnsBoolean: true, cancellationToken: cancellationToken);
+        SignalAndWaitCore(millisecondsTimeout, cancellationToken);
 
     /// <summary>Signals arrival and waits for the phase to complete or the virtual deadline.</summary>
     public bool SignalAndWait(TimeSpan timeout)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(SignalAndWaitApi);
-        return SignalAndWaitCore(ToMilliseconds(timeout), returnsBoolean: true, cancellationToken: CancellationToken.None);
+        return SignalAndWaitCore(ToMilliseconds(timeout), CancellationToken.None);
     }
 
     /// <summary>Signals arrival and waits for the phase to complete, cancellation, or the virtual deadline.</summary>
     public bool SignalAndWait(TimeSpan timeout, CancellationToken cancellationToken)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(SignalAndWaitApi);
-        return SignalAndWaitCore(ToMilliseconds(timeout), returnsBoolean: true, cancellationToken: cancellationToken);
+        return SignalAndWaitCore(ToMilliseconds(timeout), cancellationToken);
     }
 
     /// <summary>Disposes this barrier and faults any phase waiters.</summary>
     public void Dispose()
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(TypeName + ".Dispose");
-        List<Waiter> waiters;
+        List<SimulationWaiter.Claim> waiters;
         lock (_gate)
         {
             if (_disposed)
@@ -187,7 +176,7 @@ public sealed class ControlledBarrier : IDisposable
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(api);
         ValidateAddedOrRemovedParticipantCount(participantCount);
-        List<Waiter>? completed = null;
+        List<SimulationWaiter.Claim>? completed = null;
         Exception? postPhaseException = null;
         lock (_gate)
         {
@@ -210,7 +199,7 @@ public sealed class ControlledBarrier : IDisposable
             _participantsRemaining -= participantCount;
             if (_participantCount > 0 && _participantsRemaining == 0)
             {
-                completed = [.. _waiters];
+                completed = TakeWaitersUnderLock();
             }
         }
 
@@ -225,14 +214,14 @@ public sealed class ControlledBarrier : IDisposable
         }
     }
 
-    private bool SignalAndWaitCore(int millisecondsTimeout, bool returnsBoolean, CancellationToken cancellationToken)
+    private bool SignalAndWaitCore(int millisecondsTimeout, CancellationToken cancellationToken)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(SignalAndWaitApi);
         cancellationToken.ThrowIfCancellationRequested();
         ValidateTimeout(millisecondsTimeout);
 
-        Waiter? waiter = null;
-        List<Waiter>? completed = null;
+        BarrierWaiter? waiter = null;
+        List<SimulationWaiter.Claim>? completed = null;
         lock (_gate)
         {
             ThrowIfDisposed();
@@ -252,7 +241,7 @@ public sealed class ControlledBarrier : IDisposable
             _participantsRemaining--;
             if (_participantsRemaining == 0)
             {
-                completed = [.. _waiters];
+                completed = TakeWaitersUnderLock();
             }
             else if (millisecondsTimeout == 0)
             {
@@ -262,14 +251,15 @@ public sealed class ControlledBarrier : IDisposable
             }
             else
             {
-                waiter = new Waiter { StrandId = strandId, Phase = _currentPhaseNumber };
+                waiter = new BarrierWaiter { StrandId = strandId };
                 _waiters.Add(waiter);
                 if (millisecondsTimeout != Timeout.Infinite)
                 {
-                    waiter.Deadline = SimulationTaskRuntime.RegisterTimeout(
+                    SimulationWaiter.AttachDeadline(
+                        waiter,
                         TimeSpan.FromMilliseconds(millisecondsTimeout),
-                        () => TimeoutWaiter(waiter),
-                        SignalAndWaitApi);
+                        SignalAndWaitApi,
+                        pendingWaiter => TimeoutWaiter(pendingWaiter));
                 }
             }
         }
@@ -287,15 +277,8 @@ public sealed class ControlledBarrier : IDisposable
         }
 
         AttachCancellation(waiter!, cancellationToken);
-        SimulationTaskRuntime.DrainUntil(() => waiter!.Completion.Task.IsCompleted, SignalAndWaitApi);
-        try
-        {
-            return waiter!.Completion.Task.GetAwaiter().GetResult();
-        }
-        catch (TimeoutException) when (returnsBoolean)
-        {
-            return false;
-        }
+        SimulationTaskRuntime.DrainUntil(() => waiter!.Task.IsCompleted, SignalAndWaitApi);
+        return waiter!.Task.GetAwaiter().GetResult();
     }
 
     private Exception? FinishPhase()
@@ -322,117 +305,65 @@ public sealed class ControlledBarrier : IDisposable
                 _currentPhaseNumber++;
                 _participantsRemaining = _participantCount;
                 _arrivedStrands.Clear();
-                foreach (Waiter waiter in _waiters)
-                {
-                    waiter.Pending = false;
-                }
-
-                _waiters.Clear();
             }
         }
 
         return exception;
     }
 
-    private void AttachCancellation(Waiter waiter, CancellationToken cancellationToken)
-    {
-        if (!cancellationToken.CanBeCanceled)
-        {
-            return;
-        }
+    private void AttachCancellation(BarrierWaiter waiter, CancellationToken cancellationToken) =>
+        SimulationWaiter.AttachCancellation(
+            _gate,
+            waiter,
+            (pendingWaiter, token) => CancelWaiter(pendingWaiter, token),
+            cancellationToken);
 
-        CancellationTokenRegistration registration = cancellationToken.Register(
-            static state =>
-            {
-                var (barrier, pendingWaiter, token) = ((ControlledBarrier, Waiter, CancellationToken))state!;
-                barrier.CancelWaiter(pendingWaiter, token);
-            },
-            (this, waiter, cancellationToken));
+    private void TimeoutWaiter(BarrierWaiter waiter) => CompleteFailedWaiter(waiter, null, timedOut: true);
 
-        bool disposeRegistration;
-        lock (_gate)
-        {
-            disposeRegistration = !waiter.Pending;
-            if (!disposeRegistration)
-            {
-                waiter.Registration = registration;
-            }
-        }
-
-        if (disposeRegistration)
-        {
-            registration.Dispose();
-        }
-    }
-
-    private void TimeoutWaiter(Waiter waiter) => CompleteFailedWaiter(waiter, null, timedOut: true);
-
-    private void CancelWaiter(Waiter waiter, CancellationToken cancellationToken) =>
+    private void CancelWaiter(BarrierWaiter waiter, CancellationToken cancellationToken) =>
         CompleteFailedWaiter(waiter, cancellationToken, timedOut: false);
 
-    private void CompleteFailedWaiter(Waiter waiter, CancellationToken? cancellationToken, bool timedOut)
+    private void CompleteFailedWaiter(BarrierWaiter waiter, CancellationToken? cancellationToken, bool timedOut)
     {
-        CancellationTokenRegistration registration;
-        ISimulationTimer? deadline;
+        SimulationWaiter.Claim claim;
         lock (_gate)
         {
-            if (!waiter.Pending || !_waiters.Remove(waiter))
+            if (!SimulationWaiter.TryTake(
+                _waiters,
+                waiter,
+                out claim,
+                cancelDeadline: !timedOut))
             {
                 return;
             }
 
-            waiter.Pending = false;
             _participantsRemaining++;
             _arrivedStrands.Remove(waiter.StrandId);
-            registration = waiter.Registration;
-            waiter.Registration = default;
-            deadline = waiter.Deadline;
-            waiter.Deadline = null;
         }
 
-        if (!timedOut)
-        {
-            deadline?.Cancel();
-        }
-
-        registration.Dispose();
         if (timedOut)
         {
-            waiter.Completion.TrySetResult(false);
+            claim.Complete(false);
         }
         else
         {
-            waiter.Completion.TrySetCanceled(cancellationToken!.Value);
+            claim.Cancel(cancellationToken!.Value);
         }
     }
 
-    private List<Waiter> TakeWaitersUnderLock()
-    {
-        List<Waiter> result = [.. _waiters];
-        _waiters.Clear();
-        foreach (Waiter waiter in result)
-        {
-            waiter.Pending = false;
-        }
+    private List<SimulationWaiter.Claim> TakeWaitersUnderLock() => SimulationWaiter.TakeAll(_waiters);
 
-        return result;
-    }
-
-    private static void CompleteWaiters(IEnumerable<Waiter> waiters, Exception? exception)
+    private static void CompleteWaiters(IEnumerable<SimulationWaiter.Claim> waiters, Exception? exception)
     {
-        foreach (Waiter waiter in waiters)
+        foreach (SimulationWaiter.Claim waiter in waiters)
         {
-            waiter.Deadline?.Cancel();
-            waiter.Deadline = null;
-            waiter.Registration.Dispose();
-            waiter.Registration = default;
             if (exception is null)
             {
-                waiter.Completion.TrySetResult(true);
+                waiter.Complete(true);
             }
             else
             {
-                waiter.Completion.TrySetException(exception);
+                waiter.Fault(exception);
             }
         }
     }

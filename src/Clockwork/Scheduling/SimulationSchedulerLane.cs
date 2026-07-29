@@ -18,7 +18,10 @@ public sealed class SimulationSchedulerLane
     private readonly SimulationScheduler _scheduler;
     private readonly SingleThreadedGuard _guard;
     private readonly SimulationNodeIdentity? _node;
+    private readonly SimulationSynchronizationContext _synchronizationContext;
     private long _sequenceNumber;
+    private bool _enabled = true;
+    private volatile bool _detached;
 
     /// <summary>Initializes a lane owned by <paramref name="scheduler"/>.</summary>
     public SimulationSchedulerLane(
@@ -31,20 +34,35 @@ public sealed class SimulationSchedulerLane
         _scheduler = scheduler;
         _guard = guard;
         _node = node;
-        SynchronizationContext = new SimulationSynchronizationContext(this);
-        ScheduledItems = _items.AsReadOnly();
+        _synchronizationContext = new SimulationSynchronizationContext(this);
     }
 
-    /// <summary>Gets pending items ordered by due time and registration sequence.</summary>
-    public IReadOnlySet<ScheduledItem> ScheduledItems { get; }
-
     /// <summary>Gets the scheduler-backed current simulated date/time.</summary>
-    public DateTimeOffset UtcNow => _scheduler.UtcNow;
+    public DateTimeOffset UtcNow
+    {
+        get
+        {
+            ThrowIfDetachedWithoutGuard();
+            return _scheduler.UtcNow;
+        }
+    }
 
     /// <summary>Gets the synchronization context which posts callbacks to this lane.</summary>
-    public SimulationSynchronizationContext SynchronizationContext { get; }
+    public SimulationSynchronizationContext SynchronizationContext
+    {
+        get
+        {
+            ThrowIfDetachedWithoutGuard();
+            return _synchronizationContext;
+        }
+    }
 
     internal SimulationScheduler Scheduler => _scheduler;
+
+    internal bool IsDetached => _detached;
+
+    internal bool HasPendingWork =>
+        _node is { } node ? _scheduler.HasPendingWork(node) : HasItems;
 
     /// <summary>Gets whether this lane has pending items.</summary>
     public bool HasItems
@@ -52,6 +70,7 @@ public sealed class SimulationSchedulerLane
         get
         {
             using var _ = _guard.Enter();
+            ThrowIfDetachedUnderGuard();
             return _items.Count > 0;
         }
     }
@@ -62,9 +81,11 @@ public sealed class SimulationSchedulerLane
         get
         {
             using var _ = _guard.Enter();
+            ThrowIfDetachedUnderGuard();
+            var now = _scheduler.UtcNow;
             foreach (var item in _items)
             {
-                if (item.DueTime > UtcNow)
+                if (item.DueTime > now)
                 {
                     return item.DueTime;
                 }
@@ -74,8 +95,12 @@ public sealed class SimulationSchedulerLane
         }
     }
 
-    /// <summary>Schedules an item immediately.</summary>
-    public void Enqueue(ScheduledItem item) => Schedule(item, TimeSpan.Zero);
+    /// <summary>Schedules an action immediately.</summary>
+    public void Enqueue(Action action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        Schedule(new ScheduledActionItem(action), TimeSpan.Zero);
+    }
 
     /// <summary>Schedules an action after a modeled delay.</summary>
     public void EnqueueAfter(Action action, TimeSpan delay)
@@ -84,8 +109,9 @@ public sealed class SimulationSchedulerLane
         _ = EnqueueAfter(new ScheduledActionItem(action), delay);
     }
 
-    /// <summary>Schedules an item after a modeled delay.</summary>
-    public TItem EnqueueAfter<TItem>(TItem item, TimeSpan delay)
+    internal void Enqueue(ScheduledItem item) => Schedule(item, TimeSpan.Zero);
+
+    internal TItem EnqueueAfter<TItem>(TItem item, TimeSpan delay)
         where TItem : ScheduledItem
     {
         Schedule(item, delay);
@@ -98,7 +124,8 @@ public sealed class SimulationSchedulerLane
         ArgumentOutOfRangeException.ThrowIfLessThan(delay, TimeSpan.Zero);
 
         using var _ = _guard.Enter();
-        var dueTime = UtcNow + delay;
+        ThrowIfDetachedUnderGuard();
+        var dueTime = _scheduler.UtcNow + delay;
         item.OnScheduled(this, dueTime, _sequenceNumber++);
         _items.Add(item);
 
@@ -121,6 +148,41 @@ public sealed class SimulationSchedulerLane
         item.SetCancellation(registration);
     }
 
+    /// <summary>
+    /// Captures an immutable diagnostic snapshot of pending work, ordered by due time and
+    /// registration sequence.
+    /// </summary>
+    public IReadOnlyList<SimulationScheduledItemDiagnostic> CaptureScheduledItems()
+    {
+        using var _ = _guard.Enter();
+        ThrowIfDetachedUnderGuard();
+        var now = _scheduler.UtcNow;
+        var queueIdentity = _node?.Address ?? "cluster";
+        var result = new SimulationScheduledItemDiagnostic[_items.Count];
+        var index = 0;
+        foreach (var item in _items)
+        {
+            var isReady = item.DueTime <= now;
+            result[index++] = new SimulationScheduledItemDiagnostic(
+                queueIdentity,
+                item.Kind,
+                item.Description,
+                item.DueTime,
+                item.SequenceNumber,
+                isReady,
+                isReady && !_enabled);
+        }
+
+        return Array.AsReadOnly(result);
+    }
+
+    internal ScheduledItem[] CaptureItems()
+    {
+        using var _ = _guard.Enter();
+        ThrowIfDetachedUnderGuard();
+        return [.. _items];
+    }
+
     internal void RemoveItem(ScheduledItem item)
     {
         using var _ = _guard.Enter();
@@ -139,7 +201,7 @@ public sealed class SimulationSchedulerLane
         }
 
         item.OnInvoking();
-        using var syncScope = SynchronizationContext.Install();
+        using var syncScope = _synchronizationContext.Install();
         try
         {
             item.Invoke();
@@ -154,6 +216,7 @@ public sealed class SimulationSchedulerLane
     /// <summary>Runs one scheduler operation without advancing virtual time.</summary>
     public bool RunOnce()
     {
+        ThrowIfDetached();
         using var control = _scheduler.EnterControlScope();
         return _scheduler.RunStep();
     }
@@ -161,6 +224,7 @@ public sealed class SimulationSchedulerLane
     /// <summary>Runs scheduler operations until none is currently eligible.</summary>
     public int RunUntilIdle()
     {
+        ThrowIfDetached();
         using var control = _scheduler.EnterControlScope();
         var count = 0;
         while (_scheduler.RunStep())
@@ -173,18 +237,56 @@ public sealed class SimulationSchedulerLane
 
     internal void SetEnabled(bool enabled)
     {
+        using var _ = _guard.Enter();
+        ThrowIfDetachedUnderGuard();
+        _enabled = enabled;
         if (_node is { } node)
         {
             _scheduler.SetNodeEnabled(node, enabled);
         }
     }
 
-    private string DebuggerDisplay =>
-        string.Create(CultureInfo.InvariantCulture, $"Count={_items.Count} UtcNow={UtcNow:HH:mm:ss.fff}");
+    internal ScheduledItem[] Detach()
+    {
+        using var _ = _guard.Enter();
+        if (_detached)
+        {
+            return [];
+        }
+
+        _detached = true;
+        if (_node is { } node)
+        {
+            _scheduler.RemovePendingWork(node);
+        }
+
+        return [.. _items];
+    }
+
+    private void ThrowIfDetached()
+    {
+        using var _ = _guard.Enter();
+        ThrowIfDetachedUnderGuard();
+    }
+
+    private void ThrowIfDetachedWithoutGuard() =>
+        ObjectDisposedException.ThrowIf(_detached, this);
+
+    private void ThrowIfDetachedUnderGuard() =>
+        ObjectDisposedException.ThrowIf(_detached, this);
+
+    private string DebuggerDisplay
+    {
+        get
+        {
+            IReadOnlyList<SimulationScheduledItemDiagnostic> items = CaptureScheduledItems();
+            return string.Create(CultureInfo.InvariantCulture, $"Count={items.Count} UtcNow={_scheduler.UtcNow:HH:mm:ss.fff}");
+        }
+    }
 }
 
 internal sealed class SimulationSchedulerLaneDebugView(SimulationSchedulerLane lane)
 {
     [DebuggerBrowsable(DebuggerBrowsableState.RootHidden)]
-    public ScheduledItem[] Items => [.. lane.ScheduledItems];
+    public SimulationScheduledItemDiagnostic[] Items => [.. lane.CaptureScheduledItems()];
 }

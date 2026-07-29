@@ -1,5 +1,6 @@
 using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Random;
+using Clockwork.Runtime.Scheduling.Resources;
 
 namespace Clockwork.Runtime.Scheduling.Strategies;
 
@@ -19,7 +20,9 @@ namespace Clockwork.Runtime.Scheduling.Strategies;
 /// sequence.
 /// </para>
 /// </summary>
-public sealed class SeededRandomSchedulingStrategy : ISimulationSchedulingStrategy
+internal sealed class SeededRandomSchedulingStrategy :
+    ISimulationSchedulingStrategy,
+    ISimulationSchedulingStrategyRuntimeHooks
 {
     // SplitMix64: a tiny, well-distributed, fully specified generator. Implemented inline so the
     // sequence is identical across processes and .NET versions (unlike System.Random, whose
@@ -32,7 +35,7 @@ public sealed class SeededRandomSchedulingStrategy : ISimulationSchedulingStrate
     /// seed within the scheduler decision domain.
     /// </summary>
     /// <param name="seed">The deterministic seed for the scheduling random stream.</param>
-    public SeededRandomSchedulingStrategy(int seed)
+    internal SeededRandomSchedulingStrategy(int seed)
     {
         _state = unchecked((ulong)seed * 0x9E3779B97F4A7C15UL + 0x2545F4914F6CDD1DUL);
     }
@@ -50,7 +53,7 @@ public sealed class SeededRandomSchedulingStrategy : ISimulationSchedulingStrate
     /// </summary>
     /// <param name="runtime">The runtime whose root seed derives the scheduler seed.</param>
     /// <returns>A seeded strategy for that runtime.</returns>
-    public static SeededRandomSchedulingStrategy ForRuntime(SimulationRuntimeIdentity runtime)
+    internal static SeededRandomSchedulingStrategy ForRuntime(SimulationRuntimeIdentity runtime)
     {
         ArgumentNullException.ThrowIfNull(runtime);
         var seed = new SimulationSeedAuthority(runtime.Seed).GetDomainSeed(SimulationSeedDomain.Scheduler);
@@ -78,6 +81,16 @@ public sealed class SeededRandomSchedulingStrategy : ISimulationSchedulingStrate
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(exclusiveMax);
         return exclusiveMax == 1 ? 0 : NextIndex(exclusiveMax);
+    }
+
+    int ISimulationSchedulingStrategyRuntimeHooks.ChooseResourceWaiter(
+        IReadOnlyList<SimulationResourceWaiterInfo> waiters) =>
+        ChooseIndex(waiters.Count);
+
+    string ISimulationSchedulingStrategyRuntimeHooks.DecisionSourceId => Name;
+
+    void ISimulationSchedulingStrategyRuntimeHooks.ValidateComplete()
+    {
     }
 
     private int NextIndex(int exclusiveMax)

@@ -4,8 +4,11 @@ namespace Clockwork;
 /// A simple scheduled item that wraps an Action callback.
 /// Used for general-purpose delayed execution.
 /// </summary>
-public sealed class ScheduledActionItem(Action callback) : ScheduledItem
+internal sealed class ScheduledActionItem(Action callback) : ScheduledItem
 {
-    /// <inheritdoc />
-    protected internal override void Invoke() => callback();
+    internal override string Kind => "action";
+
+    internal override string Description => "Scheduled action";
+
+    internal override void Invoke() => callback();
 }

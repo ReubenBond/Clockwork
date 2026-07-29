@@ -171,7 +171,6 @@ public static class ReplayTraceRenderer
         var builder = new StringBuilder();
         builder.Append("Clockwork replay ").Append(artifact.Format).Append("/v")
             .Append(artifact.SchemaVersion).Append('\n');
-        builder.Append("Recording: ").Append(artifact.RecordingState).Append('\n');
         builder.Append("Outcome: ").Append(artifact.Outcome.Kind);
         if (artifact.Outcome.FailureIdentity is { } identity)
         {

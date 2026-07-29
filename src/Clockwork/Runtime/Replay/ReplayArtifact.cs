@@ -4,16 +4,6 @@ using Clockwork.Runtime.Racing;
 
 namespace Clockwork.Runtime.Replay;
 
-/// <summary>Describes whether a replay recording reached a terminal boundary.</summary>
-public enum ReplayRecordingState
-{
-    /// <summary>The run reached a terminal boundary and the decision stream is complete.</summary>
-    Complete,
-
-    /// <summary>The run was interrupted; the decision stream is an explicitly partial prefix.</summary>
-    Aborted,
-}
-
 /// <summary>Classifies the terminal outcome of a recorded execution.</summary>
 public enum ReplayTerminationKind
 {
@@ -228,7 +218,7 @@ public sealed record ReplayOutcome
 public sealed record ReplayArtifact
 {
     /// <summary>The current replay artifact schema version.</summary>
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 
     /// <summary>The stable schema name.</summary>
     public const string SchemaName = "clockwork.replay";
@@ -238,9 +228,6 @@ public sealed record ReplayArtifact
 
     /// <summary>Gets the schema version.</summary>
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
-
-    /// <summary>Gets whether the decision stream is complete or an aborted prefix.</summary>
-    public required ReplayRecordingState RecordingState { get; init; }
 
     /// <summary>Gets the root simulation seed.</summary>
     public required int RootSeed { get; init; }

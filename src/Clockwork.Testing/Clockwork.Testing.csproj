@@ -1,10 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>Replay-aware test helpers for deterministic Clockwork scenarios, including stable test identity seeds, failure artifacts, and environment-driven replay.</Description>
+    <Description>Replay-aware test helpers for deterministic Clockwork scenarios, including in-memory log capture, stable test identity seeds, failure artifacts, and environment-driven replay.</Description>
     <RootNamespace>Clockwork.Testing</RootNamespace>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Clockwork\Clockwork.csproj" />

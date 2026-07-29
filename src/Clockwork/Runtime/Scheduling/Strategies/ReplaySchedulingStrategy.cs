@@ -21,7 +21,9 @@ namespace Clockwork.Runtime.Scheduling.Strategies;
 /// operations, while this drives the scheduling decisions themselves.
 /// </para>
 /// </summary>
-public sealed class ReplaySchedulingStrategy : ISimulationSchedulingStrategy
+internal sealed class ReplaySchedulingStrategy :
+    ISimulationSchedulingStrategy,
+    ISimulationSchedulingStrategyRuntimeHooks
 {
     private readonly List<SimulationDecisionRecord> _scheduling;
     private readonly List<SimulationDecisionRecord> _resourceWinners;
@@ -36,7 +38,7 @@ public sealed class ReplaySchedulingStrategy : ISimulationSchedulingStrategy
     /// can be passed here and to a <see cref="SimulationDecisionReplayValidator"/>.
     /// </summary>
     /// <param name="recordedDecisions">The decisions recorded during the original run, in order.</param>
-    public ReplaySchedulingStrategy(IReadOnlyList<SimulationDecisionRecord> recordedDecisions)
+    internal ReplaySchedulingStrategy(IReadOnlyList<SimulationDecisionRecord> recordedDecisions)
     {
         ArgumentNullException.ThrowIfNull(recordedDecisions);
         var scheduling = new List<SimulationDecisionRecord>(recordedDecisions.Count);
@@ -147,7 +149,7 @@ public sealed class ReplaySchedulingStrategy : ISimulationSchedulingStrategy
     /// <exception cref="SimulationDecisionReplayMismatchException">
     /// Thrown when one or more recorded scheduling choices remain unconsumed.
     /// </exception>
-    public void ValidateComplete()
+    internal void ValidateComplete()
     {
         if (_mismatchAlreadyThrown)
         {
@@ -177,6 +179,16 @@ public sealed class ReplaySchedulingStrategy : ISimulationSchedulingStrategy
 
     internal static string FormatId(SimulationOperationId id) =>
         id.Value.ToString(CultureInfo.InvariantCulture);
+
+    int ISimulationSchedulingStrategyRuntimeHooks.ChooseResourceWaiter(
+        IReadOnlyList<SimulationResourceWaiterInfo> waiters) =>
+        ChooseResourceWaiter(waiters);
+
+    string ISimulationSchedulingStrategyRuntimeHooks.DecisionSourceId =>
+        LastDecisionSourceId ?? Name;
+
+    void ISimulationSchedulingStrategyRuntimeHooks.ValidateComplete() =>
+        ValidateComplete();
 
     private static string FormatCandidates(IReadOnlyList<SimulationOperation> runnable)
     {

@@ -46,19 +46,65 @@ public sealed class SimulationNetworkTests
     }
 
     [Fact]
-    public void DisabledDelaysAlwaysReturnZero()
+    public void DelayDefaultsAreZeroAndDoNotConsumeRandomness()
     {
-        var network = CreateNetwork([], seed: 1);
-        network.EnableDelays = false;
+        var random = new SimulationRandom(seed: 1);
+        var comparisonRandom = new SimulationRandom(seed: 1);
+        var network = new SimulationNetwork(() => [], random);
 
         for (var i = 0; i < 10; i++)
         {
             Assert.Equal(TimeSpan.Zero, network.GetMessageDelay());
         }
+
+        Assert.Equal(TimeSpan.Zero, network.BaseMessageDelay);
+        Assert.Equal(TimeSpan.Zero, network.MaxJitter);
+        Assert.Equal(comparisonRandom.Next(), random.Next());
     }
 
     [Fact]
-    public void EnabledDelaysAreBoundedByBaseDelayPlusJitterAndAreReproducible()
+    public void BaseDelayWithoutJitterDoesNotConsumeRandomness()
+    {
+        var random = new SimulationRandom(seed: 2);
+        var comparisonRandom = new SimulationRandom(seed: 2);
+        var network = new SimulationNetwork(() => [], random)
+        {
+            BaseMessageDelay = TimeSpan.FromMilliseconds(10),
+        };
+
+        for (var i = 0; i < 10; i++)
+        {
+            Assert.Equal(network.BaseMessageDelay, network.GetMessageDelay());
+        }
+
+        Assert.Equal(comparisonRandom.Next(), random.Next());
+    }
+
+    [Fact]
+    public void JitterWithoutBaseDelayIsBoundedAndReproducible()
+    {
+        var maxJitter = TimeSpan.FromMilliseconds(5);
+        var first = CreateNetwork([], seed: 3);
+        var second = CreateNetwork([], seed: 3);
+        first.MaxJitter = maxJitter;
+        second.MaxJitter = maxJitter;
+        var observedNonzeroJitter = false;
+
+        for (var i = 0; i < 20; i++)
+        {
+            var firstDelay = first.GetMessageDelay();
+            var secondDelay = second.GetMessageDelay();
+
+            Assert.Equal(firstDelay, secondDelay);
+            Assert.InRange(firstDelay, TimeSpan.Zero, maxJitter);
+            observedNonzeroJitter |= firstDelay > TimeSpan.Zero;
+        }
+
+        Assert.True(observedNonzeroJitter);
+    }
+
+    [Fact]
+    public void BaseDelayAndJitterAreBoundedAndReproducible()
     {
         var baseDelay = TimeSpan.FromMilliseconds(10);
         var maxJitter = TimeSpan.FromMilliseconds(5);
@@ -66,7 +112,6 @@ public sealed class SimulationNetworkTests
         SimulationNetwork Build(int seed)
         {
             var network = CreateNetwork([], seed);
-            network.EnableDelays = true;
             network.BaseMessageDelay = baseDelay;
             network.MaxJitter = maxJitter;
             return network;
@@ -83,6 +128,44 @@ public sealed class SimulationNetworkTests
             Assert.Equal(firstDelay, secondDelay);
             Assert.InRange(firstDelay, baseDelay, baseDelay + maxJitter);
         }
+    }
+
+    [Fact]
+    public void NegativeDelaySettingsAreRejectedWithoutChangingConfiguration()
+    {
+        var network = CreateNetwork([], seed: 1);
+        var baseException = Assert.Throws<ArgumentOutOfRangeException>(
+            () => network.BaseMessageDelay = TimeSpan.FromTicks(-1));
+        var jitterException = Assert.Throws<ArgumentOutOfRangeException>(
+            () => network.MaxJitter = TimeSpan.FromTicks(-1));
+
+        Assert.Equal(nameof(SimulationNetwork.BaseMessageDelay), baseException.ParamName);
+        Assert.Equal(nameof(SimulationNetwork.MaxJitter), jitterException.ParamName);
+        Assert.Equal(TimeSpan.Zero, network.BaseMessageDelay);
+        Assert.Equal(TimeSpan.Zero, network.MaxJitter);
+    }
+
+    [Fact]
+    public void DelaySettingsRejectCombinedValuesThatWouldOverflow()
+    {
+        var baseFirst = CreateNetwork([], seed: 1);
+        baseFirst.BaseMessageDelay = TimeSpan.MaxValue;
+
+        var jitterException = Assert.Throws<ArgumentOutOfRangeException>(
+            () => baseFirst.MaxJitter = TimeSpan.FromTicks(1));
+
+        Assert.Equal(nameof(SimulationNetwork.MaxJitter), jitterException.ParamName);
+        Assert.Equal(TimeSpan.Zero, baseFirst.MaxJitter);
+        Assert.Equal(TimeSpan.MaxValue, baseFirst.GetMessageDelay());
+
+        var jitterFirst = CreateNetwork([], seed: 1);
+        jitterFirst.MaxJitter = TimeSpan.MaxValue;
+
+        var baseException = Assert.Throws<ArgumentOutOfRangeException>(
+            () => jitterFirst.BaseMessageDelay = TimeSpan.FromTicks(1));
+
+        Assert.Equal(nameof(SimulationNetwork.BaseMessageDelay), baseException.ParamName);
+        Assert.Equal(TimeSpan.Zero, jitterFirst.BaseMessageDelay);
     }
 
     [Fact]

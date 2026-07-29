@@ -58,3 +58,33 @@ public abstract class SimulationNode
     /// <returns>True if a task was executed; false if no tasks are ready or the node is suspended.</returns>
     public bool Step() => Context.Step();
 }
+
+/// <summary>
+/// A fully attached simulation node carrying application-defined state. Instances are created and
+/// owned by <see cref="SimulationCluster.AddNode{TState}(string, TState)"/> and its factory overload.
+/// </summary>
+/// <typeparam name="TState">The type of the application-defined state.</typeparam>
+public sealed class SimulationNode<TState> : SimulationNode
+{
+    internal SimulationNode(
+        string networkAddress,
+        SimulationNodeContext context,
+        TState state)
+    {
+        NetworkAddress = networkAddress;
+        Context = context;
+        State = state;
+    }
+
+    /// <inheritdoc />
+    public override SimulationNodeContext Context { get; }
+
+    /// <inheritdoc />
+    public override string NetworkAddress { get; }
+
+    /// <inheritdoc />
+    public override bool IsInitialized => true;
+
+    /// <summary>Gets this node's application-defined state.</summary>
+    public TState State { get; }
+}

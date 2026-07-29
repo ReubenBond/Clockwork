@@ -36,6 +36,10 @@ public sealed class SimulationTaskScheduler(SimulationSchedulerLane schedulerLan
     {
         public Task Task => task;
 
-        protected internal override void Invoke() => scheduler.TryExecuteTask(task);
+        internal override string Kind => "task";
+
+        internal override string Description => "Scheduled task";
+
+        internal override void Invoke() => scheduler.TryExecuteTask(task);
     }
 }

@@ -25,7 +25,7 @@ public sealed class ReplayTestFixtureTests : IDisposable
     }
 
     [Fact]
-    public void FailedTestWritesAttachmentAndReplayInstructions()
+    public void FailedTestWritesArtifactAndReplayInstructions()
     {
         ReplayTestResult result = CreateFixture("WritesArtifact").Run(
             static scheduler => scheduler.Schedule("fault", static () => throw new KnownTestFailure()),
@@ -34,7 +34,6 @@ public sealed class ReplayTestFixtureTests : IDisposable
         Assert.False(result.IsSuccessful);
         Assert.NotNull(result.ArtifactPath);
         Assert.True(File.Exists(result.ArtifactPath));
-        Assert.Single(result.Attachments);
         Assert.Contains(ReplayTestEnvironment.Artifact, result.ToFailureMessage(), StringComparison.Ordinal);
         Assert.Contains("clockwork replay", result.GetReplayCommand("tests.dll", "Tests.Scenario"), StringComparison.Ordinal);
         ReplayTestFailureException exception = Assert.Throws<ReplayTestFailureException>(result.ThrowIfFailed);
@@ -50,7 +49,6 @@ public sealed class ReplayTestFixtureTests : IDisposable
 
         Assert.True(result.IsSuccessful);
         Assert.Null(result.ArtifactPath);
-        Assert.Empty(result.Attachments);
     }
 
     [Fact]

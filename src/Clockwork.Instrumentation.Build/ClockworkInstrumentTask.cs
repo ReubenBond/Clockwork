@@ -28,7 +28,7 @@ public sealed class ClockworkInstrumentTask : MSBuildTask
     [Required]
     public string StagingDirectory { get; set; } = string.Empty;
 
-    /// <summary>Gets or sets the optional JSON configuration file path. When set, it is the source of policy settings.</summary>
+    /// <summary>Gets or sets the optional JSON configuration file path.</summary>
     public string? ConfigurationPath { get; set; }
 
     /// <summary>Gets or sets the rule-set JSON documents to load and merge (appended to any from the configuration file).</summary>
@@ -43,9 +43,6 @@ public sealed class ClockworkInstrumentTask : MSBuildTask
     /// <summary>Gets or sets the built-in rule families to exclude even when included.</summary>
     public ITaskItem[] BuiltInExcludeFamilies { get; set; } = [];
 
-    /// <summary>Gets or sets a value indicating whether built-in selection is strict (the crypto guard cannot be excluded). Defaults to <see langword="true"/>.</summary>
-    public bool StrictBuiltIns { get; set; } = true;
-
     /// <summary>Gets or sets the include glob patterns selecting assemblies eligible for rewriting.</summary>
     public ITaskItem[] IncludePatterns { get; set; } = [];
 
@@ -55,19 +52,7 @@ public sealed class ClockworkInstrumentTask : MSBuildTask
     /// <summary>Gets or sets the instrumentation mode (<c>Controlled</c> or <c>RaceExploration</c>).</summary>
     public string InstrumentationMode { get; set; } = nameof(Configuration.InstrumentationMode.Controlled);
 
-    /// <summary>Gets or sets a value indicating whether framework/reference assemblies are excluded. Defaults to <see langword="true"/>.</summary>
-    public bool ExcludeFrameworkAssemblies { get; set; } = true;
-
-    /// <summary>Gets or sets a value indicating whether managed dependencies are rewritten too. Defaults to <see langword="true"/>.</summary>
-    public bool InstrumentDependencies { get; set; } = true;
-
-    /// <summary>Gets or sets the ReadyToRun policy name (<c>Reject</c> or <c>StripToIL</c>).</summary>
-    public string ReadyToRunPolicy { get; set; } = nameof(Configuration.ReadyToRunPolicy.Reject);
-
-    /// <summary>Gets or sets the strong-name policy name (<c>Fail</c> or <c>ReSign</c>).</summary>
-    public string StrongNamePolicy { get; set; } = nameof(Configuration.StrongNamePolicy.Fail);
-
-    /// <summary>Gets or sets the strong-name key path used when the strong-name policy is <c>ReSign</c>.</summary>
+    /// <summary>Gets or sets the strong-name key path used to re-sign signed inputs.</summary>
     public string? StrongNameKeyPath { get; set; }
 
     /// <summary>Gets or sets the target runtime version rules are evaluated against, or empty to disable filtering.</summary>
@@ -100,7 +85,7 @@ public sealed class ClockworkInstrumentTask : MSBuildTask
             configuration = BuildConfiguration();
             ruleSet = RuleSetMerge.LoadAndMerge(configuration).RuleSet;
         }
-        catch (Exception ex) when (ex is ConfigurationException or RuleSetFormatException)
+        catch (ConfigurationException ex)
         {
             Log.LogError(null, "CWR0200", null, ConfigurationPath, 0, 0, 0, 0, ex.Message);
             return false;
@@ -179,11 +164,7 @@ public sealed class ClockworkInstrumentTask : MSBuildTask
                 IncludePatterns = ToPatternArray(IncludePatterns),
                 ExcludePatterns = ToPatternArray(ExcludePatterns),
                 Mode = ParseEnum<InstrumentationMode>(InstrumentationMode, nameof(InstrumentationMode)),
-                ExcludeFrameworkAssemblies = ExcludeFrameworkAssemblies,
-                InstrumentDependencies = InstrumentDependencies,
                 TargetRuntime = ParseVersion(TargetRuntime),
-                ReadyToRunPolicy = ParseEnum<ReadyToRunPolicy>(ReadyToRunPolicy, nameof(ReadyToRunPolicy)),
-                StrongNamePolicy = ParseEnum<StrongNamePolicy>(StrongNamePolicy, nameof(StrongNamePolicy)),
                 StrongNameKeyPath = NullIfEmpty(StrongNameKeyPath),
             };
 
@@ -215,13 +196,6 @@ public sealed class ClockworkInstrumentTask : MSBuildTask
         if (!excludeFamilies.IsDefaultOrEmpty)
         {
             configuration = configuration with { BuiltInExcludeFamilies = excludeFamilies };
-        }
-
-        // Only override strictness when the configuration did not come from a file, or when explicitly
-        // relaxed, so a config file's stricter setting is never silently loosened by the default.
-        if (NullIfEmpty(ConfigurationPath) is null || !StrictBuiltIns)
-        {
-            configuration = configuration with { StrictBuiltIns = StrictBuiltIns };
         }
 
         return configuration;

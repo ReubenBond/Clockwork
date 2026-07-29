@@ -1,5 +1,3 @@
-using System.Globalization;
-
 namespace Clockwork.Instrumentation.Rules;
 
 /// <summary>
@@ -45,9 +43,13 @@ public readonly record struct RuntimeVersionRange(Version? Minimum, Version? Max
     }
 
     /// <summary>Returns a stable canonical string for signature hashing.</summary>
-    public string ToCanonicalString() => string.Create(
-        CultureInfo.InvariantCulture,
-        $"[{Minimum?.ToString() ?? "*"},{Maximum?.ToString() ?? "*"}]");
+    public string ToCanonicalString()
+    {
+        var canonical = new CanonicalEncoding(nameof(RuntimeVersionRange));
+        canonical.AddString(nameof(Minimum), Minimum?.ToString());
+        canonical.AddString(nameof(Maximum), Maximum?.ToString());
+        return canonical.ToString();
+    }
 
     /// <inheritdoc/>
     public override string ToString() => ToCanonicalString();

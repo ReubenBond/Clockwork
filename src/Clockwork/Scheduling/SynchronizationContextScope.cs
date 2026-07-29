@@ -4,10 +4,9 @@ namespace Clockwork;
 /// A disposable scope that restores the previous synchronization context when disposed.
 /// </summary>
 /// <remarks>
-/// This struct is only used as a disposable scope and is not intended for comparison.
+/// This type is only used as a disposable scope.
 /// </remarks>
-[System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1815:Override equals and operator equals on value types", Justification = "Struct is only used as disposable scope, not for comparison")]
-public readonly struct SynchronizationContextScope : IDisposable
+internal sealed class SynchronizationContextScope : IDisposable
 {
     private readonly SynchronizationContext? _previous;
     private readonly bool _shouldRestore;
@@ -15,10 +14,14 @@ public readonly struct SynchronizationContextScope : IDisposable
     /// <summary>
     /// Gets an empty scope that does nothing when disposed.
     /// </summary>
-    public static SynchronizationContextScope Empty => default;
+    internal static SynchronizationContextScope Empty { get; } = new();
+
+    private SynchronizationContextScope()
+    {
+    }
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="SynchronizationContextScope"/> struct.
+    /// Initializes a new instance of the <see cref="SynchronizationContextScope"/> class.
     /// Creates a new scope that will restore the specified context when disposed.
     /// </summary>
     /// <param name="previous">The synchronization context to restore.</param>

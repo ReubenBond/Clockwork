@@ -1,7 +1,7 @@
 namespace Clockwork;
 
 /// <summary>
-/// Describes why a <see cref="SimulationCluster{TNode}"/> drive-loop execution
+/// Describes why a <see cref="SimulationCluster"/> drive-loop execution
 /// (<c>RunUntil</c>, <c>RunUntilIdle</c>, or <c>RunFor</c>) stopped.
 /// </summary>
 public enum SimulationExecutionReason
@@ -23,13 +23,13 @@ public enum SimulationExecutionReason
     IdleWithPendingWork,
 
     /// <summary>
-    /// The next scheduled item is further in simulated time than <see cref="SimulationCluster{TNode}.MaxSimulatedTimeAdvance"/>
+    /// The next scheduled item is further in simulated time than <see cref="SimulationCluster.MaxSimulatedTimeAdvance"/>
     /// allows in one jump, and the execution is being treated as stuck.
     /// </summary>
     MaxSimulatedTimeAdvanceExceeded,
 
     /// <summary>
-    /// The clock was advanced more than <see cref="SimulationCluster{TNode}.MaxConsecutiveTimeAdvances"/>
+    /// The clock was advanced more than <see cref="SimulationCluster.MaxConsecutiveTimeAdvances"/>
     /// times in a row without executing any work in between, and the execution is being treated as stuck.
     /// </summary>
     MaxConsecutiveTimeAdvancesExceeded,
@@ -37,6 +37,6 @@ public enum SimulationExecutionReason
     /// <summary>The configured maximum number of loop iterations was reached before any other stopping condition.</summary>
     MaxIterationsReached,
 
-    /// <summary>The cluster's <see cref="SimulationCluster{TNode}.TeardownCancellationToken"/> was cancelled.</summary>
+    /// <summary>The cluster's <see cref="SimulationCluster.TeardownCancellationToken"/> was cancelled.</summary>
     TeardownCancellationRequested,
 }

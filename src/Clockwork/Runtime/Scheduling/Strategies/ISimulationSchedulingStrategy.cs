@@ -42,3 +42,12 @@ public interface ISimulationSchedulingStrategy
     /// <returns>One operation drawn from <see cref="SimulationSchedulingContext.Runnable"/>.</returns>
     SimulationOperation ChooseNext(SimulationSchedulingContext context);
 }
+
+internal interface ISimulationSchedulingStrategyRuntimeHooks
+{
+    int ChooseResourceWaiter(IReadOnlyList<Resources.SimulationResourceWaiterInfo> waiters);
+
+    string DecisionSourceId { get; }
+
+    void ValidateComplete();
+}

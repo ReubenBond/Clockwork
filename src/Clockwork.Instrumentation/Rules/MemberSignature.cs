@@ -52,12 +52,11 @@ public readonly record struct MemberSignature(
     /// <summary>Returns a stable canonical string for signature hashing and diagnostics.</summary>
     public string ToCanonicalString()
     {
-        string parameters = ParameterTypeFullNames.IsDefault
-            ? "*"
-            : "(" + string.Join(",", ParameterTypeFullNames) + ")";
-        return MemberName is null
-            ? DeclaringTypeFullName
-            : $"{DeclaringTypeFullName}::{MemberName}{parameters}";
+        var canonical = new CanonicalEncoding(nameof(MemberSignature));
+        canonical.AddString(nameof(DeclaringTypeFullName), DeclaringTypeFullName);
+        canonical.AddString(nameof(MemberName), MemberName);
+        canonical.AddStringArray(nameof(ParameterTypeFullNames), ParameterTypeFullNames);
+        return canonical.ToString();
     }
 
     /// <inheritdoc/>

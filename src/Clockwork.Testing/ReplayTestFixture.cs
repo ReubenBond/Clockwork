@@ -50,9 +50,6 @@ public sealed record ReplayTestConfiguration
     public ReplayInstrumentationIdentity? Instrumentation { get; init; }
 }
 
-/// <summary>A file attachment produced by a replay-aware test fixture.</summary>
-public sealed record ReplayTestAttachment(string Path, string Description);
-
 /// <summary>The structured result and reproducibility data for one replay-aware test run.</summary>
 public sealed record ReplayTestResult
 {
@@ -67,12 +64,6 @@ public sealed record ReplayTestResult
 
     /// <summary>Gets the written or replayed artifact path, when available.</summary>
     public string? ArtifactPath { get; init; }
-
-    /// <summary>Gets artifact attachments for a test framework or CI adapter.</summary>
-    public IReadOnlyList<ReplayTestAttachment> Attachments =>
-        ArtifactPath is null
-            ? []
-            : [new ReplayTestAttachment(ArtifactPath, "Clockwork replay artifact")];
 
     /// <summary>Gets whether the scenario completed without a failure outcome.</summary>
     public bool IsSuccessful => Execution.Artifact.Outcome.Kind == ReplayTerminationKind.Completed;

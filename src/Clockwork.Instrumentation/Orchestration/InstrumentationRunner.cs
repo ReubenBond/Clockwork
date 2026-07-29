@@ -14,8 +14,8 @@ namespace Clockwork.Instrumentation.Orchestration;
 
 /// <summary>
 /// The deterministic orchestrator that turns an application output/publish directory into an
-/// instrumented closure staged in a separate directory. It discovers the closure, enforces the
-/// configured ReadyToRun and strong-name policies, rewrites managed IL with the
+/// instrumented closure staged in a separate directory. It discovers the closure, strips ReadyToRun
+/// inputs to IL, re-signs signed inputs when key material is available, rewrites managed IL with the
 /// <see cref="RewriteEngine"/>, copies every non-rewritten asset verbatim, emits a deterministic
 /// closure manifest, and maintains an incremental cache keyed by every input's content hash plus the
 /// engine, rule-set, and configuration signatures. The source directory is never modified.
@@ -25,60 +25,113 @@ public static class InstrumentationRunner
     /// <summary>Runs the instrumentation over the closure described by <paramref name="request"/>.</summary>
     /// <param name="request">The instrumentation request.</param>
     /// <returns>The deterministic outcome, including per-assembly results and diagnostics.</returns>
-    /// <exception cref="ClosureException">The source directory is missing or the entry cannot be determined.</exception>
+    /// <exception cref="ClosureException">
+    /// The closure is invalid, or source, staging, manifest, and cache paths violate the runner's
+    /// isolation requirements.
+    /// </exception>
     public static InstrumentationResult Run(InstrumentationRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        string sourceDirectory = Path.GetFullPath(request.SourceDirectory);
-        string stagingDirectory = Path.GetFullPath(request.StagingDirectory);
-        InstrumentationConfiguration configuration = request.Configuration;
+        string sourceDirectory = NormalizeDirectoryPath(
+            request.SourceDirectory,
+            nameof(InstrumentationRequest.SourceDirectory));
+        string stagingDirectory = NormalizeDirectoryPath(
+            request.StagingDirectory,
+            nameof(InstrumentationRequest.StagingDirectory));
+        string manifestPath = NormalizeMetadataPath(
+            request.ManifestPathOverride ?? stagingDirectory + ".manifest.json",
+            nameof(InstrumentationRequest.ManifestPath));
+        string cachePath = NormalizeMetadataPath(
+            request.CachePathOverride ?? stagingDirectory + ".cache",
+            nameof(InstrumentationRequest.CachePath));
+        InstrumentationConfiguration configuration = NormalizeConfigurationPaths(request.Configuration);
+        ValidateRequestPathIsolation(
+            sourceDirectory,
+            stagingDirectory,
+            manifestPath,
+            cachePath,
+            configuration);
         ValidateStagingDirectory(sourceDirectory, stagingDirectory);
-
-        var topLevel = new List<RewriteDiagnostic>();
-
-        // Load the strong-name key up front so a bad key path fails fast and clearly.
-        StrongNameKey? key = null;
-        if (configuration.StrongNamePolicy == StrongNamePolicy.ReSign)
+        ValidateMetadataLocations(
+            sourceDirectory,
+            stagingDirectory,
+            manifestPath,
+            cachePath);
+        ValidateProtectedInputLocations(
+            stagingDirectory,
+            manifestPath,
+            cachePath,
+            configuration);
+        request = request with
         {
-            if (string.IsNullOrEmpty(configuration.StrongNameKeyPath))
-            {
-                topLevel.Add(RewriteDiagnostic.Error(
-                    RewriteDiagnosticIds.StrongNameReSignRequired,
-                    "Strong-name policy is 'ReSign' but no strong-name key path is configured."));
-            }
-            else
-            {
-                try
-                {
-                    key = StrongNameKey.Load(configuration.StrongNameKeyPath);
-                    if (!key.CanSign)
-                    {
-                        topLevel.Add(RewriteDiagnostic.Error(
-                            RewriteDiagnosticIds.StrongNameReSignRequired,
-                            $"Strong-name key '{configuration.StrongNameKeyPath}' is a public-only key and cannot sign."));
-                        key = null;
-                    }
-                }
-                catch (Exception ex) when (ex is SigningException or IOException or UnauthorizedAccessException)
-                {
-                    topLevel.Add(RewriteDiagnostic.Error(
-                        RewriteDiagnosticIds.StrongNameReSignRequired,
-                        $"Failed to load strong-name key '{configuration.StrongNameKeyPath}': {ex.Message}"));
-                }
-            }
-        }
+            SourceDirectory = sourceDirectory,
+            StagingDirectory = stagingDirectory,
+            ManifestPath = manifestPath,
+            CachePath = cachePath,
+            Configuration = configuration,
+        };
 
         ClosurePlan plan = ClosureDiscovery.Discover(sourceDirectory, configuration, request.EntryAssemblyName);
+        ValidateClosurePlanPaths(plan, configuration, stagingDirectory, manifestPath);
+        ValidateRequestPathIsolation(
+            sourceDirectory,
+            stagingDirectory,
+            manifestPath,
+            cachePath,
+            configuration);
+        ValidateStagingDirectory(sourceDirectory, stagingDirectory);
+        ValidateMetadataLocations(
+            sourceDirectory,
+            stagingDirectory,
+            manifestPath,
+            cachePath);
+        ValidateProtectedInputLocations(
+            stagingDirectory,
+            manifestPath,
+            cachePath,
+            configuration);
 
-        string incrementalKey = ComputeIncrementalKey(plan, configuration, request.RuleSet, key);
+        StrongNameKeyLoadResult keyLoad =
+            StrongNameKeyLoader.LoadConfigured(configuration.StrongNameKeyPath);
+        StrongNameKey? key = keyLoad.Key;
+        var topLevel = new List<RewriteDiagnostic>();
+        if (keyLoad.Diagnostic is { } keyDiagnostic)
+        {
+            topLevel.Add(keyDiagnostic);
+        }
 
-        // Incremental short-circuit: identical inputs and outputs already exist.
-        if (topLevel.Count == 0
-            && File.Exists(request.CachePath)
-            && string.Equals(File.ReadAllText(request.CachePath).Trim(), incrementalKey, StringComparison.Ordinal)
-            && Directory.Exists(stagingDirectory)
-            && File.Exists(request.ManifestPath))
+        if (topLevel.Count > 0)
+        {
+            DeleteIfExists(request.CachePath);
+            return new InstrumentationResult
+            {
+                Succeeded = false,
+                WasIncrementalHit = false,
+                StagingDirectory = stagingDirectory,
+                ManifestPath = request.ManifestPath,
+                Diagnostics = [.. topLevel],
+            };
+        }
+
+        string incrementalKey;
+        try
+        {
+            incrementalKey = ComputeIncrementalKey(plan, configuration, request.RuleSet, key);
+        }
+        catch (ClosureException)
+        {
+            DeleteIfExists(request.CachePath);
+            throw;
+        }
+
+        // Incremental short-circuit: identical inputs and a verified staged closure already exist.
+        if (IsValidIncrementalHit(
+                request,
+                stagingDirectory,
+                plan,
+                configuration,
+                incrementalKey))
         {
             return new InstrumentationResult
             {
@@ -91,18 +144,6 @@ public static class InstrumentationRunner
         }
 
         DeleteIfExists(request.CachePath);
-
-        if (topLevel.Count > 0)
-        {
-            return new InstrumentationResult
-            {
-                Succeeded = false,
-                WasIncrementalHit = false,
-                StagingDirectory = stagingDirectory,
-                ManifestPath = request.ManifestPath,
-                Diagnostics = [.. topLevel],
-            };
-        }
 
         PrepareStagingDirectory(stagingDirectory);
 
@@ -143,7 +184,15 @@ public static class InstrumentationRunner
                 continue;
             }
 
-            assemblyResults.Add(ProcessAssembly(asset, stagingDirectory, configuration, request.RuleSet, options, key));
+            assemblyResults.Add(ProcessAssembly(
+                asset,
+                sourceDirectory,
+                stagingDirectory,
+                request.CachePath,
+                configuration,
+                request.RuleSet,
+                options,
+                key));
         }
 
         if (configuration.Mode == InstrumentationMode.RaceExploration)
@@ -161,12 +210,24 @@ public static class InstrumentationRunner
 
         bool succeeded = topLevel.All(d => !d.IsError) && !assemblyResults.SelectMany(a => a.Errors).Any();
 
-        ClosureManifest manifest = BuildManifest(plan, configuration, request.RuleSet, incrementalKey, assemblyResults, copied);
-        WriteAllTextAtomically(request.ManifestPath, manifest.ToJson());
+        ClosureManifest manifest = BuildManifest(
+            plan,
+            configuration,
+            request.RuleSet,
+            stagingDirectory,
+            incrementalKey,
+            assemblyResults,
+            copied);
+        string manifestJson = manifest.ToJson();
+        byte[] manifestUtf8 = Encoding.UTF8.GetBytes(manifestJson);
+        WriteAllTextAtomically(request.ManifestPath, manifestJson);
 
         if (succeeded)
         {
-            WriteAllTextAtomically(request.CachePath, incrementalKey);
+            var cacheRecord = new IncrementalCacheRecord(
+                incrementalKey,
+                HashBytes(manifestUtf8));
+            WriteAllTextAtomically(request.CachePath, cacheRecord.ToJson());
         }
 
         return new InstrumentationResult
@@ -183,7 +244,9 @@ public static class InstrumentationRunner
 
     private static AssemblyInstrumentationResult ProcessAssembly(
         ClosureAsset asset,
+        string sourceDirectory,
         string stagingDirectory,
+        string cachePath,
         InstrumentationConfiguration configuration,
         Rules.RewriteRuleSet ruleSet,
         RewriteOptions options,
@@ -208,98 +271,136 @@ public static class InstrumentationRunner
             return new AssemblyInstrumentationResult(asset.RelativePath, false, false, false, false, null, [.. diagnostics]);
         }
 
-        // ReadyToRun images clear the ILOnly CLI flag, so they must be classified before the
-        // mixed-mode check (which keys off ILOnly) or a genuine R2R image would be misreported.
-        bool readyToRunStripped = false;
-        string engineInput = inputPath;
-        if (image.IsReadyToRun)
-        {
-            if (configuration.ReadyToRunPolicy == ReadyToRunPolicy.Reject)
-            {
-                diagnostics.Add(RewriteDiagnostic.Error(
-                    RewriteDiagnosticIds.ReadyToRunRejected,
-                    $"'{asset.RelativePath}' is a ReadyToRun image. Set readyToRunPolicy to 'StripToIL' to rewrite it as IL-only, or publish without ReadyToRun. Instrumentation must run before ReadyToRun/AOT/single-file publishing."));
-                return new AssemblyInstrumentationResult(asset.RelativePath, false, false, false, false, null, [.. diagnostics]);
-            }
-
-            readyToRunStripped = true;
-            diagnostics.Add(RewriteDiagnostic.Info(
-                RewriteDiagnosticIds.ReadyToRunStripped,
-                $"'{asset.RelativePath}' is ReadyToRun; the native image is stripped and IL-only output is produced."));
-            engineInput = outputPath + ".r2rstrip.tmp";
-            ReadyToRunStripper.StripToIL(inputPath, engineInput);
-        }
-        else if (image.IsMixedMode)
+        if (!image.IsManagedAssembly)
         {
             diagnostics.Add(RewriteDiagnostic.Error(
-                RewriteDiagnosticIds.MixedModeAssembly,
-                $"'{asset.RelativePath}' is a mixed-mode assembly, which cannot be rewritten. Exclude it or build a pure-IL variant."));
+                RewriteDiagnosticIds.ValidationFailed,
+                $"'{asset.RelativePath}' is native-only and does not contain usable managed IL."));
             return new AssemblyInstrumentationResult(asset.RelativePath, false, false, false, false, null, [.. diagnostics]);
         }
 
-        if (image.HasAuthenticodeSignature)
+        // ReadyToRun images clear the ILOnly CLI flag, so they must be classified before the
+        // mixed-mode check (which keys off ILOnly) or a genuine R2R image would be misreported.
+        bool readyToRunStripped = image.IsReadyToRun;
+        string engineInput = inputPath;
+        string engineOutput = outputPath;
+        string? temporaryDirectory = null;
+        try
         {
-            diagnostics.Add(RewriteDiagnostic.Warning(
-                RewriteDiagnosticIds.AuthenticodeDropped,
-                $"'{asset.RelativePath}' carries an Authenticode signature, which cannot be preserved across a rewrite and is dropped. Re-sign the staged output out of band if required."));
-        }
-
-        StrongNameInfo strongName = StrongNameInspector.Inspect(inputPath);
-        bool willReSign = false;
-        if (strongName.HasPublicKey)
-        {
-            if (configuration.StrongNamePolicy == StrongNamePolicy.Fail)
+            if (readyToRunStripped)
             {
-                diagnostics.Add(RewriteDiagnostic.Error(
-                    RewriteDiagnosticIds.StrongNameReSignRequired,
-                    $"'{asset.RelativePath}' is strong-named ({strongName.Status}, token {strongName.PublicKeyToken}). Rewriting invalidates the signature. Set strongNamePolicy to 'ReSign' and supply a signing key."));
-                TryDeleteTemp(engineInput, inputPath);
-                return new AssemblyInstrumentationResult(asset.RelativePath, false, false, false, readyToRunStripped, null, [.. diagnostics]);
-            }
-
-            if (key is null)
-            {
-                diagnostics.Add(RewriteDiagnostic.Error(
-                    RewriteDiagnosticIds.StrongNameReSignRequired,
-                    $"'{asset.RelativePath}' is strong-named but no usable signing key is available for re-signing."));
-                TryDeleteTemp(engineInput, inputPath);
-                return new AssemblyInstrumentationResult(asset.RelativePath, false, false, false, readyToRunStripped, null, [.. diagnostics]);
-            }
-
-            willReSign = true;
-        }
-
-        RewriteResult rewrite = RewriteEngine.Rewrite(new RewriteRequest(engineInput, outputPath, ruleSet, options));
-        diagnostics.AddRange(rewrite.Diagnostics);
-        TryDeleteTemp(engineInput, inputPath);
-
-        if (!rewrite.Succeeded)
-        {
-            return new AssemblyInstrumentationResult(
-                asset.RelativePath, rewrite.WasWritten, rewrite.WasNoOp, false, readyToRunStripped, rewrite.Manifest, [.. diagnostics]);
-        }
-
-        bool wasReSigned = false;
-        if (willReSign && key is not null && File.Exists(outputPath))
-        {
-            try
-            {
-                StrongNameSigner.ReSign(outputPath, key);
-                wasReSigned = true;
                 diagnostics.Add(RewriteDiagnostic.Info(
-                    RewriteDiagnosticIds.StrongNameReSigned,
-                    $"'{asset.RelativePath}' was re-signed with the configured strong-name key."));
+                    RewriteDiagnosticIds.ReadyToRunStripped,
+                    $"'{asset.RelativePath}' is ReadyToRun; the native image is stripped and IL-only output is produced."));
+                temporaryDirectory = CreateReadyToRunTemporaryDirectory(
+                    sourceDirectory,
+                    stagingDirectory,
+                    cachePath);
+                engineInput = Path.Combine(temporaryDirectory, "input", Path.GetFileName(outputPath));
+                engineOutput = Path.Combine(temporaryDirectory, "output", Path.GetFileName(outputPath));
+                Directory.CreateDirectory(Path.GetDirectoryName(engineInput)!);
+                Directory.CreateDirectory(Path.GetDirectoryName(engineOutput)!);
+                try
+                {
+                    ReadyToRunStripper.StripToIL(inputPath, engineInput);
+                }
+                catch (Exception ex) when (ex is BadImageFormatException or IOException)
+                {
+                    diagnostics.Add(RewriteDiagnostic.Error(
+                        RewriteDiagnosticIds.ValidationFailed,
+                        $"'{asset.RelativePath}' is ReadyToRun but does not contain usable managed IL: {ex.Message}"));
+                    return new AssemblyInstrumentationResult(
+                        asset.RelativePath, false, false, false, readyToRunStripped, null, [.. diagnostics]);
+                }
             }
-            catch (SigningException ex)
+            else if (image.IsMixedMode)
             {
                 diagnostics.Add(RewriteDiagnostic.Error(
-                    RewriteDiagnosticIds.StrongNameReSignRequired,
-                    $"Failed to re-sign '{asset.RelativePath}': {ex.Message}"));
+                    RewriteDiagnosticIds.MixedModeAssembly,
+                    $"'{asset.RelativePath}' is a mixed-mode assembly, which cannot be rewritten. Exclude it or build a pure-IL variant."));
+                return new AssemblyInstrumentationResult(asset.RelativePath, false, false, false, false, null, [.. diagnostics]);
             }
-        }
 
-        return new AssemblyInstrumentationResult(
-            asset.RelativePath, rewrite.WasWritten, rewrite.WasNoOp, wasReSigned, readyToRunStripped, rewrite.Manifest, [.. diagnostics]);
+            if (image.HasAuthenticodeSignature)
+            {
+                diagnostics.Add(RewriteDiagnostic.Warning(
+                    RewriteDiagnosticIds.AuthenticodeDropped,
+                    $"'{asset.RelativePath}' carries an Authenticode signature, which cannot be preserved across a rewrite and is dropped. Re-sign the staged output out of band if required."));
+            }
+
+            StrongNameInfo strongName = StrongNameInspector.Inspect(inputPath);
+            bool willReSign = false;
+            if (strongName.HasPublicKey)
+            {
+                if (key is null)
+                {
+                    diagnostics.Add(RewriteDiagnostic.Error(
+                        RewriteDiagnosticIds.StrongNameReSignRequired,
+                        $"'{asset.RelativePath}' is strong-named ({strongName.Status}, token {strongName.PublicKeyToken}) but no usable signing key is available for re-signing."));
+                    return new AssemblyInstrumentationResult(asset.RelativePath, false, false, false, readyToRunStripped, null, [.. diagnostics]);
+                }
+
+                if (!string.Equals(strongName.PublicKeyToken, key.PublicKeyToken, StringComparison.Ordinal))
+                {
+                    diagnostics.Add(RewriteDiagnostic.Error(
+                        RewriteDiagnosticIds.StrongNameReSignRequired,
+                        $"'{asset.RelativePath}' has public-key token {strongName.PublicKeyToken}, but the configured signing key produces {key.PublicKeyToken}. An identity-preserving key is required."));
+                    return new AssemblyInstrumentationResult(asset.RelativePath, false, false, false, readyToRunStripped, null, [.. diagnostics]);
+                }
+
+                willReSign = true;
+            }
+
+            RewriteResult rewrite = RewriteEngine.Rewrite(
+                new RewriteRequest(engineInput, engineOutput, ruleSet, options));
+            diagnostics.AddRange(rewrite.Diagnostics);
+
+            if (!rewrite.Succeeded)
+            {
+                CopyReadyToRunOutputIntoStaging(engineOutput, outputPath, temporaryDirectory);
+                return new AssemblyInstrumentationResult(
+                    asset.RelativePath, rewrite.WasWritten, rewrite.WasNoOp, false, readyToRunStripped, rewrite.Manifest, [.. diagnostics]);
+            }
+
+            bool wasReSigned = false;
+            if (willReSign && key is not null && File.Exists(engineOutput))
+            {
+                try
+                {
+                    StrongNameSigner.ReSign(engineOutput, key);
+                    StrongNameInfo outputStrongName = StrongNameInspector.Inspect(engineOutput);
+                    if (outputStrongName.Status != StrongNameStatus.StrongNameSigned
+                        || !string.Equals(
+                            key.PublicKeyToken,
+                            outputStrongName.PublicKeyToken,
+                            StringComparison.Ordinal))
+                    {
+                        throw new SigningException(
+                            $"Re-signing failed to restore public-key token '{key.PublicKeyToken}' " +
+                            $"(output token '{outputStrongName.PublicKeyToken ?? "<none>"}').");
+                    }
+
+                    wasReSigned = true;
+                    diagnostics.Add(RewriteDiagnostic.Info(
+                        RewriteDiagnosticIds.StrongNameReSigned,
+                        $"'{asset.RelativePath}' was re-signed and retained public-key token {key.PublicKeyToken}."));
+                }
+                catch (SigningException ex)
+                {
+                    diagnostics.Add(RewriteDiagnostic.Error(
+                        RewriteDiagnosticIds.StrongNameReSignRequired,
+                        $"Failed to re-sign '{asset.RelativePath}': {ex.Message}"));
+                }
+            }
+
+            CopyReadyToRunOutputIntoStaging(engineOutput, outputPath, temporaryDirectory);
+            return new AssemblyInstrumentationResult(
+                asset.RelativePath, rewrite.WasWritten, rewrite.WasNoOp, wasReSigned, readyToRunStripped, rewrite.Manifest, [.. diagnostics]);
+        }
+        finally
+        {
+            DeleteReadyToRunTemporaryDirectory(temporaryDirectory);
+        }
     }
 
     private static ImmutableArray<string> ResolveReplacementAssemblies(
@@ -338,7 +439,7 @@ public static class InstrumentationRunner
         var pending = new Stack<string>(replacementPaths);
         while (pending.TryPop(out string? path))
         {
-            path = Path.GetFullPath(path);
+            path = InstrumentationPath.GetFullPath(path, "replacement assembly path");
             if (!inspectedPaths.Add(path))
             {
                 continue;
@@ -366,10 +467,12 @@ public static class InstrumentationRunner
 
         return names;
     }
+
     private static ClosureManifest BuildManifest(
         ClosurePlan plan,
         InstrumentationConfiguration configuration,
         Rules.RewriteRuleSet ruleSet,
+        string stagingDirectory,
         string incrementalKey,
         IReadOnlyList<AssemblyInstrumentationResult> assemblyResults,
         IReadOnlyList<string> copied)
@@ -381,7 +484,7 @@ public static class InstrumentationRunner
             a.WasReSigned,
             a.ReadyToRunStripped,
             a.Manifest?.Input.Sha256,
-            a.Manifest?.Output?.Sha256,
+            TryHashCacheOutputFile(ToStagingPath(stagingDirectory, a.RelativePath)),
             a.Errors.Count())).ToImmutableArray();
 
         return new ClosureManifest
@@ -395,8 +498,251 @@ public static class InstrumentationRunner
             IncrementalKey = incrementalKey,
             EntryRelativePath = plan.EntryAssemblyRelativePath,
             Assemblies = entries,
-            CopiedAssets = [.. copied],
+            CopiedAssets =
+            [
+                .. copied
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(static path => path, StringComparer.Ordinal)
+                    .Select(path => new ClosureManifestCopiedAsset(
+                        path,
+                        TryHashCacheOutputFile(ToStagingPath(stagingDirectory, path))
+                            ?? throw new ClosureException(
+                                $"Copied asset '{path}' is missing or unreadable in the staged closure."))),
+            ],
         };
+    }
+
+    private static bool IsValidIncrementalHit(
+        InstrumentationRequest request,
+        string stagingDirectory,
+        ClosurePlan plan,
+        InstrumentationConfiguration configuration,
+        string incrementalKey)
+    {
+        try
+        {
+            if (!Directory.Exists(stagingDirectory)
+                || !IncrementalCacheRecord.TryRead(
+                    request.CachePath,
+                    out IncrementalCacheRecord cacheRecord)
+                || !string.Equals(
+                    cacheRecord.IncrementalKey,
+                    incrementalKey,
+                    StringComparison.Ordinal)
+                || !TryReadManifestBytes(request.ManifestPath, out byte[] manifestUtf8)
+                || !string.Equals(
+                    cacheRecord.ManifestSha256,
+                    HashBytes(manifestUtf8),
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            ClosureManifest manifest = ClosureManifestJson.Deserialize(manifestUtf8);
+            if (!string.Equals(manifest.EngineVersion, RewriteEngine.EngineVersion, StringComparison.Ordinal)
+                || !string.Equals(manifest.RuleSetId, request.RuleSet.Id, StringComparison.Ordinal)
+                || !string.Equals(manifest.RuleSetVersion, request.RuleSet.Version, StringComparison.Ordinal)
+                || !string.Equals(
+                    manifest.RuleSetSignature,
+                    request.RuleSet.ComputeSignature(),
+                    StringComparison.Ordinal)
+                || !string.Equals(
+                    manifest.ConfigurationSignature,
+                    configuration.ComputeSignature(),
+                    StringComparison.Ordinal)
+                || manifest.Mode != configuration.Mode
+                || !string.Equals(manifest.IncrementalKey, incrementalKey, StringComparison.Ordinal)
+                || !string.Equals(
+                    manifest.EntryRelativePath,
+                    plan.EntryAssemblyRelativePath,
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            var representedPaths = new HashSet<string>(ClosurePathComparer);
+            foreach (ClosureManifestEntry assembly in manifest.Assemblies)
+            {
+                if (assembly.ErrorCount != 0
+                    || !TryResolveStagedPath(
+                        stagingDirectory,
+                        assembly.RelativePath,
+                        out string? stagedPath,
+                        out string? normalizedPath)
+                    || !representedPaths.Add(normalizedPath))
+                {
+                    return false;
+                }
+
+                string? expectedHash = assembly.OutputSha256 ?? assembly.InputSha256;
+                if (expectedHash is null
+                    || !string.Equals(TryHashCacheOutputFile(stagedPath), expectedHash, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+
+            foreach (ClosureManifestCopiedAsset asset in manifest.CopiedAssets)
+            {
+                if (!TryResolveStagedPath(
+                        stagingDirectory,
+                        asset.RelativePath,
+                        out string? stagedPath,
+                        out string? normalizedPath)
+                    || !representedPaths.Add(normalizedPath)
+                    || !string.Equals(
+                        TryHashCacheOutputFile(stagedPath),
+                        asset.Sha256,
+                        StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+
+            var expectedPaths = new HashSet<string>(ClosurePathComparer);
+            foreach (ClosureAsset asset in plan.Assets)
+            {
+                if (!TryResolveStagedPath(
+                        stagingDirectory,
+                        asset.RelativePath,
+                        out _,
+                        out string? normalizedPath)
+                    || !expectedPaths.Add(normalizedPath))
+                {
+                    return false;
+                }
+            }
+
+            if (configuration.Mode == InstrumentationMode.RaceExploration)
+            {
+                expectedPaths.Add("Clockwork.dll");
+            }
+
+            if (!expectedPaths.SetEquals(representedPaths))
+            {
+                return false;
+            }
+
+            var expectedStagedPaths = new HashSet<string>(representedPaths, ClosurePathComparer);
+            string manifestPath = InstrumentationPath.GetFullPath(
+                request.ManifestPath,
+                nameof(InstrumentationRequest.ManifestPath));
+            string stagingRoot = stagingDirectory;
+            if (IsSameOrDescendant(manifestPath, stagingRoot)
+                && (!TryNormalizeStagedPath(
+                        stagingRoot,
+                        manifestPath,
+                        out _,
+                        out string? manifestRelativePath)
+                    || !expectedStagedPaths.Add(manifestRelativePath)))
+            {
+                return false;
+            }
+
+            var actualStagedPaths = new HashSet<string>(ClosurePathComparer);
+            foreach (string file in Directory.EnumerateFiles(
+                stagingRoot,
+                "*",
+                SearchOption.AllDirectories))
+            {
+                if (!TryNormalizeStagedPath(
+                        stagingRoot,
+                        file,
+                        out _,
+                        out string? actualRelativePath)
+                    || !actualStagedPaths.Add(actualRelativePath))
+                {
+                    return false;
+                }
+            }
+
+            return actualStagedPaths.SetEquals(expectedStagedPaths);
+        }
+        catch (Exception exception) when (
+            exception is ClosureManifestFormatException
+                or IOException
+                or UnauthorizedAccessException
+                or ArgumentException
+                or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryReadManifestBytes(string path, out byte[] bytes)
+    {
+        bytes = [];
+        var info = new FileInfo(path);
+        if (!info.Exists
+            || info.Length is <= 0 or > ClosureManifestLimits.MaxDocumentBytes)
+        {
+            return false;
+        }
+
+        bytes = File.ReadAllBytes(path);
+        return bytes.Length is > 0 and <= ClosureManifestLimits.MaxDocumentBytes;
+    }
+
+    private static bool TryResolveStagedPath(
+        string stagingDirectory,
+        string relativePath,
+        out string stagedPath,
+        out string normalizedPath)
+    {
+        stagedPath = string.Empty;
+        normalizedPath = string.Empty;
+        if (string.IsNullOrEmpty(relativePath) || Path.IsPathRooted(relativePath))
+        {
+            return false;
+        }
+
+        return TryNormalizeStagedPath(
+            stagingDirectory,
+            ToStagingPath(stagingDirectory, relativePath),
+            out stagedPath,
+            out normalizedPath);
+    }
+
+    private static bool TryNormalizeStagedPath(
+        string stagingDirectory,
+        string path,
+        out string stagedPath,
+        out string normalizedPath)
+    {
+        stagedPath = string.Empty;
+        normalizedPath = string.Empty;
+        string stagingRoot;
+        string candidate;
+        try
+        {
+            stagingRoot = InstrumentationPath.GetFullPath(
+                stagingDirectory,
+                nameof(InstrumentationRequest.StagingDirectory));
+            candidate = InstrumentationPath.GetFullPath(path, "staged closure path");
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException
+                or NotSupportedException
+                or IOException
+                or UnauthorizedAccessException)
+        {
+            return false;
+        }
+
+        string canonicalStagingRoot = GetCanonicalIdentity(
+            stagingRoot,
+            nameof(InstrumentationRequest.StagingDirectory));
+        string canonicalCandidate = GetCanonicalIdentity(candidate, "staged closure path");
+        if (!IsSameOrDescendantCanonical(canonicalCandidate, canonicalStagingRoot)
+            || string.Equals(canonicalCandidate, canonicalStagingRoot, PathComparison))
+        {
+            return false;
+        }
+
+        stagedPath = candidate;
+        normalizedPath = NormalizeClosureRelativePath(
+            Path.GetRelativePath(canonicalStagingRoot, canonicalCandidate));
+        return true;
     }
 
     private static string ComputeIncrementalKey(
@@ -405,34 +751,68 @@ public static class InstrumentationRunner
         Rules.RewriteRuleSet ruleSet,
         StrongNameKey? key)
     {
-        var canonical = new StringBuilder();
-        canonical.Append("engine=").Append(RewriteEngine.EngineVersion).Append('\n');
-        canonical.Append("config=").Append(configuration.ComputeSignature()).Append('\n');
-        canonical.Append("ruleset=").Append(ruleSet.Id).Append('/').Append(ruleSet.Version)
-            .Append('/').Append(ruleSet.ComputeSignature()).Append('\n');
-        canonical.Append("r2r=").Append(configuration.ReadyToRunPolicy).Append('\n');
-        canonical.Append("sn=").Append(configuration.StrongNamePolicy).Append('\n');
-        canonical.Append("key=").Append(key is null ? "none" : HashBytes(key.Blob)).Append('\n');
+        var canonical = new CanonicalEncoding("InstrumentationIncrementalKey");
+        canonical.AddString("EngineVersion", RewriteEngine.EngineVersion);
+        canonical.AddInt32("ManifestSchemaVersion", ClosureManifest.SchemaVersion);
+        canonical.AddString("ConfigurationSignature", configuration.ComputeSignature());
+        canonical.AddString("RuleSetId", ruleSet.Id);
+        canonical.AddString("RuleSetVersion", ruleSet.Version);
+        canonical.AddString("RuleSetSignature", ruleSet.ComputeSignature());
+        canonical.AddString(
+            "ConfigurationSourceSha256",
+            configuration.SourcePath is null
+                ? null
+                : HashRequiredSourceFile(configuration.SourcePath, "Configuration source"));
+        canonical.AddStringSequence(
+            "RuleSetSources",
+            configuration.RuleSetPaths.Select(static path =>
+            {
+                var source = new CanonicalEncoding("RuleSetSource");
+                source.AddString("Path", path);
+                source.AddString("Sha256", HashRequiredSourceFile(path, "Rule-set source"));
+                return source.ToString();
+            }));
+        canonical.AddString("StrongNameKeySha256", key is null ? null : HashBytes(key.Blob));
         if (configuration.Mode == InstrumentationMode.RaceExploration)
         {
-            canonical.Append("raceRuntime=")
-                .Append(TryHashFile(typeof(Runtime.Racing.RaceInstrumentation).Assembly.Location) ?? "missing")
-                .Append('\n');
+            canonical.AddString(
+                "RaceRuntimeSha256",
+                HashRequiredSourceFile(
+                    typeof(Runtime.Racing.RaceInstrumentation).Assembly.Location,
+                    "Race-exploration runtime"));
+        }
+        else
+        {
+            canonical.AddString("RaceRuntimeSha256", null);
         }
 
-        foreach (ClosureAsset asset in plan.Assets)
-        {
-            canonical.Append("asset=").Append(asset.RelativePath)
-                .Append(':').Append(asset.Rewrite ? 'R' : 'C')
-                .Append(':').Append(TryHashFile(asset.SourcePath) ?? "missing")
-                .Append('\n');
-        }
+        canonical.AddStringSequence(
+            "Assets",
+            plan.Assets.Select(static asset =>
+            {
+                var encodedAsset = new CanonicalEncoding(nameof(ClosureAsset));
+                encodedAsset.AddString(nameof(ClosureAsset.RelativePath), asset.RelativePath);
+                encodedAsset.AddBoolean(nameof(ClosureAsset.Rewrite), asset.Rewrite);
+                encodedAsset.AddString(
+                    "SourceSha256",
+                    HashRequiredSourceFile(
+                        asset.SourcePath,
+                        $"Planned input asset '{asset.RelativePath}'"));
+                return encodedAsset.ToString();
+            }));
 
         return HashString(canonical.ToString());
     }
 
     private static void PrepareStagingDirectory(string stagingDirectory)
     {
+        ValidateExistingPathComponents(
+            stagingDirectory,
+            nameof(InstrumentationRequest.StagingDirectory),
+            terminalMustBeDirectory: true);
+        ValidateDirectoryTreeHasNoReparsePoints(
+            stagingDirectory,
+            nameof(InstrumentationRequest.StagingDirectory));
         if (Directory.Exists(stagingDirectory))
         {
             Directory.Delete(stagingDirectory, recursive: true);
@@ -443,12 +823,20 @@ public static class InstrumentationRunner
 
     private static void ValidateStagingDirectory(string sourceDirectory, string stagingDirectory)
     {
-        string source = NormalizeDirectoryPath(sourceDirectory);
-        string staging = NormalizeDirectoryPath(stagingDirectory);
-        string root = NormalizeDirectoryPath(Path.GetPathRoot(stagingDirectory)
-            ?? throw new ClosureException($"Staging directory '{stagingDirectory}' has no filesystem root."));
+        string source = NormalizeDirectoryPath(
+            sourceDirectory,
+            nameof(InstrumentationRequest.SourceDirectory));
+        string staging = NormalizeDirectoryPath(
+            stagingDirectory,
+            nameof(InstrumentationRequest.StagingDirectory));
+        string root = Path.GetPathRoot(staging)
+            ?? throw new ClosureException($"Staging directory '{stagingDirectory}' has no filesystem root.");
+        string canonicalStaging = GetCanonicalIdentity(
+            staging,
+            nameof(InstrumentationRequest.StagingDirectory));
+        string canonicalRoot = GetCanonicalIdentity(root, "StagingDirectory filesystem root");
 
-        if (string.Equals(staging, root, PathComparison)
+        if (string.Equals(canonicalStaging, canonicalRoot, PathComparison)
             || IsSameOrDescendant(source, staging)
             || IsSameOrDescendant(staging, source))
         {
@@ -457,23 +845,644 @@ public static class InstrumentationRunner
         }
     }
 
-    private static bool IsSameOrDescendant(string candidate, string parent) =>
-        string.Equals(candidate, parent, PathComparison)
-        || candidate.StartsWith(parent + Path.DirectorySeparatorChar, PathComparison);
+    private static string NormalizeMetadataPath(string path, string propertyName)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            throw new ClosureException(
+                $"Instrumentation request {propertyName} must be a non-empty file path.");
+        }
 
-    private static string NormalizeDirectoryPath(string path) =>
-        Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        try
+        {
+            if (Path.EndsInDirectorySeparator(path))
+            {
+                throw new ClosureException(
+                    $"Instrumentation request {propertyName} '{path}' must identify a file, not a directory.");
+            }
+
+            string fullPath = InstrumentationPath.GetFullPath(
+                path,
+                $"Instrumentation request {propertyName}");
+            if (string.IsNullOrEmpty(Path.GetFileName(fullPath)) || Directory.Exists(fullPath))
+            {
+                throw new ClosureException(
+                    $"Instrumentation request {propertyName} '{path}' must identify a file, not a directory.");
+            }
+
+            ValidateMetadataPathSegments(fullPath, propertyName);
+            return fullPath;
+        }
+        catch (ClosureException)
+        {
+            throw;
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException
+                or NotSupportedException
+                or IOException
+                or UnauthorizedAccessException)
+        {
+            throw new ClosureException(
+                $"Instrumentation request {propertyName} '{path}' is not a valid file path: {exception.Message}",
+                exception);
+        }
+    }
+
+    private static InstrumentationConfiguration NormalizeConfigurationPaths(
+        InstrumentationConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        try
+        {
+            var ruleSetPaths = ImmutableArray.CreateBuilder<string>(configuration.RuleSetPaths.Length);
+            for (var index = 0; index < configuration.RuleSetPaths.Length; index++)
+            {
+                ruleSetPaths.Add(InstrumentationPath.GetFullPath(
+                    configuration.RuleSetPaths[index],
+                    $"Instrumentation request Configuration.RuleSetPaths[{index}]"));
+            }
+
+            string? strongNameKeyPath = configuration.StrongNameKeyPath is null
+                ? null
+                : InstrumentationPath.GetFullPath(
+                    configuration.StrongNameKeyPath,
+                    "Instrumentation request Configuration.StrongNameKeyPath");
+            string? configurationSourcePath = configuration.SourcePath is null
+                ? null
+                : InstrumentationPath.GetFullPath(
+                    configuration.SourcePath,
+                    "Instrumentation request configuration source file");
+            return configuration with
+            {
+                RuleSetPaths = ruleSetPaths.ToImmutable(),
+                StrongNameKeyPath = strongNameKeyPath,
+                SourcePath = configurationSourcePath,
+            };
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException
+                or NotSupportedException
+                or IOException
+                or UnauthorizedAccessException)
+        {
+            throw new ClosureException(
+                $"Instrumentation request configuration contains an invalid path: {exception.Message}",
+                exception);
+        }
+    }
+
+    private static void ValidateMetadataPathSegments(string fullPath, string propertyName)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        string root = Path.GetPathRoot(fullPath)
+            ?? throw new ClosureException(
+                $"Instrumentation request {propertyName} '{fullPath}' has no filesystem root.");
+        string relativePath = Path.GetRelativePath(root, fullPath);
+        char[] invalidFileNameCharacters = Path.GetInvalidFileNameChars();
+        foreach (string segment in relativePath.Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (segment.IndexOfAny(invalidFileNameCharacters) >= 0
+                || segment.EndsWith(' ')
+                || segment.EndsWith('.'))
+            {
+                throw new ClosureException(
+                    $"Instrumentation request {propertyName} '{fullPath}' contains an ambiguous or invalid path segment '{segment}'.");
+            }
+        }
+    }
+
+    private static void ValidateMetadataLocations(
+        string sourceDirectory,
+        string stagingDirectory,
+        string manifestPath,
+        string cachePath)
+    {
+        ValidateMetadataOutsideSource(
+            nameof(InstrumentationRequest.ManifestPath),
+            manifestPath,
+            sourceDirectory);
+        ValidateMetadataOutsideSource(
+            nameof(InstrumentationRequest.CachePath),
+            cachePath,
+            sourceDirectory);
+
+        if (IsSameOrDescendant(stagingDirectory, manifestPath))
+        {
+            throw new ClosureException(
+                $"Instrumentation request ManifestPath '{manifestPath}' must not equal or be an ancestor of StagingDirectory '{stagingDirectory}'; a metadata file cannot also be a directory.");
+        }
+
+        if (PathsHaveHierarchyCollision(cachePath, stagingDirectory))
+        {
+            throw new ClosureException(
+                $"Instrumentation request CachePath '{cachePath}' must be outside StagingDirectory '{stagingDirectory}' and must not be an ancestor of it; cache metadata cannot collide with the staged closure hierarchy.");
+        }
+
+        (string Name, string Path)[] metadataPaths =
+        [
+            (nameof(InstrumentationRequest.ManifestPath), manifestPath),
+            (nameof(InstrumentationRequest.CachePath), cachePath),
+        ];
+        for (var leftIndex = 0; leftIndex < metadataPaths.Length; leftIndex++)
+        {
+            for (var rightIndex = leftIndex + 1; rightIndex < metadataPaths.Length; rightIndex++)
+            {
+                (string leftName, string leftPath) = metadataPaths[leftIndex];
+                (string rightName, string rightPath) = metadataPaths[rightIndex];
+                if (PathsHaveHierarchyCollision(leftPath, rightPath))
+                {
+                    throw new ClosureException(
+                        $"Instrumentation metadata paths {leftName} '{leftPath}' and {rightName} '{rightPath}' collide by identity or hierarchy; each metadata path must identify an independent file.");
+                }
+            }
+        }
+    }
+
+    private static void ValidateProtectedInputLocations(
+        string stagingDirectory,
+        string manifestPath,
+        string cachePath,
+        InstrumentationConfiguration configuration)
+    {
+        var inputs = new List<(string Name, string Path)>();
+        if (configuration.SourcePath is { } configurationSourcePath)
+        {
+            inputs.Add(("configuration source file", configurationSourcePath));
+        }
+
+        for (var index = 0; index < configuration.RuleSetPaths.Length; index++)
+        {
+            inputs.Add(($"Configuration.RuleSetPaths[{index}]", configuration.RuleSetPaths[index]));
+        }
+
+        if (configuration.StrongNameKeyPath is { } strongNameKeyPath)
+        {
+            inputs.Add(("Configuration.StrongNameKeyPath", strongNameKeyPath));
+        }
+
+        foreach ((string inputName, string inputPath) in inputs)
+        {
+            if (PathsHaveHierarchyCollision(inputPath, stagingDirectory))
+            {
+                throw new ClosureException(
+                    $"Instrumentation request {inputName} '{inputPath}' collides by canonical filesystem identity or hierarchy with StagingDirectory '{stagingDirectory}'; staging cleanup must not modify an instrumentation input.");
+            }
+
+            if (PathsHaveHierarchyCollision(inputPath, manifestPath))
+            {
+                throw new ClosureException(
+                    $"Instrumentation request {inputName} '{inputPath}' collides by canonical filesystem identity or hierarchy with ManifestPath '{manifestPath}'; metadata output must not overwrite an instrumentation input.");
+            }
+
+            if (PathsHaveHierarchyCollision(inputPath, cachePath))
+            {
+                throw new ClosureException(
+                    $"Instrumentation request {inputName} '{inputPath}' collides by canonical filesystem identity or hierarchy with CachePath '{cachePath}'; metadata output must not overwrite an instrumentation input.");
+            }
+        }
+    }
+
+    private static void ValidateMetadataOutsideSource(
+        string propertyName,
+        string metadataPath,
+        string sourceDirectory)
+    {
+        if (PathsHaveHierarchyCollision(metadataPath, sourceDirectory))
+        {
+            throw new ClosureException(
+                $"Instrumentation request {propertyName} '{metadataPath}' must be outside SourceDirectory '{sourceDirectory}' and must not be an ancestor of it so metadata cannot alias a source file or directory.");
+        }
+    }
+
+    private static void ValidateClosurePlanPaths(
+        ClosurePlan plan,
+        InstrumentationConfiguration configuration,
+        string stagingDirectory,
+        string manifestPath)
+    {
+        var plannedPaths = new Dictionary<string, string>(ClosurePathComparer);
+        var plannedEntries = new List<(string StagedPath, string RelativePath)>();
+        foreach (ClosureAsset asset in plan.Assets)
+        {
+            if (!TryResolveStagedPath(
+                    stagingDirectory,
+                    asset.RelativePath,
+                    out string? stagedPath,
+                    out string? normalizedRelativePath)
+                || !string.Equals(
+                    NormalizeClosureRelativePath(asset.RelativePath),
+                    normalizedRelativePath,
+                    PathComparison))
+            {
+                throw new ClosureException(
+                    $"Closure asset path '{asset.RelativePath}' escapes or ambiguously identifies a path outside StagingDirectory '{stagingDirectory}'.");
+            }
+
+            string canonicalStagedPath = GetCanonicalIdentity(
+                stagedPath,
+                $"Planned staged path for closure asset '{asset.RelativePath}'");
+            if (!plannedPaths.TryAdd(canonicalStagedPath, asset.RelativePath))
+            {
+                throw new ClosureException(
+                    $"Closure asset paths '{plannedPaths[canonicalStagedPath]}' and '{asset.RelativePath}' collide by canonical filesystem identity on this platform.");
+            }
+
+            plannedEntries.Add((stagedPath, asset.RelativePath));
+        }
+
+        if (configuration.Mode == InstrumentationMode.RaceExploration)
+        {
+            string runtimePath = Path.Combine(stagingDirectory, "Clockwork.dll");
+            string canonicalRuntimePath = GetCanonicalIdentity(runtimePath, "Planned race runtime path");
+            if (!plannedPaths.TryAdd(canonicalRuntimePath, "Clockwork.dll"))
+            {
+                throw new ClosureException(
+                    $"Planned race runtime 'Clockwork.dll' collides with closure asset '{plannedPaths[canonicalRuntimePath]}' on this platform.");
+            }
+
+            plannedEntries.Add((runtimePath, "Clockwork.dll"));
+        }
+
+        foreach ((string plannedPath, string relativePath) in plannedEntries)
+        {
+            string? ancestor = Path.GetDirectoryName(plannedPath);
+            while (ancestor is not null && !string.Equals(ancestor, stagingDirectory, PathComparison))
+            {
+                string canonicalAncestor = GetCanonicalIdentity(
+                    ancestor,
+                    $"Ancestor of planned staged path '{relativePath}'");
+                if (plannedPaths.TryGetValue(canonicalAncestor, out string? ancestorRelativePath))
+                {
+                    throw new ClosureException(
+                        $"Planned staged paths '{ancestorRelativePath}' and '{relativePath}' collide as a file and descendant path.");
+                }
+
+                ancestor = Path.GetDirectoryName(ancestor);
+            }
+        }
+
+        foreach ((string plannedPath, string relativePath) in plannedEntries)
+        {
+            if (PathsHaveHierarchyCollision(manifestPath, plannedPath))
+            {
+                throw new ClosureException(
+                    $"Instrumentation request ManifestPath '{manifestPath}' collides by canonical filesystem identity or hierarchy with planned staged assembly or copied asset '{relativePath}'.");
+            }
+        }
+    }
+
+    private static void ValidateRequestPathIsolation(
+        string sourceDirectory,
+        string stagingDirectory,
+        string manifestPath,
+        string cachePath,
+        InstrumentationConfiguration configuration)
+    {
+        ValidateExistingPathComponents(
+            sourceDirectory,
+            nameof(InstrumentationRequest.SourceDirectory),
+            terminalMustBeDirectory: true);
+        ValidateExistingPathComponents(
+            stagingDirectory,
+            nameof(InstrumentationRequest.StagingDirectory),
+            terminalMustBeDirectory: true);
+        ValidateExistingPathComponents(
+            manifestPath,
+            nameof(InstrumentationRequest.ManifestPath),
+            terminalMustBeDirectory: false);
+        ValidateExistingPathComponents(
+            cachePath,
+            nameof(InstrumentationRequest.CachePath),
+            terminalMustBeDirectory: false);
+        if (configuration.SourcePath is { } configurationSourcePath)
+        {
+            ValidateExistingPathComponents(
+                configurationSourcePath,
+                "configuration source file",
+                terminalMustBeDirectory: false);
+        }
+
+        for (var index = 0; index < configuration.RuleSetPaths.Length; index++)
+        {
+            ValidateExistingPathComponents(
+                configuration.RuleSetPaths[index],
+                $"Configuration.RuleSetPaths[{index}]",
+                terminalMustBeDirectory: false);
+        }
+
+        if (configuration.StrongNameKeyPath is { } strongNameKeyPath)
+        {
+            ValidateExistingPathComponents(
+                strongNameKeyPath,
+                "Configuration.StrongNameKeyPath",
+                terminalMustBeDirectory: false);
+        }
+
+        ValidateDirectoryTreeHasNoReparsePoints(
+            sourceDirectory,
+            nameof(InstrumentationRequest.SourceDirectory));
+        ValidateDirectoryTreeHasNoReparsePoints(
+            stagingDirectory,
+            nameof(InstrumentationRequest.StagingDirectory));
+    }
+
+    private static void ValidateExistingPathComponents(
+        string path,
+        string propertyName,
+        bool terminalMustBeDirectory)
+    {
+        string fullPath = InstrumentationPath.GetFullPath(
+            path,
+            $"Instrumentation request {propertyName}");
+        string root = Path.GetPathRoot(fullPath)
+            ?? throw new ClosureException(
+                $"Instrumentation request {propertyName} '{path}' has no filesystem root.");
+        string relativePath = Path.GetRelativePath(root, fullPath);
+        string[] segments = relativePath.Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries);
+        string current = root;
+        for (var index = 0; index < segments.Length; index++)
+        {
+            current = Path.Combine(current, segments[index]);
+            FileAttributes attributes;
+            try
+            {
+                attributes = File.GetAttributes(current);
+            }
+            catch (Exception exception) when (
+                exception is FileNotFoundException or DirectoryNotFoundException)
+            {
+                if (HasLinkTarget(current))
+                {
+                    throw new ClosureException(
+                        $"Instrumentation request {propertyName} '{path}' has existing symbolic-link, junction, or reparse-point component '{current}', which is not permitted.");
+                }
+
+                break;
+            }
+            catch (Exception exception) when (
+                exception is IOException
+                    or UnauthorizedAccessException
+                    or NotSupportedException
+                    or ArgumentException)
+            {
+                throw new ClosureException(
+                    $"Instrumentation request {propertyName} '{path}' cannot safely inspect existing component '{current}': {exception.Message}",
+                    exception);
+            }
+
+            if ((attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                throw new ClosureException(
+                    $"Instrumentation request {propertyName} '{path}' has existing symbolic-link, junction, or reparse-point component '{current}', which is not permitted.");
+            }
+
+            bool isDirectory = (attributes & FileAttributes.Directory) != 0;
+            bool terminal = index == segments.Length - 1;
+            if ((!terminal || terminalMustBeDirectory) && !isDirectory)
+            {
+                throw new ClosureException(
+                    $"Instrumentation request {propertyName} '{path}' requires directory component '{current}', but an existing file occupies that path.");
+            }
+
+            if (terminal && !terminalMustBeDirectory && isDirectory)
+            {
+                throw new ClosureException(
+                    $"Instrumentation request {propertyName} '{path}' must identify a file, but an existing directory occupies that path.");
+            }
+        }
+    }
+
+    private static bool HasLinkTarget(string path)
+    {
+        try
+        {
+            return new FileInfo(path).LinkTarget is not null
+                || new DirectoryInfo(path).LinkTarget is not null;
+        }
+        catch (Exception exception) when (
+            exception is IOException
+                or UnauthorizedAccessException
+                or NotSupportedException
+                or ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    private static void ValidateDirectoryTreeHasNoReparsePoints(string path, string propertyName)
+    {
+        if (!Directory.Exists(path))
+        {
+            return;
+        }
+
+        var pending = new Stack<string>();
+        pending.Push(path);
+        try
+        {
+            while (pending.TryPop(out string? directory))
+            {
+                foreach (string entry in Directory.EnumerateFileSystemEntries(
+                    directory,
+                    "*",
+                    SearchOption.TopDirectoryOnly))
+                {
+                    FileAttributes attributes = File.GetAttributes(entry);
+                    if ((attributes & FileAttributes.ReparsePoint) != 0)
+                    {
+                        throw new ClosureException(
+                            $"Instrumentation request {propertyName} '{path}' contains symbolic link, junction, or reparse point '{entry}', which is not permitted.");
+                    }
+
+                    if ((attributes & FileAttributes.Directory) != 0)
+                    {
+                        pending.Push(entry);
+                    }
+                }
+            }
+        }
+        catch (ClosureException)
+        {
+            throw;
+        }
+        catch (Exception exception) when (
+            exception is IOException
+                or UnauthorizedAccessException
+                or NotSupportedException
+                or ArgumentException)
+        {
+            throw new ClosureException(
+                $"Instrumentation request {propertyName} '{path}' cannot safely inspect its existing directory tree: {exception.Message}",
+                exception);
+        }
+    }
+
+    private static bool IsSameOrDescendant(string candidate, string parent)
+    {
+        string canonicalCandidate = GetCanonicalIdentity(candidate, "Filesystem path");
+        string canonicalParent = GetCanonicalIdentity(parent, "Filesystem path");
+        return IsSameOrDescendantCanonical(canonicalCandidate, canonicalParent);
+    }
+
+    private static bool IsSameOrDescendantCanonical(string candidate, string parent)
+    {
+        if (string.Equals(candidate, parent, PathComparison))
+        {
+            return true;
+        }
+
+        string parentPrefix = Path.EndsInDirectorySeparator(parent)
+            ? parent
+            : parent + Path.DirectorySeparatorChar;
+        return candidate.StartsWith(parentPrefix, PathComparison);
+    }
+
+    private static bool PathsHaveHierarchyCollision(string left, string right)
+    {
+        string canonicalLeft = GetCanonicalIdentity(left, "Filesystem path");
+        string canonicalRight = GetCanonicalIdentity(right, "Filesystem path");
+        return IsSameOrDescendantCanonical(canonicalLeft, canonicalRight)
+            || IsSameOrDescendantCanonical(canonicalRight, canonicalLeft);
+    }
+
+    private static string GetCanonicalIdentity(string path, string description)
+    {
+        try
+        {
+            return InstrumentationPath.GetCanonicalPath(path, description);
+        }
+        catch (ClosureException)
+        {
+            throw;
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException
+                or NotSupportedException
+                or IOException
+                or UnauthorizedAccessException)
+        {
+            throw new ClosureException(
+                $"{description} '{path}' cannot be safely resolved to a canonical filesystem path: {exception.Message}",
+                exception);
+        }
+    }
+
+    private static string NormalizeDirectoryPath(string path, string propertyName)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            throw new ClosureException(
+                $"Instrumentation request {propertyName} must be a non-empty directory path.");
+        }
+
+        try
+        {
+            string fullPath = InstrumentationPath.GetFullPath(
+                path,
+                $"Instrumentation request {propertyName}");
+            string? root = Path.GetPathRoot(fullPath);
+            return root is not null && string.Equals(fullPath, root, PathComparison)
+                ? root
+                : fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+        catch (ClosureException)
+        {
+            throw;
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException
+                or NotSupportedException
+                or IOException
+                or UnauthorizedAccessException)
+        {
+            throw new ClosureException(
+                $"Instrumentation request {propertyName} '{path}' is not a valid directory path: {exception.Message}",
+                exception);
+        }
+    }
 
     private static StringComparison PathComparison =>
-        OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+    private static StringComparer ClosurePathComparer =>
+        OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
+
+    private static string NormalizeClosureRelativePath(string path) =>
+        path.Replace(Path.DirectorySeparatorChar, '/').Replace(Path.AltDirectorySeparatorChar, '/');
 
     private static void WriteAllTextAtomically(string path, string contents)
     {
-        string fullPath = Path.GetFullPath(path);
+        string fullPath = InstrumentationPath.GetFullPath(path, "metadata output");
+        ValidateExistingPathComponents(fullPath, "metadata output", terminalMustBeDirectory: false);
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
-        string temporaryPath = fullPath + ".tmp";
-        File.WriteAllText(temporaryPath, contents);
-        File.Move(temporaryPath, fullPath, overwrite: true);
+        string? temporaryPath = null;
+        try
+        {
+            FileStream? stream = null;
+            for (var attempt = 0; attempt < 16; attempt++)
+            {
+                string candidate = fullPath + "."
+                    + Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(16))
+                    + ".tmp";
+                try
+                {
+                    stream = new FileStream(
+                        candidate,
+                        FileMode.CreateNew,
+                        FileAccess.Write,
+                        FileShare.None,
+                        bufferSize: 4096,
+                        FileOptions.WriteThrough);
+                    temporaryPath = candidate;
+                    break;
+                }
+                catch (IOException) when (File.Exists(candidate))
+                {
+                }
+            }
+
+            if (stream is null || temporaryPath is null)
+            {
+                throw new IOException(
+                    $"Could not create a unique temporary file for metadata output '{fullPath}' after 16 attempts.");
+            }
+
+            using (stream)
+            {
+                using var writer = new StreamWriter(
+                    stream,
+                    new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+                    bufferSize: 4096,
+                    leaveOpen: true);
+                writer.Write(contents);
+                writer.Flush();
+                stream.Flush(flushToDisk: true);
+            }
+
+            File.Move(temporaryPath, fullPath, overwrite: true);
+            temporaryPath = null;
+        }
+        finally
+        {
+            if (temporaryPath is not null)
+            {
+                File.Delete(temporaryPath);
+            }
+        }
     }
 
     private static void DeleteIfExists(string path)
@@ -487,33 +1496,96 @@ public static class InstrumentationRunner
     private static string ToStagingPath(string stagingDirectory, string relativePath) =>
         Path.Combine(stagingDirectory, relativePath.Replace('/', Path.DirectorySeparatorChar));
 
-    private static string? TryHashFile(string path)
+    private static string? TryHashCacheOutputFile(string path)
     {
         try
         {
-            return Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(path)));
+            using FileStream stream = File.OpenRead(path);
+            return Convert.ToHexStringLower(SHA256.HashData(stream));
         }
-        catch (IOException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             return null;
         }
     }
 
-    private static void TryDeleteTemp(string candidate, string original)
+    private static string HashRequiredSourceFile(string path, string description)
     {
-        if (string.Equals(candidate, original, StringComparison.Ordinal))
+        try
+        {
+            using FileStream stream = File.OpenRead(path);
+            return Convert.ToHexStringLower(SHA256.HashData(stream));
+        }
+        catch (Exception exception) when (
+            exception is IOException
+                or UnauthorizedAccessException
+                or ArgumentException
+                or NotSupportedException)
+        {
+            throw new ClosureException(
+                $"{description} '{path}' is missing, unreadable, or could not be hashed: {exception.Message}",
+                exception);
+        }
+    }
+
+    private static string CreateReadyToRunTemporaryDirectory(
+        string sourceDirectory,
+        string stagingDirectory,
+        string cachePath)
+    {
+        string normalizedCachePath = InstrumentationPath.GetFullPath(
+            cachePath,
+            nameof(InstrumentationRequest.CachePath));
+        string cacheIdentity = HashString(normalizedCachePath)[..16];
+        DirectoryInfo directory = Directory.CreateTempSubdirectory(
+            $"clockwork-r2r-{cacheIdentity}-");
+        if (PathsHaveHierarchyCollision(directory.FullName, sourceDirectory)
+            || PathsHaveHierarchyCollision(directory.FullName, stagingDirectory))
+        {
+            directory.Delete(recursive: true);
+            throw new ClosureException(
+                $"Could not create a ReadyToRun temporary workspace outside source and staging directories.");
+        }
+
+        return directory.FullName;
+    }
+
+    private static void CopyReadyToRunOutputIntoStaging(
+        string engineOutput,
+        string outputPath,
+        string? temporaryDirectory)
+    {
+        if (temporaryDirectory is null || !File.Exists(engineOutput))
+        {
+            return;
+        }
+
+        File.Copy(engineOutput, outputPath, overwrite: true);
+        string temporarySymbols = Path.ChangeExtension(engineOutput, "pdb");
+        if (File.Exists(temporarySymbols))
+        {
+            File.Copy(
+                temporarySymbols,
+                Path.ChangeExtension(outputPath, "pdb"),
+                overwrite: true);
+        }
+    }
+
+    private static void DeleteReadyToRunTemporaryDirectory(string? temporaryDirectory)
+    {
+        if (temporaryDirectory is null)
         {
             return;
         }
 
         try
         {
-            if (File.Exists(candidate))
+            if (Directory.Exists(temporaryDirectory))
             {
-                File.Delete(candidate);
+                Directory.Delete(temporaryDirectory, recursive: true);
             }
         }
-        catch (IOException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
         }
     }

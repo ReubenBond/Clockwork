@@ -112,24 +112,6 @@ internal sealed class ArgumentReader
     /// <summary>Gets whether an option or flag was supplied without marking it consumed.</summary>
     public bool IsSupplied(string name) => _options.ContainsKey(name) || _flags.Contains(name);
 
-    /// <summary>Gets a tri-state boolean value option (<c>true</c>/<c>false</c>), or <paramref name="fallback"/>.</summary>
-    /// <exception cref="UsageException">The value is not a valid boolean.</exception>
-    public bool GetBool(string name, bool fallback)
-    {
-        string? raw = GetString(name);
-        if (raw is null)
-        {
-            return fallback;
-        }
-
-        return raw.ToLowerInvariant() switch
-        {
-            "true" or "1" or "yes" or "on" => true,
-            "false" or "0" or "no" or "off" => false,
-            _ => throw new UsageException($"Option '--{name}' must be 'true' or 'false', not '{raw}'."),
-        };
-    }
-
     /// <summary>Throws if any supplied option or flag was never queried by the command.</summary>
     /// <exception cref="UsageException">An unrecognized option or flag was supplied.</exception>
     public void EnsureAllConsumed()

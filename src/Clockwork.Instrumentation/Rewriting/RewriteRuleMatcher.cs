@@ -54,8 +54,7 @@ internal sealed class RewriteRuleMatcher
         {
             foreach (KeyValuePair<string, RewriteRule> entry in _typeSubstitutions)
             {
-                if (entry.Value.Policy != Clockwork.Runtime.Policy.SimulationApiPolicy.PassThrough
-                    && entry.Value.SupportedRuntimes.Includes(_targetRuntime))
+                if (entry.Value.SupportedRuntimes.Includes(_targetRuntime))
                 {
                     yield return entry;
                 }
@@ -65,9 +64,9 @@ internal sealed class RewriteRuleMatcher
 
     /// <summary>
     /// Finds the first rule (in declared order) matching an invocation of <paramref name="method"/>
-    /// at a call/newobj site. Returns <see langword="false"/> if no rule applies. A rule whose target
-    /// runtime is out of range is reported via <paramref name="outOfRangeRule"/> so the caller can
-    /// diagnose it rather than silently skip a targeted site.
+    /// at a call/newobj site. Returns <see langword="false"/> if no rule applies. If no in-range rule
+    /// applies, the first target-matching rule whose runtime is out of range is returned via
+    /// <paramref name="outOfRangeRule"/> so the caller can diagnose it deterministically.
     /// </summary>
     public bool TryMatchInvocation(MethodReference method, bool isNewObj, out RewriteRule matched, out RewriteRule? outOfRangeRule)
     {
@@ -103,6 +102,7 @@ internal sealed class RewriteRuleMatcher
                 continue;
             }
 
+            outOfRangeRule = null;
             matched = rule;
             return true;
         }
@@ -122,6 +122,59 @@ internal sealed class RewriteRuleMatcher
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Returns the out-of-range type-substitution rules referenced by <paramref name="type"/>,
+    /// including rules targeting element types and generic arguments.
+    /// </summary>
+    public IReadOnlyList<RewriteRule> GetOutOfRangeTypeRules(TypeReference type)
+    {
+        var rules = new List<RewriteRule>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        CollectTypeRules(type, rules, seen, inRange: false);
+        return rules;
+    }
+
+    /// <summary>
+    /// Returns the in-range type-substitution rules referenced by <paramref name="type"/>,
+    /// including rules targeting element types and generic arguments.
+    /// </summary>
+    public IReadOnlyList<RewriteRule> GetMatchingTypeRules(TypeReference type)
+    {
+        var rules = new List<RewriteRule>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        CollectTypeRules(type, rules, seen, inRange: true);
+        return rules;
+    }
+
+    private void CollectTypeRules(
+        TypeReference type,
+        List<RewriteRule> rules,
+        HashSet<string> seen,
+        bool inRange)
+    {
+        TypeReference candidate = type is GenericInstanceType generic ? generic.ElementType : type;
+        if (_typeSubstitutions.TryGetValue(candidate.FullName, out RewriteRule? rule)
+            && rule.SupportedRuntimes.Includes(_targetRuntime) == inRange
+            && seen.Add(rule.Id))
+        {
+            rules.Add(rule);
+        }
+
+        switch (type)
+        {
+            case GenericInstanceType instance:
+                foreach (TypeReference argument in instance.GenericArguments)
+                {
+                    CollectTypeRules(argument, rules, seen, inRange);
+                }
+
+                break;
+            case TypeSpecification specification:
+                CollectTypeRules(specification.ElementType, rules, seen, inRange);
+                break;
+        }
     }
 
     private static bool AppliesTo(RewriteOperationKind operation, bool isNewObj) => operation switch

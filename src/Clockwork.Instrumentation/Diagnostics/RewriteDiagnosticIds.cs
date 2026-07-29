@@ -10,9 +10,6 @@ public static class RewriteDiagnosticIds
     /// <summary>A targeted member matched by a rule could not be resolved to a replacement.</summary>
     public const string UnresolvedReplacement = "CWR0001";
 
-    /// <summary>A targeted call site could not be rewritten because the rule's shape is unsupported.</summary>
-    public const string UnsupportedTargetShape = "CWR0002";
-
     /// <summary>An assembly reference could not be resolved.</summary>
     public const string UnresolvedReference = "CWR0003";
 
@@ -43,13 +40,10 @@ public static class RewriteDiagnosticIds
     /// <summary>A resolved replacement method is incompatible with the target invocation's IL stack contract.</summary>
     public const string ReplacementContractMismatch = "CWR0012";
 
-    /// <summary>A ReadyToRun input was rejected by the configured <see cref="Configuration.ReadyToRunPolicy"/>.</summary>
-    public const string ReadyToRunRejected = "CWR0100";
-
     /// <summary>A ReadyToRun input's native image was stripped, producing IL-only staged output.</summary>
     public const string ReadyToRunStripped = "CWR0101";
 
-    /// <summary>A strong-named input requires re-signing but the policy forbids it or no usable key is available.</summary>
+    /// <summary>A strong-named input requires re-signing but no usable identity-preserving key is available.</summary>
     public const string StrongNameReSignRequired = "CWR0102";
 
     /// <summary>A rewritten assembly was re-signed with the supplied strong-name key.</summary>

@@ -88,21 +88,21 @@ public sealed record RewriteOptions
     /// </summary>
     public string ComputeSemanticFingerprint()
     {
-        var canonical = new StringBuilder();
-        AppendPaths(canonical, "replacement", ReplacementAssemblyPaths, sort: false);
-        AppendPaths(canonical, "references", ReferenceSearchDirectories, sort: false);
-        canonical.Append("runtime=").Append(TargetRuntime?.ToString() ?? "*").Append('\n');
-        AppendPaths(canonical, "excluded", ExcludedTypeFullNames, sort: true);
-        canonical.Append("warnUnresolved=").Append(WarnOnUnresolvedReferences).Append('\n');
-        canonical.Append("outputHash=").Append(ComputeOutputHash).Append('\n');
-        canonical.Append("hardenExceptions=").Append(HardenExceptionHandlers).Append('\n');
-        canonical.Append("detectTasks=").Append(DetectUncontrolledTasks).Append('\n');
-        canonical.Append("raceExploration=").Append(InstrumentRaceExploration).Append('\n');
+        var canonical = new CanonicalEncoding(nameof(RewriteOptions));
+        AppendPaths(canonical, nameof(ReplacementAssemblyPaths), ReplacementAssemblyPaths, sort: false);
+        AppendPaths(canonical, nameof(ReferenceSearchDirectories), ReferenceSearchDirectories, sort: false);
+        canonical.AddString(nameof(TargetRuntime), TargetRuntime?.ToString());
+        AppendPaths(canonical, nameof(ExcludedTypeFullNames), ExcludedTypeFullNames, sort: true);
+        canonical.AddBoolean(nameof(WarnOnUnresolvedReferences), WarnOnUnresolvedReferences);
+        canonical.AddBoolean(nameof(ComputeOutputHash), ComputeOutputHash);
+        canonical.AddBoolean(nameof(HardenExceptionHandlers), HardenExceptionHandlers);
+        canonical.AddBoolean(nameof(DetectUncontrolledTasks), DetectUncontrolledTasks);
+        canonical.AddBoolean(nameof(InstrumentRaceExploration), InstrumentRaceExploration);
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString())));
     }
 
     private static void AppendPaths(
-        StringBuilder canonical,
+        CanonicalEncoding canonical,
         string name,
         ImmutableArray<string> values,
         bool sort)
@@ -115,6 +115,6 @@ public sealed record RewriteOptions
             normalized = normalized.Distinct(StringComparer.Ordinal).OrderBy(static value => value, StringComparer.Ordinal);
         }
 
-        canonical.Append(name).Append('=').AppendJoin(',', normalized).Append('\n');
+        canonical.AddStringSequence(name, normalized);
     }
 }

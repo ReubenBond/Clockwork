@@ -75,9 +75,8 @@ internal sealed class BuiltInProcessFixture : IDisposable
         {
             public static int Main()
             {
-                var builder = new SimulationBuilder().WithSeed(1);
-                var node = builder.AddNode("node");
-                var simulation = builder.Build();
+                var simulation = new SimulationCluster(seed: 1);
+                var node = simulation.AddNode("node");
                 string output = "";
                 node.Context.SchedulerLane.EnqueueAfter(() => output = Probe.Run(), TimeSpan.Zero);
                 simulation.RunUntilIdle();

@@ -11,13 +11,13 @@ public sealed class SimulationClusterAdaptiveTests
     [Fact]
     public async Task AdaptiveRunUntilEscalatesAcrossBatchesUntilConditionIsMet()
     {
-        await using var cluster = new AdaptiveTestCluster(seed: 1);
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
         var node = cluster.AddNode("node-1");
         var counter = 0;
         const int stepsNeeded = 20;
         for (var i = 0; i < stepsNeeded; i++)
         {
-            node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => counter++));
+            node.Context.SchedulerLane.Enqueue(() => counter++);
         }
 
         // A single batch of 2 iterations cannot possibly satisfy a condition that needs 20 steps -
@@ -36,7 +36,7 @@ public sealed class SimulationClusterAdaptiveTests
     [Fact]
     public async Task AdaptiveRunUntilStopsImmediatelyOnIdleWithoutEscalating()
     {
-        await using var cluster = new AdaptiveTestCluster(seed: 1);
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
         _ = cluster.AddNode("node-1");
 
         // The initial batch is large enough that, if escalation happened needlessly, the result
@@ -55,7 +55,7 @@ public sealed class SimulationClusterAdaptiveTests
     [InlineData(SimulationExecutionReason.MaxConsecutiveTimeAdvancesExceeded)]
     public async Task AdaptiveRunUntilStopsOnGenuinelyStuckReasonsWithoutEscalating(SimulationExecutionReason expectedReason)
     {
-        await using var cluster = new AdaptiveTestCluster(seed: 1);
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
         if (expectedReason == SimulationExecutionReason.MaxSimulatedTimeAdvanceExceeded)
         {
             cluster.MaxSimulatedTimeAdvance = TimeSpan.FromSeconds(1);
@@ -80,19 +80,24 @@ public sealed class SimulationClusterAdaptiveTests
 
         Assert.Equal(expectedReason, result.Reason);
         Assert.True(result.Iterations < budget.InitialMaxIterations);
+        cluster.MaxSimulatedTimeAdvance = TimeSpan.FromMinutes(10);
     }
 
     [Fact]
     public async Task AdaptiveRunUntilHonorsTheHardTotalIterationsCapWhenConditionNeverIsMet()
     {
-        await using var cluster = new AdaptiveTestCluster(seed: 1);
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
         var node = cluster.AddNode("node-1");
+        var keepRunning = true;
 
         // Self-perpetuating work: every step re-enqueues itself immediately, so the cluster is never
         // idle and every iteration is a real step. Escalation would run forever without a hard cap.
         void RunForever()
         {
-            node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(RunForever));
+            if (keepRunning)
+            {
+                node.Context.SchedulerLane.Enqueue(RunForever);
+            }
         }
 
         RunForever();
@@ -103,12 +108,13 @@ public sealed class SimulationClusterAdaptiveTests
         Assert.Equal(SimulationExecutionReason.MaxIterationsReached, result.Reason);
         Assert.Equal(budget.MaxTotalIterations, result.Iterations);
         Assert.Equal(budget.MaxTotalIterations, result.StepsExecuted);
+        keepRunning = false;
     }
 
     [Fact]
     public async Task AdaptiveRunUntilUsesTheExplicitDefaultBudget()
     {
-        await using var cluster = new AdaptiveTestCluster(seed: 1);
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
         _ = cluster.AddNode("node-1");
 
         var result = cluster.RunUntil(() => true, AdaptiveExecutionBudget.Default);
@@ -120,19 +126,19 @@ public sealed class SimulationClusterAdaptiveTests
     [Fact]
     public async Task AdaptiveRunUntilRejectsNullCondition()
     {
-        await using var cluster = new AdaptiveTestCluster(seed: 1);
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
         Assert.Throws<ArgumentNullException>(() => cluster.RunUntil(null!, AdaptiveExecutionBudget.Default));
     }
 
     [Fact]
     public async Task AdaptiveRunUntilIdleEscalatesAcrossBatchesUntilIdle()
     {
-        await using var cluster = new AdaptiveTestCluster(seed: 1);
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
         var node = cluster.AddNode("node-1");
         const int stepsToDrain = 20;
         for (var i = 0; i < stepsToDrain; i++)
         {
-            node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => { }));
+            node.Context.SchedulerLane.Enqueue(() => { });
         }
 
         var budget = new AdaptiveExecutionBudget(initialMaxIterations: 2, growthFactor: 2.0, maxTotalIterations: 1000);
@@ -147,9 +153,12 @@ public sealed class SimulationClusterAdaptiveTests
     public async Task AdaptiveRunUntilIdleStopsImmediatelyOnTeardownCancellationWithoutEscalating()
     {
         using var cts = new CancellationTokenSource();
-        await using var cluster = new AdaptiveTestCluster(seed: 1, cancellationToken: cts.Token);
+        await using var cluster = new SimulationCluster(
+            seed: 1,
+            DateTimeOffset.UnixEpoch,
+            cancellationToken: cts.Token);
         var node = cluster.AddNode("node-1");
-        node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => { }));
+        node.Context.SchedulerLane.Enqueue(() => { });
         await cts.CancelAsync();
 
         var budget = new AdaptiveExecutionBudget(initialMaxIterations: 1000, growthFactor: 2.0, maxTotalIterations: 1_000_000);
@@ -162,12 +171,12 @@ public sealed class SimulationClusterAdaptiveTests
     [Fact]
     public async Task AdaptiveRunUntilIdleFoldsCountersAcrossEscalatedBatches()
     {
-        await using var cluster = new AdaptiveTestCluster(seed: 1);
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
         var node = cluster.AddNode("node-1");
         const int steps = 6;
         for (var i = 0; i < steps; i++)
         {
-            node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => { }));
+            node.Context.SchedulerLane.Enqueue(() => { });
         }
 
         // Two timers spaced one second apart force two separate time advances after the immediate
@@ -220,9 +229,9 @@ public sealed class SimulationClusterAdaptiveTests
         Assert.Equal(budget.MaxTotalIterations, result.Limits.MaxIterations);
     }
 
-    private static AdaptiveTestCluster CreateClusterWithBlockedTimers()
+    private static SimulationCluster CreateClusterWithBlockedTimers()
     {
-        var cluster = new AdaptiveTestCluster(seed: 1)
+        var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch)
         {
             MaxConsecutiveTimeAdvances = 2,
         };
@@ -236,30 +245,4 @@ public sealed class SimulationClusterAdaptiveTests
         return cluster;
     }
 
-    private sealed class AdaptiveTestCluster : SimulationCluster<AdaptiveTestNode>
-    {
-        public AdaptiveTestCluster(int seed, DateTimeOffset? startDateTime = null, CancellationToken cancellationToken = default)
-            : base(seed, startDateTime ?? DateTimeOffset.UnixEpoch, cancellationToken: cancellationToken)
-        {
-        }
-
-        public AdaptiveTestNode AddNode(string address)
-        {
-            var context = CreateNodeContext(address);
-            var node = new AdaptiveTestNode(address, context);
-            RegisterNode(node);
-            return node;
-        }
-
-        protected override ValueTask DisposeAsyncCore() => ValueTask.CompletedTask;
-    }
-
-    private sealed class AdaptiveTestNode(string address, SimulationNodeContext context) : SimulationNode
-    {
-        public override SimulationNodeContext Context { get; } = context;
-
-        public override string NetworkAddress { get; } = address;
-
-        public override bool IsInitialized => true;
-    }
 }

@@ -5,14 +5,12 @@ namespace Clockwork;
 /// Provides rate-based random fault injection and scheduled fault execution.
 /// </summary>
 /// <typeparam name="TNode">The concrete simulation node type.</typeparam>
-/// <typeparam name="TCluster">The concrete simulation cluster type.</typeparam>
 /// <remarks>
 /// Creates a new chaos injector.
 /// </remarks>
 /// <param name="cluster">The simulation cluster.</param>
-public abstract class ChaosInjector<TNode, TCluster>(TCluster cluster)
+public abstract class ChaosInjector<TNode>(SimulationCluster cluster)
     where TNode : SimulationNode
-    where TCluster : SimulationCluster<TNode>
 {
     private readonly List<ScheduledFault> _scheduledFaults = [];
     private readonly Lock _lock = new();
@@ -20,7 +18,7 @@ public abstract class ChaosInjector<TNode, TCluster>(TCluster cluster)
     /// <summary>
     /// Gets the simulation cluster.
     /// </summary>
-    protected TCluster Cluster { get; } = cluster ?? throw new ArgumentNullException(nameof(cluster));
+    protected SimulationCluster Cluster { get; } = cluster ?? throw new ArgumentNullException(nameof(cluster));
 
     /// <summary>
     /// Gets the deterministic random generator.
@@ -264,29 +262,28 @@ public abstract class ChaosInjector<TNode, TCluster>(TCluster cluster)
 
     private bool TryCrashRandomNode()
     {
-        var nodes = Cluster.Nodes;
+        var nodes = Cluster.Nodes.OfType<TNode>().ToList();
         if (nodes.Count <= MinimumAliveNodes)
         {
             return false;
         }
 
-        var node = Random.Choose(nodes.ToList());
+        var node = Random.Choose(nodes);
         CrashNode(node);
         return true;
     }
 
     private bool TryCreateRandomPartition()
     {
-        var nodes = Cluster.Nodes;
+        var nodes = Cluster.Nodes.OfType<TNode>().ToList();
         if (nodes.Count < 2)
         {
             return false;
         }
 
-        var nodeList = nodes.ToList();
-        var node1 = Random.Choose(nodeList);
-        nodeList.Remove(node1);
-        var node2 = Random.Choose(nodeList);
+        var node1 = Random.Choose(nodes);
+        nodes.Remove(node1);
+        var node2 = Random.Choose(nodes);
 
         PartitionNodes(node1, node2);
         return true;

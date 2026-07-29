@@ -5,7 +5,7 @@ public sealed class SimulationClusterRunToCompletionTests
     [Fact]
     public async Task FixedRunToCompletionDrivesCapturedContinuations()
     {
-        await using var cluster = new TestCluster(seed: 1);
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
         var resumed = false;
 
         cluster.RunToCompletion(async () =>
@@ -20,7 +20,7 @@ public sealed class SimulationClusterRunToCompletionTests
     [Fact]
     public async Task AdaptiveGenericRunToCompletionReturnsTheTaskResult()
     {
-        await using var cluster = new TestCluster(seed: 1);
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
         var budget = new AdaptiveExecutionBudget(
             initialMaxIterations: 1,
             growthFactor: 2,
@@ -40,7 +40,7 @@ public sealed class SimulationClusterRunToCompletionTests
     [Fact]
     public async Task RunToCompletionPropagatesTheOriginalTaskFault()
     {
-        await using var cluster = new TestCluster(seed: 1);
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
 
         var exception = Assert.Throws<InvalidOperationException>(
             () => cluster.RunToCompletion(async () =>
@@ -55,7 +55,7 @@ public sealed class SimulationClusterRunToCompletionTests
     [Fact]
     public async Task AdaptiveRunToCompletionExhaustionIncludesTheDetailedResult()
     {
-        await using var cluster = new TestCluster(seed: 1);
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
         var completion = new TaskCompletionSource();
         var budget = new AdaptiveExecutionBudget(
             initialMaxIterations: 1,
@@ -72,7 +72,7 @@ public sealed class SimulationClusterRunToCompletionTests
     [Fact]
     public async Task FixedAndAdaptiveOverloadsResolveByArgumentType()
     {
-        await using var cluster = new TestCluster(seed: 1);
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
         var budget = new AdaptiveExecutionBudget(maxTotalIterations: 1_000);
 
         SimulationExecutionResult fixedUntil = cluster.RunUntil(() => true, 1);
@@ -92,17 +92,4 @@ public sealed class SimulationClusterRunToCompletionTests
         Assert.Equal(2, adaptiveValue);
     }
 
-    private sealed class TestCluster(int seed) : SimulationCluster<TestNode>(seed, DateTimeOffset.UnixEpoch)
-    {
-        protected override ValueTask DisposeAsyncCore() => ValueTask.CompletedTask;
-    }
-
-    private sealed class TestNode : SimulationNode
-    {
-        public override SimulationNodeContext Context => throw new NotSupportedException();
-
-        public override string NetworkAddress => throw new NotSupportedException();
-
-        public override bool IsInitialized => true;
-    }
 }

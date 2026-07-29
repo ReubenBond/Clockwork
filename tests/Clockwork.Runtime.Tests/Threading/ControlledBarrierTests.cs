@@ -151,6 +151,42 @@ public sealed class ControlledBarrierTests
     }
 
     [Fact]
+    public void CompletedPhaseWinsCancellationRequestedByPostPhaseAction()
+    {
+        var coordinator = new SimulationSchedulerTestHost();
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            using var cancellation = new CancellationTokenSource();
+            var barrier = new ControlledBarrier(2, _ => cancellation.Cancel());
+            bool? waiterResult = null;
+            Exception? waiterException = null;
+            Thread waiter = ControlledThread.Create(() =>
+            {
+                try
+                {
+                    waiterResult = barrier.SignalAndWait(100, cancellation.Token);
+                }
+                catch (Exception exception)
+                {
+                    waiterException = exception;
+                }
+            });
+
+            ControlledThread.Start(waiter);
+            Pump();
+            Assert.Equal(1, barrier.ParticipantsRemaining);
+
+            Assert.True(barrier.SignalAndWait(100));
+            ControlledThread.Join(waiter);
+
+            Assert.Null(waiterException);
+            Assert.True(waiterResult);
+            Assert.Equal(1, barrier.CurrentPhaseNumber);
+            Assert.Equal(2, barrier.ParticipantsRemaining);
+        });
+    }
+
+    [Fact]
     public void ValidationDisposalAndInactiveGuardsMatchControlledSurface()
     {
         var coordinator = new SimulationSchedulerTestHost();

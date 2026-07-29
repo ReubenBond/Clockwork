@@ -11,7 +11,8 @@ namespace Clockwork;
 /// The identity of the queue the item is waiting in: <c>"cluster"</c> for the cluster-level queue,
 /// or the owning node's <see cref="SimulationNode.NetworkAddress"/> for a node queue.
 /// </param>
-/// <param name="ItemType">The runtime type name of the scheduled item (e.g. <c>ScheduledActionItem</c>).</param>
+/// <param name="Kind">A stable category for the scheduled work, such as <c>"action"</c> or <c>"timer"</c>.</param>
+/// <param name="Description">A human-readable description which does not expose implementation instances.</param>
 /// <param name="DueTime">The absolute simulated time at which the item is due.</param>
 /// <param name="SequenceNumber">The item's scheduling sequence number, used to break due-time ties.</param>
 /// <param name="IsReady">Whether the item's due time has already passed (it is ready to execute).</param>
@@ -21,7 +22,8 @@ namespace Clockwork;
 /// </param>
 public sealed record SimulationScheduledItemDiagnostic(
     string QueueIdentity,
-    string ItemType,
+    string Kind,
+    string Description,
     DateTimeOffset DueTime,
     long SequenceNumber,
     bool IsReady,
@@ -33,6 +35,6 @@ public sealed record SimulationScheduledItemDiagnostic(
         var readiness = IsBlocked ? "blocked" : IsReady ? "ready" : "waiting";
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"[{QueueIdentity}] {ItemType} due={DueTime:O} seq={SequenceNumber} ({readiness})");
+            $"[{QueueIdentity}] {Kind}: {Description} due={DueTime:O} seq={SequenceNumber} ({readiness})");
     }
 }

@@ -21,7 +21,6 @@ public sealed class ReplayRunnerTests
             recorded.Artifact,
             scheduler => ScheduleYieldingPair(scheduler, replayedOrder));
 
-        Assert.Equal(ReplayRecordingState.Complete, recorded.Artifact.RecordingState);
         Assert.Equal(ReplayTerminationKind.Completed, recorded.Artifact.Outcome.Kind);
         Assert.NotEmpty(recorded.Artifact.Decisions);
         Assert.True(replayed.Reproduced);
@@ -214,13 +213,12 @@ public sealed class ReplayRunnerTests
     }
 
     [Fact]
-    public void ExternalEntryFailureProducesExplicitAbortedPrefix()
+    public void ExternalEntryFailureProducesAbortedOutcome()
     {
         ReplayExecutionResult recorded = Record(
             SeededConfiguration(43),
             static _ => throw new InvalidOperationException("external entry rejected"));
 
-        Assert.Equal(ReplayRecordingState.Aborted, recorded.Artifact.RecordingState);
         Assert.Equal(ReplayTerminationKind.Aborted, recorded.Artifact.Outcome.Kind);
         Assert.Equal(typeof(InvalidOperationException).FullName, recorded.Artifact.Outcome.FailureIdentity);
         Assert.Throws<ReplayCompatibilityException>(

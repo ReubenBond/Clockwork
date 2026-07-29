@@ -7,7 +7,7 @@ namespace Clockwork.Runtime.Scheduling.Strategies;
 /// of them, and is fully deterministic given the runnable set and last-selected id, so it needs no
 /// recording to reproduce.
 /// </summary>
-public sealed class RoundRobinSchedulingStrategy : ISimulationSchedulingStrategy
+internal sealed class RoundRobinSchedulingStrategy : ISimulationSchedulingStrategy
 {
     /// <inheritdoc/>
     public string Name => "round-robin";

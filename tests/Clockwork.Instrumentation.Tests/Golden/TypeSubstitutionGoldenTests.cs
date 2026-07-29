@@ -1,4 +1,5 @@
 using Clockwork.Instrumentation.Manifest;
+using Clockwork.Instrumentation.Diagnostics;
 using Clockwork.Instrumentation.Rewriting;
 using Clockwork.Instrumentation.Rules;
 using Clockwork.Instrumentation.Tests.Infrastructure;
@@ -77,38 +78,54 @@ public sealed class TypeSubstitutionGoldenTests
     }
 
     [Fact]
-    public void PassThroughTypeRuleRecordsSitesWithoutSubstitution()
+    public void TargetedTypeOutsideSupportedRuntimeFails()
     {
         using var context = RewriteTestContext.Create();
-        string fixturePath = context.CompileFixture("Fx.TypePassThrough", Fixture);
+        string fixturePath = context.CompileFixture("Fx.TypeSub.Runtime", Fixture);
+        RewriteRule rule = RewriteRule.SubstituteType(
+            "substitute-runtime-specific",
+            "ClockworkFixtures.Api.LegacyMarker",
+            RewriteReplacement.Type(FixtureSources.ShimAssemblyName, "ClockworkFixtures.Shims.ModernMarker")) with
+        {
+            SupportedRuntimes = RuntimeVersionRange.AtLeast(new Version(11, 0)),
+        };
+        var options = new RewriteOptions
+        {
+            ReplacementAssemblyPaths = [context.ShimPath],
+            ReferenceSearchDirectories = [context.Directory],
+            TargetRuntime = new Version(10, 0),
+        };
+
+        RewriteResult result = context.Rewrite(
+            fixturePath,
+            new RewriteRuleSet("clockwork.fixtures.types.runtime", "1.0", [rule]),
+            options);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains(result.Errors, diagnostic => diagnostic.Id == RewriteDiagnosticIds.RuntimeOutOfRange);
+        Assert.False(result.WasWritten);
+    }
+
+    [Fact]
+    public void UnresolvableTargetedTypeReplacementFails()
+    {
+        using var context = RewriteTestContext.Create();
+        string fixturePath = context.CompileFixture("Fx.TypeSub.Missing", Fixture);
         var ruleSet = new RewriteRuleSet(
-            "clockwork.fixtures.types.passthrough",
+            "clockwork.fixtures.types.missing",
             "1.0",
             [
                 RewriteRule.SubstituteType(
-                    "passthrough-marker",
+                    "substitute-missing",
                     "ClockworkFixtures.Api.LegacyMarker",
-                    RewriteReplacement.Type("Missing", "Missing.ModernMarker"),
-                    SimulationApiPolicy.PassThrough) with
-                {
-                    Description = "Approved legacy marker.",
-                },
+                    RewriteReplacement.Type("Missing", "Missing.ModernMarker")),
             ]);
 
         RewriteResult result = context.Rewrite(fixturePath, ruleSet);
-        result.EnsureSuccess();
 
-        using ModuleDefinition module = context.LoadModule(
-            Path.Combine(context.Directory, "Fx.TypePassThrough.rewritten.dll"));
-        Assert.Contains(
-            CecilInspect.TypeOperands(CecilInspect.GetMethod(module, "Fx.Types", "Name")),
-            operand => operand.Contains("LegacyMarker", StringComparison.Ordinal));
-        Assert.NotEmpty(result.Manifest.Transformations);
-        Assert.All(result.Manifest.Transformations, transformation =>
-        {
-            Assert.Equal(TransformationOutcome.PassedThrough, transformation.Outcome);
-            Assert.Equal("Approved legacy marker.", transformation.Reason);
-            Assert.Null(transformation.Replacement);
-        });
+        Assert.False(result.Succeeded);
+        Assert.Contains(result.Errors, diagnostic => diagnostic.Id == RewriteDiagnosticIds.UnresolvedReplacement);
+        Assert.False(result.WasWritten);
     }
+
 }

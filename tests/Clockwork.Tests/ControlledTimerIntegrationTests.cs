@@ -5,20 +5,20 @@ namespace Clockwork.Tests;
 public sealed class ControlledTimerIntegrationTests
 {
     [Fact]
-    public async Task PendingTimerIsReportedAndTeardownCancelsIt()
+    public async Task PendingTimerIsReportedAndTeardownDrainsIt()
     {
-        var builder = new SimulationBuilder()
-            .WithSeed(1)
-            .WithStartDateTime(new DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero));
-        SimulationNodeHandle<object?> node = builder.AddNode("node");
-        SimulationCluster simulation = builder.Build();
+        var simulation = new SimulationCluster(
+            seed: 1,
+            startDateTime: new DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero));
+        SimulationNode<object?> node = simulation.AddNode("node");
         ControlledTimer? timer = null;
+        var timerFired = false;
 
         node.Context.SchedulerLane.EnqueueAfter(
             () => timer = new ControlledTimer(
-                _ => throw new InvalidOperationException("A teardown-canceled timer fired."),
+                _ => timerFired = true,
                 null,
-                TimeSpan.FromHours(1),
+                TimeSpan.FromMinutes(1),
                 Timeout.InfiniteTimeSpan),
             TimeSpan.Zero);
 
@@ -27,9 +27,11 @@ public sealed class ControlledTimerIntegrationTests
         SimulationScheduledItemDiagnostic deadline = Assert.Single(
             result.PendingWork.Items,
             static item => item.QueueIdentity == "simulation-scheduler");
-        Assert.Equal("CallbackTimer", deadline.ItemType);
+        Assert.Equal("CallbackTimer", deadline.Kind);
+        Assert.Equal("Simulation scheduler timer", deadline.Description);
         Assert.Equal(1, result.PendingWork.WaitingCount);
 
         await simulation.DisposeAsync();
+        Assert.True(timerFired);
     }
 }

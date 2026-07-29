@@ -6,10 +6,9 @@ namespace Clockwork.Instrumentation.Imaging;
 /// Produces an IL-only assembly from a ReadyToRun (crossgen'd) input by round-tripping it through
 /// Mono.Cecil: Cecil reads the embedded IL and drops the ahead-of-time native image on write, and
 /// this helper additionally sets the <c>ILOnly</c> CLI flag so the result is a genuine managed-only
-/// assembly the JIT compiles from IL. This is the mechanism behind
-/// <see cref="Configuration.ReadyToRunPolicy.StripToIL"/>: it guarantees no stale native code is
-/// emitted. Instrumentation must still run before ReadyToRun/AOT/single-file publishing; stripping is
-/// a fallback for inputs that were already crossgen'd, not a substitute for correct build ordering.
+/// assembly the JIT compiles from IL. This guarantees no stale native code is emitted. Instrumentation
+/// must still run before AOT/single-file publishing; stripping is a fallback for inputs that were
+/// already crossgen'd, not a substitute for correct build ordering.
 /// </summary>
 public static class ReadyToRunStripper
 {

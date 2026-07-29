@@ -1,3 +1,4 @@
+using Clockwork.Instrumentation.Diagnostics;
 using Clockwork.Instrumentation.Inspection;
 using Clockwork.Instrumentation.Tests.Infrastructure;
 using Clockwork.Runtime.Shims;
@@ -78,11 +79,18 @@ public sealed class CliCommandTests : IDisposable
         foreach (string option in new[]
         {
             "--config", "--rule-set", "--builtin", "--builtin-include", "--builtin-exclude",
-            "--builtin-strict", "--include", "--exclude", "--r2r", "--strong-name", "--strong-name-key",
-            "--exclude-framework", "--instrument-dependencies", "--target-runtime", "--mode", "--json",
+            "--include", "--exclude", "--strong-name-key", "--target-runtime", "--mode", "--json",
         })
         {
             Assert.Contains(option, output);
+        }
+
+        foreach (string removed in new[]
+        {
+            "--r2r", "--strong-name <", "--exclude-framework", "--instrument-dependencies",
+        })
+        {
+            Assert.DoesNotContain(removed, output);
         }
     }
 
@@ -117,6 +125,33 @@ public sealed class CliCommandTests : IDisposable
         Assert.True(AssemblyInspector.Inspect(Path.Combine(_staging, "app.dll")).IsInstrumented);
         Assert.False(AssemblyInspector.Inspect(Path.Combine(_source, "app.dll")).IsInstrumented);
         Assert.Contains("success", output);
+    }
+
+    [Fact]
+    public void InstrumentRejectsSourceManifestWithoutWritingOrReportingSuccess()
+    {
+        BuildMinimalClosure();
+        string ruleSet = WriteEmptyRuleSet();
+        string sourceAssembly = Path.Combine(_source, "app.dll");
+        byte[] sourceContents = File.ReadAllBytes(sourceAssembly);
+
+        (ExitCode code, string output, string errors) = Invoke(
+            "instrument",
+            "--source",
+            _source,
+            "--output",
+            _staging,
+            "--manifest",
+            sourceAssembly,
+            "--rule-set",
+            ruleSet);
+
+        Assert.Equal(ExitCode.ClosureError, code);
+        Assert.Contains("ManifestPath", errors, StringComparison.Ordinal);
+        Assert.Contains("SourceDirectory", errors, StringComparison.Ordinal);
+        Assert.DoesNotContain("success", output, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(sourceContents, File.ReadAllBytes(sourceAssembly));
+        Assert.False(Directory.Exists(_staging));
     }
 
     [Fact]
@@ -209,6 +244,94 @@ public sealed class CliCommandTests : IDisposable
     }
 
     [Fact]
+    public void InstrumentDryRunInfersReSigningFromKeyMaterial()
+    {
+        string keyPath = Path.Combine(_root, "test.snk");
+        File.WriteAllBytes(keyPath, StrongNameKeys.CreatePrivateKeyBlob());
+        FixtureCompiler.Compile(
+            "app", "namespace App { public static class A { public static int Go() => 1; } }",
+            _source, FixtureSymbols.PortableFile, optimize: false, strongNameKeyFile: keyPath);
+        File.WriteAllText(Path.Combine(_source, "app.runtimeconfig.json"), "{}");
+        string ruleSet = WriteEmptyRuleSet();
+
+        (ExitCode code, string output, _) = Invoke(
+            "instrument", "--source", _source, "--rule-set", ruleSet,
+            "--strong-name-key", keyPath, "--dry-run");
+
+        Assert.Equal(ExitCode.Success, code);
+        Assert.Contains("instrument and re-sign", output);
+    }
+
+    [Fact]
+    public void InstrumentDryRunRejectsSigningKeyWhichChangesIdentity()
+    {
+        string inputKeyPath = Path.Combine(_root, "input.snk");
+        File.WriteAllBytes(inputKeyPath, StrongNameKeys.CreatePrivateKeyBlob());
+        FixtureCompiler.Compile(
+            "app", "namespace App { public static class A { public static int Go() => 1; } }",
+            _source, FixtureSymbols.PortableFile, optimize: false, strongNameKeyFile: inputKeyPath);
+        File.WriteAllText(Path.Combine(_source, "app.runtimeconfig.json"), "{}");
+        string otherKeyPath = Path.Combine(_root, "other.snk");
+        File.WriteAllBytes(otherKeyPath, StrongNameKeys.CreatePrivateKeyBlob());
+        string ruleSet = WriteEmptyRuleSet();
+
+        (ExitCode code, string output, _) = Invoke(
+            "instrument", "--source", _source, "--rule-set", ruleSet,
+            "--strong-name-key", otherKeyPath, "--dry-run");
+
+        Assert.Equal(ExitCode.InstrumentationError, code);
+        Assert.Contains("changes public-key token", output);
+    }
+
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("invalid")]
+    [InlineData("empty")]
+    public void InstrumentDryRunRejectsConfiguredUnusableSigningKey(string keyKind)
+    {
+        BuildMinimalClosure();
+        string keyPath = Path.Combine(_root, "configured.snk");
+        if (keyKind == "invalid")
+        {
+            File.WriteAllText(keyPath, "not a strong-name key");
+        }
+
+        string configuredPath = keyKind == "empty" ? string.Empty : keyPath;
+        string ruleSet = WriteEmptyRuleSet();
+        (ExitCode code, string output, _) = Invoke(
+            "instrument", "--source", _source, "--rule-set", ruleSet,
+            "--strong-name-key", configuredPath, "--dry-run");
+
+        Assert.Equal(ExitCode.InstrumentationError, code);
+        Assert.Contains(RewriteDiagnosticIds.StrongNameReSignRequired, output, StringComparison.Ordinal);
+        Assert.Contains($"Failed to load strong-name key '{configuredPath}'", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void InstrumentDryRunAndRealRunBothRejectTruncatedPrivateKey()
+    {
+        BuildMinimalClosure();
+        string keyPath = Path.Combine(_root, "truncated.snk");
+        byte[] privateKey = StrongNameKeys.CreatePrivateKeyBlob();
+        File.WriteAllBytes(keyPath, privateKey[..^1]);
+        string ruleSet = WriteEmptyRuleSet();
+
+        (ExitCode dryRunCode, string dryRunOutput, _) = Invoke(
+            "instrument", "--source", _source, "--rule-set", ruleSet,
+            "--strong-name-key", keyPath, "--dry-run");
+        (ExitCode realRunCode, string realRunOutput, _) = Invoke(
+            "instrument", "--source", _source, "--rule-set", ruleSet,
+            "--strong-name-key", keyPath, "--output", _staging);
+
+        Assert.Equal(ExitCode.InstrumentationError, dryRunCode);
+        Assert.Equal(ExitCode.InstrumentationError, realRunCode);
+        Assert.Contains(RewriteDiagnosticIds.StrongNameReSignRequired, dryRunOutput);
+        Assert.Contains(RewriteDiagnosticIds.StrongNameReSignRequired, realRunOutput);
+        Assert.Contains("truncated", dryRunOutput, StringComparison.Ordinal);
+        Assert.Contains("truncated", realRunOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void UnknownCommandIsUsageError()
     {
         (ExitCode code, _, string errors) = Invoke("frobnicate");
@@ -231,6 +354,10 @@ public sealed class CliCommandTests : IDisposable
     [Theory]
     [InlineData("--key")]
     [InlineData("--rewrite-dependencies")]
+    [InlineData("--r2r")]
+    [InlineData("--strong-name")]
+    [InlineData("--exclude-framework")]
+    [InlineData("--instrument-dependencies")]
     public void RemovedInstrumentationOptionAliasesAreUsageErrors(string option)
     {
         BuildMinimalClosure();
@@ -265,6 +392,19 @@ public sealed class CliCommandTests : IDisposable
 
         Assert.Equal(ExitCode.ConfigurationError, code);
         Assert.Contains("not found", errors);
+    }
+
+    [Fact]
+    public void MalformedRuleSetIsConfigurationError()
+    {
+        string ruleSet = Path.Combine(_root, "malformed-rules.json");
+        File.WriteAllText(ruleSet, """{ "id": "clockwork.test", "version": "1.0" }""");
+
+        (ExitCode code, _, string errors) = Invoke(
+            "instrument", "--source", _source, "--output", _staging, "--rule-set", ruleSet);
+
+        Assert.Equal(ExitCode.ConfigurationError, code);
+        Assert.Contains("'rules' array", errors);
     }
 
     [Fact]

@@ -1,7 +1,7 @@
 # Replay and schedule exploration
 
 Clockwork persists controlled executions as canonical UTF-8 JSON. The format name is
-`clockwork.replay`; the current schema version is `1`.
+`clockwork.replay`; the current schema version is `2`.
 
 ## Artifact contract
 
@@ -14,7 +14,7 @@ An artifact records:
 - terminal operation/resource wait graph, pending timer queue, race pair, and deadlock cycles.
 
 JSON property order and number/string formatting are stable. Decision sequences are contiguous and
-ordered. Unknown optional properties are ignored within schema version 1. Incompatible format/schema
+ordered. Unknown optional properties are ignored within schema version 2. Incompatible format/schema
 versions require a reader update and fail before execution.
 
 Artifacts are limited to 16 MiB, 250,000 decisions, 250,000 race points, 4,096 assembly identities,
@@ -72,8 +72,10 @@ dotnet clockwork trace show .\artifacts\transfer.min.cwr.json --json
 ```
 
 Supply `--manifest <closure-manifest>` when the scenario uses an instrumented closure. Replay compares
-the manifest, rule-set, mode, assembly hashes, Clockwork runtime version, and .NET compatibility before
-executing the scenario.
+the manifest (including its typed copied-asset paths and hashes), rule-set, mode, assembly hashes,
+Clockwork runtime version, and .NET compatibility before executing the scenario. Closure manifests use
+strict schema version 3; the previous string-array `copiedAssets` shape and schema version 2 are not
+accepted.
 
 Exit code `6` reports a reproduced scenario failure, `7` reports artifact/compatibility/divergence
 failure, and `8` reports minimization failure. Existing usage, configuration, closure,
@@ -94,8 +96,8 @@ by attempt count and optional wall-clock time.
 ## Test integration
 
 `Clockwork.Testing.ReplayTestFixture` derives its default root seed with
-`SimulationSeed.FromStrings(testClass, testMethod)`. Failed runs write an artifact and expose it through
-`ReplayTestResult.Attachments`, `ToFailureMessage()`, and `GetReplayCommand(...)`.
+`SimulationSeed.FromStrings(testClass, testMethod)`. Failed runs write an artifact and expose its path
+through `ReplayTestResult.ArtifactPath`, `ToFailureMessage()`, and `GetReplayCommand(...)`.
 
 Environment variables:
 

@@ -10,7 +10,7 @@ public sealed class SimulationClusterTests
     [Fact]
     public async Task ClusterRunsScheduledWorkDeterministically()
     {
-        await using var cluster = new TestCluster(seed: 12345);
+        await using var cluster = new SimulationCluster(seed: 12345, DateTimeOffset.UnixEpoch);
         var node = cluster.AddNode("node-1");
         var executed = false;
 
@@ -23,7 +23,7 @@ public sealed class SimulationClusterTests
     [Fact]
     public async Task SuspendedNodeResumesAfterSimulatedDuration()
     {
-        await using var cluster = new TestCluster(seed: 12345);
+        await using var cluster = new SimulationCluster(seed: 12345, DateTimeOffset.UnixEpoch);
         var node = cluster.AddNode("node-1");
 
         node.SuspendFor(TimeSpan.FromSeconds(5));
@@ -35,7 +35,7 @@ public sealed class SimulationClusterTests
     [Fact]
     public async Task NetworkPartitionsAreDirectionalAndHealable()
     {
-        await using var cluster = new TestCluster(seed: 12345);
+        await using var cluster = new SimulationCluster(seed: 12345, DateTimeOffset.UnixEpoch);
         _ = cluster.AddNode("node-1");
         _ = cluster.AddNode("node-2");
 
@@ -51,7 +51,7 @@ public sealed class SimulationClusterTests
     [Fact]
     public async Task RunUntilReportsIdleWhenThereIsNoPendingWork()
     {
-        await using var cluster = new TestCluster(seed: 12345);
+        await using var cluster = new SimulationCluster(seed: 12345, DateTimeOffset.UnixEpoch);
         _ = cluster.AddNode("node-1");
 
         Assert.Equal(SimulationExecutionReason.Idle, cluster.RunUntil(() => false, maxIterations: 100).Reason);
@@ -60,7 +60,7 @@ public sealed class SimulationClusterTests
     [Fact]
     public async Task RunUntilReportsWhenTheNextDueTimeExceedsMaxSimulatedTimeAdvance()
     {
-        await using var cluster = new TestCluster(seed: 12345)
+        await using var cluster = new SimulationCluster(seed: 12345, DateTimeOffset.UnixEpoch)
         {
             MaxSimulatedTimeAdvance = TimeSpan.FromSeconds(1),
         };
@@ -72,18 +72,19 @@ public sealed class SimulationClusterTests
         Assert.Equal(
             SimulationExecutionReason.MaxSimulatedTimeAdvanceExceeded,
             cluster.RunUntil(() => false, maxIterations: 100).Reason);
+        cluster.MaxSimulatedTimeAdvance = TimeSpan.FromMinutes(10);
     }
 
     [Fact]
     public async Task RunUntilIdleReportsTheNumberOfTasksExecutedBeforeGoingIdle()
     {
-        await using var cluster = new TestCluster(seed: 12345);
+        await using var cluster = new SimulationCluster(seed: 12345, DateTimeOffset.UnixEpoch);
         var node = cluster.AddNode("node-1");
         var executedCount = 0;
 
         for (var i = 0; i < 3; i++)
         {
-            node.Context.SchedulerLane.Enqueue(new ScheduledActionItem(() => executedCount++));
+            node.Context.SchedulerLane.Enqueue(() => executedCount++);
         }
 
         Assert.Equal(3, cluster.RunUntilIdle().StepsExecuted);
@@ -93,7 +94,7 @@ public sealed class SimulationClusterTests
     [Fact]
     public async Task RunToCompletionOverloadsExecuteTaskFactoriesWithinActiveSimulation()
     {
-        await using var cluster = new TestCluster(seed: 12345);
+        await using var cluster = new SimulationCluster(seed: 12345, DateTimeOffset.UnixEpoch);
         var budget = new AdaptiveExecutionBudget(maxTotalIterations: 1_000);
 
         cluster.RunToCompletion(() =>
@@ -125,8 +126,8 @@ public sealed class SimulationClusterTests
     [Fact]
     public async Task ForkRandomIsReproducibleAcrossClustersWithTheSameSeed()
     {
-        await using var first = new TestCluster(seed: 42);
-        await using var second = new TestCluster(seed: 42);
+        await using var first = new SimulationCluster(seed: 42, DateTimeOffset.UnixEpoch);
+        await using var second = new SimulationCluster(seed: 42, DateTimeOffset.UnixEpoch);
 
         var firstDerived = first.ForkRandom();
         var secondDerived = second.ForkRandom();
@@ -141,7 +142,10 @@ public sealed class SimulationClusterTests
     [Fact]
     public async Task DisposeFailureStillReleasesInfrastructureAndSecondDisposeIsANoOp()
     {
-        var cluster = new FailingDisposeCluster(seed: 42);
+        var cluster = new SimulationCluster(seed: 42, DateTimeOffset.UnixEpoch);
+        var node = cluster.AddCustomNode(
+            "node",
+            context => new FailingDisposeNode("node", context));
         var runtime = cluster.RuntimeIdentity;
         var teardownToken = cluster.TeardownCancellationToken;
 
@@ -149,49 +153,27 @@ public sealed class SimulationClusterTests
 
         var failure = Assert.Single(exception.InnerExceptions);
         Assert.Equal("cluster cleanup failed", failure.Message);
-        Assert.Equal(1, cluster.DisposeCallCount);
+        Assert.Equal(1, node.DisposeCallCount);
         Assert.True(teardownToken.IsCancellationRequested);
         Assert.False(SimulationExecutionContext.IsActive);
 
         await cluster.DisposeAsync();
-        Assert.Equal(1, cluster.DisposeCallCount);
+        Assert.Equal(1, node.DisposeCallCount);
     }
 
-    private sealed class TestCluster : SimulationCluster<TestNode>
-    {
-        public TestCluster(int seed)
-            : base(seed, DateTimeOffset.UnixEpoch)
-        {
-            Network = new SimulationNetwork(() => Nodes, Random.Fork());
-        }
-
-        public SimulationNetwork Network { get; }
-
-        public TestNode AddNode(string address)
-        {
-            var context = CreateNodeContext(address);
-            var node = new TestNode(address, context);
-            RegisterNode(node);
-            return node;
-        }
-
-        protected override ValueTask DisposeAsyncCore() => ValueTask.CompletedTask;
-    }
-
-    private sealed class TestNode(string address, SimulationNodeContext context) : SimulationNode
+    private sealed class FailingDisposeNode(
+        string address,
+        SimulationNodeContext context) : SimulationNode, IAsyncDisposable
     {
         public override SimulationNodeContext Context { get; } = context;
 
         public override string NetworkAddress { get; } = address;
 
         public override bool IsInitialized => true;
-    }
 
-    private sealed class FailingDisposeCluster(int seed) : SimulationCluster<TestNode>(seed, DateTimeOffset.UnixEpoch)
-    {
         public int DisposeCallCount { get; private set; }
 
-        protected override ValueTask DisposeAsyncCore()
+        public ValueTask DisposeAsync()
         {
             DisposeCallCount++;
             throw new InvalidOperationException("cluster cleanup failed");

@@ -1,7 +1,71 @@
+using Clockwork.Runtime.Scheduling;
+
 namespace Clockwork.Tests;
 
 public sealed class SimulationSchedulerTests
 {
+    [Fact]
+    public void SchedulerTimeStartsAtConfiguredOrigin()
+    {
+        var start = DateTimeOffset.UnixEpoch + TimeSpan.FromDays(1);
+        using var scheduler = SimulationTestHarness.NewScheduler(start);
+
+        Assert.Equal(start, scheduler.StartDateTime);
+        Assert.Equal(start, scheduler.UtcNow);
+        Assert.Equal(TimeSpan.Zero, scheduler.VirtualTime);
+    }
+
+    [Fact]
+    public void AdvancingVirtualTimeMovesSchedulerTimeForward()
+    {
+        using var scheduler = SimulationTestHarness.NewScheduler();
+
+        scheduler.AdvanceVirtualTimeTo(TimeSpan.FromSeconds(5));
+        scheduler.AdvanceVirtualTimeTo(TimeSpan.FromSeconds(7));
+
+        Assert.Equal(TimeSpan.FromSeconds(7), scheduler.VirtualTime);
+        Assert.Equal(DateTimeOffset.UnixEpoch + TimeSpan.FromSeconds(7), scheduler.UtcNow);
+    }
+
+    [Fact]
+    public void AdvancingVirtualTimeRejectsInvalidTargetsAndAllowsCurrentTime()
+    {
+        using var scheduler = SimulationTestHarness.NewScheduler();
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => scheduler.AdvanceVirtualTimeTo(TimeSpan.FromSeconds(-1)));
+
+        scheduler.AdvanceVirtualTimeTo(TimeSpan.FromSeconds(3));
+        scheduler.AdvanceVirtualTimeTo(scheduler.VirtualTime);
+
+        Assert.Equal(TimeSpan.FromSeconds(3), scheduler.VirtualTime);
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => scheduler.AdvanceVirtualTimeTo(TimeSpan.FromSeconds(2)));
+    }
+
+    [Fact]
+    public void LanesSharingSchedulerObserveVirtualTimeAdvanceTogether()
+    {
+        using var scheduler = SimulationTestHarness.NewScheduler();
+        var guard = SimulationTestHarness.NewGuard(scheduler);
+        var queueA = new SimulationSchedulerLane(scheduler, guard);
+        var queueB = new SimulationSchedulerLane(scheduler, guard);
+        var aExecuted = false;
+        var bExecuted = false;
+        queueA.EnqueueAfter(() => aExecuted = true, TimeSpan.FromSeconds(5));
+        queueB.EnqueueAfter(() => bExecuted = true, TimeSpan.FromSeconds(5));
+
+        Assert.False(queueA.RunOnce());
+        Assert.False(queueB.RunOnce());
+
+        scheduler.AdvanceVirtualTimeTo(TimeSpan.FromSeconds(5));
+
+        Assert.True(queueA.RunOnce());
+        Assert.True(queueB.RunOnce());
+        Assert.True(aExecuted);
+        Assert.True(bExecuted);
+    }
+
     [Fact]
     public void ScheduledTasksExecuteOnlyWhenStepped()
     {
@@ -36,13 +100,13 @@ public sealed class SimulationSchedulerTests
     [Fact]
     public void DelayedWorkWaitsForSimulatedTime()
     {
-        var (queue, clock, _) = CreateComponents();
+        var (queue, scheduler, _) = CreateComponents();
         var executed = false;
 
         queue.EnqueueAfter(() => executed = true, TimeSpan.FromSeconds(5));
 
         Assert.False(queue.RunOnce());
-        clock.Advance(TimeSpan.FromSeconds(5));
+        Advance(scheduler, TimeSpan.FromSeconds(5));
         Assert.True(queue.RunOnce());
         Assert.True(executed);
     }
@@ -50,14 +114,14 @@ public sealed class SimulationSchedulerTests
     [Fact]
     public void ItemsWithEarlierDueTimesRunBeforeLaterOnesRegardlessOfEnqueueOrder()
     {
-        var (queue, clock, _) = CreateComponents();
+        var (queue, scheduler, _) = CreateComponents();
         var executionOrder = new List<string>();
 
         // Enqueue the later-due item first to prove ordering is by due time, not enqueue order.
         queue.EnqueueAfter(() => executionOrder.Add("later"), TimeSpan.FromSeconds(10));
         queue.EnqueueAfter(() => executionOrder.Add("earlier"), TimeSpan.FromSeconds(5));
 
-        clock.Advance(TimeSpan.FromSeconds(10));
+        Advance(scheduler, TimeSpan.FromSeconds(10));
 
         Assert.Equal(2, queue.RunUntilIdle());
         Assert.Equal(["earlier", "later"], executionOrder);
@@ -66,7 +130,7 @@ public sealed class SimulationSchedulerTests
     [Fact]
     public void ItemsWithTheSameDueTimeRunInSequenceNumberOrder()
     {
-        var (queue, clock, _) = CreateComponents();
+        var (queue, scheduler, _) = CreateComponents();
         var executionOrder = new List<int>();
 
         for (var i = 0; i < 5; i++)
@@ -75,25 +139,31 @@ public sealed class SimulationSchedulerTests
             queue.EnqueueAfter(() => executionOrder.Add(index), TimeSpan.FromSeconds(5));
         }
 
-        clock.Advance(TimeSpan.FromSeconds(5));
+        Advance(scheduler, TimeSpan.FromSeconds(5));
 
         Assert.Equal(5, queue.RunUntilIdle());
         Assert.Equal([0, 1, 2, 3, 4], executionOrder);
     }
 
     [Fact]
-    public void DisposingAScheduledItemCancelsItBeforeItRuns()
+    public void ScheduledItemDiagnosticsAreImmutableSnapshots()
     {
-        var (queue, clock, _) = CreateComponents();
-        var executed = false;
+        var (queue, scheduler, _) = CreateComponents();
 
-        var item = queue.EnqueueAfter(new ScheduledActionItem(() => executed = true), TimeSpan.FromSeconds(5));
-        item.Dispose();
+        queue.EnqueueAfter(() => { }, TimeSpan.FromSeconds(5));
+        IReadOnlyList<SimulationScheduledItemDiagnostic> snapshot = queue.CaptureScheduledItems();
 
-        clock.Advance(TimeSpan.FromSeconds(5));
+        SimulationScheduledItemDiagnostic item = Assert.Single(snapshot);
+        Assert.Equal("action", item.Kind);
+        Assert.Equal("Scheduled action", item.Description);
+        Assert.Equal(scheduler.UtcNow + TimeSpan.FromSeconds(5), item.DueTime);
+        Assert.Equal(0, item.SequenceNumber);
+        Assert.False(item.IsReady);
+        Assert.False(item.IsBlocked);
 
-        Assert.False(queue.RunOnce());
-        Assert.False(executed);
+        queue.Enqueue(() => { });
+        Assert.Single(snapshot);
+        Assert.Equal(2, queue.CaptureScheduledItems().Count);
     }
 
     [Fact]
@@ -109,11 +179,13 @@ public sealed class SimulationSchedulerTests
         Assert.True(executed);
     }
 
-    private static (SimulationSchedulerLane Queue, SimulationClock Clock, SimulationTaskScheduler Scheduler) CreateComponents()
+    private static (SimulationSchedulerLane Queue, SimulationScheduler RuntimeScheduler, SimulationTaskScheduler TaskScheduler) CreateComponents()
     {
         var scheduler = SimulationTestHarness.NewScheduler();
-        var clock = new SimulationClock(scheduler);
         var queue = new SimulationSchedulerLane(scheduler, SimulationTestHarness.NewGuard(scheduler));
-        return (queue, clock, new SimulationTaskScheduler(queue));
+        return (queue, scheduler, new SimulationTaskScheduler(queue));
     }
+
+    private static void Advance(SimulationScheduler scheduler, TimeSpan delta) =>
+        scheduler.AdvanceVirtualTimeTo(scheduler.VirtualTime + delta);
 }

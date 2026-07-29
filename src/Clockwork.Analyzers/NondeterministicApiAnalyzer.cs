@@ -9,8 +9,7 @@ namespace Clockwork.Analyzers;
 
 /// <summary>
 /// Flags direct calls to the nondeterministic .NET BCL surface covered by Clockwork's built-in
-/// deterministic rule set. Controlled time / identity / random members raise <c>CW1001</c>; the
-/// cryptographic randomness members that draw OS entropy raise <c>CW1002</c>. The analyzer resolves
+/// deterministic rule set. Controlled time, identity, and random members raise <c>CW1001</c>. The analyzer resolves
 /// the relevant framework symbols once per compilation and then matches operations by symbol identity,
 /// so it is robust against namespace aliasing and using-static.
 /// </summary>
@@ -21,7 +20,6 @@ public sealed class NondeterministicApiAnalyzer : DiagnosticAnalyzer
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } =
         [
             DeterminismDiagnostics.ControlledApi,
-            DeterminismDiagnostics.RejectedApi,
             DeterminismDiagnostics.UnstableCollectionOrdering,
         ];
 
@@ -197,10 +195,11 @@ public sealed class NondeterministicApiAnalyzer : DiagnosticAnalyzer
             method.IsStatic &&
             method.Name is "Create" or "Fill" or "GetBytes" or "GetInt32" or "GetHexString" or "GetItems" or "GetString" or "Shuffle")
         {
-            context.ReportDiagnostic(Diagnostic.Create(
-                DeterminismDiagnostics.RejectedApi,
+            ReportControlled(
+                context,
                 operation.Syntax.GetLocation(),
-                "RandomNumberGenerator." + method.Name));
+                "RandomNumberGenerator." + method.Name,
+                "clockwork.bcl.rng." + method.Name.ToLowerInvariant());
             return;
         }
 

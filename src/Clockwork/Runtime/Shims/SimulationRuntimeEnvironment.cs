@@ -48,8 +48,8 @@ public sealed class SimulationRuntimeEnvironment : ISimulationRuntimeEnvironment
     /// <summary>The stable site-id prefix for the per-node identity byte stream.</summary>
     private const string IdentitySite = "clockwork.identity/";
 
-    /// <summary>The stable site-id prefix for the per-node explicitly-insecure crypto stream.</summary>
-    private const string InsecureCryptoSite = "clockwork.crypto.insecure/";
+    /// <summary>The stable site-id prefix for the per-node controlled crypto-random stream.</summary>
+    private const string CryptoRandomSite = "clockwork.crypto.insecure/";
 
     /// <summary>The key used for cluster-level execution not scoped to a node.</summary>
     private const string ClusterNodeKey = "<cluster>";
@@ -68,13 +68,11 @@ public sealed class SimulationRuntimeEnvironment : ISimulationRuntimeEnvironment
     /// The fixed virtual origin that <see cref="GetTickCount64"/> and <see cref="GetTimestamp"/> are
     /// measured from. Must be less than or equal to every instant the clock will return.
     /// </param>
-    /// <param name="cryptoPolicy">The cryptographic-randomness policy for this simulation.</param>
     public SimulationRuntimeEnvironment(
         SimulationSeedAuthority seedAuthority,
         Func<DateTimeOffset> utcNowProvider,
         TimeZoneInfo localTimeZone,
-        DateTimeOffset origin,
-        SimulationCryptoRandomnessPolicy cryptoPolicy = SimulationCryptoRandomnessPolicy.Reject)
+        DateTimeOffset origin)
     {
         ArgumentNullException.ThrowIfNull(seedAuthority);
         ArgumentNullException.ThrowIfNull(utcNowProvider);
@@ -84,11 +82,7 @@ public sealed class SimulationRuntimeEnvironment : ISimulationRuntimeEnvironment
         _utcNowProvider = utcNowProvider;
         _localTimeZone = localTimeZone;
         _origin = origin;
-        CryptoPolicy = cryptoPolicy;
     }
-
-    /// <inheritdoc/>
-    public SimulationCryptoRandomnessPolicy CryptoPolicy { get; }
 
     /// <inheritdoc/>
     public DateTimeOffset GetUtcNow(SimulationNodeIdentity? node) => _utcNowProvider();
@@ -138,12 +132,12 @@ public sealed class SimulationRuntimeEnvironment : ISimulationRuntimeEnvironment
     }
 
     /// <inheritdoc/>
-    public void FillInsecureCryptoBytes(SimulationNodeIdentity? node, Span<byte> destination)
+    public void FillCryptoRandomBytes(SimulationNodeIdentity? node, Span<byte> destination)
     {
         var streams = GetStreams(node);
-        lock (streams.InsecureCryptoGate)
+        lock (streams.CryptoRandomGate)
         {
-            streams.InsecureCrypto.NextBytes(destination);
+            streams.CryptoRandom.NextBytes(destination);
         }
     }
 
@@ -157,15 +151,15 @@ public sealed class SimulationRuntimeEnvironment : ISimulationRuntimeEnvironment
     {
         var sharedSeed = _seedAuthority.GetSiteSeed(SimulationSeedDomain.Application, SharedRandomSite + key);
         var identitySeed = _seedAuthority.GetSiteSeed(SimulationSeedDomain.Identity, IdentitySite + key);
-        var insecureSeed = _seedAuthority.GetSiteSeed(SimulationSeedDomain.Identity, InsecureCryptoSite + key);
+        var cryptoRandomSeed = _seedAuthority.GetSiteSeed(SimulationSeedDomain.Identity, CryptoRandomSite + key);
         return new NodeStreams(
             key,
             shared: new SynchronizedRandom(sharedSeed),
             identity: new System.Random(identitySeed),
-            insecureCrypto: new System.Random(insecureSeed));
+            cryptoRandom: new System.Random(cryptoRandomSeed));
     }
 
-    private sealed class NodeStreams(string key, System.Random shared, System.Random identity, System.Random insecureCrypto)
+    private sealed class NodeStreams(string key, System.Random shared, System.Random identity, System.Random cryptoRandom)
     {
         public string Key { get; } = key;
 
@@ -175,9 +169,9 @@ public sealed class SimulationRuntimeEnvironment : ISimulationRuntimeEnvironment
 
         public object IdentityGate { get; } = new();
 
-        public System.Random InsecureCrypto { get; } = insecureCrypto;
+        public System.Random CryptoRandom { get; } = cryptoRandom;
 
-        public object InsecureCryptoGate { get; } = new();
+        public object CryptoRandomGate { get; } = new();
 
         public int UnseededCount;
     }

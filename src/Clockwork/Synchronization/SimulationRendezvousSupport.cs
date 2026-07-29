@@ -131,7 +131,7 @@ internal static class SimulationRendezvousSupport
         public void ScheduleRelease(SimulationSchedulerLane queue)
         {
             DisposeRegistration();
-            queue.Enqueue(new ScheduledActionItem(() => _completion.TrySetResult()));
+            queue.Enqueue(() => _completion.TrySetResult());
         }
 
         private void CancellationRequested() => _onCancellation(this);

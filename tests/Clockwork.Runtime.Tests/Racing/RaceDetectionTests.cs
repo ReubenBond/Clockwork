@@ -19,7 +19,6 @@ public sealed class RaceDetectionTests
             () => RaceInstrumentation.ReadStatic("Fx.State::Value", "A", 1, "A.cs", 10),
             () => RaceInstrumentation.ReadStatic("Fx.State::Value", "B", 2, "B.cs", 20));
 
-        Assert.False(scheduler.RaceExplorationResult.IsRaceDetected);
         Assert.Null(scheduler.FirstRace);
     }
 
@@ -34,7 +33,6 @@ public sealed class RaceDetectionTests
             () => AccessStatic(second, "B"));
 
         RaceReport race = Assert.IsType<RaceReport>(scheduler.FirstRace);
-        Assert.Equal(RaceExplorationTerminationReason.RaceDetected, scheduler.RaceExplorationResult.Reason);
         Assert.Equal(first, race.FirstAccess.Kind);
         Assert.Equal(second, race.SecondAccess.Kind);
         Assert.Equal("Fx.State::Value", race.FirstAccess.Location.Member);
@@ -375,7 +373,7 @@ public sealed class RaceDetectionTests
     public void ResourceWaitConsumesClockFromItsResolvingSignal()
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();
-        scheduler.SchedulingStrategy = new Clockwork.Runtime.Scheduling.Strategies.PrioritySchedulingStrategy();
+        scheduler.SchedulingStrategy = Clockwork.Runtime.Scheduling.Strategies.SimulationSchedulingStrategies.Priority();
         var resource = scheduler.CreateResource(
             Clockwork.Runtime.Scheduling.Resources.SimulationResourceKind.ManualResetEvent,
             "clocked-event");
@@ -503,7 +501,7 @@ public sealed class RaceDetectionTests
     private static string RunReport(int seed)
     {
         using var scheduler = SchedulerTestHarness.NewScheduler(seed: seed);
-        scheduler.SchedulingStrategy = new SeededRandomSchedulingStrategy(seed);
+        scheduler.SchedulingStrategy = SimulationSchedulingStrategies.SeededRandom(seed);
         scheduler.Schedule("first", () => AccessStatic(RaceAccessKind.Write, "A"));
         scheduler.Schedule("second", () => AccessStatic(RaceAccessKind.Read, "B"));
         scheduler.Drain();

@@ -7,7 +7,7 @@ namespace Clockwork.Instrumentation.Tests.Configuration;
 
 /// <summary>
 /// Verifies the built-in rule-set selection plumbing: enabling by id, family include/exclude, the
-/// strict crypto-guard invariant, lowest-precedence merge ordering, and configuration-signature
+/// lowest-precedence merge ordering and configuration-signature
 /// participation so a selection change invalidates incremental outputs.
 /// </summary>
 public sealed class BuiltInSelectionTests
@@ -15,14 +15,12 @@ public sealed class BuiltInSelectionTests
     private static InstrumentationConfiguration WithBuiltIns(
         IEnumerable<string>? ids = null,
         IEnumerable<string>? include = null,
-        IEnumerable<string>? exclude = null,
-        bool strict = true) =>
+        IEnumerable<string>? exclude = null) =>
         new()
         {
             BuiltInRuleSetIds = ids is null ? [BuiltInRuleSets.DeterministicBclId] : [.. ids],
             BuiltInIncludeFamilies = include is null ? [] : [.. include],
             BuiltInExcludeFamilies = exclude is null ? [] : [.. exclude],
-            StrictBuiltIns = strict,
         };
 
     [Fact]
@@ -61,18 +59,10 @@ public sealed class BuiltInSelectionTests
     }
 
     [Fact]
-    public void ExcludingCryptoIsRejectedUnderStrict()
-    {
-        ConfigurationException ex = Assert.Throws<ConfigurationException>(
-            () => RuleSetMerge.ResolveBuiltIns(WithBuiltIns(exclude: ["Crypto"], strict: true)));
-        Assert.Contains("Crypto", ex.Message, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void ExcludingCryptoIsAllowedWhenNotStrict()
+    public void ExcludingCryptoRemovesItsRules()
     {
         RewriteRuleSet resolved = Assert.Single(
-            RuleSetMerge.ResolveBuiltIns(WithBuiltIns(exclude: ["Crypto"], strict: false)));
+            RuleSetMerge.ResolveBuiltIns(WithBuiltIns(exclude: ["Crypto"])));
         Assert.DoesNotContain(resolved.Rules, r => r.Id.StartsWith("clockwork.bcl.rng", StringComparison.Ordinal));
         Assert.Contains(resolved.Rules, r => r.Id == "clockwork.bcl.guid.newguid");
     }
@@ -111,7 +101,7 @@ public sealed class BuiltInSelectionTests
         // A document rule sharing a built-in id wins, because built-ins merge at lowest precedence.
         string document = """
             {
-              "schemaVersion": 1,
+              "schemaVersion": 2,
               "id": "override.doc",
               "version": "1.0",
               "rules": [
@@ -148,9 +138,9 @@ public sealed class BuiltInSelectionTests
         string none = new InstrumentationConfiguration().ComputeSignature();
         string enabled = WithBuiltIns().ComputeSignature();
         string clockOnly = WithBuiltIns(include: ["Clock"]).ComputeSignature();
-        string relaxed = WithBuiltIns(exclude: ["Crypto"], strict: false).ComputeSignature();
+        string excluded = WithBuiltIns(exclude: ["Crypto"]).ComputeSignature();
 
-        var signatures = new[] { none, enabled, clockOnly, relaxed };
+        var signatures = new[] { none, enabled, clockOnly, excluded };
         Assert.Equal(signatures.Length, signatures.Distinct(StringComparer.Ordinal).Count());
     }
 }

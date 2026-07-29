@@ -23,9 +23,8 @@ public enum BuiltInRuleFamily
     Random,
 
     /// <summary>
-    /// Cryptographic randomness: the static <see cref="System.Security.Cryptography.RandomNumberGenerator"/>
-    /// APIs and factories that draw operating-system entropy. Controlled to the policy shim, which rejects
-    /// by default and only serves deterministic-insecure bytes under an explicit test-only opt-in.
+    /// Random-number generation: the static <see cref="System.Security.Cryptography.RandomNumberGenerator"/>
+    /// APIs and factories, redirected to deterministic non-cryptographic simulation streams.
     /// </summary>
     Crypto,
 

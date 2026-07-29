@@ -6,7 +6,8 @@ namespace Clockwork.Runtime.Shims;
 /// <para>
 /// The deterministic services a simulation host provides to the BCL shims: virtual time, virtual
 /// high-resolution timestamps and tick counts, deterministic random streams, deterministic identity
-/// bytes for GUID generation, and a cryptographic-randomness policy. A host installs one environment
+/// bytes for GUID generation and deterministic non-cryptographic bytes for controlled
+/// <see cref="System.Security.Cryptography.RandomNumberGenerator"/> APIs. A host installs one environment
 /// in each runtime before activation; the shims resolve it from the ambient
 /// <see cref="SimulationExecutionContext"/> and dispatch to it, passing the currently-active
 /// node identity so the environment can return per-node-isolated state.
@@ -21,9 +22,6 @@ namespace Clockwork.Runtime.Shims;
 /// </summary>
 public interface ISimulationRuntimeEnvironment
 {
-    /// <summary>Gets the environment's cryptographic-randomness policy for the active simulation.</summary>
-    SimulationCryptoRandomnessPolicy CryptoPolicy { get; }
-
     /// <summary>Gets the current virtual UTC instant for the given node.</summary>
     /// <param name="node">The active node identity, or <see langword="null"/> for cluster-level execution.</param>
     /// <returns>The deterministic current UTC instant.</returns>
@@ -79,11 +77,10 @@ public interface ISimulationRuntimeEnvironment
     void FillIdentityBytes(SimulationNodeIdentity? node, Span<byte> destination);
 
     /// <summary>
-    /// Fills <paramref name="destination"/> with deterministic, <b>non-cryptographic</b> bytes for the
-    /// explicit <see cref="SimulationCryptoRandomnessPolicy.DeterministicInsecureForTesting"/> policy.
-    /// Never called when <see cref="CryptoPolicy"/> is <see cref="SimulationCryptoRandomnessPolicy.Reject"/>.
+    /// Fills <paramref name="destination"/> with deterministic, non-cryptographic bytes for controlled
+    /// <see cref="System.Security.Cryptography.RandomNumberGenerator"/> APIs.
     /// </summary>
     /// <param name="node">The active node identity, or <see langword="null"/> for cluster-level execution.</param>
     /// <param name="destination">The buffer to fill.</param>
-    void FillInsecureCryptoBytes(SimulationNodeIdentity? node, Span<byte> destination);
+    void FillCryptoRandomBytes(SimulationNodeIdentity? node, Span<byte> destination);
 }

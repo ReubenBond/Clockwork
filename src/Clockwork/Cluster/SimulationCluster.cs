@@ -9,28 +9,28 @@ using Microsoft.Extensions.Logging;
 namespace Clockwork;
 
 /// <summary>
-/// <para>
-/// Abstract base class for simulation clusters that orchestrate deterministic testing
-/// of distributed systems. Provides generic task scheduling, time management, and
-/// node lifecycle management independent of any specific application domain.
-/// </para>
-/// <para>Derived classes implement application-specific node creation and cluster operations.</para>
+/// A directly constructible deterministic simulation cluster. The cluster owns the scheduler,
+/// runtime, network, drive loop, and every node attached through <see cref="AddNode(string)"/>,
+/// <see cref="AddNode{TState}(string, TState)"/>, or
+/// <see cref="AddCustomNode{TNode}(string, Func{SimulationNodeContext, TNode})"/>.
 /// </summary>
-/// <typeparam name="TNode">The concrete simulation node type.</typeparam>
 [DebuggerDisplay("{DebuggerDisplay,nq}")]
-public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
-    where TNode : SimulationNode
+public sealed partial class SimulationCluster : IAsyncDisposable
 {
-    private readonly SortedDictionary<string, TNode> _nodes = new(StringComparer.Ordinal);
+    private const int DisposalMaxIterations = 1_000_000;
+
+    private readonly SortedDictionary<string, SimulationNode> _nodes = new(StringComparer.Ordinal);
+    private readonly List<NodeRegistration> _nodeRegistrations = [];
+    private readonly Dictionary<string, SimulationNodeContext> _attachments = new(StringComparer.Ordinal);
     private readonly SimulationTimeProvider _timeProvider;
     private readonly CancellationTokenSource _teardownCts;
     private readonly SimulationDriveLoop _driveLoop;
-    private readonly SimulationScheduler _scheduler;
     private readonly int _simulationThreadId;
+    private List<Exception>? _disposalFailures;
     private bool _disposed;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="SimulationCluster{TNode}"/> class.
+    /// Initializes a new instance of the <see cref="SimulationCluster"/> class.
     /// Initializes a new simulation cluster with the specified seed.
     /// </summary>
     /// <param name="seed">The seed for deterministic random number generation.</param>
@@ -39,26 +39,19 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     /// Optional local time zone the deterministic <c>DateTime.Now</c>/<c>Today</c> shims observe.
     /// Defaults to <see cref="TimeZoneInfo.Utc"/> so local and UTC time coincide deterministically.
     /// </param>
-    /// <param name="cryptoRandomnessPolicy">
-    /// Optional policy for cryptographic-randomness calls during simulation. Defaults to
-    /// <see cref="CryptoRandomnessPolicy.Reject"/>, which fails such calls with a precise
-    /// diagnostic rather than ever substituting insecure bytes.
-    /// </param>
     /// <param name="cancellationToken">Optional cancellation token to link with the cluster teardown.</param>
-    protected SimulationCluster(
+    public SimulationCluster(
         int seed,
         DateTimeOffset? startDateTime = null,
         TimeZoneInfo? simulationTimeZone = null,
-        CryptoRandomnessPolicy cryptoRandomnessPolicy = CryptoRandomnessPolicy.Reject,
         CancellationToken cancellationToken = default)
     {
         _teardownCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _simulationThreadId = Environment.CurrentManagedThreadId;
         TeardownCancellationToken = _teardownCts.Token;
         Seed = seed;
-        StartDateTime = startDateTime ?? DateTimeOffset.UtcNow;
+        var simulationStartDateTime = startDateTime ?? DateTimeOffset.UtcNow;
         SimulationTimeZone = simulationTimeZone ?? TimeZoneInfo.Utc;
-        CryptoRandomnessPolicy = cryptoRandomnessPolicy;
 
         Random = new SimulationRandom(seed);
 
@@ -66,34 +59,34 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
 
         // The scheduler is the runtime's single authority for work and virtual time.
         RuntimeIdentity = new SimulationRuntimeIdentity(Guid.NewGuid(), seed, GetType().Name);
-        _scheduler = new SimulationScheduler(
+        Scheduler = new SimulationScheduler(
             RuntimeIdentity,
             SeedAuthority,
-            StartDateTime,
-            SimulationTimeZone,
-            CryptoRandomnessPolicy.ToRuntimePolicy());
-        Clock = new SimulationClock(_scheduler);
+            simulationStartDateTime,
+            SimulationTimeZone);
         Guard = new SingleThreadedGuard(
-            () => _scheduler.IsSimulationThread || Environment.CurrentManagedThreadId == _simulationThreadId
+            () => Scheduler.IsSimulationThread || Environment.CurrentManagedThreadId == _simulationThreadId
                 ? SimulationScheduler.SimulationLogicalThreadOwnerId
                 : Environment.CurrentManagedThreadId);
 
         // Create shared cluster-level scheduling surfaces.
-        SchedulerLane = new SimulationSchedulerLane(_scheduler, Guard);
+        SchedulerLane = new SimulationSchedulerLane(Scheduler, Guard);
         TaskScheduler = new SimulationTaskScheduler(SchedulerLane);
 
-        // Create time provider using cluster queue (for GetUtcNow queries)
-        _timeProvider = new SimulationTimeProvider(SchedulerLane, Clock);
+        // Create time provider using the cluster lane.
+        _timeProvider = new SimulationTimeProvider(SchedulerLane);
 
         // The single engine that drives RunUntil/RunUntilIdle/RunFor.
         _driveLoop = new SimulationDriveLoop(
             () => _timeProvider.GetUtcNow(),
             RunOneTaskRoundRobin,
             GetNextWaitingDueTime,
-            AdvanceClock,
+            AdvanceVirtualTime,
             CapturePendingWorkSummary,
             TeardownCancellationToken);
-
+        Network = new SimulationNetwork(
+            () => Nodes,
+            new SimulationRandom(SeedAuthority.GetDomainSeed(SimulationSeedDomain.Network)));
     }
 
     /// <summary>
@@ -132,13 +125,6 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     public TimeZoneInfo SimulationTimeZone { get; }
 
     /// <summary>
-    /// Gets the cryptographic-randomness policy the deterministic crypto shims enforce during this
-    /// simulation. Defaults to <see cref="CryptoRandomnessPolicy.Reject"/>: OS-entropy calls
-    /// fail with a precise diagnostic rather than ever silently substituting insecure bytes.
-    /// </summary>
-    public CryptoRandomnessPolicy CryptoRandomnessPolicy { get; }
-
-    /// <summary>
     /// Gets the deterministic runtime environment the BCL shims dispatch to while this cluster's
     /// ambient runtime is active. Backed by this cluster's virtual clock and seed authority.
     /// </summary>
@@ -164,7 +150,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     /// <summary>
     /// Gets the starting date/time for the simulation.
     /// </summary>
-    public DateTimeOffset StartDateTime { get; }
+    public DateTimeOffset StartDateTime => Scheduler.StartDateTime;
 
     /// <summary>
     /// Gets the simulation random instance.
@@ -172,9 +158,9 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     public SimulationRandom Random { get; }
 
     /// <summary>
-    /// Gets the shared simulation clock.
+    /// Gets the scheduler which owns this cluster's work and virtual time.
     /// </summary>
-    public SimulationClock Clock { get; }
+    public SimulationScheduler Scheduler { get; }
 
     /// <summary>
     /// Gets the simulation time provider.
@@ -185,13 +171,19 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     /// Gets all nodes in the simulation, including suspended nodes (snapshot).
     /// Consider using <see cref="ActiveNodes"/> for most operations.
     /// </summary>
-    public IReadOnlyList<TNode> Nodes => [.. _nodes.Values];
+    public IReadOnlyList<SimulationNode> Nodes => [.. _nodes.Values];
 
     /// <summary>
     /// Gets all active (non-suspended) nodes in the simulation (snapshot).
     /// Suspended nodes cannot process messages and are excluded from convergence checks.
     /// </summary>
-    public IReadOnlyList<TNode> ActiveNodes => [.. _nodes.Values.Where(n => !n.IsSuspended)];
+    public IReadOnlyList<SimulationNode> ActiveNodes => [.. _nodes.Values.Where(n => !n.IsSuspended)];
+
+    /// <summary>
+    /// Gets the simulated network for this cluster. The network is available immediately, including
+    /// when the cluster has no nodes, and observes nodes as they are attached.
+    /// </summary>
+    public SimulationNetwork Network { get; }
 
     /// <summary>
     /// Gets the cluster-level scheduler lane for general simulation work.
@@ -218,68 +210,147 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     public SingleThreadedGuard Guard { get; }
 
     /// <summary>
-    /// Gets the simulation context for a specific node.
+    /// Attaches a node with no application state and returns it ready for immediate use.
     /// </summary>
-    /// <param name="node">The node to get the context for.</param>
-    /// <returns>The node's simulation context.</returns>
-    public SimulationNodeContext GetNodeContext(TNode node)
-    {
-        ArgumentNullException.ThrowIfNull(node);
-        return node.Context;
-    }
+    public SimulationNode<object?> AddNode(string address) =>
+        AddNode<object?>(address, static _ => null);
 
     /// <summary>
-    /// Registers a node with the simulation.
+    /// Attaches a node carrying <paramref name="state"/> and returns it ready for immediate use.
+    /// The cluster owns the state and disposes it with the node.
     /// </summary>
-    protected void RegisterNode(TNode node)
+    public SimulationNode<TState> AddNode<TState>(string address, TState state) =>
+        AddNode(address, _ => state);
+
+    /// <summary>
+    /// Attaches a node whose state is created from its fully initialized context.
+    /// The cluster owns the state and disposes it with the node.
+    /// </summary>
+    public SimulationNode<TState> AddNode<TState>(
+        string address,
+        Func<SimulationNodeContext, TState> stateFactory)
     {
-        ArgumentNullException.ThrowIfNull(node);
-        var key = node.NetworkAddress;
-        using var _ = Guard.Enter();
-        if (!_nodes.TryAdd(key, node))
+        ArgumentNullException.ThrowIfNull(stateFactory);
+        SimulationNodeContext context = BeginAttachment(address);
+        SimulationNode<TState>? node = null;
+        TState? state = default;
+        var stateCreated = false;
+        try
         {
-            throw new InvalidOperationException($"Node with address {key} already exists");
+            state = stateFactory(context);
+            stateCreated = true;
+            ThrowIfDisposed();
+            node = new SimulationNode<TState>(address, context, state);
+            RegisterNode(context, node, state, ownsState: true);
+            return node;
         }
+        catch (Exception attachmentException)
+        {
+            List<Exception> cleanupFailures = [];
+            if (TryBeginAttachmentCleanup(context, cleanupFailures))
+            {
+                DrainAttachmentWorkToQuiescence([context], cleanupFailures);
+            }
 
-        OnNodeRegistered(node);
+            if (stateCreated)
+            {
+                DisposeFailedAttachmentTarget(state, cleanupFailures);
+            }
+
+            try
+            {
+                CompleteFailedAttachment(address, context);
+            }
+            catch (Exception exception)
+            {
+                AddDisposalFailure(cleanupFailures, exception);
+            }
+
+            if (cleanupFailures.Count > 0)
+            {
+                throw new AggregateException(
+                    "Node attachment and cleanup both failed.",
+                    [attachmentException, .. cleanupFailures]);
+            }
+
+            throw;
+        }
     }
 
     /// <summary>
-    /// Unregisters a node from the simulation.
-    /// The node is removed from the routing table so it won't receive new messages.
-    /// Note: This does NOT clear the node's scheduler lane - the node may still have
-    /// pending work that needs to complete (e.g., during disposal).
+    /// Attaches a custom node created from its fully initialized context and returns the concrete
+    /// node ready for immediate use. The returned node must expose the supplied context instance,
+    /// and its address must exactly match <paramref name="address"/>.
     /// </summary>
-    protected void UnregisterNode(TNode node)
+    public TNode AddCustomNode<TNode>(
+        string address,
+        Func<SimulationNodeContext, TNode> factory)
+        where TNode : SimulationNode
     {
-        ArgumentNullException.ThrowIfNull(node);
-        var key = node.NetworkAddress;
-        using var _ = Guard.Enter();
-        _nodes.Remove(key);
-        OnNodeUnregistered(node);
+        ArgumentNullException.ThrowIfNull(factory);
+        SimulationNodeContext context = BeginAttachment(address);
+
+        TNode? node = null;
+        try
+        {
+            node = factory(context);
+            if (node is null)
+            {
+                throw new InvalidOperationException(
+                    $"The factory for node '{address}' returned null.");
+            }
+
+            ThrowIfDisposed();
+            ValidateCustomNode(address, context, node);
+            RegisterNode(context, node, state: null, ownsState: false);
+            return node;
+        }
+        catch (Exception attachmentException)
+        {
+            List<Exception> cleanupFailures = [];
+            if (TryBeginAttachmentCleanup(context, cleanupFailures))
+            {
+                DrainAttachmentWorkToQuiescence([context], cleanupFailures);
+            }
+
+            if (node is not null)
+            {
+                DisposeFailedAttachmentTarget(node, cleanupFailures);
+            }
+
+            try
+            {
+                CompleteFailedAttachment(address, context);
+            }
+            catch (Exception exception)
+            {
+                AddDisposalFailure(cleanupFailures, exception);
+            }
+
+            if (cleanupFailures.Count > 0)
+            {
+                throw new AggregateException(
+                    "Node attachment and cleanup both failed.",
+                    [attachmentException, .. cleanupFailures]);
+            }
+
+            throw;
+        }
     }
 
-    /// <summary>
-    /// Gets a node by its network address.
-    /// </summary>
-    protected TNode? GetNode(string address)
+    /// <summary>Gets the node attached at <paramref name="address"/>, or <see langword="null"/>.</summary>
+    public SimulationNode? FindNode(string address)
     {
+        ArgumentException.ThrowIfNullOrEmpty(address);
         using var _ = Guard.Enter();
         _nodes.TryGetValue(address, out var node);
         return node;
     }
 
-    /// <summary>
-    /// Called when a node is registered with the simulation.
-    /// Override to perform additional setup.
-    /// </summary>
-    protected virtual void OnNodeRegistered(TNode node) { }
-
-    /// <summary>
-    /// Called when a node is unregistered from the simulation.
-    /// Override to perform additional cleanup.
-    /// </summary>
-    protected virtual void OnNodeUnregistered(TNode node) { }
+    /// <summary>Gets the node attached at <paramref name="address"/> with the requested type.</summary>
+    public TNode? FindNode<TNode>(string address)
+        where TNode : SimulationNode =>
+        FindNode(address) as TNode;
 
     /// <summary>
     /// Creates a new deterministic random instance derived from the cluster's random.
@@ -293,16 +364,16 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     }
 
     /// <summary>Creates a node context bound to this cluster's scheduler and shared services.</summary>
-    protected SimulationNodeContext CreateNodeContext(string networkAddress, ILogger? logger = null)
+    private SimulationNodeContext CreateNodeContext(string networkAddress, ILogger? logger = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(networkAddress);
         return new SimulationNodeContext(
-            Clock,
+            Scheduler,
             Guard,
-            ForkRandom(),
+            new SimulationRandom(
+                SeedAuthority.GetSiteSeed(SimulationSeedDomain.Application, networkAddress)),
             SchedulerLane,
             logger,
-            RuntimeIdentity,
             new SimulationNodeIdentity(networkAddress));
     }
 
@@ -321,32 +392,43 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     /// <summary>
     /// Attempts to execute one eligible operation on the unified scheduler.
     /// </summary>
-    protected bool RunOneTaskRoundRobin()
+    private bool RunOneTaskRoundRobin()
     {
-        using var control = _scheduler.EnterControlScope();
+        using var control = Scheduler.EnterControlScope();
         using var _ = Guard.Enter();
-        return _scheduler.RunStep();
+        if (_disposalFailures is not { } failures)
+        {
+            return Scheduler.RunStep();
+        }
+
+        bool result = Scheduler.RunStepCapturingCallbackFailure(out Exception? callbackFailure);
+        if (callbackFailure is not null)
+        {
+            AddDisposalFailure(failures, callbackFailure);
+        }
+
+        return result;
     }
 
     /// <summary>
     /// Gets the earliest deadline from the scheduler's unified timer queue.
     /// </summary>
-    protected DateTimeOffset? GetNextWaitingDueTime()
+    private DateTimeOffset? GetNextWaitingDueTime()
     {
         using var _ = Guard.Enter();
-        var schedulerDue = _scheduler.NextTimerDue;
+        var schedulerDue = Scheduler.NextTimerDue;
         return schedulerDue is null ? null : StartDateTime + schedulerDue.Value;
     }
 
     /// <summary>
-    /// Advances the shared simulation clock, then steps the controlled loop's modelled time to match and
-    /// fires any virtual-time deadlines that are now due (finite <c>Monitor</c>/<c>SemaphoreSlim</c> waits).
+    /// Advances the scheduler's modeled time and fires any virtual-time deadlines that are now due
+    /// (finite <c>Monitor</c>/<c>SemaphoreSlim</c> waits).
     /// Forward-only and null-safe: with no pending deadlines the loop step is a cheap no-op.
     /// </summary>
     /// <param name="delta">The non-negative amount to advance.</param>
-    private void AdvanceClock(TimeSpan delta)
+    private void AdvanceVirtualTime(TimeSpan delta)
     {
-        Clock.Advance(delta);
+        Scheduler.AdvanceVirtualTimeTo(Scheduler.VirtualTime + delta);
     }
 
     /// <summary>
@@ -366,7 +448,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     public void RunToCompletion(Func<Task> taskFactory, int maxIterations = 1_000_000)
     {
         ArgumentNullException.ThrowIfNull(taskFactory);
-        using var control = _scheduler.EnterControlScope();
+        using var control = Scheduler.EnterControlScope();
         using var lockScope = Guard.Enter();
 
         Task task = StartTask(taskFactory);
@@ -382,7 +464,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(taskFactory);
         ArgumentNullException.ThrowIfNull(budget);
-        using var control = _scheduler.EnterControlScope();
+        using var control = Scheduler.EnterControlScope();
         using var lockScope = Guard.Enter();
 
         Task task = StartTask(taskFactory);
@@ -397,7 +479,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     public T RunToCompletion<T>(Func<Task<T>> taskFactory, int maxIterations = 1_000_000)
     {
         ArgumentNullException.ThrowIfNull(taskFactory);
-        using var control = _scheduler.EnterControlScope();
+        using var control = Scheduler.EnterControlScope();
         using var lockScope = Guard.Enter();
 
         Task<T> task = StartTask(taskFactory);
@@ -413,7 +495,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(taskFactory);
         ArgumentNullException.ThrowIfNull(budget);
-        using var control = _scheduler.EnterControlScope();
+        using var control = Scheduler.EnterControlScope();
         using var lockScope = Guard.Enter();
 
         Task<T> task = StartTask(taskFactory);
@@ -468,7 +550,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(duration, TimeSpan.Zero);
 
-        using var control = _scheduler.EnterControlScope();
+        using var control = Scheduler.EnterControlScope();
         using var lockScope = Guard.Enter();
         var startTime = TimeProvider.GetUtcNow();
 
@@ -487,9 +569,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
                 attemptedTimeAdvance: null);
         }
 
-        OnTimeAdvancing(duration);
-
-        var targetTime = Clock.UtcNow + duration;
+        var targetTime = Scheduler.UtcNow + duration;
         return ExecuteDriveLoop(
             condition: null,
             maxSimulatedTimeAdvance: duration,
@@ -498,35 +578,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
             absoluteEndTime: targetTime);
     }
 
-    /// <summary>Called when a RunUntil condition is met.</summary>
-    protected virtual void OnConditionMet(int iterations) { }
-
-    /// <summary>Called when the simulation is idle with no pending work.</summary>
-    protected virtual void OnSimulationIdleNoPendingWork(int iterations) { }
-
-    /// <summary>Called when the simulation exceeds the max simulated time advance.</summary>
-    protected virtual void OnSimulationStuckMaxTime(TimeSpan timeDelta) { }
-
-    /// <summary>Called when the simulation has too many consecutive time advances.</summary>
-    protected virtual void OnSimulationStuckConsecutiveTimeAdvances(int count) { }
-
-    /// <summary>Called when max iterations is reached.</summary>
-    protected virtual void OnMaxIterationsReached(int maxIterations) { }
-
-    /// <summary>Called when teardown cancellation is requested.</summary>
-    protected virtual void OnTeardownCancellationRequested() { }
-
-    /// <summary>Called when the simulation reaches an idle state.</summary>
-    protected virtual void OnSimulationReachedIdleState() { }
-
-    /// <summary>Called when time is about to be advanced.</summary>
-    protected virtual void OnTimeAdvancing(TimeSpan delta) { }
-
-    /// <summary>
-    /// Runs the consolidated drive-loop engine for one logical RunUntil/RunUntilIdle operation and
-    /// dispatches the appropriate <c>On*</c> hook(s) based on the outcome, preserving the exact
-    /// hook-firing behavior of the original, separate implementations.
-    /// </summary>
+    /// <summary>Runs the consolidated drive-loop engine for one logical operation.</summary>
     private SimulationExecutionResult ExecuteDriveLoop(
         Func<bool>? condition,
         TimeSpan maxSimulatedTimeAdvance,
@@ -535,7 +587,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
         int initialConsecutiveTimeAdvances = 0,
         DateTimeOffset? absoluteEndTime = null)
     {
-        using var control = _scheduler.EnterControlScope();
+        using var control = Scheduler.EnterControlScope();
         using var _ = Guard.Enter();
         var options = new SimulationDriveLoopOptions(
             condition,
@@ -545,54 +597,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
             observeTeardownCancellation,
             initialConsecutiveTimeAdvances,
             absoluteEndTime);
-        var result = _driveLoop.Execute(options);
-        DispatchExecutionHooks(result, isConditionBased: condition is not null);
-        return result;
-    }
-
-    /// <summary>
-    /// Fires the <c>On*</c> extensibility hooks that correspond to <paramref name="result"/>.
-    /// </summary>
-    private void DispatchExecutionHooks(SimulationExecutionResult result, bool isConditionBased)
-    {
-        switch (result.Reason)
-        {
-            case SimulationExecutionReason.ConditionMet:
-                OnConditionMet(result.Iterations);
-                break;
-
-            case SimulationExecutionReason.Idle:
-            case SimulationExecutionReason.IdleWithPendingWork:
-                if (isConditionBased)
-                {
-                    OnSimulationIdleNoPendingWork(result.Iterations);
-                }
-                else
-                {
-                    OnSimulationReachedIdleState();
-                }
-
-                break;
-
-            case SimulationExecutionReason.MaxSimulatedTimeAdvanceExceeded:
-                OnSimulationStuckMaxTime(result.AttemptedTimeAdvance ?? TimeSpan.Zero);
-                break;
-
-            case SimulationExecutionReason.MaxConsecutiveTimeAdvancesExceeded:
-                OnSimulationStuckConsecutiveTimeAdvances(result.ConsecutiveTimeAdvanceCount);
-                break;
-
-            case SimulationExecutionReason.MaxIterationsReached:
-                OnMaxIterationsReached(result.Limits.MaxIterations);
-                break;
-
-            case SimulationExecutionReason.TeardownCancellationRequested:
-                OnTeardownCancellationRequested();
-                break;
-
-            default:
-                throw new ArgumentOutOfRangeException(nameof(result), result.Reason, "Unrecognized execution reason.");
-        }
+        return _driveLoop.Execute(options);
     }
 
     /// <summary>
@@ -626,7 +631,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     private SimulationPendingWorkSummary CapturePendingWorkSummary()
     {
         using var _ = Guard.Enter();
-        var now = Clock.UtcNow;
+        var now = Scheduler.UtcNow;
         var diagnostics = new List<SimulationScheduledItemDiagnostic>();
         var runnableCount = 0;
         var waitingCount = 0;
@@ -638,12 +643,13 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
             CollectQueueDiagnostics(node.NetworkAddress, node.Context.SchedulerLane, node.Context.State == SimulationNodeState.Suspended);
         }
 
-        foreach (var timer in _scheduler.CapturePendingTimers())
+        foreach (var timer in Scheduler.CapturePendingTimers())
         {
             var dueTime = StartDateTime + timer.DueTime;
             diagnostics.Add(new SimulationScheduledItemDiagnostic(
                 "simulation-scheduler",
                 timer.Kind,
+                "Simulation scheduler timer",
                 dueTime,
                 timer.Sequence,
                 dueTime <= now,
@@ -668,11 +674,15 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
 
         void CollectQueueDiagnostics(string queueIdentity, SimulationSchedulerLane queue, bool isSuspended)
         {
-            foreach (var item in queue.ScheduledItems)
+            foreach (var item in queue.CaptureScheduledItems())
             {
-                var isReady = item.DueTime <= now;
+                var isReady = item.IsReady;
                 var isBlocked = isReady && isSuspended;
-                diagnostics.Add(new SimulationScheduledItemDiagnostic(queueIdentity, item.GetType().Name, item.DueTime, item.SequenceNumber, isReady, isBlocked));
+                diagnostics.Add(item with
+                {
+                    QueueIdentity = queueIdentity,
+                    IsBlocked = isBlocked,
+                });
 
                 if (isBlocked)
                 {
@@ -693,7 +703,7 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
     /// <summary>
     /// Safely cancels a CancellationTokenSource, catching and optionally logging any exceptions.
     /// </summary>
-    protected static void SafeCancel(CancellationTokenSource cts, ILogger? logger = null)
+    private static void SafeCancel(CancellationTokenSource cts, ILogger? logger = null)
     {
         ArgumentNullException.ThrowIfNull(cts);
         try
@@ -713,43 +723,41 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
         }
     }
 
-    /// <summary>
-    /// Performs application-specific async disposal.
-    /// Override in derived classes to dispose nodes and other resources.
-    /// </summary>
-    protected abstract ValueTask DisposeAsyncCore();
-
     /// <inheritdoc />
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
         if (_disposed)
         {
-            return;
+            return ValueTask.CompletedTask;
         }
 
+        ThrowIfAttachmentInProgress();
         _disposed = true;
-        List<Exception>? failures = null;
+        List<Exception> failures = [];
+        List<SimulationNodeContext> cleanupContexts = [];
 
-        try
+        foreach (var registration in _nodeRegistrations)
         {
-            RunToCompletion(async () =>
+            if (TryBeginAttachmentCleanup(registration.AttachmentContext, failures))
             {
-                SafeCancel(_teardownCts);
-                await DisposeAsyncCore();
-            });
+                cleanupContexts.Add(registration.AttachmentContext);
+            }
         }
-        catch (Exception exception)
-        {
-            AddDisposalFailure(ref failures, exception);
-        }
+
+        SafeCancel(_teardownCts);
+        DrainAttachmentWorkToQuiescence(cleanupContexts, failures);
+
+        RunDisposalToCompletion(
+            async () => await DisposeNodesAsync(),
+            failures);
 
         try
         {
-            _scheduler.Dispose();
+            Scheduler.Dispose();
         }
         catch (Exception exception)
         {
-            AddDisposalFailure(ref failures, exception);
+            AddDisposalFailure(failures, exception);
         }
 
         try
@@ -758,20 +766,27 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
         }
         catch (Exception exception)
         {
-            AddDisposalFailure(ref failures, exception);
+            AddDisposalFailure(failures, exception);
         }
 
         GC.SuppressFinalize(this);
 
-        if (failures is not null)
+        if (failures.Count > 0)
         {
             throw new AggregateException("One or more errors occurred while disposing the simulation cluster.", failures);
         }
+
+        return ValueTask.CompletedTask;
     }
 
     private static void AddDisposalFailure(ref List<Exception>? failures, Exception exception)
     {
         failures ??= [];
+        AddDisposalFailure(failures, exception);
+    }
+
+    private static void AddDisposalFailure(List<Exception> failures, Exception exception)
+    {
         if (exception is AggregateException aggregate)
         {
             failures.AddRange(aggregate.Flatten().InnerExceptions);
@@ -782,5 +797,245 @@ public abstract partial class SimulationCluster<TNode> : IAsyncDisposable
         }
     }
 
-    private string DebuggerDisplay => string.Create(CultureInfo.InvariantCulture, $"SimulationCluster(Seed={Seed}, Nodes={Nodes.Count}, Time={Clock.CurrentTime:hh\\:mm\\:ss\\.fff})");
+    private static bool TryBeginAttachmentCleanup(
+        SimulationNodeContext context,
+        List<Exception> failures)
+    {
+        try
+        {
+            context.BeginAttachmentCleanup();
+            return true;
+        }
+        catch (Exception exception)
+        {
+            AddDisposalFailure(failures, exception);
+            return false;
+        }
+    }
+
+    private void DrainAttachmentWorkToQuiescence(
+        List<SimulationNodeContext> contexts,
+        List<Exception> failures)
+    {
+        if (contexts.Count == 0)
+        {
+            return;
+        }
+
+        List<Exception>? previousFailures = _disposalFailures;
+        _disposalFailures = failures;
+        try
+        {
+            SimulationExecutionResult result = ExecuteDriveLoop(
+                () => contexts.All(static context => !context.HasPendingAttachmentWork),
+                MaxSimulatedTimeAdvance,
+                DisposalMaxIterations,
+                observeTeardownCancellation: false);
+            if (contexts.Any(static context => context.HasPendingAttachmentWork))
+            {
+                AddDisposalFailure(
+                    failures,
+                    new TimeoutException(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"Node attachment cleanup did not reach quiescence.{Environment.NewLine}{result.ToDetailedString()}")));
+            }
+        }
+        catch (Exception exception)
+        {
+            AddDisposalFailure(failures, exception);
+        }
+        finally
+        {
+            _disposalFailures = previousFailures;
+        }
+    }
+
+    private SimulationNodeContext BeginAttachment(string address)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(address);
+        ThrowIfDisposed();
+        using var _ = Guard.Enter();
+        if (_attachments.ContainsKey(address))
+        {
+            throw new ArgumentException(
+                $"A node with address '{address}' has already been attached to this cluster.",
+                nameof(address));
+        }
+
+        SimulationNodeContext context = CreateNodeContext(address);
+        _attachments.Add(address, context);
+        return context;
+    }
+
+    private void ThrowIfAttachmentInProgress()
+    {
+        using var _ = Guard.Enter();
+        if (_attachments.Values.Any(static context => context.IsAttachmentInProgress))
+        {
+            throw new InvalidOperationException(
+                "Cannot dispose the simulation cluster while a node attachment factory is in progress.");
+        }
+    }
+
+    private void CompleteFailedAttachment(string address, SimulationNodeContext context)
+    {
+        try
+        {
+            context.CompleteAttachmentCleanup();
+        }
+        finally
+        {
+            using var _ = Guard.Enter();
+            if (_attachments.TryGetValue(address, out SimulationNodeContext? current)
+                && ReferenceEquals(current, context))
+            {
+                _attachments.Remove(address);
+            }
+        }
+    }
+
+    private void RegisterNode(
+        SimulationNodeContext attachmentContext,
+        SimulationNode node,
+        object? state,
+        bool ownsState)
+    {
+        using var _ = Guard.Enter();
+        ThrowIfDisposed();
+        if (_nodes.ContainsKey(node.NetworkAddress))
+        {
+            throw new InvalidOperationException(
+                $"Node with address '{node.NetworkAddress}' already exists.");
+        }
+
+        attachmentContext.CompleteAttachment();
+        _nodes.Add(node.NetworkAddress, node);
+        _nodeRegistrations.Add(new NodeRegistration(node.NetworkAddress, node, state, ownsState, attachmentContext));
+    }
+
+    private static void ValidateCustomNode(
+        string requestedAddress,
+        SimulationNodeContext attachmentContext,
+        SimulationNode node)
+    {
+        if (!ReferenceEquals(node.Context, attachmentContext))
+        {
+            throw new InvalidOperationException(
+                $"The factory for node '{requestedAddress}' returned a node whose context is not " +
+                "the supplied attachment context.");
+        }
+
+        string actualAddress = node.NetworkAddress;
+        if (string.IsNullOrEmpty(actualAddress))
+        {
+            throw new InvalidOperationException(
+                $"The factory for node '{requestedAddress}' returned a node with a null or empty network address.");
+        }
+
+        if (!string.Equals(requestedAddress, actualAddress, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"The factory for node '{requestedAddress}' returned a node with address '{actualAddress}'. " +
+                "Custom node addresses must exactly match the requested address.");
+        }
+    }
+
+    private async ValueTask DisposeNodesAsync()
+    {
+        List<Exception>? failures = null;
+        foreach (var registration in _nodeRegistrations)
+        {
+            if (registration.OwnsState)
+            {
+                try
+                {
+                    await DisposeIfDisposableAsync(registration.State);
+                }
+                catch (Exception exception)
+                {
+                    AddDisposalFailure(ref failures, exception);
+                }
+            }
+
+            try
+            {
+                await DisposeIfDisposableAsync(registration.Node);
+            }
+            catch (Exception exception)
+            {
+                AddDisposalFailure(ref failures, exception);
+            }
+
+            try
+            {
+                registration.AttachmentContext.CompleteAttachmentCleanup();
+            }
+            catch (Exception exception)
+            {
+                AddDisposalFailure(ref failures, exception);
+            }
+
+            using (Guard.Enter())
+            {
+                _nodes.Remove(registration.Address);
+                _attachments.Remove(registration.Address);
+            }
+        }
+
+        _nodeRegistrations.Clear();
+        _attachments.Clear();
+        if (failures is not null)
+        {
+            throw new AggregateException(
+                "One or more simulation nodes failed to dispose.",
+                failures);
+        }
+    }
+
+    private static async ValueTask DisposeIfDisposableAsync(object? target)
+    {
+        switch (target)
+        {
+            case IAsyncDisposable asyncDisposable:
+                await asyncDisposable.DisposeAsync();
+                break;
+            case IDisposable disposable:
+                disposable.Dispose();
+                break;
+        }
+    }
+
+    private void DisposeFailedAttachmentTarget(object? target, List<Exception> failures)
+    {
+        RunDisposalToCompletion(() => DisposeIfDisposableAsync(target).AsTask(), failures);
+    }
+
+    private void RunDisposalToCompletion(Func<Task> taskFactory, List<Exception> failures)
+    {
+        List<Exception>? previousFailures = _disposalFailures;
+        _disposalFailures = failures;
+        try
+        {
+            RunToCompletion(taskFactory, DisposalMaxIterations);
+        }
+        catch (Exception exception)
+        {
+            AddDisposalFailure(failures, exception);
+        }
+        finally
+        {
+            _disposalFailures = previousFailures;
+        }
+    }
+
+    private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
+
+    private sealed record NodeRegistration(
+        string Address,
+        SimulationNode Node,
+        object? State,
+        bool OwnsState,
+        SimulationNodeContext AttachmentContext);
+
+    private string DebuggerDisplay => string.Create(CultureInfo.InvariantCulture, $"SimulationCluster(Seed={Seed}, Nodes={Nodes.Count}, Time={Scheduler.VirtualTime:hh\\:mm\\:ss\\.fff})");
 }

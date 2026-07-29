@@ -6,19 +6,18 @@ namespace Clockwork.Tool;
 
 /// <summary>
 /// Builds an <see cref="InstrumentationConfiguration"/> from command-line options, optionally layered
-/// over a JSON configuration file. When a configuration file is supplied it is the source of the
-/// policy settings; rule-set paths given on the command line are always appended so a caller can add
-/// documents without editing the file. This mirrors the MSBuild task's precedence so the CLI and the
-/// build produce identical configurations from equivalent inputs.
+/// over a JSON configuration file. Rule-set paths given on the command line are always appended so a
+/// caller can add documents without editing the file. This mirrors the MSBuild task's precedence so
+/// the CLI and the build produce identical configurations from equivalent inputs.
 /// </summary>
 internal static class ConfigurationFactory
 {
     /// <summary>The value options this factory understands, contributed to a command's option set.</summary>
     public static readonly ImmutableArray<string> ValueOptions =
     [
-        "config", "rule-set", "include", "exclude", "mode", "r2r", "strong-name",
-        "strong-name-key", "target-runtime", "exclude-framework", "instrument-dependencies",
-        "builtin", "builtin-include", "builtin-exclude", "builtin-strict",
+        "config", "rule-set", "include", "exclude", "mode",
+        "strong-name-key", "target-runtime",
+        "builtin", "builtin-include", "builtin-exclude",
     ];
 
     /// <summary>Builds the configuration described by the reader's options.</summary>
@@ -38,11 +37,7 @@ internal static class ConfigurationFactory
                 Mode = ParseEnum<InstrumentationMode>(
                     reader.GetString("mode"),
                     InstrumentationMode.Controlled),
-                ExcludeFrameworkAssemblies = reader.GetBool("exclude-framework", true),
-                InstrumentDependencies = reader.GetBool("instrument-dependencies", true),
                 TargetRuntime = ParseVersion(reader.GetString("target-runtime")),
-                ReadyToRunPolicy = ParseEnum<ReadyToRunPolicy>(reader.GetString("r2r"), ReadyToRunPolicy.Reject),
-                StrongNamePolicy = ParseEnum<StrongNamePolicy>(reader.GetString("strong-name"), StrongNamePolicy.Fail),
                 StrongNameKeyPath = reader.GetString("strong-name-key"),
             };
 
@@ -51,7 +46,7 @@ internal static class ConfigurationFactory
         {
             configuration = configuration with
             {
-                RuleSetPaths = [.. configuration.RuleSetPaths, .. extraRuleSets.Select(Path.GetFullPath)],
+                RuleSetPaths = [.. configuration.RuleSetPaths, .. extraRuleSets],
             };
         }
 
@@ -65,7 +60,6 @@ internal static class ConfigurationFactory
         IReadOnlyList<string> builtIns = reader.GetMany("builtin");
         IReadOnlyList<string> include = reader.GetMany("builtin-include");
         IReadOnlyList<string> exclude = reader.GetMany("builtin-exclude");
-        string? strict = reader.GetString("builtin-strict");
 
         if (builtIns.Count > 0)
         {
@@ -89,11 +83,6 @@ internal static class ConfigurationFactory
         if (exclude.Count > 0)
         {
             configuration = configuration with { BuiltInExcludeFamilies = [.. exclude] };
-        }
-
-        if (strict is not null)
-        {
-            configuration = configuration with { StrictBuiltIns = reader.GetBool("builtin-strict", true) };
         }
 
         return configuration;

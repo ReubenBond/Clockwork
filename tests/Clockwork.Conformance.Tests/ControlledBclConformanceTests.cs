@@ -54,6 +54,8 @@ public sealed class ControlledBclConformanceTests : IDisposable
         namespace Conf { public static class CryptoProbe {
             public static byte[] Bytes(int n) => RandomNumberGenerator.GetBytes(n);
             public static int Int(int max) => RandomNumberGenerator.GetInt32(max);
+            public static int[] Items(int n) => RandomNumberGenerator.GetItems<int>([1, 2, 3, 4], n);
+            public static int[] Shuffle(int[] values) { RandomNumberGenerator.Shuffle<int>(values); return values; }
         } }
         """;
 
@@ -201,32 +203,32 @@ public sealed class ControlledBclConformanceTests : IDisposable
     }
 
     [Fact]
-    public void CryptoCallsAreRejectedUnderDefaultPolicy()
+    public void CryptoCallsAreDeterministicUnderSimulation()
     {
         StagedProbe probe = _fixture.Stage("Conf.Crypto", "Conf.CryptoProbe", CryptoSource, [BuiltInRuleFamily.Crypto]);
 
-        using var host = new SimulationHost(Start);
-        Assert.Throws<SimulationRejectedCallException>(() => host.Invoke(probe.Method("Bytes"), 16));
-        Assert.Throws<SimulationRejectedCallException>(() => host.Invoke(probe.Method("Int"), 100));
-    }
-
-    [Fact]
-    public void CryptoOptInProducesDeterministicInsecureBytes()
-    {
-        StagedProbe probe = _fixture.Stage("Conf.CryptoOptIn", "Conf.CryptoProbe", CryptoSource, [BuiltInRuleFamily.Crypto]);
-
-        byte[] RunOnce()
+        (byte[] Bytes, int Value, int[] Items, int[] Shuffled) RunOnce()
         {
-            using var host = new SimulationHost(
-                Start, seed: 5, cryptoPolicy: CryptoRandomnessPolicy.DeterministicInsecureForTesting);
-            return (byte[])host.Invoke(probe.Method("Bytes"), 16)!;
+            using var host = new SimulationHost(Start, seed: 5);
+            int[] values = [1, 2, 3, 4, 5, 6];
+            return (
+                (byte[])host.Invoke(probe.Method("Bytes"), 16)!,
+                (int)host.Invoke(probe.Method("Int"), 100)!,
+                (int[])host.Invoke(probe.Method("Items"), 8)!,
+                (int[])host.Invoke(probe.Method("Shuffle"), values)!);
         }
 
-        byte[] first = RunOnce();
-        byte[] second = RunOnce();
+        var first = RunOnce();
+        var second = RunOnce();
 
-        Assert.Equal(16, first.Length);
-        Assert.Equal(first, second);
+        Assert.Equal(16, first.Bytes.Length);
+        Assert.InRange(first.Value, 0, 99);
+        Assert.All(first.Items, item => Assert.InRange(item, 1, 4));
+        Assert.Equal([1, 2, 3, 4, 5, 6], first.Shuffled.Order());
+        Assert.Equal(first.Bytes, second.Bytes);
+        Assert.Equal(first.Value, second.Value);
+        Assert.Equal(first.Items, second.Items);
+        Assert.Equal(first.Shuffled, second.Shuffled);
     }
 
     [Fact]
@@ -272,9 +274,7 @@ public sealed class ControlledBclConformanceTests : IDisposable
             "Conf.CryptoContractProbe",
             CryptoContractSource,
             [BuiltInRuleFamily.Crypto]);
-        using var host = new SimulationHost(
-            Start,
-            cryptoPolicy: CryptoRandomnessPolicy.DeterministicInsecureForTesting);
+        using var host = new SimulationHost(Start);
 
         var byteErrors = new List<Exception?>();
         foreach (int count in new[] { -1, int.MinValue })
@@ -325,10 +325,7 @@ public sealed class ControlledBclConformanceTests : IDisposable
 
         (string TypeName, byte[] Bytes) DrawKnown()
         {
-            using var host = new SimulationHost(
-                Start,
-                seed: 71,
-                cryptoPolicy: CryptoRandomnessPolicy.DeterministicInsecureForTesting);
+            using var host = new SimulationHost(Start, seed: 71);
             string typeName = (string)host.Invoke(probe.Method("NamedType"), KnownName)!;
             byte[] bytes = (byte[])host.Invoke(probe.Method("NamedBytes"), KnownName, 24)!;
             return (typeName, bytes);
@@ -337,15 +334,13 @@ public sealed class ControlledBclConformanceTests : IDisposable
         (string TypeName, byte[] Bytes) first = DrawKnown();
         (string TypeName, byte[] Bytes) replay = DrawKnown();
 
-        Assert.Equal(typeof(SimulationInsecureRandomNumberGenerator).FullName, first.TypeName);
+        Assert.Equal(typeof(SimulationRandomNumberGenerator).FullName, first.TypeName);
         Assert.Equal(24, first.Bytes.Length);
         Assert.Equal(first.TypeName, replay.TypeName);
         Assert.Equal(first.Bytes, replay.Bytes);
         Assert.Contains(first.Bytes, static value => value != 0);
 
-        using var unknownHost = new SimulationHost(
-            Start,
-            cryptoPolicy: CryptoRandomnessPolicy.DeterministicInsecureForTesting);
+        using var unknownHost = new SimulationHost(Start);
         Assert.Null(unknownHost.Invoke(probe.Method("NamedType"), UnknownName));
     }
 

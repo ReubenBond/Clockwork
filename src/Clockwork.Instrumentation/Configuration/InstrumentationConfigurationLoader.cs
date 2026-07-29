@@ -1,13 +1,14 @@
 using System.Collections.Immutable;
 using System.Text.Json;
+using Clockwork.Instrumentation.Orchestration;
 
 namespace Clockwork.Instrumentation.Configuration;
 
 /// <summary>
 /// Loads and strictly validates an <see cref="InstrumentationConfiguration"/> from a JSON document.
 /// Relative rule-set and key paths are resolved against the configuration file's directory so a
-/// configuration file is self-contained and portable. Unknown enum values, wrong JSON types, and
-/// missing required fields are hard <see cref="ConfigurationException"/>s.
+/// configuration file is self-contained and portable. Unknown or duplicate properties, unknown enum
+/// values, wrong JSON types, and missing required fields are hard <see cref="ConfigurationException"/>s.
 /// </summary>
 public static class InstrumentationConfigurationLoader
 {
@@ -18,7 +19,8 @@ public static class InstrumentationConfigurationLoader
     public static InstrumentationConfiguration Load(string path)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
-        if (!File.Exists(path))
+        string fullPath = NormalizePath(path, "Configuration file");
+        if (!File.Exists(fullPath))
         {
             throw new ConfigurationException($"Configuration file '{path}' was not found.");
         }
@@ -26,15 +28,15 @@ public static class InstrumentationConfigurationLoader
         string json;
         try
         {
-            json = File.ReadAllText(path);
+            json = File.ReadAllText(fullPath);
         }
-        catch (IOException ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             throw new ConfigurationException($"Configuration file '{path}' could not be read: {ex.Message}", ex);
         }
 
-        string baseDirectory = Path.GetDirectoryName(Path.GetFullPath(path)) ?? Directory.GetCurrentDirectory();
-        return Parse(json, baseDirectory, path);
+        string baseDirectory = Path.GetDirectoryName(fullPath) ?? Directory.GetCurrentDirectory();
+        return Parse(json, baseDirectory, fullPath) with { SourcePath = fullPath };
     }
 
     /// <summary>Parses and validates a configuration from a JSON string.</summary>
@@ -46,6 +48,9 @@ public static class InstrumentationConfigurationLoader
     public static InstrumentationConfiguration Parse(string json, string? baseDirectory = null, string? sourceName = null)
     {
         string origin = sourceName is null ? "configuration" : $"configuration '{sourceName}'";
+        string? normalizedBaseDirectory = baseDirectory is null
+            ? null
+            : NormalizePath(baseDirectory, $"{origin} base directory");
         JsonDocument document;
         try
         {
@@ -64,37 +69,46 @@ public static class InstrumentationConfigurationLoader
                 throw new ConfigurationException($"{origin} must be a JSON object.");
             }
 
-            int schema = GetOptionalInt(root, "schemaVersion", origin) ?? InstrumentationConfiguration.CurrentSchemaVersion;
+            EnsureOnlyProperties(
+                root,
+                origin,
+                "schemaVersion",
+                "ruleSets",
+                "mode",
+                "builtInRuleSets",
+                "builtInIncludeFamilies",
+                "builtInExcludeFamilies",
+                "include",
+                "exclude",
+                "targetRuntime",
+                "strongNameKeyPath");
+
+            int schema = GetRequiredInt(root, "schemaVersion", origin);
             if (schema != InstrumentationConfiguration.CurrentSchemaVersion)
             {
                 throw new ConfigurationException(
                     $"{origin} declares unsupported schemaVersion {schema}; this tool supports version {InstrumentationConfiguration.CurrentSchemaVersion}.");
             }
 
-            ImmutableArray<string> ruleSets = ResolvePaths(GetStringArray(root, "ruleSets", origin), baseDirectory);
+            ImmutableArray<string> ruleSets = ResolvePaths(
+                GetStringArray(root, "ruleSets", origin),
+                normalizedBaseDirectory,
+                origin);
             InstrumentationMode mode =
                 GetOptionalEnum<InstrumentationMode>(root, "mode", origin) ?? InstrumentationMode.Controlled;
             ImmutableArray<string> builtInRuleSets = GetStringArray(root, "builtInRuleSets", origin);
             ImmutableArray<string> builtInInclude = GetStringArray(root, "builtInIncludeFamilies", origin);
             ImmutableArray<string> builtInExclude = GetStringArray(root, "builtInExcludeFamilies", origin);
-            bool strictBuiltIns = GetOptionalBool(root, "strictBuiltIns", origin) ?? true;
             ImmutableArray<string> include = GetStringArray(root, "include", origin);
             ImmutableArray<string> exclude = GetStringArray(root, "exclude", origin);
-            bool excludeFramework = GetOptionalBool(root, "excludeFrameworkAssemblies", origin) ?? true;
-            bool instrumentDependencies = GetOptionalBool(root, "instrumentDependencies", origin) ?? true;
             Version? targetRuntime = GetOptionalVersion(root, "targetRuntime", origin);
-            ReadyToRunPolicy r2r = GetOptionalEnum<ReadyToRunPolicy>(root, "readyToRunPolicy", origin) ?? ReadyToRunPolicy.Reject;
-            StrongNamePolicy strongName = GetOptionalEnum<StrongNamePolicy>(root, "strongNamePolicy", origin) ?? StrongNamePolicy.Fail;
             string? keyPath = GetOptionalString(root, "strongNameKeyPath", origin);
-            if (keyPath is not null && baseDirectory is not null)
+            if (keyPath is not null && normalizedBaseDirectory is not null)
             {
-                keyPath = Path.GetFullPath(Path.Combine(baseDirectory, keyPath));
-            }
-
-            if (strongName == StrongNamePolicy.ReSign && keyPath is null)
-            {
-                throw new ConfigurationException(
-                    $"{origin}: strongNamePolicy 'ReSign' requires 'strongNameKeyPath' to be set.");
+                keyPath = CombineAndNormalizePath(
+                    normalizedBaseDirectory,
+                    keyPath,
+                    $"{origin}: 'strongNameKeyPath'");
             }
 
             return new InstrumentationConfiguration
@@ -104,27 +118,67 @@ public static class InstrumentationConfigurationLoader
                 BuiltInRuleSetIds = builtInRuleSets,
                 BuiltInIncludeFamilies = builtInInclude,
                 BuiltInExcludeFamilies = builtInExclude,
-                StrictBuiltIns = strictBuiltIns,
                 IncludePatterns = include,
                 ExcludePatterns = exclude,
-                ExcludeFrameworkAssemblies = excludeFramework,
-                InstrumentDependencies = instrumentDependencies,
                 TargetRuntime = targetRuntime,
-                ReadyToRunPolicy = r2r,
-                StrongNamePolicy = strongName,
                 StrongNameKeyPath = keyPath,
             };
         }
     }
 
-    private static ImmutableArray<string> ResolvePaths(ImmutableArray<string> paths, string? baseDirectory)
+    private static ImmutableArray<string> ResolvePaths(
+        ImmutableArray<string> paths,
+        string? baseDirectory,
+        string origin)
     {
         if (baseDirectory is null || paths.IsDefaultOrEmpty)
         {
             return paths;
         }
 
-        return [.. paths.Select(p => Path.GetFullPath(Path.Combine(baseDirectory, p)))];
+        return [.. paths.Select((path, index) => CombineAndNormalizePath(
+            baseDirectory,
+            path,
+            $"{origin}: 'ruleSets[{index}]'"))];
+    }
+
+    private static string NormalizePath(string path, string description)
+    {
+        try
+        {
+            return InstrumentationPath.GetFullPath(path, description);
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException
+                or NotSupportedException
+                or IOException
+                or UnauthorizedAccessException)
+        {
+            throw new ConfigurationException(
+                $"{description} '{path}' is not a valid path: {exception.Message}",
+                exception);
+        }
+    }
+
+    private static string CombineAndNormalizePath(
+        string baseDirectory,
+        string path,
+        string description)
+    {
+        try
+        {
+            return InstrumentationPath.CombineAndGetFullPath(baseDirectory, path, description);
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException
+                or NotSupportedException
+                or IOException
+                or UnauthorizedAccessException)
+        {
+            throw new ConfigurationException(
+                $"{description} '{path}' is not a valid path: {exception.Message}",
+                exception);
+        }
     }
 
     private static ImmutableArray<string> GetStringArray(JsonElement element, string propertyName, string origin)
@@ -153,6 +207,7 @@ public static class InstrumentationConfigurationLoader
                 throw new ConfigurationException($"{origin}: '{propertyName}' entries must be non-empty.");
             }
 
+            EnsureWithinStringLimit(text, $"{origin}: '{propertyName}' entry");
             builder.Add(text);
         }
 
@@ -172,14 +227,20 @@ public static class InstrumentationConfigurationLoader
         }
 
         string text = value.GetString() ?? string.Empty;
-        return text.Length == 0 ? null : text;
-    }
-
-    private static int? GetOptionalInt(JsonElement element, string propertyName, string origin)
-    {
-        if (!element.TryGetProperty(propertyName, out JsonElement value) || value.ValueKind == JsonValueKind.Null)
+        if (text.Length == 0)
         {
             return null;
+        }
+
+        EnsureWithinStringLimit(text, $"{origin}: '{propertyName}'");
+        return text;
+    }
+
+    private static int GetRequiredInt(JsonElement element, string propertyName, string origin)
+    {
+        if (!element.TryGetProperty(propertyName, out JsonElement value))
+        {
+            throw new ConfigurationException($"{origin}: required property '{propertyName}' is missing.");
         }
 
         if (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out int result))
@@ -188,21 +249,6 @@ public static class InstrumentationConfigurationLoader
         }
 
         return result;
-    }
-
-    private static bool? GetOptionalBool(JsonElement element, string propertyName, string origin)
-    {
-        if (!element.TryGetProperty(propertyName, out JsonElement value) || value.ValueKind == JsonValueKind.Null)
-        {
-            return null;
-        }
-
-        return value.ValueKind switch
-        {
-            JsonValueKind.True => true,
-            JsonValueKind.False => false,
-            _ => throw new ConfigurationException($"{origin}: '{propertyName}' must be a boolean."),
-        };
     }
 
     private static Version? GetOptionalVersion(JsonElement element, string propertyName, string origin)
@@ -237,5 +283,32 @@ public static class InstrumentationConfigurationLoader
 
         string allowed = string.Join(", ", Enum.GetNames<TEnum>());
         throw new ConfigurationException($"{origin}: '{propertyName}' value '{text}' is not one of: {allowed}.");
+    }
+
+    private static void EnsureOnlyProperties(JsonElement element, string origin, params string[] allowedProperties)
+    {
+        var allowed = new HashSet<string>(allowedProperties, StringComparer.Ordinal);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (JsonProperty property in element.EnumerateObject())
+        {
+            if (!allowed.Contains(property.Name))
+            {
+                throw new ConfigurationException($"{origin}: unknown property '{property.Name}'.");
+            }
+
+            if (!seen.Add(property.Name))
+            {
+                throw new ConfigurationException($"{origin}: property '{property.Name}' is specified more than once.");
+            }
+        }
+    }
+
+    private static void EnsureWithinStringLimit(string value, string field)
+    {
+        if (value.Length > ClosureManifestLimits.MaxStringLength)
+        {
+            throw new ConfigurationException(
+                $"{field} length {value.Length} exceeds {ClosureManifestLimits.MaxStringLength}.");
+        }
     }
 }

@@ -5,7 +5,7 @@ namespace Clockwork.Instrumentation.Closure;
 /// either as a rewrite candidate (<see cref="Rewrite"/> is <see langword="true"/>) or as an asset
 /// copied verbatim into the staged output. When a managed assembly is not rewritten,
 /// <see cref="SkipReason"/> records why (framework assembly, satellite, excluded by pattern, or
-/// dependency rewriting disabled), which keeps the closure both runnable and auditable.
+/// framework boundary), which keeps the closure both runnable and auditable.
 /// </summary>
 /// <param name="SourcePath">The absolute path of the file in the source directory.</param>
 /// <param name="RelativePath">The path of the file relative to the closure root (using <c>/</c> separators).</param>

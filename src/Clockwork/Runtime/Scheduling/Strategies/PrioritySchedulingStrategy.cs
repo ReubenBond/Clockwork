@@ -7,7 +7,7 @@ namespace Clockwork.Runtime.Scheduling.Strategies;
 /// and needs no recording. It deliberately does not model BCL thread-priority semantics; it is a
 /// determinism tool for steering which ready operation runs first.
 /// </summary>
-public sealed class PrioritySchedulingStrategy : ISimulationSchedulingStrategy
+internal sealed class PrioritySchedulingStrategy : ISimulationSchedulingStrategy
 {
     private static readonly RoundRobinSchedulingStrategy TieBreak = new();
 

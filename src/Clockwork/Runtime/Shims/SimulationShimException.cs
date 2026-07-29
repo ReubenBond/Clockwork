@@ -1,9 +1,8 @@
 namespace Clockwork.Runtime.Shims;
 
 /// <summary>
-/// The base type for exceptions thrown by a deterministic BCL shim while a simulation is active.
-/// Catching this type catches policy-rejected calls such as
-/// <see cref="SimulationRejectedCallException"/> without catching unrelated framework exceptions.
+/// The base type for failures reported by a deterministic BCL shim while a simulation is active,
+/// without catching unrelated framework exceptions.
 /// </summary>
 public abstract class SimulationShimException : InvalidOperationException
 {

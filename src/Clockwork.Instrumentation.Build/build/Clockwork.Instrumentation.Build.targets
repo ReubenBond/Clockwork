@@ -51,16 +51,10 @@
                       WriteOnlyWhenDifferent="true" />
   </Target>
 
-  <!--
-    Incremental gate. Inputs are the produced output assembly, copy-local dependency closure,
-    config and rule-set documents; Output is an atomic success marker. A failed task never leaves
-    that marker behind, so unchanged failed builds retry instead of appearing up to date.
-  -->
+  <!-- Always invoke the task when enabled; its content-hash cache validates the complete staged closure. -->
   <Target Name="ClockworkInstrument"
           AfterTargets="Build"
-          Condition="'$(ClockworkInstrumentationEnabled)' == 'true'"
-          Inputs="$(TargetPath);@(ReferenceCopyLocalPaths);@(ClockworkRuleSet);@(ClockworkBuiltInRuleSet);$(ClockworkConfigurationPath);$(ClockworkModeStampPath);$(MSBuildAllProjects)"
-          Outputs="$(ClockworkSuccessPath);$(ClockworkManifestPath)">
+          Condition="'$(ClockworkInstrumentationEnabled)' == 'true'">
 
     <Message Importance="high" Text="Clockwork: instrumenting '$(ClockworkSourceDirectory)' -> '$(ClockworkStagingDirectory)'" />
 
@@ -72,14 +66,9 @@
         BuiltInRuleSets="@(ClockworkBuiltInRuleSet)"
         BuiltInIncludeFamilies="@(ClockworkBuiltInInclude)"
         BuiltInExcludeFamilies="@(ClockworkBuiltInExclude)"
-        StrictBuiltIns="$(ClockworkStrictBuiltIns)"
         IncludePatterns="@(ClockworkInclude)"
         ExcludePatterns="@(ClockworkExclude)"
         InstrumentationMode="$(ClockworkInstrumentationMode)"
-        ExcludeFrameworkAssemblies="$(ClockworkExcludeFrameworkAssemblies)"
-        InstrumentDependencies="$(ClockworkInstrumentDependencies)"
-        ReadyToRunPolicy="$(ClockworkReadyToRunPolicy)"
-        StrongNamePolicy="$(ClockworkStrongNamePolicy)"
         StrongNameKeyPath="$(ClockworkStrongNameKeyPath)"
         TargetRuntime="$(ClockworkTargetRuntime)"
         EntryAssemblyName="$(ClockworkEntryAssemblyName)"

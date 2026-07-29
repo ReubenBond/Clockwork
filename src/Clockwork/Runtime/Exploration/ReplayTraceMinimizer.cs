@@ -178,9 +178,9 @@ public static class ReplayTraceMinimizer
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(failurePredicate);
         ValidateConfiguration(configuration);
-        if (artifact.RecordingState != ReplayRecordingState.Complete)
+        if (artifact.Outcome.Kind == ReplayTerminationKind.Aborted)
         {
-            throw new ReplayMinimizationException("Only complete replay artifacts can be minimized.");
+            throw new ReplayMinimizationException("Replay artifacts with an Aborted outcome cannot be minimized.");
         }
 
         ReplayFailureObservation baseline = failurePredicate(artifact);

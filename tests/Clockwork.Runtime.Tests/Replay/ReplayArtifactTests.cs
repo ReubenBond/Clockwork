@@ -1,4 +1,6 @@
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Clockwork.Runtime.Decisions;
 using Clockwork.Runtime.Random;
 using Clockwork.Runtime.Replay;
@@ -22,6 +24,7 @@ public sealed class ReplayArtifactTests : IDisposable
         Assert.Equal(first, second);
         Assert.Equal(ReplayArtifactSerializer.ComputeId(artifact), ReplayArtifactSerializer.ComputeId(roundTripped));
         Assert.DoesNotContain(Environment.CommandLine, Encoding.UTF8.GetString(first), StringComparison.Ordinal);
+        Assert.DoesNotContain("recordingState", Encoding.UTF8.GetString(first), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -53,10 +56,14 @@ public sealed class ReplayArtifactTests : IDisposable
     {
         string path = Path.Combine(_root, "run.cwr.json");
         ReplayArtifact artifact = CreateArtifact();
+        Directory.CreateDirectory(_root);
+        File.WriteAllText(path + ".tmp", "untouched");
 
         ReplayArtifactSerializer.Write(path, artifact);
         ReplayArtifactSerializer.Write(path, artifact);
 
+        Assert.Equal("untouched", File.ReadAllText(path + ".tmp"));
+        Assert.Empty(Directory.EnumerateFiles(_root, "run.cwr.json.*.tmp"));
         Assert.Equal(ReplayArtifactSerializer.Serialize(artifact), File.ReadAllBytes(path));
         Assert.Equal(
             ReplayArtifactSerializer.Serialize(artifact),
@@ -66,12 +73,65 @@ public sealed class ReplayArtifactTests : IDisposable
     [Theory]
     [InlineData("{")]
     [InlineData("{}")]
-    [InlineData("{\"format\":\"other\",\"schemaVersion\":1}")]
-    [InlineData("{\"format\":\"clockwork.replay\",\"schemaVersion\":1,\"recordingState\":\"Complete\",\"rootSeed\":1,\"scheduler\":null,\"environment\":null,\"outcome\":null}")]
+    [InlineData("{\"format\":\"clockwork.replay\",\"schemaVersion\":1}")]
+    [InlineData("{\"format\":\"other\",\"schemaVersion\":2}")]
+    [InlineData("{\"format\":\"clockwork.replay\",\"schemaVersion\":2,\"rootSeed\":1,\"scheduler\":null,\"environment\":null,\"outcome\":null}")]
     public void CorruptOrIncompleteJsonIsRejected(string json)
     {
         Assert.Throws<ReplayArtifactFormatException>(
             () => ReplayArtifactSerializer.Deserialize(Encoding.UTF8.GetBytes(json)));
+    }
+
+    [Theory]
+    [InlineData("format")]
+    [InlineData("schemaVersion")]
+    [InlineData("scheduler.options")]
+    [InlineData("instrumentation.assemblies")]
+    [InlineData("decisions")]
+    [InlineData("raceSchedulingPoints")]
+    [InlineData("diagnostics")]
+    [InlineData("diagnostics.operations")]
+    [InlineData("diagnostics.resources")]
+    [InlineData("diagnostics.resources[0].waiters")]
+    [InlineData("diagnostics.pendingTimers")]
+    [InlineData("diagnostics.deadlockCycles")]
+    [InlineData("diagnostics.deadlockCycles[0].edges")]
+    public void MissingRequiredWirePropertyIsRejected(string path)
+    {
+        JsonObject owner = GetRequiredPropertyOwner(out JsonObject root, path);
+        Assert.True(owner.Remove(GetPropertyName(path)));
+
+        ReplayArtifactFormatException exception = Assert.Throws<ReplayArtifactFormatException>(
+            () => ReplayArtifactSerializer.Deserialize(
+                Encoding.UTF8.GetBytes(root.ToJsonString())));
+
+        Assert.Equal($"{path} is required.", exception.Message);
+    }
+
+    [Theory]
+    [InlineData("format")]
+    [InlineData("schemaVersion")]
+    [InlineData("scheduler.options")]
+    [InlineData("instrumentation.assemblies")]
+    [InlineData("decisions")]
+    [InlineData("raceSchedulingPoints")]
+    [InlineData("diagnostics")]
+    [InlineData("diagnostics.operations")]
+    [InlineData("diagnostics.resources")]
+    [InlineData("diagnostics.resources[0].waiters")]
+    [InlineData("diagnostics.pendingTimers")]
+    [InlineData("diagnostics.deadlockCycles")]
+    [InlineData("diagnostics.deadlockCycles[0].edges")]
+    public void NullRequiredWirePropertyIsRejected(string path)
+    {
+        JsonObject owner = GetRequiredPropertyOwner(out JsonObject root, path);
+        owner[GetPropertyName(path)] = null;
+
+        ReplayArtifactFormatException exception = Assert.Throws<ReplayArtifactFormatException>(
+            () => ReplayArtifactSerializer.Deserialize(
+                Encoding.UTF8.GetBytes(root.ToJsonString())));
+
+        Assert.Equal($"{path} is required.", exception.Message);
     }
 
     [Fact]
@@ -104,14 +164,222 @@ public sealed class ReplayArtifactTests : IDisposable
     }
 
     [Fact]
-    public void AbortedRecordingCannotClaimTerminalCompletion()
+    public void UnknownOutcomeKindIsRejected()
     {
-        ReplayArtifact artifact = CreateArtifact() with { RecordingState = ReplayRecordingState.Aborted };
+        ReplayArtifact artifact = CreateArtifact() with
+        {
+            Outcome = new ReplayOutcome { Kind = (ReplayTerminationKind)999 },
+        };
+
+        Assert.Throws<ReplayArtifactFormatException>(
+            () => ReplayArtifactSerializer.Serialize(artifact));
+    }
+
+    [Fact]
+    public void CompleteArtifactGraphSerializeThenDeserializeRoundTrips()
+    {
+        ReplayArtifact expected = CreateCompleteArtifact();
+
+        byte[] serialized = ReplayArtifactSerializer.Serialize(expected);
+        ReplayArtifact actual = ReplayArtifactSerializer.Deserialize(serialized);
+
+        Assert.Equivalent(expected, actual, strict: true);
+        Assert.Equal(serialized, ReplayArtifactSerializer.Serialize(actual));
+        Assert.Equal("resource wait", actual.Diagnostics.Resources[0].Waiters[0].Reason);
+        Assert.Equal("Tests.Counter::Write", actual.Diagnostics.Race!.Second.Member);
+    }
+
+    [Theory]
+    [InlineData("scheduler.options", "scheduler.options['alpha']")]
+    [InlineData("instrumentation.assemblies", "instrumentation.assemblies[0]")]
+    [InlineData("decisions", "decisions[0]")]
+    [InlineData("raceSchedulingPoints", "raceSchedulingPoints[0]")]
+    [InlineData("diagnostics.operations", "diagnostics.operations[0]")]
+    [InlineData("diagnostics.resources", "diagnostics.resources[0]")]
+    [InlineData("diagnostics.resources[].waiters", "diagnostics.resources[0].waiters[0]")]
+    [InlineData("diagnostics.pendingTimers", "diagnostics.pendingTimers[0]")]
+    [InlineData("diagnostics.deadlockCycles", "diagnostics.deadlockCycles[0]")]
+    [InlineData("diagnostics.deadlockCycles[].edges", "diagnostics.deadlockCycles[0].edges[0]")]
+    public void NullCollectionElementIsRejectedDuringSerialization(
+        string collection,
+        string expectedPath)
+    {
+        ReplayArtifact artifact = CreateArtifactWithNullCollectionElement(collection);
 
         ReplayArtifactFormatException exception = Assert.Throws<ReplayArtifactFormatException>(
             () => ReplayArtifactSerializer.Serialize(artifact));
 
-        Assert.Contains("Aborted outcome", exception.Message, StringComparison.Ordinal);
+        Assert.Equal($"{expectedPath} cannot be null.", exception.Message);
+    }
+
+    [Theory]
+    [InlineData("scheduler.options", "scheduler.options['alpha']")]
+    [InlineData("instrumentation.assemblies", "instrumentation.assemblies[0]")]
+    [InlineData("decisions", "decisions[0]")]
+    [InlineData("raceSchedulingPoints", "raceSchedulingPoints[0]")]
+    [InlineData("diagnostics.operations", "diagnostics.operations[0]")]
+    [InlineData("diagnostics.resources", "diagnostics.resources[0]")]
+    [InlineData("diagnostics.resources[].waiters", "diagnostics.resources[0].waiters[0]")]
+    [InlineData("diagnostics.pendingTimers", "diagnostics.pendingTimers[0]")]
+    [InlineData("diagnostics.deadlockCycles", "diagnostics.deadlockCycles[0]")]
+    [InlineData("diagnostics.deadlockCycles[].edges", "diagnostics.deadlockCycles[0].edges[0]")]
+    public void NullCollectionElementIsRejectedDuringDeserialization(
+        string collection,
+        string expectedPath)
+    {
+        byte[] json = CreateJsonWithNullCollectionElement(collection);
+
+        ReplayArtifactFormatException exception = Assert.Throws<ReplayArtifactFormatException>(
+            () => ReplayArtifactSerializer.Deserialize(json));
+
+        Assert.Equal($"{expectedPath} cannot be null.", exception.Message);
+    }
+
+    [Theory]
+    [InlineData("outcome.kind", "outcome.kind")]
+    [InlineData("decisions[].domain", "decisions[0].domain")]
+    [InlineData("decisions[].kind", "decisions[0].kind")]
+    [InlineData("raceSchedulingPoints[].kind", "raceSchedulingPoints[0].kind")]
+    public void UndefinedEnumValueIsRejectedDuringSerialization(
+        string field,
+        string expectedPath)
+    {
+        ReplayArtifact artifact = CreateArtifactWithUndefinedEnum(field);
+
+        ReplayArtifactFormatException exception = Assert.Throws<ReplayArtifactFormatException>(
+            () => ReplayArtifactSerializer.Serialize(artifact));
+
+        Assert.Equal($"{expectedPath} value '999' is not defined.", exception.Message);
+    }
+
+    [Theory]
+    [InlineData("outcome.kind", false)]
+    [InlineData("outcome.kind", true)]
+    [InlineData("decisions[].domain", false)]
+    [InlineData("decisions[].domain", true)]
+    [InlineData("decisions[].kind", false)]
+    [InlineData("decisions[].kind", true)]
+    [InlineData("raceSchedulingPoints[].kind", false)]
+    [InlineData("raceSchedulingPoints[].kind", true)]
+    public void UndefinedEnumJsonValueIsRejectedDuringDeserialization(
+        string field,
+        bool useIntegerValue)
+    {
+        byte[] json = CreateJsonWithUndefinedEnum(field, useIntegerValue);
+
+        ReplayArtifactFormatException exception = Assert.Throws<ReplayArtifactFormatException>(
+            () => ReplayArtifactSerializer.Deserialize(json));
+
+        Assert.Equal("Replay artifact JSON is malformed.", exception.Message);
+        Assert.IsType<JsonException>(exception.InnerException);
+    }
+
+    [Theory]
+    [InlineData("\"Completed, Faulted\"")]
+    [InlineData("\"completed\"")]
+    [InlineData("\"1\"")]
+    [InlineData("1")]
+    [InlineData("\"Undefined\"")]
+    [InlineData("\" Completed\"")]
+    [InlineData("true")]
+    [InlineData("null")]
+    public void InvalidReplayTerminationKindJsonTokenIsRejected(string jsonToken)
+    {
+        byte[] json = CreateJsonWithOutcomeKindToken(jsonToken);
+
+        ReplayArtifactFormatException exception = Assert.Throws<ReplayArtifactFormatException>(
+            () => ReplayArtifactSerializer.Deserialize(json));
+
+        Assert.Equal("Replay artifact JSON is malformed.", exception.Message);
+        Assert.IsType<JsonException>(exception.InnerException);
+    }
+
+    [Theory]
+    [InlineData(ReplayTerminationKind.Completed)]
+    [InlineData(ReplayTerminationKind.Faulted)]
+    [InlineData(ReplayTerminationKind.Canceled)]
+    [InlineData(ReplayTerminationKind.Deadlocked)]
+    [InlineData(ReplayTerminationKind.RaceDetected)]
+    [InlineData(ReplayTerminationKind.BoundExceeded)]
+    [InlineData(ReplayTerminationKind.Aborted)]
+    public void ReplayTerminationKindSerializeThenDeserializeRoundTrips(ReplayTerminationKind kind)
+    {
+        ReplayArtifact artifact = CreateCompleteArtifact();
+        artifact = artifact with
+        {
+            Outcome = artifact.Outcome with { Kind = kind },
+        };
+
+        ReplayArtifact actual = ReplayArtifactSerializer.Deserialize(
+            ReplayArtifactSerializer.Serialize(artifact));
+
+        Assert.Equal(kind, actual.Outcome.Kind);
+        Assert.Equal(artifact.Outcome.FailureIdentity, actual.Outcome.FailureIdentity);
+    }
+
+    [Theory]
+    [InlineData(SimulationSeedDomain.Scheduler)]
+    [InlineData(SimulationSeedDomain.Network)]
+    [InlineData(SimulationSeedDomain.Application)]
+    [InlineData(SimulationSeedDomain.Identity)]
+    [InlineData(SimulationSeedDomain.Buggify)]
+    [InlineData(SimulationSeedDomain.Model)]
+    public void SimulationSeedDomainSerializeThenDeserializeRoundTrips(SimulationSeedDomain domain)
+    {
+        ReplayArtifact artifact = CreateCompleteArtifact();
+        artifact = artifact with
+        {
+            Decisions = [artifact.Decisions[0] with { Domain = domain }],
+        };
+
+        ReplayArtifact actual = ReplayArtifactSerializer.Deserialize(
+            ReplayArtifactSerializer.Serialize(artifact));
+
+        Assert.Equal(domain, actual.Decisions[0].Domain);
+        Assert.Equal(artifact.Decisions[0].SelectedResult, actual.Decisions[0].SelectedResult);
+    }
+
+    [Theory]
+    [InlineData(SimulationDecisionKind.RandomDraw)]
+    [InlineData(SimulationDecisionKind.Choice)]
+    [InlineData(SimulationDecisionKind.SchedulingOrder)]
+    [InlineData(SimulationDecisionKind.ResourceWinner)]
+    [InlineData(SimulationDecisionKind.NetworkBehavior)]
+    [InlineData(SimulationDecisionKind.FaultActivation)]
+    [InlineData(SimulationDecisionKind.Custom)]
+    public void SimulationDecisionKindSerializeThenDeserializeRoundTrips(SimulationDecisionKind kind)
+    {
+        ReplayArtifact artifact = CreateCompleteArtifact();
+        artifact = artifact with
+        {
+            Decisions = [artifact.Decisions[0] with { Kind = kind }],
+        };
+
+        ReplayArtifact actual = ReplayArtifactSerializer.Deserialize(
+            ReplayArtifactSerializer.Serialize(artifact));
+
+        Assert.Equal(kind, actual.Decisions[0].Kind);
+        Assert.Equal(artifact.Decisions[0].SourceId, actual.Decisions[0].SourceId);
+    }
+
+    [Theory]
+    [InlineData(RaceAccessKind.Read)]
+    [InlineData(RaceAccessKind.Write)]
+    [InlineData(RaceAccessKind.ControlFlow)]
+    [InlineData(RaceAccessKind.UntrackedMemory)]
+    public void RaceAccessKindSerializeThenDeserializeRoundTrips(RaceAccessKind kind)
+    {
+        ReplayArtifact artifact = CreateCompleteArtifact();
+        artifact = artifact with
+        {
+            RaceSchedulingPoints = [artifact.RaceSchedulingPoints[0] with { Kind = kind }],
+        };
+
+        ReplayArtifact actual = ReplayArtifactSerializer.Deserialize(
+            ReplayArtifactSerializer.Serialize(artifact));
+
+        Assert.Equal(kind, actual.RaceSchedulingPoints[0].Kind);
+        Assert.Equal(artifact.RaceSchedulingPoints[0].Location, actual.RaceSchedulingPoints[0].Location);
     }
 
     [Fact]
@@ -156,11 +424,10 @@ public sealed class ReplayArtifactTests : IDisposable
     }
 
     [Fact]
-    public void AbortedRecordingIsRejectedForReplay()
+    public void AbortedOutcomeIsRejectedForReplay()
     {
         ReplayArtifact artifact = CreateArtifact() with
         {
-            RecordingState = ReplayRecordingState.Aborted,
             Outcome = new ReplayOutcome { Kind = ReplayTerminationKind.Aborted },
         };
 
@@ -178,7 +445,6 @@ public sealed class ReplayArtifactTests : IDisposable
 
     private static ReplayArtifact CreateArtifact() => new()
     {
-        RecordingState = ReplayRecordingState.Complete,
         RootSeed = 42,
         Scheduler = new ReplaySchedulerConfiguration
         {
@@ -223,6 +489,295 @@ public sealed class ReplayArtifactTests : IDisposable
         NodeId = null,
         LogicalExecutionId = 0,
     };
+
+    private static ReplayArtifact CreateCompleteArtifact()
+    {
+        ReplayArtifact artifact = CreateArtifact();
+        return artifact with
+        {
+            Scheduler = artifact.Scheduler with
+            {
+                Options = new Dictionary<string, string>
+                {
+                    ["alpha"] = "first",
+                    ["zeta"] = "last",
+                },
+            },
+            Instrumentation = CreateInstrumentation('a'),
+            Diagnostics = new ReplayDiagnosticSnapshot
+            {
+                Liveness = "Deadlocked",
+                VirtualTimeTicks = 1234,
+                Operations =
+                [
+                    new ReplayOperationDiagnostic
+                    {
+                        Id = 1,
+                        ParentId = 0,
+                        State = "Waiting",
+                        Node = "node-a",
+                        Description = "worker",
+                        WaitReason = "resource wait",
+                    },
+                ],
+                Resources =
+                [
+                    new ReplayResourceDiagnostic
+                    {
+                        Id = 10,
+                        Kind = "Semaphore",
+                        Name = "gate",
+                        OwnerId = 1,
+                        Waiters =
+                        [
+                            new ReplayWaiterDiagnostic
+                            {
+                                OperationId = 2,
+                                EnqueueSequence = 7,
+                                TimeoutTicks = 999,
+                                Reason = "resource wait",
+                            },
+                        ],
+                    },
+                ],
+                PendingTimers =
+                [
+                    new ReplayTimerDiagnostic
+                    {
+                        DueTicks = 2000,
+                        Sequence = 8,
+                        OperationId = 2,
+                        ResourceId = 10,
+                    },
+                ],
+                DeadlockCycles =
+                [
+                    new ReplayDeadlockCycleDiagnostic
+                    {
+                        Edges =
+                        [
+                            new ReplayDeadlockEdgeDiagnostic
+                            {
+                                OperationId = 2,
+                                ResourceId = 10,
+                                OwnerId = 1,
+                                EnqueueSequence = 7,
+                            },
+                        ],
+                    },
+                ],
+                Race = new ReplayRacePairDiagnostic
+                {
+                    First = CreateRaceAccess("Read"),
+                    Second = CreateRaceAccess("Write") with
+                    {
+                        OperationId = 2,
+                        Member = "Tests.Counter::Write",
+                        ILOffset = 8,
+                    },
+                },
+            },
+        };
+    }
+
+    private static ReplayRaceAccessDiagnostic CreateRaceAccess(string kind) => new()
+    {
+        OperationId = 1,
+        Kind = kind,
+        Location = "field:Counter",
+        Member = "Tests.Counter::Read",
+        ILOffset = 4,
+        SourceFile = "Counter.cs",
+        SourceLine = 12,
+    };
+
+    private static ReplayArtifact CreateArtifactWithNullCollectionElement(string collection)
+    {
+        ReplayArtifact artifact = CreateCompleteArtifact();
+        return collection switch
+        {
+            "scheduler.options" => artifact with
+            {
+                Scheduler = artifact.Scheduler with
+                {
+                    Options = new Dictionary<string, string> { ["alpha"] = null! },
+                },
+            },
+            "instrumentation.assemblies" => artifact with
+            {
+                Instrumentation = artifact.Instrumentation! with { Assemblies = [null!] },
+            },
+            "decisions" => artifact with { Decisions = [null!] },
+            "raceSchedulingPoints" => artifact with { RaceSchedulingPoints = [null!] },
+            "diagnostics.operations" => artifact with
+            {
+                Diagnostics = artifact.Diagnostics with { Operations = [null!] },
+            },
+            "diagnostics.resources" => artifact with
+            {
+                Diagnostics = artifact.Diagnostics with { Resources = [null!] },
+            },
+            "diagnostics.resources[].waiters" => artifact with
+            {
+                Diagnostics = artifact.Diagnostics with
+                {
+                    Resources =
+                    [
+                        artifact.Diagnostics.Resources[0] with { Waiters = [null!] },
+                    ],
+                },
+            },
+            "diagnostics.pendingTimers" => artifact with
+            {
+                Diagnostics = artifact.Diagnostics with { PendingTimers = [null!] },
+            },
+            "diagnostics.deadlockCycles" => artifact with
+            {
+                Diagnostics = artifact.Diagnostics with { DeadlockCycles = [null!] },
+            },
+            "diagnostics.deadlockCycles[].edges" => artifact with
+            {
+                Diagnostics = artifact.Diagnostics with
+                {
+                    DeadlockCycles =
+                    [
+                        artifact.Diagnostics.DeadlockCycles[0] with { Edges = [null!] },
+                    ],
+                },
+            },
+            _ => throw new ArgumentOutOfRangeException(nameof(collection)),
+        };
+    }
+
+    private static byte[] CreateJsonWithNullCollectionElement(string collection)
+    {
+        JsonNode root = JsonNode.Parse(ReplayArtifactSerializer.ToJson(CreateCompleteArtifact()))!;
+        JsonObject diagnostics = root["diagnostics"]!.AsObject();
+
+        switch (collection)
+        {
+            case "scheduler.options":
+                root["scheduler"]!["options"]!.AsObject()["alpha"] = null;
+                break;
+            case "instrumentation.assemblies":
+                root["instrumentation"]!["assemblies"]!.AsArray()[0] = null;
+                break;
+            case "decisions":
+                root["decisions"]!.AsArray()[0] = null;
+                break;
+            case "raceSchedulingPoints":
+                root["raceSchedulingPoints"]!.AsArray()[0] = null;
+                break;
+            case "diagnostics.operations":
+                diagnostics["operations"]!.AsArray()[0] = null;
+                break;
+            case "diagnostics.resources":
+                diagnostics["resources"]!.AsArray()[0] = null;
+                break;
+            case "diagnostics.resources[].waiters":
+                diagnostics["resources"]!.AsArray()[0]!["waiters"]!.AsArray()[0] = null;
+                break;
+            case "diagnostics.pendingTimers":
+                diagnostics["pendingTimers"]!.AsArray()[0] = null;
+                break;
+            case "diagnostics.deadlockCycles":
+                diagnostics["deadlockCycles"]!.AsArray()[0] = null;
+                break;
+            case "diagnostics.deadlockCycles[].edges":
+                diagnostics["deadlockCycles"]!.AsArray()[0]!["edges"]!.AsArray()[0] = null;
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(collection));
+        }
+
+        return Encoding.UTF8.GetBytes(root.ToJsonString());
+    }
+
+    private static ReplayArtifact CreateArtifactWithUndefinedEnum(string field)
+    {
+        ReplayArtifact artifact = CreateCompleteArtifact();
+        return field switch
+        {
+            "outcome.kind" => artifact with
+            {
+                Outcome = artifact.Outcome with { Kind = (ReplayTerminationKind)999 },
+            },
+            "decisions[].domain" => artifact with
+            {
+                Decisions = [artifact.Decisions[0] with { Domain = (SimulationSeedDomain)999 }],
+            },
+            "decisions[].kind" => artifact with
+            {
+                Decisions = [artifact.Decisions[0] with { Kind = (SimulationDecisionKind)999 }],
+            },
+            "raceSchedulingPoints[].kind" => artifact with
+            {
+                RaceSchedulingPoints =
+                [
+                    artifact.RaceSchedulingPoints[0] with { Kind = (RaceAccessKind)999 },
+                ],
+            },
+            _ => throw new ArgumentOutOfRangeException(nameof(field)),
+        };
+    }
+
+    private static byte[] CreateJsonWithUndefinedEnum(string field, bool useIntegerValue)
+    {
+        JsonNode root = JsonNode.Parse(ReplayArtifactSerializer.ToJson(CreateCompleteArtifact()))!;
+        JsonNode value = useIntegerValue ? JsonValue.Create(999) : JsonValue.Create("Undefined");
+
+        switch (field)
+        {
+            case "outcome.kind":
+                root["outcome"]!.AsObject()["kind"] = value;
+                break;
+            case "decisions[].domain":
+                root["decisions"]!.AsArray()[0]!.AsObject()["domain"] = value;
+                break;
+            case "decisions[].kind":
+                root["decisions"]!.AsArray()[0]!.AsObject()["kind"] = value;
+                break;
+            case "raceSchedulingPoints[].kind":
+                root["raceSchedulingPoints"]!.AsArray()[0]!.AsObject()["kind"] = value;
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(field));
+        }
+
+        return Encoding.UTF8.GetBytes(root.ToJsonString());
+    }
+
+    private static byte[] CreateJsonWithOutcomeKindToken(string jsonToken)
+    {
+        JsonNode root = JsonNode.Parse(ReplayArtifactSerializer.ToJson(CreateCompleteArtifact()))!;
+        root["outcome"]!.AsObject()["kind"] = JsonNode.Parse(jsonToken);
+        return Encoding.UTF8.GetBytes(root.ToJsonString());
+    }
+
+    private static JsonObject GetRequiredPropertyOwner(
+        out JsonObject root,
+        string path)
+    {
+        root = JsonNode.Parse(
+            ReplayArtifactSerializer.ToJson(CreateCompleteArtifact()))!.AsObject();
+        return path switch
+        {
+            "scheduler.options" => root["scheduler"]!.AsObject(),
+            "instrumentation.assemblies" => root["instrumentation"]!.AsObject(),
+            "diagnostics.operations"
+                or "diagnostics.resources"
+                or "diagnostics.pendingTimers"
+                or "diagnostics.deadlockCycles" => root["diagnostics"]!.AsObject(),
+            "diagnostics.resources[0].waiters" =>
+                root["diagnostics"]!["resources"]!.AsArray()[0]!.AsObject(),
+            "diagnostics.deadlockCycles[0].edges" =>
+                root["diagnostics"]!["deadlockCycles"]!.AsArray()[0]!.AsObject(),
+            _ => root,
+        };
+    }
+
+    private static string GetPropertyName(string path) =>
+        path[(path.LastIndexOf('.') + 1)..];
 
     private static ReplayInstrumentationIdentity CreateInstrumentation(char hash) => new()
     {

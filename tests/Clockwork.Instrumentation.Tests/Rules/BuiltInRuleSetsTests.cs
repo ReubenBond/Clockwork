@@ -23,19 +23,13 @@ public sealed class BuiltInRuleSetsTests
         ImmutableArray<(BuiltInRuleFamily Family, RewriteRule Rule)> inventory = BuiltInRuleSets.DeterministicBclInventory;
 
         Assert.Equal("clockwork.bcl.deterministic", BuiltInRuleSets.DeterministicBclId);
-        Assert.Equal("2.0.0", BuiltInRuleSets.DeterministicBclVersion);
+        Assert.Equal("3.0.0", BuiltInRuleSets.DeterministicBclVersion);
         Assert.NotEmpty(inventory);
         Assert.Equal(inventory.Length, inventory.Select(e => e.Rule.Id).Distinct(StringComparer.Ordinal).Count());
         Assert.All(inventory, e => Assert.Equal(BuiltInRuleSets.ShimAssemblyName, e.Rule.Replacement.AssemblyName));
         Assert.All(inventory, e => Assert.StartsWith("clockwork.bcl.", e.Rule.Id, StringComparison.Ordinal));
 
-        // The crypto family is classified as Rejected; the rest are Controlled redirections.
-        Assert.All(
-            inventory.Where(e => e.Family == BuiltInRuleFamily.Crypto),
-            e => Assert.Equal(SimulationApiPolicy.Rejected, e.Rule.Policy));
-        Assert.All(
-            inventory.Where(e => e.Family != BuiltInRuleFamily.Crypto),
-            e => Assert.Equal(SimulationApiPolicy.Controlled, e.Rule.Policy));
+        Assert.All(inventory, e => Assert.Equal(SimulationApiPolicy.Controlled, e.Rule.Policy));
     }
 
     [Fact]
@@ -59,16 +53,13 @@ public sealed class BuiltInRuleSetsTests
 
         Assert.Equal(expected, actual);
         Assert.DoesNotContain(actual, type => type.Contains("Deterministic", StringComparison.Ordinal));
-        Assert.Equal(
-            "DeterministicInsecureForTesting",
-            SimulationCryptoRandomnessPolicy.DeterministicInsecureForTesting.ToString());
     }
 
     [Fact]
     public void CoversEveryControlledSignature()
     {
         var targets = BuiltInRuleSets.DeterministicBclInventory
-            .Select(e => e.Rule.Target.ToCanonicalString())
+            .Select(e => Display(e.Rule.Target))
             .ToHashSet(StringComparer.Ordinal);
 
         string[] expected =
@@ -94,9 +85,12 @@ public sealed class BuiltInRuleSetsTests
             "System.Security.Cryptography.RandomNumberGenerator::GetBytes(System.Int32)",
             "System.Security.Cryptography.RandomNumberGenerator::GetInt32(System.Int32)",
             "System.Security.Cryptography.RandomNumberGenerator::GetInt32(System.Int32,System.Int32)",
+            "System.Security.Cryptography.RandomNumberGenerator::GetItems(System.ReadOnlySpan`1<!!0>,System.Span`1<!!0>)",
+            "System.Security.Cryptography.RandomNumberGenerator::GetItems(System.ReadOnlySpan`1<!!0>,System.Int32)",
             "System.Security.Cryptography.RandomNumberGenerator::GetHexString(System.Span`1<System.Char>,System.Boolean)",
             "System.Security.Cryptography.RandomNumberGenerator::GetHexString(System.Int32,System.Boolean)",
             "System.Security.Cryptography.RandomNumberGenerator::GetString(System.ReadOnlySpan`1<System.Char>,System.Int32)",
+            "System.Security.Cryptography.RandomNumberGenerator::Shuffle(System.Span`1<!!0>)",
         ];
 
         foreach (string signature in expected)
@@ -205,6 +199,12 @@ public sealed class BuiltInRuleSetsTests
 
         return true;
     }
+
+    private static string Display(MemberSignature signature) =>
+        signature.MemberName is null
+            ? signature.DeclaringTypeFullName
+            : $"{signature.DeclaringTypeFullName}::{signature.MemberName}(" +
+                string.Join(",", signature.ParameterTypeFullNames) + ")";
 
     [Fact]
     public void BuildRestrictsToSelectedFamilies()

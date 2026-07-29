@@ -1,7 +1,6 @@
 using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Random;
 using Clockwork.Runtime.Scheduling;
-using Clockwork.Runtime.Shims;
 
 namespace Clockwork.Tests;
 
@@ -16,8 +15,7 @@ internal static class SimulationTestHarness
             runtime,
             new SimulationSeedAuthority(seed),
             startDateTime ?? DateTimeOffset.UnixEpoch,
-            TimeZoneInfo.Utc,
-            SimulationCryptoRandomnessPolicy.Reject);
+            TimeZoneInfo.Utc);
     }
 
     public static SingleThreadedGuard NewGuard(SimulationScheduler scheduler) =>
@@ -33,23 +31,21 @@ internal static class SimulationTestHarness
         return new SimulationSchedulerLane(scheduler, NewGuard(scheduler), node);
     }
 
-    public static (SimulationClock Clock, SingleThreadedGuard Guard, SimulationNodeContext Context)
+    public static (SimulationScheduler Scheduler, SingleThreadedGuard Guard, SimulationNodeContext Context)
         NewNodeComponents(
             string address = "node-1",
             SimulationSchedulerLane? externalLane = null)
     {
         var scheduler = externalLane?.Scheduler ?? NewScheduler();
-        var clock = new SimulationClock(scheduler);
         var guard = NewGuard(scheduler);
         var node = new SimulationNodeIdentity(address);
         var context = new SimulationNodeContext(
-            clock,
+            scheduler,
             guard,
             new SimulationRandom(1),
             externalLane,
             logger: null,
-            scheduler.Runtime,
             node);
-        return (clock, guard, context);
+        return (scheduler, guard, context);
     }
 }

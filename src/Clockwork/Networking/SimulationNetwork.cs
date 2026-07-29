@@ -33,26 +33,45 @@ public class SimulationNetwork
     private readonly ConcurrentDictionary<string, HashSet<string>> _partitions = new(StringComparer.Ordinal);
     private readonly Lock _lock = new();
     private ILogger _logger;
+    private TimeSpan _baseMessageDelay = TimeSpan.Zero;
+    private TimeSpan _maxJitter = TimeSpan.Zero;
 
     /// <summary>
     /// Gets or sets the base message delay for all messages.
     /// </summary>
-    public TimeSpan BaseMessageDelay { get; set; } = TimeSpan.FromMilliseconds(1);
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// The value is negative, or its sum with <see cref="MaxJitter"/> exceeds <see cref="TimeSpan.MaxValue"/>.
+    /// </exception>
+    public TimeSpan BaseMessageDelay
+    {
+        get => _baseMessageDelay;
+        set
+        {
+            ValidateDelay(value, _maxJitter, nameof(BaseMessageDelay));
+            _baseMessageDelay = value;
+        }
+    }
 
     /// <summary>
     /// Gets or sets the maximum additional random delay for messages.
     /// </summary>
-    public TimeSpan MaxJitter { get; set; } = TimeSpan.FromMilliseconds(5);
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// The value is negative, or its sum with <see cref="BaseMessageDelay"/> exceeds <see cref="TimeSpan.MaxValue"/>.
+    /// </exception>
+    public TimeSpan MaxJitter
+    {
+        get => _maxJitter;
+        set
+        {
+            ValidateDelay(value, _baseMessageDelay, nameof(MaxJitter));
+            _maxJitter = value;
+        }
+    }
 
     /// <summary>
     /// Gets or sets the probability of a message being dropped (0.0 to 1.0).
     /// </summary>
     public double MessageDropRate { get; set; }
-
-    /// <summary>
-    /// Gets or sets a value indicating whether gets or sets whether to simulate message delays.
-    /// </summary>
-    public bool EnableDelays { get; set; }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SimulationNetwork"/> class.
@@ -242,13 +261,15 @@ public class SimulationNetwork
     /// </summary>
     public TimeSpan GetMessageDelay()
     {
-        if (!EnableDelays)
+        var baseDelay = _baseMessageDelay;
+        var maxJitter = _maxJitter;
+        if (maxJitter == TimeSpan.Zero)
         {
-            return TimeSpan.Zero;
+            return baseDelay;
         }
 
-        var jitter = _random.NextTimeSpan(MaxJitter);
-        return BaseMessageDelay + jitter;
+        var jitter = _random.NextTimeSpan(maxJitter);
+        return TimeSpan.FromTicks(checked(baseDelay.Ticks + jitter.Ticks));
     }
 
 #pragma warning disable CA1848 // Use the LoggerMessage delegates - these are virtual hooks, override for high-performance logging
@@ -284,4 +305,20 @@ public class SimulationNetwork
 #pragma warning restore CA1873, CA1848
 
     private string DebuggerDisplay => string.Create(CultureInfo.InvariantCulture, $"SimulationNetwork(Partitions={_partitions.Count}, DropRate={MessageDropRate:P0})");
+
+    private static void ValidateDelay(TimeSpan value, TimeSpan otherDelay, string propertyName)
+    {
+        if (value < TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(propertyName, value, "Delay values must be nonnegative.");
+        }
+
+        if (value > TimeSpan.MaxValue - otherDelay)
+        {
+            throw new ArgumentOutOfRangeException(
+                propertyName,
+                value,
+                $"{nameof(BaseMessageDelay)} and {nameof(MaxJitter)} must not exceed {nameof(TimeSpan)}.{nameof(TimeSpan.MaxValue)} when combined.");
+        }
+    }
 }

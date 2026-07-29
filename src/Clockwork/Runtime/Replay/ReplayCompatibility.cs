@@ -67,10 +67,10 @@ public static class ReplayCompatibility
         ArgumentNullException.ThrowIfNull(artifact);
         ArgumentNullException.ThrowIfNull(requirements);
 
-        if (artifact.RecordingState != ReplayRecordingState.Complete)
+        if (artifact.Outcome.Kind == ReplayTerminationKind.Aborted)
         {
             throw new ReplayCompatibilityException(
-                "The artifact is an aborted recording and cannot be used for exact replay.");
+                "The artifact has an Aborted outcome and cannot be used for exact replay.");
         }
 
         RequireEqual(

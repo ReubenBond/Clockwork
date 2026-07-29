@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Clockwork.Instrumentation.Configuration;
@@ -28,6 +29,14 @@ public readonly record struct ClosureManifestEntry(
     int ErrorCount);
 
 /// <summary>
+/// A copied asset's entry in a <see cref="ClosureManifest"/>: its closure-relative path and the
+/// lower-hex SHA-256 of the bytes copied into the staged closure.
+/// </summary>
+/// <param name="RelativePath">The asset path relative to the closure root.</param>
+/// <param name="Sha256">The lower-hex SHA-256 of the staged asset bytes.</param>
+public readonly record struct ClosureManifestCopiedAsset(string RelativePath, string Sha256);
+
+/// <summary>
 /// The deterministic, aggregate manifest for an entire instrumented application closure. It records
 /// the engine and rule-set identity, the configuration and incremental keys, the entry assembly, the
 /// per-assembly outcomes, and the assets copied verbatim. Like the per-assembly
@@ -37,7 +46,7 @@ public readonly record struct ClosureManifestEntry(
 public sealed record ClosureManifest
 {
     /// <summary>The closure-manifest schema version.</summary>
-    public const int SchemaVersion = 2;
+    public const int SchemaVersion = 3;
 
     /// <summary>Gets the producing engine's name.</summary>
     public string EngineName { get; init; } = "Clockwork.Instrumentation";
@@ -69,12 +78,13 @@ public sealed record ClosureManifest
     /// <summary>Gets the per-assembly manifest entries.</summary>
     public ImmutableArray<ClosureManifestEntry> Assemblies { get; init; } = [];
 
-    /// <summary>Gets the closure-relative paths of assets copied verbatim.</summary>
-    public ImmutableArray<string> CopiedAssets { get; init; } = [];
+    /// <summary>Gets the closure-relative paths and content hashes of assets copied verbatim.</summary>
+    public ImmutableArray<ClosureManifestCopiedAsset> CopiedAssets { get; init; } = [];
 
     /// <summary>Serializes the manifest to deterministic, indented JSON.</summary>
     public string ToJson()
     {
+        ClosureManifestJson.ValidateForSerialization(this);
         var root = new JsonObject
         {
             ["schemaVersion"] = SchemaVersion,
@@ -91,7 +101,9 @@ public sealed record ClosureManifest
             ["copiedAssets"] = SerializeCopiedAssets(),
         };
 
-        return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+        string json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+        ClosureManifestJson.ValidateDocumentSize(Encoding.UTF8.GetByteCount(json));
+        return json;
     }
 
     private JsonArray SerializeAssemblies()
@@ -118,9 +130,14 @@ public sealed record ClosureManifest
     private JsonArray SerializeCopiedAssets()
     {
         var array = new JsonArray();
-        foreach (string asset in CopiedAssets.OrderBy(a => a, StringComparer.Ordinal))
+        foreach (ClosureManifestCopiedAsset asset in
+            CopiedAssets.OrderBy(a => a.RelativePath, StringComparer.Ordinal))
         {
-            array.Add(asset);
+            array.Add(new JsonObject
+            {
+                ["relativePath"] = asset.RelativePath,
+                ["sha256"] = asset.Sha256,
+            });
         }
 
         return array;
