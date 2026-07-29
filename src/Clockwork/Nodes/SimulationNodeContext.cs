@@ -226,6 +226,10 @@ public sealed partial class SimulationNodeContext
     /// </summary>
     /// <param name="duration">How long to suspend the node (in simulated time).</param>
     /// <exception cref="InvalidOperationException">Thrown if no external scheduler lane was provided.</exception>
+    [global::System.Diagnostics.CodeAnalysis.SuppressMessage(
+        "Reliability",
+        "CA2000:Dispose objects before losing scope",
+        Justification = "The scheduled item transfers to the scheduler lane and shared-item registry; the failure path disposes it.")]
     public void SuspendFor(TimeSpan duration)
     {
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(duration, TimeSpan.Zero);
