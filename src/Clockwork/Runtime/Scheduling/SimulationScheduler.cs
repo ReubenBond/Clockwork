@@ -2626,13 +2626,39 @@ public sealed class SimulationScheduler : IDisposable
 
     private static string FormatCandidateIds(List<SimulationOperation> runnable)
     {
-        var ids = new string[runnable.Count];
-        for (var i = 0; i < runnable.Count; i++)
+        var length = runnable.Count - 1;
+        Span<char> buffer = stackalloc char[20];
+        for (var index = 0; index < runnable.Count; index++)
         {
-            ids[i] = FormatOperationId(runnable[i].Id);
+            bool formatted = runnable[index].Id.Value.TryFormat(
+                buffer,
+                out var written,
+                provider: CultureInfo.InvariantCulture);
+            Debug.Assert(formatted);
+            length += written;
         }
 
-        return string.Join(",", ids);
+        return string.Create(
+            length,
+            runnable,
+            static (destination, operations) =>
+            {
+                var offset = 0;
+                for (var index = 0; index < operations.Count; index++)
+                {
+                    if (index > 0)
+                    {
+                        destination[offset++] = ',';
+                    }
+
+                    bool formatted = operations[index].Id.Value.TryFormat(
+                        destination[offset..],
+                        out var written,
+                        provider: CultureInfo.InvariantCulture);
+                    Debug.Assert(formatted);
+                    offset += written;
+                }
+            });
     }
 
     private static string FormatOperationId(SimulationOperationId id) =>
