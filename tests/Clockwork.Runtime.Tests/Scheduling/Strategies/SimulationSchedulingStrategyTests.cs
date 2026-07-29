@@ -99,7 +99,7 @@ public sealed class SimulationSchedulingStrategyTests
         ScheduleYielding(scheduler, order, priority: 0);
         ScheduleYielding(scheduler, order, priority: 10);
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Equal([1L, 3L, 1L, 3L, 1L, 3L, 2L, 2L, 2L], order);
     }
@@ -115,7 +115,7 @@ public sealed class SimulationSchedulingStrategyTests
         ScheduleYielding(scheduler, order, priority: int.MinValue);
         ScheduleYielding(scheduler, order, priority: int.MinValue);
 
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Equal([1L, 2L, 3L, 1L, 2L, 3L, 1L, 2L, 3L], order);
     }

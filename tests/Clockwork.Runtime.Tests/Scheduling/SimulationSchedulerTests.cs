@@ -694,7 +694,7 @@ public sealed class SimulationSchedulerTests
         }
 
         scheduler.Cancel(operations[4]);
-        scheduler.Drain();
+        scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.Equal(operations.Select(operation => operation.Id), scheduler.CaptureStatus().Select(status => status.Id));
     }

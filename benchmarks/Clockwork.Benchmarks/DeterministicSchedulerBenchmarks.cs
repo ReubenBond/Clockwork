@@ -50,7 +50,7 @@ public class DeterministicSchedulerBenchmarks
             scheduler.Schedule("benchmark", body);
         }
 
-        int dispatched = scheduler.Drain();
+        int dispatched = scheduler.Drain(CancellationToken.None);
         if (dispatched != SchedulingPointCount)
         {
             throw new InvalidOperationException(
