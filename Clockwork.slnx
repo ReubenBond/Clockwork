@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/Clockwork.Benchmarks/Clockwork.Benchmarks.csproj" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/Clockwork/Clockwork.csproj" />
     <Project Path="src/Clockwork.Instrumentation/Clockwork.Instrumentation.csproj" />

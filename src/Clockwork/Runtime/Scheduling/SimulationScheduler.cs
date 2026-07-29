@@ -57,9 +57,15 @@ public sealed class SimulationScheduler : IDisposable
     [ThreadStatic]
     private static SimulationOperation? t_currentOperation;
 
+    private static readonly ContextCallback s_runBodyInCapturedContext = static state =>
+    {
+        var operation = (SimulationOperation)state!;
+        operation.Scheduler.RunBodyScoped(operation);
+    };
+
     private readonly object _gate = new();
     private readonly object _transitionPublicationGate = new();
-    private readonly SortedDictionary<SimulationOperationId, SimulationOperation> _operations = new();
+    private readonly List<SimulationOperation> _operations = [];
     private readonly SortedDictionary<SimulationResourceId, SimulationResource> _resources = new();
     private readonly HashSet<string> _suspendedNodes = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _handback = new(0, 1);
@@ -485,7 +491,7 @@ public sealed class SimulationScheduler : IDisposable
                     body,
                     capturedContext,
                     priority);
-                _operations.Add(id, operation);
+                _operations.Add(operation);
                 _raceTracker.RegisterOperation(operation, parent);
             }
 
@@ -1085,7 +1091,7 @@ public sealed class SimulationScheduler : IDisposable
     {
         lock (_gate)
         {
-            foreach (var operation in _operations.Values)
+            foreach (var operation in _operations)
             {
                 if (!operation.IsTerminal)
                 {
@@ -1202,7 +1208,7 @@ public sealed class SimulationScheduler : IDisposable
         ArgumentNullException.ThrowIfNull(node);
         lock (_gate)
         {
-            foreach (var operation in _operations.Values)
+            foreach (var operation in _operations)
             {
                 if (operation.Node == node && !operation.IsTerminal)
                 {
@@ -1235,7 +1241,7 @@ public sealed class SimulationScheduler : IDisposable
                 _readinessWaits.RemoveAt(index);
             }
 
-            operations = _operations.Values
+            operations = _operations
                 .Where(operation => operation.Node == node && !operation.IsTerminal)
                 .ToArray();
         }
@@ -1306,7 +1312,7 @@ public sealed class SimulationScheduler : IDisposable
 
     private bool HasRunnableUnderLock()
     {
-        foreach (var operation in _operations.Values)
+        foreach (var operation in _operations)
         {
             if (operation.State == SimulationOperationState.Runnable && IsEligibleUnderLock(operation))
             {
@@ -1904,7 +1910,7 @@ public sealed class SimulationScheduler : IDisposable
         lock (_gate)
         {
             var result = new List<SimulationOperationStatus>(_operations.Count);
-            foreach (var operation in _operations.Values)
+            foreach (var operation in _operations)
             {
                 result.Add(new SimulationOperationStatus(
                     operation.Id,
@@ -1930,7 +1936,7 @@ public sealed class SimulationScheduler : IDisposable
             lock (_gate)
             {
                 var count = 0;
-                foreach (var operation in _operations.Values)
+                foreach (var operation in _operations)
                 {
                     if (!operation.IsTerminal)
                     {
@@ -1999,7 +2005,7 @@ public sealed class SimulationScheduler : IDisposable
             var runnable = 0;
             var blocked = 0;
             var nonTerminal = 0;
-            foreach (var operation in _operations.Values)
+            foreach (var operation in _operations)
             {
                 if (!operation.IsTerminal)
                 {
@@ -2055,7 +2061,7 @@ public sealed class SimulationScheduler : IDisposable
             report = DetectDeadlock();
             now = _clock.Now;
             operations = new List<(SimulationOperationId, SimulationOperationState, string, SimulationPauseReason?)>(_operations.Count);
-            foreach (var operation in _operations.Values)
+            foreach (var operation in _operations)
             {
                 operations.Add((operation.Id, operation.State, operation.WorkDescription, operation.PauseReason));
             }
@@ -2091,8 +2097,8 @@ public sealed class SimulationScheduler : IDisposable
 
         // The wait-for graph is functional here (each paused operation waits on exactly one resource,
         // hence has at most one successor), so following the single successor chain from each start
-        // node detects every cycle deterministically. _operations is id-sorted, so starts are ordered.
-        foreach (var operation in _operations.Values)
+        // node detects every cycle deterministically. _operations is in id order, so starts are ordered.
+        foreach (var operation in _operations)
         {
             var start = operation.Id;
             if (!edges.ContainsKey(start) || globallyVisited.Contains(start))
@@ -2157,7 +2163,7 @@ public sealed class SimulationScheduler : IDisposable
             var waiter = edge.Waiter;
             entries.Add(new SimulationWaitCycleEntry(
                 id,
-                _operations[id].WorkDescription,
+                GetOperation(id).WorkDescription,
                 waiter.Resource.Id,
                 waiter.Resource.Name,
                 edge.OwnerId,
@@ -2220,7 +2226,7 @@ public sealed class SimulationScheduler : IDisposable
                 _disposed = true;
                 victims = new List<SimulationOperation>();
                 registrations = new List<CancellationTokenRegistration>();
-                foreach (var operation in _operations.Values)
+                foreach (var operation in _operations)
                 {
                     if (operation.IsTerminal)
                     {
@@ -2271,12 +2277,16 @@ public sealed class SimulationScheduler : IDisposable
 
     private SimulationOperation? SelectRunnable()
     {
-        // Collect the runnable operations in ascending id order (_operations is a SortedDictionary),
-        // then delegate the choice to the pluggable strategy. The default round-robin strategy
-        // reproduces the controlled-operation scheduler behavior exactly.
-        List<SimulationOperation>? runnable = null;
-        foreach (var operation in _operations.Values)
+        if (_strategy is RoundRobinSchedulingStrategy && _decisionLog is null && _replayValidator is null)
         {
+            return SelectRoundRobinRunnable();
+        }
+
+        // Custom and instrumented strategies receive a stable snapshot which they may retain.
+        List<SimulationOperation>? runnable = null;
+        for (var index = 0; index < _operations.Count; index++)
+        {
+            SimulationOperation operation = _operations[index];
             if (operation.State != SimulationOperationState.Runnable || !IsEligibleUnderLock(operation))
             {
                 continue;
@@ -2305,6 +2315,33 @@ public sealed class SimulationScheduler : IDisposable
 
         _lastSelected = chosen.Id;
         return chosen;
+    }
+
+    private SimulationOperation? SelectRoundRobinRunnable()
+    {
+        SimulationOperation? wrapTarget = null;
+        for (var index = 0; index < _operations.Count; index++)
+        {
+            SimulationOperation operation = _operations[index];
+            if (operation.State != SimulationOperationState.Runnable || !IsEligibleUnderLock(operation))
+            {
+                continue;
+            }
+
+            wrapTarget ??= operation;
+            if (operation.Id > _lastSelected)
+            {
+                _lastSelected = operation.Id;
+                return operation;
+            }
+        }
+
+        if (wrapTarget is not null)
+        {
+            _lastSelected = wrapTarget.Id;
+        }
+
+        return wrapTarget;
     }
 
     private bool IsEligibleUnderLock(SimulationOperation operation) =>
@@ -2571,7 +2608,7 @@ public sealed class SimulationScheduler : IDisposable
             var context = operation.CapturedContext;
             if (context is not null)
             {
-                ExecutionContext.Run(context, static s => ((BodyClosure)s!).Run(), new BodyClosure(this, operation));
+                ExecutionContext.Run(context, s_runBodyInCapturedContext, operation);
             }
             else
             {
@@ -2728,17 +2765,9 @@ public sealed class SimulationScheduler : IDisposable
         }
     }
 
-    private sealed class TransitionPublicationScope(SimulationScheduler scheduler) : IDisposable
+    private readonly ref struct TransitionPublicationScope(SimulationScheduler scheduler)
     {
-        private int _disposed;
-
-        public void Dispose()
-        {
-            if (Interlocked.Exchange(ref _disposed, 1) == 0)
-            {
-                scheduler.ExitTransitionPublicationScope();
-            }
-        }
+        public void Dispose() => scheduler.ExitTransitionPublicationScope();
     }
 
     private static void UnwindParkedThread(SimulationOperation operation)
@@ -2781,12 +2810,23 @@ public sealed class SimulationScheduler : IDisposable
         }
     }
 
+    private SimulationOperation GetOperation(SimulationOperationId id)
+    {
+        var index = checked((int)(id.Value - 1));
+        if ((uint)index >= (uint)_operations.Count || _operations[index].Id != id)
+        {
+            throw new SimulationSchedulerException($"Unknown controlled operation id '{id}'.");
+        }
+
+        return _operations[index];
+    }
+
     private SimulationOperation[] SnapshotOperations()
     {
         lock (_gate)
         {
             var array = new SimulationOperation[_operations.Count];
-            _operations.Values.CopyTo(array, 0);
+            _operations.CopyTo(array, 0);
             return array;
         }
     }
@@ -2795,11 +2835,6 @@ public sealed class SimulationScheduler : IDisposable
         _listener?.OnStateChanged(operation, state);
 
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
-
-    private sealed class BodyClosure(SimulationScheduler scheduler, SimulationOperation operation)
-    {
-        public void Run() => scheduler.RunBodyScoped(operation);
-    }
 
     private sealed class ReadinessWait : ISimulationWorkRegistration
     {

@@ -86,8 +86,9 @@ internal sealed class ReplaySchedulingStrategy :
 
         var expected = _scheduling[_schedulingIndex++];
         LastDecisionSourceId = expected.SourceId;
-        foreach (var operation in context.Runnable)
+        for (var index = 0; index < context.Runnable.Count; index++)
         {
+            SimulationOperation operation = context.Runnable[index];
             if (string.Equals(FormatId(operation.Id), expected.SelectedResult, StringComparison.Ordinal))
             {
                 return operation;

@@ -604,6 +604,22 @@ public sealed class SimulationSchedulerTests
         Assert.Equal(SimulationOperationState.Runnable, status[1].State);
     }
 
+    [Fact]
+    public void CaptureStatusPreservesIdOrderAcrossStorageGrowthAndCompletion()
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        var operations = new SimulationOperation[9];
+        for (var index = 0; index < operations.Length; index++)
+        {
+            operations[index] = scheduler.Schedule($"operation-{index}", () => { });
+        }
+
+        scheduler.Cancel(operations[4]);
+        scheduler.Drain();
+
+        Assert.Equal(operations.Select(operation => operation.Id), scheduler.CaptureStatus().Select(status => status.Id));
+    }
+
     private static bool SpinUntil(Func<bool> condition) => SpinWait.SpinUntil(condition, TimeSpan.FromSeconds(5));
 
     private sealed class BlockingPauseListener(CancellationToken cancellationToken) : ISimulationOperationListener

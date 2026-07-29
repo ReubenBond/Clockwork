@@ -27,6 +27,22 @@ public sealed class SimulationSchedulingStrategyTests
     }
 
     [Fact]
+    public void RoundRobinFastPathMatchesInstrumentedSelection()
+    {
+        using var fast = SchedulerTestHarness.NewScheduler();
+        using var instrumented = SchedulerTestHarness.NewScheduler();
+        var log = new SimulationDecisionLog();
+        instrumented.DecisionLog = log;
+
+        var fastOrder = DriveThreeYieldingOperations(fast);
+        var instrumentedOrder = DriveThreeYieldingOperations(instrumented);
+
+        Assert.Equal(fastOrder, instrumentedOrder);
+        Assert.NotEmpty(log.Records);
+        Assert.All(log.Records, record => Assert.Equal("round-robin", record.SourceId));
+    }
+
+    [Fact]
     public void FifoAlwaysRunsTheSmallestRunnableId()
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();
@@ -69,6 +85,38 @@ public sealed class SimulationSchedulingStrategyTests
         scheduler.Drain();
 
         // All equal priority collapses to plain round-robin.
+        Assert.Equal([1L, 2L, 3L, 1L, 2L, 3L, 1L, 2L, 3L], order);
+    }
+
+    [Fact]
+    public void PriorityRotatesAcrossANoncontiguousHighestPriorityBand()
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        scheduler.SchedulingStrategy = SimulationSchedulingStrategies.Priority();
+
+        var order = new List<long>();
+        ScheduleYielding(scheduler, order, priority: 10);
+        ScheduleYielding(scheduler, order, priority: 0);
+        ScheduleYielding(scheduler, order, priority: 10);
+
+        scheduler.Drain();
+
+        Assert.Equal([1L, 3L, 1L, 3L, 1L, 3L, 2L, 2L, 2L], order);
+    }
+
+    [Fact]
+    public void PriorityRotatesWhenAllPrioritiesAreMinimumValue()
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        scheduler.SchedulingStrategy = SimulationSchedulingStrategies.Priority();
+
+        var order = new List<long>();
+        ScheduleYielding(scheduler, order, priority: int.MinValue);
+        ScheduleYielding(scheduler, order, priority: int.MinValue);
+        ScheduleYielding(scheduler, order, priority: int.MinValue);
+
+        scheduler.Drain();
+
         Assert.Equal([1L, 2L, 3L, 1L, 2L, 3L, 1L, 2L, 3L], order);
     }
 
