@@ -4,8 +4,8 @@ namespace Clockwork.Instrumentation.Tests.Configuration;
 
 /// <summary>
 /// Verifies the instrumentation-configuration loader: valid documents parse with defaults applied,
-/// relative paths resolve against the configuration directory, the strong-name/ReadyToRun policies
-/// enforce their invariants, and the signature is stable and change-sensitive.
+/// relative paths resolve against the configuration directory, legacy strong-name values remain
+/// accepted, ReadyToRun policy is validated, and the signature is stable and change-sensitive.
 /// </summary>
 public sealed class InstrumentationConfigurationTests
 {
@@ -98,11 +98,13 @@ public sealed class InstrumentationConfigurationTests
     }
 
     [Fact]
-    public void ReSignRequiresKey()
+    public void LegacyReSignValueDoesNotRequireKey()
     {
-        ConfigurationException ex = Assert.Throws<ConfigurationException>(
-            () => InstrumentationConfigurationLoader.Parse("""{ "ruleSets": ["r.json"], "strongNamePolicy": "ReSign" }"""));
-        Assert.Contains("strongNameKeyPath", ex.Message, StringComparison.Ordinal);
+        InstrumentationConfiguration config =
+            InstrumentationConfigurationLoader.Parse("""{ "ruleSets": ["r.json"], "strongNamePolicy": "ReSign" }""");
+
+        Assert.Equal(StrongNamePolicy.ReSign, config.StrongNamePolicy);
+        Assert.Null(config.StrongNameKeyPath);
     }
 
     [Theory]

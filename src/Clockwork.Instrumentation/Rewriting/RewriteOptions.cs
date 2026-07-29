@@ -81,6 +81,8 @@ public sealed record RewriteOptions
     /// </summary>
     public bool InstrumentRaceExploration { get; init; }
 
+    internal ImmutableArray<string> StrongNameAssemblyNames { get; init; } = [];
+
     /// <summary>
     /// Computes a canonical fingerprint of every option which can affect rewritten output,
     /// diagnostics, or manifest content. Set-like exclusions are sorted so equivalent orderings
@@ -98,6 +100,7 @@ public sealed record RewriteOptions
         canonical.Append("hardenExceptions=").Append(HardenExceptionHandlers).Append('\n');
         canonical.Append("detectTasks=").Append(DetectUncontrolledTasks).Append('\n');
         canonical.Append("raceExploration=").Append(InstrumentRaceExploration).Append('\n');
+        AppendPaths(canonical, "strongNames", StrongNameAssemblyNames, sort: true);
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString())));
     }
 

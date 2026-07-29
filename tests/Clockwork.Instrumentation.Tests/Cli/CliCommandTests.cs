@@ -191,7 +191,7 @@ public sealed class CliCommandTests : IDisposable
     }
 
     [Fact]
-    public void InstrumentDryRunFlagsStrongNamedInputAsBlocking()
+    public void InstrumentDryRunReportsAutomaticStrongNameStripping()
     {
         string keyPath = Path.Combine(_root, "test.snk");
         File.WriteAllBytes(keyPath, StrongNameKeys.CreatePrivateKeyBlob());
@@ -204,8 +204,8 @@ public sealed class CliCommandTests : IDisposable
         (ExitCode code, string output, _) = Invoke(
             "instrument", "--source", _source, "--rule-set", ruleSet, "--dry-run");
 
-        Assert.Equal(ExitCode.InstrumentationError, code);
-        Assert.Contains("strong-named", output);
+        Assert.Equal(ExitCode.Success, code);
+        Assert.Contains("strip strong-name identity", output);
     }
 
     [Fact]

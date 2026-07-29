@@ -91,12 +91,6 @@ public static class InstrumentationConfigurationLoader
                 keyPath = Path.GetFullPath(Path.Combine(baseDirectory, keyPath));
             }
 
-            if (strongName == StrongNamePolicy.ReSign && keyPath is null)
-            {
-                throw new ConfigurationException(
-                    $"{origin}: strongNamePolicy 'ReSign' requires 'strongNameKeyPath' to be set.");
-            }
-
             return new InstrumentationConfiguration
             {
                 RuleSetPaths = ruleSets,

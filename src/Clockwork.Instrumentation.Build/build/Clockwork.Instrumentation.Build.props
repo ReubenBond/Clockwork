@@ -10,6 +10,8 @@
   <PropertyGroup>
     <!-- Master opt-in switch. Never instrument unless this is explicitly true. -->
     <ClockworkInstrumentationEnabled Condition="'$(ClockworkInstrumentationEnabled)' == ''">false</ClockworkInstrumentationEnabled>
+    <!-- Test-project opt-in. The targets turn this into instrumentation plus staged execution. -->
+    <ClockworkInstrumentedTestProject Condition="'$(ClockworkInstrumentedTestProject)' == ''">false</ClockworkInstrumentedTestProject>
     <ClockworkInstrumentationMode Condition="'$(ClockworkInstrumentationMode)' == ''">Controlled</ClockworkInstrumentationMode>
 
     <!-- Policy defaults mirror the safe library defaults. -->

@@ -91,12 +91,11 @@ internal static class InstrumentCommand
         TextWriter output)
     {
         ClosurePlan plan = ClosureDiscovery.Discover(source, configuration, string.IsNullOrWhiteSpace(entry) ? null : entry);
-        StrongNameKey? key = LoadKey(configuration);
 
         var rows = new List<PlannedAction>();
         foreach (ClosureAsset asset in plan.AssembliesToRewrite)
         {
-            rows.Add(PlanFor(asset, configuration, key));
+            rows.Add(PlanFor(asset, configuration));
         }
 
         bool anyBlocking = rows.Any(r => r.IsBlocking);
@@ -163,7 +162,7 @@ internal static class InstrumentCommand
         return anyBlocking ? ExitCode.InstrumentationError : ExitCode.Success;
     }
 
-    private static PlannedAction PlanFor(ClosureAsset asset, InstrumentationConfiguration configuration, StrongNameKey? key)
+    private static PlannedAction PlanFor(ClosureAsset asset, InstrumentationConfiguration configuration)
     {
         AssemblyImageInfo image;
         try
@@ -175,14 +174,13 @@ internal static class InstrumentCommand
             return new PlannedAction(asset.RelativePath, "skip (not a managed assembly)", IsBlocking: false);
         }
 
-        if (image.IsReadyToRun)
+        bool stripReadyToRun = image.IsReadyToRun;
+        if (stripReadyToRun && configuration.ReadyToRunPolicy == ReadyToRunPolicy.Reject)
         {
-            return configuration.ReadyToRunPolicy == ReadyToRunPolicy.Reject
-                ? new PlannedAction(asset.RelativePath, "reject (ReadyToRun; policy Reject)", IsBlocking: true)
-                : new PlannedAction(asset.RelativePath, "strip ReadyToRun to IL, then instrument", IsBlocking: false);
+            return new PlannedAction(asset.RelativePath, "reject (ReadyToRun; policy Reject)", IsBlocking: true);
         }
 
-        if (image.IsMixedMode)
+        if (!stripReadyToRun && image.IsMixedMode)
         {
             return new PlannedAction(asset.RelativePath, "fail (mixed-mode; not round-trippable)", IsBlocking: true);
         }
@@ -190,37 +188,18 @@ internal static class InstrumentCommand
         StrongNameInfo strongName = StrongNameInspector.Inspect(asset.SourcePath);
         if (strongName.Status != StrongNameStatus.None)
         {
-            if (configuration.StrongNamePolicy == StrongNamePolicy.Fail)
-            {
-                return new PlannedAction(asset.RelativePath, "fail (strong-named; re-signing required but policy is Fail)", IsBlocking: true);
-            }
-
-            if (key is null || !key.CanSign)
-            {
-                return new PlannedAction(asset.RelativePath, "fail (strong-named; re-signing requires a usable key)", IsBlocking: true);
-            }
-
-            return new PlannedAction(asset.RelativePath, "instrument and re-sign", IsBlocking: false);
+            return new PlannedAction(
+                asset.RelativePath,
+                stripReadyToRun
+                    ? "strip ReadyToRun and strong-name identity, then instrument"
+                    : "instrument and strip strong-name identity",
+                IsBlocking: false);
         }
 
-        return new PlannedAction(asset.RelativePath, "instrument", IsBlocking: false);
-    }
-
-    private static StrongNameKey? LoadKey(InstrumentationConfiguration configuration)
-    {
-        if (string.IsNullOrWhiteSpace(configuration.StrongNameKeyPath))
-        {
-            return null;
-        }
-
-        try
-        {
-            return StrongNameKey.Load(configuration.StrongNameKeyPath);
-        }
-        catch (SigningException)
-        {
-            return null;
-        }
+        return new PlannedAction(
+            asset.RelativePath,
+            stripReadyToRun ? "strip ReadyToRun to IL, then instrument" : "instrument",
+            IsBlocking: false);
     }
 
     private static void WriteResultText(InstrumentationResult result, TextWriter output)

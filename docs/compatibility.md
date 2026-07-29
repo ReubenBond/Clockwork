@@ -197,11 +197,23 @@ runs `AfterTargets="Build"` only when the consumer sets
 document. It discovers the resolved output closure (honoring `.deps.json`, runtimeconfig,
 satellite/resource/native assets, include/exclude globs, and framework/reference-assembly
 exclusion), rewrites **only managed IL** out-of-place under
-`obj/<Config>/<Tfm>/clockwork/instrumented/`, copies the non-managed assets needed to run
+`obj/<Config>/<Tfm>/clockwork/instrumented/`, copies the other assets needed to run
 the staged app unchanged, and emits a manifest under
-`obj/<Config>/<Tfm>/clockwork/clockwork.manifest.json`. Source and `bin` outputs are never
-mutated. The work is incremental, keyed by input assembly/symbol hashes, the rule-set
+`obj/<Config>/<Tfm>/clockwork/clockwork.manifest.json`. Source and ordinary application `bin`
+outputs are never mutated. The work is incremental, keyed by input assembly/symbol hashes, the rule-set
 signature, engine version, configuration, and reference set.
+
+**Instrumented test projects.** Executable simulation test projects can set
+`ClockworkInstrumentedTestProject=true`. Each build restores the prior pristine output before
+compilation, snapshots the complete ordinary test output under `obj`, automatically selects the test
+assembly plus its eligible managed application closure, and rewrites that closure out of place.
+Clockwork validates every manifest assembly and rewrite signature before deploying the rewritten
+closure into that test project's normal `bin` path, so `dotnet build` followed by
+`dotnet test --no-build` uses it without a custom runner. Microsoft Testing Platform, VSTest, xUnit,
+NUnit, MSTest, and TUnit host assemblies are copied unchanged; generated test-host bootstrap types
+are also excluded because discovery starts before a simulation is active. Production projects and
+non-opted-in tests remain ordinary IL. Select instrumentation per project rather than with a
+solution-wide global property.
 
 **Task package requires the .NET 10 SDK.** The task and its Cecil-based engine target
 `net10.0` and load only under `dotnet build` / `dotnet msbuild`; .NET Framework MSBuild
@@ -210,6 +222,8 @@ signature, engine version, configuration, and reference set.
 by failure kind. The tool also exposes explicit `IReplayScenario` harness commands for
 `run`/`replay`/`explore`/`minimize`/`trace show`; it never discovers a process or scenario type
 implicitly.
+Repositories importing the targets from a source project reference can override
+`ClockworkInstrumentationTaskAssembly` with the built task assembly path.
 
 **Configuration is data, not code.** Configuration and rule sets are JSON documents,
 validated strictly for schema, types, and signatures; **no arbitrary code is executed
@@ -217,10 +231,11 @@ from configuration**. Multiple rule sets merge deterministically by a defined pr
 by built-in, application, and third-party rules.
 
 **Strong naming (build/tool scope).** Signed, public-signed, and delay-signed inputs are
-detected. Re-signing happens only when a key is supplied (`ClockworkStrongNamePolicy=Resign`
-+ `ClockworkStrongNameKeyPath`); when re-signing is required but no key is available the
-build fails clearly rather than emitting a broken signature. Public-key-token consistency
-across a rewritten dependency closure is verified. **Authenticode** signatures are detected
+detected. Clockwork automatically strips identities from rewritten assemblies, matching public-key
+tokens from references inside the rewritten closure, and matching `InternalsVisibleTo` public-key
+qualifiers. Copied assemblies that still reference a stripped identity are rejected instead of
+producing an inconsistent closure. Legacy strong-name policy/key configuration and task parameters
+remain accepted for compatibility but do not disable automatic stripping. **Authenticode** signatures are detected
 and reported as unsupported - they are never re-applied, and a rewritten assembly does not
 retain its Authenticode signature; re-sign such outputs with your own toolchain after
 instrumentation.
@@ -575,9 +590,9 @@ cancels all remaining registrations without invoking user callbacks.
   completed bundles or native images. Instrument the resolved IL closure before single-file
   bundling, trimming, crossgen/ReadyToRun, or NativeAOT. Rewriting an already bundled, trimmed,
   ReadyToRun, or NativeAOT output is unsupported.
-- **Signed assemblies.** Rewriting invalidates existing signatures. The build/tool path can fail or
-  re-sign a strong-named closure with a supplied key and verifies public-key-token consistency.
-  Authenticode is detected but not re-applied; consumers must apply it after instrumentation.
+- **Signed assemblies.** Rewritten strong-name identities, matching closure references, and friend
+  keys are stripped automatically. Authenticode is detected but not re-applied; consumers must apply
+  it after instrumentation if an instrumented artifact must be redistributed.
 - **Nondeterministic BCL surface beyond the rule inventory.** Only the exact signatures in
   [`rule-inventory.md`](rule-inventory.md) are rewritten. Documented holes include `Stopwatch`
   instance APIs and `GetElapsedTime(long, long)`; generic crypto helpers `GetItems<T>`/`Shuffle<T>`

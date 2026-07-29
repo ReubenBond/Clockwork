@@ -7,7 +7,8 @@ namespace Clockwork.Instrumentation.Configuration;
 /// <summary>
 /// The declarative, serializable configuration that drives the build task and CLI: which rule-set
 /// documents to load, which assemblies in a closure to include or exclude, whether to recurse into
-/// managed dependencies, and the strong-name / ReadyToRun policies to enforce. Like
+/// managed dependencies, and the ReadyToRun policy to enforce. Legacy strong-name settings remain
+/// accepted for configuration compatibility, but rewritten closure identities are stripped automatically. Like
 /// <see cref="Rules.RewriteRuleSet"/> it is pure data - loading it never executes arbitrary code -
 /// and it exposes a stable <see cref="ComputeSignature"/> so it can participate in incremental
 /// build keys and idempotence markers.
@@ -96,13 +97,15 @@ public sealed record InstrumentationConfiguration
     /// <summary>Gets the policy for handling ReadyToRun inputs. Defaults to <see cref="ReadyToRunPolicy.Reject"/>.</summary>
     public ReadyToRunPolicy ReadyToRunPolicy { get; init; } = ReadyToRunPolicy.Reject;
 
-    /// <summary>Gets the policy for handling strong-named inputs. Defaults to <see cref="StrongNamePolicy.Fail"/>.</summary>
+    /// <summary>
+    /// Gets the legacy strong-name policy setting. Rewritten closure identities are stripped
+    /// automatically regardless of this value.
+    /// </summary>
     public StrongNamePolicy StrongNamePolicy { get; init; } = StrongNamePolicy.Fail;
 
     /// <summary>
-    /// Gets the path of the strong-name key (<c>.snk</c>) used when <see cref="StrongNamePolicy"/> is
-    /// <see cref="StrongNamePolicy.ReSign"/>. Resolved relative to the configuration file when loaded
-    /// from disk.
+    /// Gets the legacy strong-name key path, retained for configuration compatibility and resolved
+    /// relative to the configuration file when loaded from disk.
     /// </summary>
     public string? StrongNameKeyPath { get; init; }
 

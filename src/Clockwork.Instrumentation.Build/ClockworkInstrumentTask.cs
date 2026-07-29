@@ -64,10 +64,10 @@ public sealed class ClockworkInstrumentTask : MSBuildTask
     /// <summary>Gets or sets the ReadyToRun policy name (<c>Reject</c> or <c>StripToIL</c>).</summary>
     public string ReadyToRunPolicy { get; set; } = nameof(Configuration.ReadyToRunPolicy.Reject);
 
-    /// <summary>Gets or sets the strong-name policy name (<c>Fail</c> or <c>ReSign</c>).</summary>
+    /// <summary>Gets or sets the legacy strong-name policy name, retained for compatibility.</summary>
     public string StrongNamePolicy { get; set; } = nameof(Configuration.StrongNamePolicy.Fail);
 
-    /// <summary>Gets or sets the strong-name key path used when the strong-name policy is <c>ReSign</c>.</summary>
+    /// <summary>Gets or sets the legacy strong-name key path, retained for compatibility.</summary>
     public string? StrongNameKeyPath { get; set; }
 
     /// <summary>Gets or sets the target runtime version rules are evaluated against, or empty to disable filtering.</summary>
@@ -176,8 +176,6 @@ public sealed class ClockworkInstrumentTask : MSBuildTask
             ? InstrumentationConfigurationLoader.Load(path)
             : new InstrumentationConfiguration
             {
-                IncludePatterns = ToPatternArray(IncludePatterns),
-                ExcludePatterns = ToPatternArray(ExcludePatterns),
                 Mode = ParseEnum<InstrumentationMode>(InstrumentationMode, nameof(InstrumentationMode)),
                 ExcludeFrameworkAssemblies = ExcludeFrameworkAssemblies,
                 InstrumentDependencies = InstrumentDependencies,
@@ -186,6 +184,24 @@ public sealed class ClockworkInstrumentTask : MSBuildTask
                 StrongNamePolicy = ParseEnum<StrongNamePolicy>(StrongNamePolicy, nameof(StrongNamePolicy)),
                 StrongNameKeyPath = NullIfEmpty(StrongNameKeyPath),
             };
+
+        System.Collections.Immutable.ImmutableArray<string> taskIncludes = ToPatternArray(IncludePatterns);
+        if (!taskIncludes.IsDefaultOrEmpty)
+        {
+            configuration = configuration with
+            {
+                IncludePatterns = [.. configuration.IncludePatterns, .. taskIncludes],
+            };
+        }
+
+        System.Collections.Immutable.ImmutableArray<string> taskExcludes = ToPatternArray(ExcludePatterns);
+        if (!taskExcludes.IsDefaultOrEmpty)
+        {
+            configuration = configuration with
+            {
+                ExcludePatterns = [.. configuration.ExcludePatterns, .. taskExcludes],
+            };
+        }
 
         System.Collections.Immutable.ImmutableArray<string> taskRuleSets = ToPatternArray(RuleSetPaths);
         if (!taskRuleSets.IsDefaultOrEmpty)

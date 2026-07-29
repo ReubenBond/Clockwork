@@ -116,8 +116,8 @@ internal static class Program
         output.WriteLine("  --manifest <path>          manifest output path (else a sibling of --output)");
         output.WriteLine("  --mode <Controlled|RaceExploration> instrumentation granularity (default Controlled)");
         output.WriteLine("  --r2r <Reject|StripToIL>   ReadyToRun policy (default Reject)");
-        output.WriteLine("  --strong-name <Fail|ReSign> strong-name policy (default Fail)");
-        output.WriteLine("  --strong-name-key <path>   strong-name key for ReSign");
+        output.WriteLine("  --strong-name <Fail|ReSign> legacy compatibility option (identities are stripped)");
+        output.WriteLine("  --strong-name-key <path>   legacy compatibility option");
         output.WriteLine("  --exclude-framework <bool> exclude framework/reference assemblies (default true)");
         output.WriteLine("  --instrument-dependencies <bool> instrument managed dependencies (default true)");
         output.WriteLine("  --target-runtime <version> runtime version rules are evaluated against");
@@ -140,8 +140,8 @@ internal static class Program
         output.WriteLine("  --exclude <glob>           configuration exclude pattern (repeatable)");
         output.WriteLine("  --mode <Controlled|RaceExploration> configuration instrumentation granularity");
         output.WriteLine("  --r2r <Reject|StripToIL>   configuration ReadyToRun policy");
-        output.WriteLine("  --strong-name <Fail|ReSign> configuration strong-name policy");
-        output.WriteLine("  --strong-name-key <path>   configuration strong-name key");
+        output.WriteLine("  --strong-name <Fail|ReSign> legacy configuration option");
+        output.WriteLine("  --strong-name-key <path>   legacy configuration option");
         output.WriteLine("  --exclude-framework <bool> configuration framework exclusion");
         output.WriteLine("  --instrument-dependencies <bool> configuration dependency instrumentation");
         output.WriteLine("  --target-runtime <version> configuration target runtime");

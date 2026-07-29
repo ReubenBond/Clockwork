@@ -2,8 +2,11 @@ namespace Clockwork.Instrumentation.Attributes;
 
 /// <summary>
 /// <para>
-/// Assembly-level marker applied by <see cref="Rewriting.RewriteEngine"/> to an assembly it has
-/// rewritten. Its presence records the engine version, the identity and version of the rule set
+/// Legacy assembly-level marker read by <see cref="Rewriting.RewriteEngine"/> for compatibility
+/// with previously rewritten assemblies. New rewrites use the framework's
+/// <see cref="System.Reflection.AssemblyMetadataAttribute"/> so loading a rewritten assembly never
+/// requires loading Clockwork's build-time instrumentation assembly. Its presence records the
+/// engine version, the identity and version of the rule set
 /// that was applied, a stable signature hash of that rule set (see
 /// <see cref="Rules.RewriteRuleSet.ComputeSignature"/>), and the semantic rewrite-options fingerprint.
 /// </para>

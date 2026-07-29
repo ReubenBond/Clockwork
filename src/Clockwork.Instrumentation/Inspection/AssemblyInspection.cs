@@ -4,8 +4,7 @@ using Clockwork.Instrumentation.Signing;
 namespace Clockwork.Instrumentation.Inspection;
 
 /// <summary>
-/// The idempotence marker values recorded on an assembly the engine has rewritten (a decoded
-/// <see cref="Attributes.ClockworkRewriteSignatureAttribute"/>).
+/// The decoded idempotence metadata recorded on an assembly the engine has rewritten.
 /// </summary>
 /// <param name="EngineVersion">The engine version that performed the rewrite.</param>
 /// <param name="RuleSetId">The identity of the applied rule set.</param>

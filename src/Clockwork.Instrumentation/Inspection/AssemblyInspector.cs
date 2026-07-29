@@ -17,6 +17,8 @@ public static class AssemblyInspector
 {
     private static readonly string MarkerAttributeFullName =
         typeof(ClockworkRewriteSignatureAttribute).FullName!;
+    private static readonly string AssemblyMetadataAttributeFullName =
+        typeof(System.Reflection.AssemblyMetadataAttribute).FullName!;
 
     /// <summary>Inspects the assembly (or non-managed file) at <paramref name="path"/>.</summary>
     /// <param name="path">The file to inspect.</param>
@@ -55,8 +57,8 @@ public static class AssemblyInspector
     }
 
     /// <summary>
-    /// Reads the idempotence marker (<see cref="ClockworkRewriteSignatureAttribute"/>) applied by the
-    /// engine to an assembly it rewrote, without loading the assembly into the runtime.
+    /// Reads the idempotence metadata applied by the engine to an assembly it rewrote, including the
+    /// legacy <see cref="ClockworkRewriteSignatureAttribute"/> shape, without loading the assembly.
     /// </summary>
     /// <param name="path">The assembly to read.</param>
     /// <param name="marker">The recorded marker, when present.</param>
@@ -70,6 +72,29 @@ public static class AssemblyInspector
             using AssemblyDefinition definition = AssemblyDefinition.ReadAssembly(path);
             foreach (CustomAttribute attribute in definition.CustomAttributes)
             {
+                if (attribute.AttributeType.FullName == AssemblyMetadataAttributeFullName &&
+                    attribute.ConstructorArguments.Count == 2 &&
+                    string.Equals(
+                        attribute.ConstructorArguments[0].Value as string,
+                        RewriteSignatureMetadata.Key,
+                        StringComparison.Ordinal) &&
+                    RewriteSignatureMetadata.TryDecode(
+                        attribute.ConstructorArguments[1].Value as string,
+                        out string engineVersion,
+                        out string ruleSetId,
+                        out string ruleSetVersion,
+                        out string signature,
+                        out string optionsFingerprint))
+                {
+                    marker = new InstrumentationMarker(
+                        engineVersion,
+                        ruleSetId,
+                        ruleSetVersion,
+                        signature,
+                        optionsFingerprint);
+                    return true;
+                }
+
                 if (attribute.AttributeType.FullName != MarkerAttributeFullName)
                 {
                     continue;

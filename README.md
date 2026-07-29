@@ -31,7 +31,7 @@ are in [`docs/compatibility.md`](docs/compatibility.md).
 | Area | Current support | Durable limitations |
 |---|---|---|
 | Simulation kernel | Virtual clock, seeded randomness, simulated network, cooperative task queues, node lifecycle, diagnostics, rendezvous primitives, and controlled scheduling. | Application hosting and transport models are consumer-owned; Clockwork ships no dedicated hosting or HTTP package. |
-| Build and CLI instrumentation | Opt-in, out-of-place Cecil rewriting through `Clockwork.Instrumentation.Build` and `Clockwork.Tool`; direct-call analyzers; deterministic manifests and incremental inputs. | Instrument before R2R, single-file bundling, trimming, or NativeAOT. Authenticode is not re-applied; strong-name re-signing requires a supplied key. |
+| Build and CLI instrumentation | Opt-in, out-of-place Cecil rewriting through `Clockwork.Instrumentation.Build` and `Clockwork.Tool`; direct-call analyzers; deterministic manifests and incremental inputs. | Instrument before R2R, single-file bundling, trimming, or NativeAOT. Rewritten strong names and closure references are stripped automatically; Authenticode is not re-applied. |
 | Deterministic BCL rules | `clockwork.bcl.deterministic` controls the exact time, identity, and random signatures in the generated inventory. | APIs outside the inventory retain no determinism claim. Cryptographic entropy is rejected unless the explicit deterministic-insecure test policy is enabled. |
 | Controlled concurrency | `clockwork.tasks.controlled` controls async builders/awaiters, task combinators and waits, `Task.Run`, all .NET 10 `TaskFactory`/`TaskFactory<T>.StartNew` overloads, `Thread`, `ThreadPool`, `Parallel`, `Monitor`, `System.Threading.Lock`, and `SemaphoreSlim`. Debug and Release lowering are conformance-tested. | Synchronous `ValueTask` blocking, custom task schedulers, unsupported task-creation options, native-overlapped thread-pool work, and OS-specific thread controls are rejected. |
 | Synchronization | Full .NET 10 `Interlocked` and `Volatile`; `SpinWait`; events and wait handles; registered waits; `ReaderWriterLockSlim`; `ManualResetEventSlim`; unnamed kernel `Mutex`/`Semaphore`; `SpinLock`; `ExecutionContext`; `SynchronizationContext`; `Barrier`; and `CountdownEvent`. | Named/cross-process primitives, open-existing APIs, raw handles, raw `SynchronizationContext.Wait`, and `WaitAll` arrays containing a `Mutex` are rejected. |
@@ -47,6 +47,34 @@ dotnet pack src/Clockwork/Clockwork.csproj --configuration Release
 ```
 
 The NuGet package ID is `Clockwork.Simulation`. Until packages are published, clone the repository or add it as a Git submodule and reference `src/Clockwork/Clockwork.csproj`.
+
+## Instrumented simulation test projects
+
+Keep ordinary and simulation tests in separate projects. Only simulation test projects reference
+`Clockwork.Instrumentation.Build` and opt into staged execution:
+
+```xml
+<PropertyGroup>
+  <ClockworkInstrumentedTestProject>true</ClockworkInstrumentedTestProject>
+  <ClockworkUseBuiltInRules>true</ClockworkUseBuiltInRules>
+</PropertyGroup>
+
+<ItemGroup>
+  <PackageReference Include="Clockwork.Instrumentation.Build" PrivateAssets="all" />
+</ItemGroup>
+```
+
+Clockwork snapshots ordinary test output under `obj`, rewrites the complete eligible managed closure
+out of place, validates it, and deploys it to the simulation test project's normal `bin` directory.
+Strong-name identities, matching intra-closure reference tokens, and friend-assembly key qualifiers
+are stripped automatically. Test-host implementation assemblies are copied unchanged, and generated
+test-host bootstrap types are excluded from rewriting, because they execute before a simulation
+exists. `dotnet build` followed by `dotnet test --no-build` therefore runs the rewritten test copy
+naturally. The next build restores the pristine snapshot before compilation. Production outputs and
+projects without the opt-in remain ordinary IL.
+
+Repositories using the targets from a source project reference can set
+`ClockworkInstrumentationTaskAssembly` to the built task assembly path.
 
 ## Optional race exploration instrumentation
 

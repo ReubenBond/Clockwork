@@ -98,6 +98,95 @@ public sealed class PackageSmokeTests
     }
 
     [Fact]
+    public void BuildPackageRunsInstrumentedTestProjectsFromStagedClosure()
+    {
+        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        ConsumerProject consumer = Artifacts.Value.ScaffoldConsumer(
+            "InstrumentedTestApp",
+            instrumentationEnabled: false,
+            instrumentedTestProject: true);
+
+        AppRunResult build = consumer.Build();
+        Assert.True(build.ExitCode == 0, $"Build failed:\n{build.StandardOutput}\n{build.StandardError}");
+
+        AppRunResult pristine = ProcessAppRunner.Run(consumer.UninstrumentedAppPath);
+        Assert.Equal(0, pristine.ExitCode);
+        Assert.Contains("ticks=100", pristine.Output);
+
+        AppRunResult deployed = ProcessAppRunner.Run(consumer.OutputAppPath);
+        Assert.Equal(0, deployed.ExitCode);
+        Assert.Contains("ticks=999", deployed.Output);
+
+        AppRunResult testRun = consumer.Run("forwarded");
+        Assert.True(
+            testRun.ExitCode == 0,
+            $"Instrumented test run failed ({testRun.ExitCode}):\n{testRun.StandardOutput}\n{testRun.StandardError}");
+        Assert.Contains("ticks=999", testRun.Output);
+        Assert.Contains("argument=forwarded", testRun.Output);
+    }
+
+    [Fact]
+    public void BuildPackageRunsDotnetTestNoBuildFromStagedClosure()
+    {
+        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        ConsumerProject consumer = Artifacts.Value.ScaffoldConsumer(
+            "InstrumentedMtpTestApp",
+            instrumentationEnabled: false,
+            instrumentedTestProject: true,
+            testingPlatformProject: true);
+
+        AppRunResult build = consumer.Build();
+        Assert.True(build.ExitCode == 0, $"Build failed:\n{build.StandardOutput}\n{build.StandardError}");
+
+        using (Mono.Cecil.ModuleDefinition ordinary = Mono.Cecil.ModuleDefinition.ReadModule(consumer.UninstrumentedAppPath))
+        {
+            Assert.False(CecilInspect.HasRewriteSignature(ordinary));
+        }
+        using (Mono.Cecil.ModuleDefinition deployed = Mono.Cecil.ModuleDefinition.ReadModule(consumer.OutputAppPath))
+        {
+            Assert.True(CecilInspect.HasRewriteSignature(deployed));
+        }
+
+        AppRunResult testRun = consumer.TestNoBuild();
+        Assert.True(
+            testRun.ExitCode == 0,
+            $"Instrumented dotnet test --no-build failed ({testRun.ExitCode}):\n{testRun.StandardOutput}\n{testRun.StandardError}");
+        Assert.Contains("succeeded: 1", testRun.StandardOutput, StringComparison.OrdinalIgnoreCase);
+
+        consumer.AddPassingTest();
+        AppRunResult incrementalBuild = consumer.Build();
+        Assert.True(
+            incrementalBuild.ExitCode == 0,
+            $"Incremental build failed:\n{incrementalBuild.StandardOutput}\n{incrementalBuild.StandardError}");
+        AppRunResult incrementalTestRun = consumer.TestNoBuild();
+        Assert.True(
+            incrementalTestRun.ExitCode == 0,
+            $"Instrumented test after incremental build failed ({incrementalTestRun.ExitCode}):\n{incrementalTestRun.StandardOutput}\n{incrementalTestRun.StandardError}");
+        Assert.Contains("succeeded: 2", incrementalTestRun.StandardOutput, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BuildPackageBuiltInRulesKeepTestingPlatformRunnable()
+    {
+        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        ConsumerProject consumer = Artifacts.Value.ScaffoldConsumer(
+            "InstrumentedBuiltInMtpTestApp",
+            instrumentationEnabled: false,
+            useBuiltInRules: true,
+            instrumentedTestProject: true,
+            testingPlatformProject: true,
+            useConfigurationFile: true);
+
+        AppRunResult build = consumer.Build();
+        Assert.True(build.ExitCode == 0, $"Build failed:\n{build.StandardOutput}\n{build.StandardError}");
+
+        AppRunResult testRun = consumer.TestNoBuild();
+        Assert.True(
+            testRun.ExitCode == 0,
+            $"Built-in instrumented test failed ({testRun.ExitCode}):\n{testRun.StandardOutput}\n{testRun.StandardError}");
+    }
+
+    [Fact]
     public void BuildPackageSupportsExplicitRaceExplorationMode()
     {
         Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
@@ -138,20 +227,23 @@ public sealed class PackageSmokeTests
     }
 
     [Fact]
-    public void BuildPackageRetriesUnchangedFailedInstrumentation()
+    public void BuildPackageStripsStrongNameWithoutMutatingProductionOutput()
     {
         Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
         ConsumerProject consumer = Artifacts.Value.ScaffoldConsumer(
-            "FailedApp", instrumentationEnabled: true, signEntryAssembly: true);
+            "SignedApp", instrumentationEnabled: true, signEntryAssembly: true);
 
-        AppRunResult first = consumer.Build();
-        AppRunResult second = consumer.Build();
+        AppRunResult build = consumer.Build();
 
-        Assert.NotEqual(0, first.ExitCode);
-        Assert.NotEqual(0, second.ExitCode);
-        Assert.Contains("Clockwork: instrumenting", first.StandardOutput);
-        Assert.Contains("Clockwork: instrumenting", second.StandardOutput);
-        Assert.False(File.Exists(consumer.SuccessPath));
+        Assert.True(build.ExitCode == 0, $"Build failed:\n{build.StandardOutput}\n{build.StandardError}");
+        Assert.Equal(
+            Clockwork.Instrumentation.Signing.StrongNameStatus.StrongNameSigned,
+            Clockwork.Instrumentation.Signing.StrongNameInspector.Inspect(consumer.OutputAppPath).Status);
+        Assert.Equal(
+            Clockwork.Instrumentation.Signing.StrongNameStatus.None,
+            Clockwork.Instrumentation.Signing.StrongNameInspector.Inspect(consumer.StagedAppPath).Status);
+        Assert.Contains("ticks=999", ProcessAppRunner.Run(consumer.StagedAppPath).Output);
+        Assert.True(File.Exists(consumer.SuccessPath));
     }
 
     [Fact]
@@ -367,6 +459,9 @@ public sealed class PackageSmokeTests
             bool instrumentationEnabled,
             bool signEntryAssembly = false,
             bool useBuiltInRules = false,
+            bool instrumentedTestProject = false,
+            bool testingPlatformProject = false,
+            bool useConfigurationFile = false,
             InstrumentationMode mode = InstrumentationMode.Controlled)
         {
             string rootDir = Path.Combine(Root, name);
@@ -387,6 +482,20 @@ public sealed class PackageSmokeTests
                   </packageSources>
                 </configuration>
                 """);
+            if (testingPlatformProject)
+            {
+                File.WriteAllText(Path.Combine(rootDir, "global.json"), """
+                    {
+                      "sdk": {
+                        "version": "10.0.100",
+                        "rollForward": "latestFeature"
+                      },
+                      "test": {
+                        "runner": "Microsoft.Testing.Platform"
+                      }
+                    }
+                    """);
+            }
 
             // The controlled API and the shim live in one dependency assembly, in its own directory
             // so the executable project's default source glob does not also compile it. The redirect
@@ -417,12 +526,40 @@ public sealed class PackageSmokeTests
                 </Project>
                 """);
 
-            string programSource = useBuiltInRules
+            string programSource = testingPlatformProject && useBuiltInRules
+                ? """
+                    using Xunit;
+
+                    public sealed class InstrumentedTests
+                    {
+                        [Fact]
+                        public void TestingPlatformStartsOutsideSimulation() => Assert.True(true);
+                    }
+                    """
+                : testingPlatformProject
+                ? """
+                    using SmokeApi;
+                    using Xunit;
+
+                    public sealed class InstrumentedTests
+                    {
+                        [Fact]
+                        public void UsesRewrittenCallSite() => Assert.Equal(999L, RealClock.UtcNowTicks());
+                    }
+                    """
+                : useBuiltInRules
                 ? """
                     _ = System.DateTime.UtcNow;
                     System.IO.File.WriteAllText("side-effect.txt", "unexpected");
                     System.Console.WriteLine("reached-end");
                     """
+                : instrumentedTestProject
+                    ? """
+                        using SmokeApi;
+
+                        System.Console.WriteLine("ticks=" + RealClock.UtcNowTicks());
+                        System.Console.WriteLine("argument=" + args.SingleOrDefault());
+                        """
                 : """
                     using SmokeApi;
 
@@ -431,7 +568,18 @@ public sealed class PackageSmokeTests
             File.WriteAllText(Path.Combine(appDir, "Program.cs"), programSource);
 
             string enabled = instrumentationEnabled ? "true" : "false";
-            string builtIn = useBuiltInRules ? "true" : "false";
+            string builtIn = useBuiltInRules && !useConfigurationFile ? "true" : "false";
+            string testProject = instrumentedTestProject ? "true" : "false";
+            string testingPackage = testingPlatformProject
+                ? """
+                      <PackageReference Include="xunit.v3.mtp-v2" Version="3.2.1" />
+                    """
+                : string.Empty;
+            string instrumentedAssemblyItem = instrumentedTestProject
+                ? """
+                      <ClockworkInstrumentedAssembly Include="SmokeApp.dll" />
+                    """
+                : string.Empty;
             string runtimeReference = useBuiltInRules
                 ? $"""
                       <Reference Include="Clockwork.Runtime">
@@ -441,8 +589,14 @@ public sealed class PackageSmokeTests
                     """
                 : string.Empty;
             string ruleSetItem = useBuiltInRules
-                ? string.Empty
-                : """
+                ? testingPlatformProject && !useConfigurationFile
+                    ? """
+                          <ClockworkBuiltInRuleSet Include="clockwork.tasks.controlled" />
+                        """
+                    : string.Empty
+                : useConfigurationFile
+                    ? string.Empty
+                    : """
                       <ClockworkRuleSet Include="$(MSBuildProjectDirectory)/clockwork.rules.json" />
                     """;
             string signingProperties = string.Empty;
@@ -464,12 +618,14 @@ public sealed class PackageSmokeTests
                     <ImplicitUsings>enable</ImplicitUsings>
                     <AssemblyName>SmokeApp</AssemblyName>
                     <ClockworkInstrumentationEnabled>{enabled}</ClockworkInstrumentationEnabled>
+                    <ClockworkInstrumentedTestProject>{testProject}</ClockworkInstrumentedTestProject>
                     <ClockworkInstrumentationMode>{mode}</ClockworkInstrumentationMode>
                     <ClockworkUseBuiltInRules>{builtIn}</ClockworkUseBuiltInRules>
                 {signingProperties}
                   </PropertyGroup>
                   <ItemGroup>
                     <PackageReference Include="Clockwork.Instrumentation.Build" Version="{_version}" />
+                {testingPackage}
                 {runtimeReference}
                   </ItemGroup>
                   <ItemGroup>
@@ -477,6 +633,7 @@ public sealed class PackageSmokeTests
                   </ItemGroup>
                   <ItemGroup>
                 {ruleSetItem}
+                {instrumentedAssemblyItem}
                   </ItemGroup>
                 </Project>
                 """);
@@ -491,6 +648,26 @@ public sealed class PackageSmokeTests
                         RewriteReplacement.Method("SmokeApi", "SmokeApi.Shim", "UtcNowTicks")),
                 ]);
             File.WriteAllText(Path.Combine(appDir, "clockwork.rules.json"), RuleSetJson.Write(ruleSet));
+            if (useConfigurationFile)
+            {
+                string configuration = useBuiltInRules
+                    ? """
+                        {
+                          "schemaVersion": 1,
+                          "builtInRuleSets": [
+                            "clockwork.bcl.deterministic",
+                            "clockwork.tasks.controlled"
+                          ]
+                        }
+                        """
+                    : """
+                        {
+                          "schemaVersion": 1,
+                          "ruleSets": ["clockwork.rules.json"]
+                        }
+                        """;
+                File.WriteAllText(Path.Combine(appDir, "clockwork.config.json"), configuration);
+            }
 
             return new ConsumerProject(appDir, _packagesDirectory, mode);
         }
@@ -575,6 +752,9 @@ public sealed class PackageSmokeTests
 
         public string OutputAppPath => Path.Combine(ProjectDirectory, OutputRelative, "SmokeApp.dll");
 
+        public string UninstrumentedAppPath =>
+            Path.Combine(ProjectDirectory, "obj/Release/net10.0/clockwork/source", "SmokeApp.dll");
+
         public string StagingDirectory => Path.Combine(ProjectDirectory, StagingRelative);
 
         public string StagedAppPath => Path.Combine(StagingDirectory, "SmokeApp.dll");
@@ -595,6 +775,22 @@ public sealed class PackageSmokeTests
             File.WriteAllText(sourcePath, source.Replace("999L", ticks + "L", StringComparison.Ordinal));
         }
 
+        public void AddPassingTest()
+        {
+            string sourcePath = Path.Combine(ProjectDirectory, "Program.cs");
+            string source = File.ReadAllText(sourcePath);
+            const string existing =
+                "public void UsesRewrittenCallSite() => Assert.Equal(999L, RealClock.UtcNowTicks());";
+            File.WriteAllText(
+                sourcePath,
+                source.Replace(
+                    existing,
+                    existing + Environment.NewLine + Environment.NewLine +
+                    "    [Fact]" + Environment.NewLine +
+                    "    public void RebuiltSourceIsUsed() => Assert.True(true);",
+                    StringComparison.Ordinal));
+        }
+
         public void SetInstrumentationMode(InstrumentationMode mode)
         {
             string projectPath = Path.Combine(ProjectDirectory, "SmokeApp.csproj");
@@ -613,6 +809,55 @@ public sealed class PackageSmokeTests
         public AppRunResult Build() => ProcessAppRunner.Execute(
             "dotnet",
             ["build", "SmokeApp.csproj", "-c", "Release", "--nologo"],
+            ProjectDirectory,
+            new Dictionary<string, string>
+            {
+                ["NUGET_PACKAGES"] = _packagesDirectory,
+                ["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1",
+                ["DOTNET_SKIP_FIRST_TIME_EXPERIENCE"] = "1",
+                ["DOTNET_NOLOGO"] = "1",
+            },
+            TimeSpan.FromSeconds(300));
+
+        public AppRunResult Run(params string[] arguments)
+        {
+            var command = new List<string>
+            {
+                "run",
+                "--project",
+                "SmokeApp.csproj",
+                "--configuration",
+                "Release",
+                "--no-build",
+                "--",
+            };
+            command.AddRange(arguments);
+            return ProcessAppRunner.Execute(
+                "dotnet",
+                command,
+                ProjectDirectory,
+                new Dictionary<string, string>
+                {
+                    ["NUGET_PACKAGES"] = _packagesDirectory,
+                    ["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1",
+                    ["DOTNET_SKIP_FIRST_TIME_EXPERIENCE"] = "1",
+                    ["DOTNET_NOLOGO"] = "1",
+                },
+                TimeSpan.FromSeconds(300));
+        }
+
+        public AppRunResult TestNoBuild() => ProcessAppRunner.Execute(
+            "dotnet",
+            [
+                "test",
+                "--project",
+                "SmokeApp.csproj",
+                "--configuration",
+                "Release",
+                "--no-build",
+                "--no-ansi",
+                "--no-progress",
+            ],
             ProjectDirectory,
             new Dictionary<string, string>
             {

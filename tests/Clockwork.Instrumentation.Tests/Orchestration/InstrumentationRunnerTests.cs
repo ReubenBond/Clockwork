@@ -16,8 +16,8 @@ namespace Clockwork.Instrumentation.Tests.Orchestration;
 /// Verifies the end-to-end instrumentation orchestrator: it stages a runnable closure (rewriting
 /// managed assemblies and copying every other asset verbatim), never mutates the source, is
 /// incrementally cached and cache-invalidated on input changes, emits a deterministic closure
-/// manifest, enforces the ReadyToRun and strong-name policies with clear errors, and re-signs a
-/// strong-named closure to a consistent public-key token.
+/// manifest, enforces the ReadyToRun policy, and strips strong-name identities consistently across
+/// a rewritten closure.
 /// </summary>
 public sealed class InstrumentationRunnerTests : IDisposable
 {
@@ -248,14 +248,10 @@ public sealed class InstrumentationRunnerTests : IDisposable
         BuildMinimalApp();
         File.Copy(r2r!, Path.Combine(_source, "r2rdep.dll"));
 
-        // Framework ReadyToRun images are strong-named, so re-signing is required to process them.
-        string keyPath = WriteKey();
         InstrumentationResult result = Run(
             new InstrumentationConfiguration
             {
                 ReadyToRunPolicy = ReadyToRunPolicy.StripToIL,
-                StrongNamePolicy = StrongNamePolicy.ReSign,
-                StrongNameKeyPath = keyPath,
             },
             EmptyRuleSet());
 
@@ -265,10 +261,12 @@ public sealed class InstrumentationRunnerTests : IDisposable
         Assert.True(File.Exists(Path.Combine(_staging, "r2rdep.dll")), string.Join("\n", stripped.Diagnostics));
         // The staged output is IL-only (Cecil drops the native header on write).
         Assert.False(AssemblyImageInfo.Inspect(Path.Combine(_staging, "r2rdep.dll")).IsReadyToRun);
+        Assert.Equal(StrongNameStatus.None, StrongNameInspector.Inspect(Path.Combine(_staging, "r2rdep.dll")).Status);
+        Assert.Contains(stripped.Diagnostics, d => d.Id == RewriteDiagnosticIds.StrongNameStripped);
     }
 
     [Fact]
-    public void FailsOnStrongNamedInputWhenPolicyIsFail()
+    public void StripsStrongNamedInputWithDefaultLegacyPolicy()
     {
         string keyPath = WriteKey();
         Compile("app", "namespace App { public static class A { public static int Go() => 1; } }", keyPath);
@@ -276,12 +274,13 @@ public sealed class InstrumentationRunnerTests : IDisposable
 
         InstrumentationResult result = Run(new InstrumentationConfiguration(), EmptyRuleSet());
 
-        Assert.False(result.Succeeded);
-        Assert.Contains(result.Errors, d => d.Id == RewriteDiagnosticIds.StrongNameReSignRequired);
+        Assert.True(result.Succeeded, string.Join("\n", result.Errors));
+        Assert.Equal(StrongNameStatus.None, StrongNameInspector.Inspect(Path.Combine(_staging, "app.dll")).Status);
+        Assert.Contains(result.Assemblies.Single().Diagnostics, d => d.Id == RewriteDiagnosticIds.StrongNameStripped);
     }
 
     [Fact]
-    public void ReSignsStrongNamedClosureConsistently()
+    public void StripsStrongNamedClosureConsistently()
     {
         string keyPath = WriteKey();
         string third = Compile(
@@ -293,33 +292,37 @@ public sealed class InstrumentationRunnerTests : IDisposable
             references: [third]);
         File.WriteAllText(Path.Combine(_source, "app.runtimeconfig.json"), "{}");
 
-        var config = new InstrumentationConfiguration
-        {
-            StrongNamePolicy = StrongNamePolicy.ReSign,
-            StrongNameKeyPath = keyPath,
-        };
-        InstrumentationResult result = Run(config, EmptyRuleSet());
+        InstrumentationResult result = Run(new InstrumentationConfiguration(), EmptyRuleSet());
 
         Assert.True(result.Succeeded, string.Join("\n", result.Errors));
-        Assert.All(result.Assemblies, a => Assert.True(a.WasReSigned));
-
-        // Every re-signed assembly carries the same public-key token, and the app's reference to the
-        // dependency still matches the dependency's token: the closure is signing-consistent.
-        string appToken = TokenOf(Path.Combine(_staging, "app.dll"));
-        string depToken = TokenOf(Path.Combine(_staging, "thirdparty.dll"));
-        Assert.Equal(depToken, appToken);
-        Assert.Equal(depToken, ReferenceTokenOf(Path.Combine(_staging, "app.dll"), "thirdparty"));
+        Assert.All(result.Assemblies, a => Assert.False(a.WasReSigned));
+        Assert.Equal(StrongNameStatus.None, StrongNameInspector.Inspect(Path.Combine(_staging, "app.dll")).Status);
+        Assert.Equal(StrongNameStatus.None, StrongNameInspector.Inspect(Path.Combine(_staging, "thirdparty.dll")).Status);
+        Assert.Null(ReferenceTokenOf(Path.Combine(_staging, "app.dll"), "thirdparty"));
     }
 
     [Fact]
-    public void FailsWhenReSignConfiguredWithoutKey()
+    public void RejectsCopiedAssemblyReferencingStrippedIdentity()
     {
-        BuildMinimalApp();
+        string keyPath = WriteKey();
+        string dependency = Compile(
+            "dependency",
+            "namespace Dependency { public static class Value { public static int Get() => 1; } }",
+            keyPath);
+        Compile(
+            "app",
+            "namespace App { public static class Entry { public static int Get() => Dependency.Value.Get(); } }",
+            keyPath,
+            references: [dependency]);
+        File.WriteAllText(Path.Combine(_source, "app.runtimeconfig.json"), "{}");
+
         InstrumentationResult result = Run(
-            new InstrumentationConfiguration { StrongNamePolicy = StrongNamePolicy.ReSign }, EmptyRuleSet());
+            new InstrumentationConfiguration { IncludePatterns = ["dependency.dll"] },
+            EmptyRuleSet());
 
         Assert.False(result.Succeeded);
-        Assert.Contains(result.Errors, d => d.Id == RewriteDiagnosticIds.StrongNameReSignRequired);
+        Assert.Contains(result.Errors, d => d.Id == RewriteDiagnosticIds.StrongNameReferenceConflict);
+        Assert.False(Directory.Exists(_staging));
     }
 
     private InstrumentationResult Run(InstrumentationConfiguration configuration, RewriteRuleSet ruleSet) =>
@@ -368,17 +371,13 @@ public sealed class InstrumentationRunnerTests : IDisposable
         return keyPath;
     }
 
-    private static string TokenOf(string assemblyPath) =>
-        StrongNameInspector.Inspect(assemblyPath).PublicKeyToken
-        ?? throw new InvalidOperationException($"'{assemblyPath}' is not strong-named.");
-
-    private static string ReferenceTokenOf(string assemblyPath, string referenceName)
+    private static string? ReferenceTokenOf(string assemblyPath, string referenceName)
     {
         using AssemblyDefinition definition = AssemblyDefinition.ReadAssembly(
             assemblyPath, new ReaderParameters { ReadSymbols = false, InMemory = true });
         AssemblyNameReference reference = definition.MainModule.AssemblyReferences
             .Single(r => string.Equals(r.Name, referenceName, StringComparison.Ordinal));
-        return StrongNameInspector.FormatToken(reference.PublicKeyToken)!;
+        return StrongNameInspector.FormatToken(reference.PublicKeyToken);
     }
 
     private static string? FindReadyToRunAssembly()
