@@ -319,7 +319,7 @@ public static class InstrumentationRunner
             StrongNameInfo strongName = StrongNameInspector.Inspect(inputPath);
             if (strongName.HasPublicKey &&
                 options.StrongNameAssemblyNames.Contains(
-                    Path.GetFileNameWithoutExtension(asset.RelativePath),
+                    System.Reflection.AssemblyName.GetAssemblyName(inputPath).Name!,
                     StringComparer.Ordinal))
             {
                 diagnostics.Add(RewriteDiagnostic.Info(
