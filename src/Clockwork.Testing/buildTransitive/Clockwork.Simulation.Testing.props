@@ -1,0 +1,8 @@
+<Project>
+  <ItemGroup>
+    <TestingPlatformBuilderHook Include="9F2B15B0-6B0E-4AAF-A66C-DC2CA4D5D01B">
+      <DisplayName>Clockwork.Simulation.Testing</DisplayName>
+      <TypeFullName>Clockwork.Testing.TestingPlatformBuilderHook</TypeFullName>
+    </TestingPlatformBuilderHook>
+  </ItemGroup>
+</Project>

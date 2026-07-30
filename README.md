@@ -49,7 +49,9 @@ dotnet run --project tests\Clockwork.Tests\Clockwork.Tests.csproj -- --timeout 6
 dotnet pack src/Clockwork/Clockwork.csproj --configuration Release
 ```
 
-The NuGet package ID is `Clockwork.Simulation`. Until packages are published, clone the repository or add it as a Git submodule and reference `src/Clockwork/Clockwork.csproj`.
+The core NuGet package ID is `Clockwork.Simulation`; test-runner integration and replay helpers are
+in `Clockwork.Simulation.Testing`. Until packages are published, clone the repository or add it as a
+Git submodule and reference the corresponding project under `src`.
 
 ## Instrumented simulation test projects
 
@@ -243,6 +245,28 @@ scheduler's virtual time only when no work is ready. All three return `Simulatio
 including the stop reason, counters, limits, and pending-work snapshot. They share one drive-loop
 engine, so time advancement and stuck detection remain consistent. Every drive method requires a
 `CancellationToken` and observes it between simulation dispatches.
+
+### Live simulation progress
+
+Set `CLOCKWORK_PROGRESS_INTERVAL` to a positive wall-clock interval to report exact live drive-loop
+counters to standard error from every active cluster:
+
+```powershell
+$env:CLOCKWORK_PROGRESS_INTERVAL = "5s"
+dotnet run --project tests\Clockwork.Tests\Clockwork.Tests.csproj
+```
+
+Test projects which reference `Clockwork.Simulation.Testing` and use Microsoft Testing Platform can
+set the same interval when invoking their generated test executable:
+
+```powershell
+dotnet run --project tests\Clockwork.Tests\Clockwork.Tests.csproj -- --clockwork-progress 5s
+```
+
+Each line includes the runtime id and seed, wall-clock elapsed time, drive-loop iterations, scheduled
+steps executed, virtual-time advances, simulated elapsed time, pending scheduler operations, and
+runnable/waiting/blocked queue counts. Reporting observes the simulation without scheduling simulated
+work, so enabling it does not change deterministic execution.
 
 ## Execution results and diagnostics
 

@@ -20,6 +20,7 @@ namespace Clockwork;
 /// scheduler's virtual time never advances beyond it.
 /// </param>
 /// <param name="CancellationToken">The caller-controlled token checked before each loop iteration.</param>
+/// <param name="Progress">An optional observer invoked after every completed drive-loop iteration.</param>
 internal readonly record struct SimulationDriveLoopOptions(
     Func<bool>? Condition,
     TimeSpan MaxSimulatedTimeAdvance,
@@ -28,7 +29,8 @@ internal readonly record struct SimulationDriveLoopOptions(
     bool ObserveTeardownCancellation,
     int InitialConsecutiveTimeAdvances,
     DateTimeOffset? EndTime,
-    CancellationToken CancellationToken);
+    CancellationToken CancellationToken,
+    Action<SimulationProgressSnapshot>? Progress = null);
 
 /// <summary>
 /// <para>
@@ -88,6 +90,7 @@ internal sealed class SimulationDriveLoop(
             {
                 stepsExecuted++;
                 consecutiveTimeAdvances = 0; // Reset the stuck-detection counter when real work happens.
+                ReportProgress(iteration + 1);
                 continue;
             }
 
@@ -140,6 +143,7 @@ internal sealed class SimulationDriveLoop(
 
             consecutiveTimeAdvances++;
             totalTimeAdvances++;
+            ReportProgress(iteration + 1);
 
             if (consecutiveTimeAdvances > options.MaxConsecutiveTimeAdvances)
             {
@@ -205,6 +209,17 @@ internal sealed class SimulationDriveLoop(
                 pendingWork ?? capturePendingWorkSummary(),
                 new SimulationExecutionLimits(options.MaxIterations, options.MaxSimulatedTimeAdvance, options.MaxConsecutiveTimeAdvances),
                 attemptedTimeAdvance);
+        }
+
+        void ReportProgress(int iterations)
+        {
+            options.Progress?.Invoke(new SimulationProgressSnapshot(
+                iterations,
+                stepsExecuted,
+                totalTimeAdvances,
+                consecutiveTimeAdvances,
+                startTime,
+                getUtcNow()));
         }
     }
 }
