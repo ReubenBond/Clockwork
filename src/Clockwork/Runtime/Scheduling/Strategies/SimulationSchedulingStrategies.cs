@@ -33,9 +33,9 @@ public static class SimulationSchedulingStrategies
 
     /// <summary>
     /// Creates a deterministic random strategy whose scheduling seed is derived from a runtime's
-    /// root seed in the scheduler decision domain.
+    /// simulation seed in the scheduler decision domain.
     /// </summary>
-    /// <param name="runtime">The runtime whose root seed derives the scheduling seed.</param>
+    /// <param name="runtime">The runtime whose simulation seed derives the scheduling seed.</param>
     public static ISimulationSchedulingStrategy SeededRandom(SimulationRuntimeIdentity runtime) =>
         SeededRandomSchedulingStrategy.ForRuntime(runtime);
 

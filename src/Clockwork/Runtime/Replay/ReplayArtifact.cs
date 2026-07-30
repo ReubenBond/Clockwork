@@ -2,6 +2,8 @@ using Clockwork.Runtime.Decisions;
 using Clockwork.Runtime.Random;
 using Clockwork.Runtime.Racing;
 
+using System.Text.Json.Serialization;
+
 namespace Clockwork.Runtime.Replay;
 
 /// <summary>Classifies the terminal outcome of a recorded execution.</summary>
@@ -229,8 +231,9 @@ public sealed record ReplayArtifact
     /// <summary>Gets the schema version.</summary>
     public int SchemaVersion { get; init; } = CurrentSchemaVersion;
 
-    /// <summary>Gets the root simulation seed.</summary>
-    public required int RootSeed { get; init; }
+    /// <summary>Gets the simulation seed.</summary>
+    [JsonPropertyName("rootSeed")]
+    public required int SimulationSeed { get; init; }
 
     /// <summary>Gets the scheduler strategy and options.</summary>
     public required ReplaySchedulerConfiguration Scheduler { get; init; }

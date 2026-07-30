@@ -7,7 +7,7 @@ Clockwork persists controlled executions as canonical UTF-8 JSON. The format nam
 
 An artifact records:
 
-- root and schedule seeds, scheduling strategy, strategy options, and hard execution bounds;
+- simulation and schedule seeds, scheduling strategy, strategy options, and hard execution bounds;
 - Clockwork/runtime compatibility plus optional instrumentation manifest, rule-set, and assembly hashes;
 - ordered scheduler choices, resource-winner and wait-resolution decisions, virtual deadlines, and race scheduling points;
 - completion, fault, cancellation, race, deadlock, bound, or aborted outcome with a stable failure identity;
@@ -16,6 +16,9 @@ An artifact records:
 JSON property order and number/string formatting are stable. Decision sequences are contiguous and
 ordered. Unknown optional properties are ignored within schema version 2. Incompatible format/schema
 versions require a reader update and fail before execution.
+
+Schema version 2 retains the historical JSON property name `rootSeed`; current APIs and diagnostics
+call this value `SimulationSeed`. This naming change does not alter existing artifact bytes or replay.
 
 Artifacts are limited to 16 MiB, 250,000 decisions, 250,000 race points, 4,096 assembly identities,
 64 scheduler options, and 8,192 UTF-16 characters per string. Corrupt, oversized, truncated, and
@@ -50,7 +53,7 @@ dotnet clockwork record `
   --assembly .\tests.dll `
   --scenario-type Tests.TransferScenario `
   --artifact .\artifacts\transfer.cwr.json `
-  --seed 123 --schedule-seed 7 --strategy seeded-random
+  --simulation-seed 123 --schedule-seed 7 --strategy seeded-random
 
 dotnet clockwork replay .\artifacts\transfer.cwr.json `
   --assembly .\tests.dll `
@@ -60,7 +63,7 @@ dotnet clockwork explore `
   --assembly .\tests.dll `
   --scenario-type Tests.TransferScenario `
   --output .\artifacts `
-  --seed 123 --schedule-seed 1 --count 100 --max-failures 1
+  --simulation-seed 123 --schedule-seed 1 --count 100 --max-failures 1
 
 dotnet clockwork minimize .\artifacts\transfer.cwr.json `
   --assembly .\tests.dll `
@@ -83,10 +86,11 @@ instrumentation, and I/O codes remain unchanged.
 
 ## Exploration and minimization
 
-Exploration is serial. The root seed remains fixed while schedule seeds increase deterministically from
+Exploration is serial. The simulation seed remains fixed while schedule seeds increase deterministically from
 `FirstScheduleSeed`. Stop controls include iteration count, failure count, per-iteration
 step bound, cancellation, and a between-iteration wall-clock safety bound. The result contains stable
 iteration ids and outcome counts and retains the smallest artifact for each failure identity.
+When `--time-limit` is supplied without `--count`, the CLI runs until the time or failure limit.
 
 The minimizer removes decision subsequences and tries discrete scheduling/resource alternatives. Each
 candidate runs through exact replay. Compatibility rejection, first decision divergence, surplus or
@@ -95,18 +99,49 @@ by attempt count and optional wall-clock time.
 
 ## Test integration
 
-`Clockwork.Testing.ReplayTestFixture` derives its default root seed with
+`Clockwork.Testing.ReplayTestFixture` derives its default simulation seed with
 `SimulationSeed.FromStrings(testClass, testMethod)`. Failed runs write an artifact and expose its path
 through `ReplayTestResult.ArtifactPath`, `ToFailureMessage()`, and `GetReplayCommand(...)`.
+
+Use `Explore` to execute the same fresh scenario under a deterministic sequence of schedules:
+
+```csharp
+ReplayTestCampaignResult result = fixture.Explore(
+    scheduler =>
+    {
+        scheduler.Schedule("sender", scheduler.Yield);
+        scheduler.Schedule("receiver", () => { });
+    },
+    new ReplayTestCampaignOptions
+    {
+        MaxIterations = 1_000,
+        TimeLimit = TimeSpan.FromMinutes(5),
+        MaxFailures = 1,
+    },
+    cancellationToken);
+
+result.ThrowIfFailed();
+```
+
+The callback is invoked once per fresh scheduler and must construct fresh scenario state. Explicit
+campaign options override environment values. With only a time limit, exploration continues until that
+limit; without either bound, campaigns default to 100 iterations. The time limit is checked between
+complete iterations, so it never truncates an artifact. Failed campaigns retain the smallest artifact
+for each stable failure identity. `CLOCKWORK_REPLAY_ARTIFACT` always performs exactly one replay and
+cannot be combined with campaign limits.
 
 Environment variables:
 
 | Variable | Meaning |
 |---|---|
 | `CLOCKWORK_REPLAY_ARTIFACT` | Replay this complete artifact instead of recording. |
-| `CLOCKWORK_ROOT_SEED` | Override the test root seed. |
+| `CLOCKWORK_SIMULATION_SEED` | Override the simulation seed. |
+| `CLOCKWORK_ROOT_SEED` | Legacy alias for `CLOCKWORK_SIMULATION_SEED`. |
 | `CLOCKWORK_SCHEDULE_SEED` | Override the schedule seed. |
 | `CLOCKWORK_ARTIFACT_DIRECTORY` | Directory for failed-test artifacts. |
+| `CLOCKWORK_EXPLORATION_ITERATIONS` | Override the campaign iteration limit. |
+| `CLOCKWORK_EXPLORATION_TIME_LIMIT` | Set a positive invariant `TimeSpan` wall-clock safety limit. |
+| `CLOCKWORK_EXPLORATION_MAX_FAILURES` | Stop after this many non-success outcomes. |
 
 The helper is framework-neutral and works with xUnit/Microsoft.Testing.Platform without coupling the
 runtime to either framework.

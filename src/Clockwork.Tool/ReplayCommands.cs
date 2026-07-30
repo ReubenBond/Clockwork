@@ -14,7 +14,8 @@ internal static class ReplayCommands
 {
     private static readonly HashSet<string> RecordValueOptions = new(StringComparer.Ordinal)
     {
-        "assembly", "scenario-type", "artifact", "seed", "schedule-seed", "strategy", "max-steps", "manifest",
+        "assembly", "scenario-type", "artifact", "simulation-seed", "seed", "schedule-seed", "strategy",
+        "max-steps", "manifest",
     };
 
     private static readonly HashSet<string> ReplayValueOptions = new(StringComparer.Ordinal)
@@ -24,8 +25,8 @@ internal static class ReplayCommands
 
     private static readonly HashSet<string> ExploreValueOptions = new(StringComparer.Ordinal)
     {
-        "assembly", "scenario-type", "output", "seed", "schedule-seed", "count", "max-failures",
-        "max-steps", "time-limit", "manifest",
+        "assembly", "scenario-type", "output", "simulation-seed", "seed", "schedule-seed", "count",
+        "max-failures", "max-steps", "time-limit", "manifest",
     };
 
     private static readonly HashSet<string> MinimizeValueOptions = new(StringComparer.Ordinal)
@@ -40,7 +41,9 @@ internal static class ReplayCommands
         string assembly = Require(reader.GetString("assembly"), "--assembly");
         string scenarioType = Require(reader.GetString("scenario-type"), "--scenario-type");
         string artifactPath = Require(reader.GetString("artifact"), "--artifact");
-        int rootSeed = ParseInt(Require(reader.GetString("seed"), "--seed"), "--seed");
+        int simulationSeed = ParseInt(
+            Require(GetSimulationSeed(reader), "--simulation-seed"),
+            "--simulation-seed");
         ReplaySchedulingPolicy policy = ParsePolicy(reader.GetString("strategy", "seeded-random")!);
         int? scheduleSeed = ParseOptionalInt(reader.GetString("schedule-seed"), "--schedule-seed");
         if (policy != ReplaySchedulingPolicy.SeededRandom && scheduleSeed is not null)
@@ -57,7 +60,7 @@ internal static class ReplayCommands
         ReplayExecutionResult result = ReplayRunner.Record(
             new ReplayRecordingOptions
             {
-                RootSeed = rootSeed,
+                SimulationSeed = simulationSeed,
                 SchedulingPolicy = policy,
                 ScheduleSeed = scheduleSeed,
                 MaxSteps = maxSteps,
@@ -108,14 +111,21 @@ internal static class ReplayCommands
         string assembly = Require(reader.GetString("assembly"), "--assembly");
         string scenarioType = Require(reader.GetString("scenario-type"), "--scenario-type");
         string outputDirectory = Require(reader.GetString("output"), "--output");
-        int rootSeed = ParseInt(Require(reader.GetString("seed"), "--seed"), "--seed");
+        int simulationSeed = ParseInt(
+            Require(GetSimulationSeed(reader), "--simulation-seed"),
+            "--simulation-seed");
         int firstScheduleSeed = ParseInt(
             Require(reader.GetString("schedule-seed"), "--schedule-seed"),
             "--schedule-seed");
-        int count = ParsePositiveInt(reader.GetString("count", "100")!, "--count");
         int maxFailures = ParsePositiveInt(reader.GetString("max-failures", "1")!, "--max-failures");
         int maxSteps = ParsePositiveInt(reader.GetString("max-steps", "1000000")!, "--max-steps");
         TimeSpan? timeLimit = ParseOptionalTimeSpan(reader.GetString("time-limit"), "--time-limit");
+        string? countValue = reader.GetString("count");
+        int count = countValue is not null
+            ? ParsePositiveInt(countValue, "--count")
+            : timeLimit is null
+                ? 100
+                : int.MaxValue;
         ReplayInstrumentationIdentity? instrumentation = ReadOptionalManifest(reader.GetString("manifest"));
         bool json = reader.GetFlag("json");
         reader.EnsureAllConsumed();
@@ -124,7 +134,7 @@ internal static class ReplayCommands
         ScheduleExplorationResult result = ScheduleExplorer.Explore(
             new ScheduleExplorationOptions
             {
-                RootSeed = rootSeed,
+                SimulationSeed = simulationSeed,
                 FirstScheduleSeed = firstScheduleSeed,
                 MaxIterations = count,
                 MaxFailures = maxFailures,
@@ -352,6 +362,18 @@ internal static class ReplayCommands
 
     private static int? ParseOptionalInt(string? value, string option) =>
         value is null ? null : ParseInt(value, option);
+
+    private static string? GetSimulationSeed(ArgumentReader reader)
+    {
+        string? simulationSeed = reader.GetString("simulation-seed");
+        string? legacySeed = reader.GetString("seed");
+        if (simulationSeed is not null && legacySeed is not null)
+        {
+            throw new UsageException("Specify either --simulation-seed or the legacy --seed option, not both.");
+        }
+
+        return simulationSeed ?? legacySeed;
+    }
 
     private static TimeSpan? ParseOptionalTimeSpan(string? value, string option) =>
         value is null

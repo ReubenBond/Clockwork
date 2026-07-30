@@ -18,7 +18,7 @@ public sealed class ScheduleExplorerTests
             first.Iterations.Select(static iteration => (iteration.IterationId, iteration.ScheduleSeed)),
             second.Iterations.Select(static iteration => (iteration.IterationId, iteration.ScheduleSeed)));
         Assert.Equal([100, 101, 102, 103], first.Iterations.Select(static iteration => iteration.ScheduleSeed));
-        Assert.All(first.Iterations, static iteration => Assert.Equal(777, iteration.Execution.Artifact.RootSeed));
+        Assert.All(first.Iterations, static iteration => Assert.Equal(777, iteration.Execution.Artifact.SimulationSeed));
     }
 
     [Fact]
@@ -100,7 +100,7 @@ public sealed class ScheduleExplorerTests
         int maxIterations,
         int maxFailures) => new()
         {
-            RootSeed = 777,
+            SimulationSeed = 777,
             FirstScheduleSeed = 100,
             MaxIterations = maxIterations,
             MaxStepsPerIteration = 10_000,

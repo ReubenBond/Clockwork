@@ -12,7 +12,7 @@ public sealed class ReplayDiagnosticsTests
         ReplayExecutionResult execution = ReplayRunner.Record(
             new ReplayRecordingOptions
             {
-                RootSeed = 88,
+                SimulationSeed = 88,
                 SchedulingPolicy = ReplaySchedulingPolicy.RoundRobin,
                 IncludeDiagnosticMessages = true,
             },
@@ -37,7 +37,7 @@ public sealed class ReplayDiagnosticsTests
         ReplayExecutionResult execution = ReplayRunner.Record(
             new ReplayRecordingOptions
             {
-                RootSeed = 89,
+                SimulationSeed = 89,
                 SchedulingPolicy = ReplaySchedulingPolicy.RoundRobin,
             },
             static scheduler => scheduler.Schedule("secret-work-description", static () => { }),

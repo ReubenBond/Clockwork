@@ -100,7 +100,7 @@ points. This capability does not add profiler/native detours or runtime hosting/
 ### Replay and schedule exploration
 
 Replay artifacts use canonical UTF-8 JSON with format identity `clockwork.replay` and schema version 2.
-They record the root seed, explicit schedule seed, strategy/options, Clockwork/runtime compatibility,
+They record the simulation seed, explicit schedule seed, strategy/options, Clockwork/runtime compatibility,
 optional closure-manifest and assembly hashes, ordered scheduler/resource/timer decisions, race
 scheduling points, terminal outcome, and structured operation/resource/timer/race/deadlock diagnostics.
 Readers ignore unknown optional properties within a supported schema version. A schema version,
@@ -111,7 +111,7 @@ divergence, including expected/actual source, candidate metadata, and selected r
 that the complete decision stream was consumed at the reproduced terminal boundary. An `Aborted`
 outcome identifies an interrupted decision prefix and is rejected for exact replay.
 
-`ScheduleExplorer` varies only the schedule seed while keeping the model/application root seed fixed.
+`ScheduleExplorer` varies only the schedule seed while keeping the simulation seed fixed.
 Iterations run serially; iteration, failure, step, cancellation, and optional wall-clock safety bounds
 are explicit. Iteration ids are deterministic, aggregate outcomes are stable, and the smallest artifact
 per failure identity is retained. Parallel exploration is rejected until runtime/instrumentation

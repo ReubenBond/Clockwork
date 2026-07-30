@@ -200,7 +200,7 @@ public sealed class ControlledRandomNumberGeneratorTests
     {
         static byte[] Draw(int seed, string node)
         {
-            var env = ShimTestHarness.CreateEnvironment(ShimTestHarness.CreateClock(), rootSeed: seed);
+            var env = ShimTestHarness.CreateEnvironment(ShimTestHarness.CreateClock(), simulationSeed: seed);
             return ShimTestHarness.RunInSimulation(
                 env,
                 () => ControlledRandomNumberGenerator.GetBytes(32),

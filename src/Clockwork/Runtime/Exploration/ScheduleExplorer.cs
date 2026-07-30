@@ -26,8 +26,8 @@ public enum ExplorationTerminationReason
 /// <summary>Configures bounded serial schedule exploration.</summary>
 public sealed record ScheduleExplorationOptions
 {
-    /// <summary>Gets the stable model/application root seed held constant across all iterations.</summary>
-    public required int RootSeed { get; init; }
+    /// <summary>Gets the simulation seed held constant across all iterations.</summary>
+    public required int SimulationSeed { get; init; }
 
     /// <summary>Gets the first explicit schedule seed. Later seeds are deterministic increments.</summary>
     public required int FirstScheduleSeed { get; init; }
@@ -106,7 +106,7 @@ public static class ScheduleExplorer
         Validate(configuration);
 
         var stopwatch = Stopwatch.StartNew();
-        var iterations = new List<ScheduleExplorationIteration>(configuration.MaxIterations);
+        var iterations = new List<ScheduleExplorationIteration>(Math.Min(configuration.MaxIterations, 1_024));
         var counts = new SortedDictionary<ReplayTerminationKind, int>();
         var retained = new SortedDictionary<string, ReplayExecutionResult>(StringComparer.Ordinal);
         ExplorationTerminationReason terminationReason = ExplorationTerminationReason.IterationLimit;
@@ -133,7 +133,7 @@ public static class ScheduleExplorer
                 execution = ReplayRunner.Record(
                     new ReplayRecordingOptions
                     {
-                        RootSeed = configuration.RootSeed,
+                        SimulationSeed = configuration.SimulationSeed,
                         SchedulingPolicy = ReplaySchedulingPolicy.SeededRandom,
                         ScheduleSeed = scheduleSeed,
                         MaxSteps = configuration.MaxStepsPerIteration,
@@ -151,7 +151,7 @@ public static class ScheduleExplorer
             var iteration = new ScheduleExplorationIteration
             {
                 Index = index,
-                IterationId = CreateIterationId(configuration.RootSeed, scheduleSeed, index),
+                IterationId = CreateIterationId(configuration.SimulationSeed, scheduleSeed, index),
                 ScheduleSeed = scheduleSeed,
                 Execution = execution,
             };
@@ -189,13 +189,13 @@ public static class ScheduleExplorer
         return unchecked(firstScheduleSeed + iteration);
     }
 
-    /// <summary>Creates a stable iteration identity from root seed, schedule seed, and index.</summary>
-    public static string CreateIterationId(int rootSeed, int scheduleSeed, int iteration)
+    /// <summary>Creates a stable iteration identity from simulation seed, schedule seed, and index.</summary>
+    public static string CreateIterationId(int simulationSeed, int scheduleSeed, int iteration)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(iteration);
         string input = string.Create(
             CultureInfo.InvariantCulture,
-            $"{rootSeed}:{scheduleSeed}:{iteration}");
+            $"{simulationSeed}:{scheduleSeed}:{iteration}");
         string hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(input)))[..12];
         return string.Create(CultureInfo.InvariantCulture, $"iteration-{iteration:D6}-{hash}");
     }

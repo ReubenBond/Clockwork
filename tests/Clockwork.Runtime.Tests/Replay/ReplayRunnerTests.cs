@@ -119,7 +119,7 @@ public sealed class ReplayRunnerTests
 
         ReplayRecordingOptions configuration = new()
         {
-            RootSeed = 7,
+            SimulationSeed = 7,
             SchedulingPolicy = ReplaySchedulingPolicy.RoundRobin,
         };
         ReplayExecutionResult recorded = Record(configuration, Scenario);
@@ -229,7 +229,7 @@ public sealed class ReplayRunnerTests
 
     private static ReplayRecordingOptions SeededConfiguration(int scheduleSeed) => new()
     {
-        RootSeed = 1234,
+        SimulationSeed = 1234,
         SchedulingPolicy = ReplaySchedulingPolicy.SeededRandom,
         ScheduleSeed = scheduleSeed,
         MaxSteps = 10_000,

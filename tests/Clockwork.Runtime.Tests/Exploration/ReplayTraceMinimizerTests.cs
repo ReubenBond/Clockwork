@@ -111,7 +111,7 @@ public sealed class ReplayTraceMinimizerTests
             ReplayExecutionResult execution = ReplayRunner.Record(
                 new ReplayRecordingOptions
                 {
-                    RootSeed = 55,
+                    SimulationSeed = 55,
                     SchedulingPolicy = ReplaySchedulingPolicy.SeededRandom,
                     ScheduleSeed = scheduleSeed,
                     MaxSteps = 10_000,

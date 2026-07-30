@@ -10,7 +10,7 @@ namespace Clockwork.Runtime.Scheduling.Strategies;
 /// same seed always produces the same schedule (making a race reproducible), while different seeds
 /// explore different interleavings (making a race findable). The seed comes from the runtime policy
 /// <see cref="SimulationSeedDomain.Scheduler"/> domain via <see cref="ForRuntime"/>, so scheduling
-/// randomness is independent of application/network randomness and stable per root seed.
+/// randomness is independent of application/network randomness and stable per simulation seed.
 /// </para>
 /// <para>
 /// Because its choice consults hidden state (the random stream), it declares
@@ -47,11 +47,11 @@ internal sealed class SeededRandomSchedulingStrategy :
     public bool RecordsNondeterministicChoices => true;
 
     /// <summary>
-    /// Creates a strategy whose seed is derived from <paramref name="runtime"/>'s root seed within the
+    /// Creates a strategy whose seed is derived from <paramref name="runtime"/>'s simulation seed within the
     /// <see cref="SimulationSeedDomain.Scheduler"/> domain, so scheduling randomness is independent of
-    /// every other decision domain and reproducible from the same root seed.
+    /// every other decision domain and reproducible from the same simulation seed.
     /// </summary>
-    /// <param name="runtime">The runtime whose root seed derives the scheduler seed.</param>
+    /// <param name="runtime">The runtime whose simulation seed derives the scheduler seed.</param>
     /// <returns>A seeded strategy for that runtime.</returns>
     internal static SeededRandomSchedulingStrategy ForRuntime(SimulationRuntimeIdentity runtime)
     {

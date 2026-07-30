@@ -10,7 +10,7 @@ public class ReplayRunnerBenchmarks
     private const int DispatchCount = 4096;
     private static readonly ReplayRecordingOptions s_recordingOptions = new()
     {
-        RootSeed = 1,
+        SimulationSeed = 1,
         SchedulingPolicy = ReplaySchedulingPolicy.RoundRobin,
         MaxSteps = DispatchCount + 1,
     };

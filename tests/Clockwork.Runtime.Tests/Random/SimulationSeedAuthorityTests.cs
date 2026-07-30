@@ -9,7 +9,7 @@ namespace Clockwork.Runtime.Tests.Random;
 public sealed class SimulationSeedAuthorityTests
 {
     [Fact]
-    public void GetDomainSeedIsStableForTheSameRootSeedAndDomain()
+    public void GetDomainSeedIsStableForTheSameSimulationSeedAndDomain()
     {
         var authority = new SimulationSeedAuthority(42);
         Assert.Equal(authority.GetDomainSeed(SimulationSeedDomain.Network), authority.GetDomainSeed(SimulationSeedDomain.Network));
@@ -19,7 +19,7 @@ public sealed class SimulationSeedAuthorityTests
     public void GetDomainSeedIsStableAcrossIndependentAuthorityInstances()
     {
         // "Stable across processes" - modeled here as stable across two entirely independent
-        // SimulationSeedAuthority instances constructed with the same root seed.
+        // SimulationSeedAuthority instances constructed with the same simulation seed.
         var first = new SimulationSeedAuthority(1234);
         var second = new SimulationSeedAuthority(1234);
 
@@ -41,7 +41,7 @@ public sealed class SimulationSeedAuthorityTests
     }
 
     [Fact]
-    public void AllKnownDomainsProduceMutuallyDistinctSeedsForTheSameRootSeed()
+    public void AllKnownDomainsProduceMutuallyDistinctSeedsForTheSameSimulationSeed()
     {
         var authority = new SimulationSeedAuthority(99);
         var domains = Enum.GetValues<SimulationSeedDomain>();
@@ -53,7 +53,7 @@ public sealed class SimulationSeedAuthorityTests
     [Fact]
     public void ConsumingASeedInOneDomainConceptuallyNeverAffectsAnotherDomainsSeed()
     {
-        // Domain seeds are pure functions of (RootSeed, domain) computed independently - "deriving
+        // Domain seeds are pure functions of (SimulationSeed, domain) computed independently - "deriving
         // more from one domain" has no representation here that could perturb another domain, but
         // we assert the closest observable proxy: re-deriving one domain's seed after deriving
         // several others (including many site seeds within it) never changes.
@@ -130,7 +130,7 @@ public sealed class SimulationSeedAuthorityTests
         var childA = parent.CreateChildAuthority("node-A");
         var childAAgain = parent.CreateChildAuthority("node-A");
 
-        Assert.Equal(childA.RootSeed, childAAgain.RootSeed);
+        Assert.Equal(childA.SimulationSeed, childAAgain.SimulationSeed);
     }
 
     [Fact]
@@ -140,7 +140,7 @@ public sealed class SimulationSeedAuthorityTests
         var childA = parent.CreateChildAuthority("node-A");
         var childB = parent.CreateChildAuthority("node-B");
 
-        Assert.NotEqual(childA.RootSeed, childB.RootSeed);
+        Assert.NotEqual(childA.SimulationSeed, childB.SimulationSeed);
     }
 
     [Fact]
@@ -157,7 +157,7 @@ public sealed class SimulationSeedAuthorityTests
 
         var lateChildA = late.CreateChildAuthority("node-A");
 
-        Assert.Equal(earlyChildA.RootSeed, lateChildA.RootSeed);
+        Assert.Equal(earlyChildA.SimulationSeed, lateChildA.SimulationSeed);
     }
 
     [Fact]

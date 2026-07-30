@@ -30,15 +30,15 @@ public enum ReplaySchedulingPolicy
 /// <summary>Configures one recorded execution.</summary>
 public sealed record ReplayRecordingOptions
 {
-    /// <summary>Gets the root model/application seed.</summary>
-    public required int RootSeed { get; init; }
+    /// <summary>Gets the seed for simulated application, network, identity, and fault decisions.</summary>
+    public required int SimulationSeed { get; init; }
 
     /// <summary>Gets the scheduler policy.</summary>
     public ReplaySchedulingPolicy SchedulingPolicy { get; init; } = ReplaySchedulingPolicy.RoundRobin;
 
     /// <summary>
     /// Gets the schedule seed. When omitted for seeded-random scheduling, it is derived from
-    /// <see cref="RootSeed"/> in the scheduler seed domain and recorded explicitly.
+    /// <see cref="SimulationSeed"/> in the scheduler seed domain and recorded explicitly.
     /// </summary>
     public int? ScheduleSeed { get; init; }
 
@@ -116,7 +116,7 @@ public static class ReplayRunner
         int scheduleSeed = GetScheduleSeed(configuration);
         var decisionLog = new SimulationDecisionLog();
         var listener = new ReplayOperationListener(configuration.IncludeDiagnosticMessages);
-        using SimulationScheduler scheduler = CreateScheduler(configuration.RootSeed, listener);
+        using SimulationScheduler scheduler = CreateScheduler(configuration.SimulationSeed, listener);
         scheduler.SchedulingStrategy = CreateStrategy(configuration.SchedulingPolicy, scheduleSeed);
         scheduler.DecisionLog = decisionLog;
 
@@ -160,7 +160,7 @@ public static class ReplayRunner
 
         var records = artifact.Decisions.Select(static decision => decision.ToRecord()).ToArray();
         var listener = new ReplayOperationListener(includeDiagnosticMessages: false);
-        using SimulationScheduler scheduler = CreateScheduler(artifact.RootSeed, listener);
+        using SimulationScheduler scheduler = CreateScheduler(artifact.SimulationSeed, listener);
         scheduler.SchedulingStrategy = SimulationSchedulingStrategies.Replay(records);
         scheduler.ReplayValidator = new SimulationDecisionReplayValidator(
             new SimulationInMemoryDecisionReplayReader(records));
@@ -179,7 +179,7 @@ public static class ReplayRunner
 
         ReplayRecordingOptions replayConfiguration = new()
         {
-            RootSeed = artifact.RootSeed,
+            SimulationSeed = artifact.SimulationSeed,
             SchedulingPolicy = ParsePolicy(artifact.Scheduler.Strategy),
             ScheduleSeed = artifact.Scheduler.ScheduleSeed,
             MaxSteps = maxSteps,
@@ -303,7 +303,7 @@ public static class ReplayRunner
 
         return new ReplayArtifact
         {
-            RootSeed = configuration.RootSeed,
+            SimulationSeed = configuration.SimulationSeed,
             Scheduler = new ReplaySchedulerConfiguration
             {
                 Strategy = GetStrategyName(configuration.SchedulingPolicy),
@@ -529,7 +529,7 @@ public static class ReplayRunner
     private static int GetScheduleSeed(ReplayRecordingOptions configuration) =>
         configuration.SchedulingPolicy == ReplaySchedulingPolicy.SeededRandom
             ? configuration.ScheduleSeed ??
-              new SimulationSeedAuthority(configuration.RootSeed).GetDomainSeed(SimulationSeedDomain.Scheduler)
+              new SimulationSeedAuthority(configuration.SimulationSeed).GetDomainSeed(SimulationSeedDomain.Scheduler)
             : 0;
 
     private static string GetStrategyName(ReplaySchedulingPolicy policy) =>

@@ -130,7 +130,7 @@ using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 var recorded = ReplayRunner.Record(
     new ReplayRecordingOptions
     {
-        RootSeed = 12345,
+        SimulationSeed = 12345,
         SchedulingPolicy = ReplaySchedulingPolicy.SeededRandom,
         ScheduleSeed = 17,
     },
@@ -155,7 +155,7 @@ var replayed = ReplayRunner.Replay(
     cancellationToken: timeout.Token);
 ```
 
-`ScheduleExplorer.Explore` runs a bounded serial seed corpus while keeping `RootSeed` unchanged.
+`ScheduleExplorer.Explore` runs a bounded serial seed corpus while keeping `SimulationSeed` unchanged.
 `ReplayTraceMinimizer.Minimize` delta-debugs scheduling/resource choices against an exact-replay
 failure predicate. See [`docs/replay.md`](docs/replay.md) for the schema, CLI, test fixture, version
 policy, compatibility rules, and limitations.

@@ -26,7 +26,7 @@ public sealed class ReplayCliCommandTests : IDisposable
             "--assembly", TestAssembly,
             "--scenario-type", typeof(SuccessScenario).FullName!,
             "--artifact", artifact,
-            "--seed", "42",
+            "--simulation-seed", "42",
             "--schedule-seed", "7",
             "--json");
         (ExitCode replayCode, string replayOutput, string replayError) = Invoke(
@@ -81,7 +81,7 @@ public sealed class ReplayCliCommandTests : IDisposable
             "--assembly", TestAssembly,
             "--scenario-type", typeof(SuccessScenario).FullName!,
             "--artifact", artifactPath,
-            "--seed", "42",
+            "--simulation-seed", "42",
             "--manifest", manifestPath);
 
         Assert.Equal(ExitCode.Success, code);
@@ -120,7 +120,7 @@ public sealed class ReplayCliCommandTests : IDisposable
             "--assembly", TestAssembly,
             "--scenario-type", typeof(SuccessScenario).FullName!,
             "--artifact", artifactPath,
-            "--seed", "42",
+            "--simulation-seed", "42",
             "--manifest", recordedManifest);
 
         (ExitCode replayCode, _, string replayError) = Invoke(
@@ -145,7 +145,7 @@ public sealed class ReplayCliCommandTests : IDisposable
             "--assembly", TestAssembly,
             "--scenario-type", typeof(RaceScenario).FullName!,
             "--output", outputDirectory,
-            "--seed", "44",
+            "--simulation-seed", "44",
             "--schedule-seed", "9",
             "--count", "4",
             "--json");
@@ -155,6 +155,26 @@ public sealed class ReplayCliCommandTests : IDisposable
         Assert.Equal(1, JsonDocument.Parse(output).RootElement.GetProperty("failures").GetInt32());
         string retained = Assert.Single(Directory.GetFiles(outputDirectory, "*.cwr.json"));
         Assert.Equal(ReplayTerminationKind.RaceDetected, ReplayArtifactSerializer.Read(retained).Outcome.Kind);
+    }
+
+    [Fact]
+    public void ExploreTimeLimitCanBeTheOnlyRunBound()
+    {
+        (ExitCode code, string output, string error) = Invoke(
+            "explore",
+            "--assembly", TestAssembly,
+            "--scenario-type", typeof(SuccessScenario).FullName!,
+            "--output", Path.Combine(_root, "time-only"),
+            "--simulation-seed", "44",
+            "--schedule-seed", "9",
+            "--time-limit", TimeSpan.FromTicks(1).ToString("c", System.Globalization.CultureInfo.InvariantCulture),
+            "--json");
+
+        JsonElement result = JsonDocument.Parse(output).RootElement;
+        Assert.Equal(ExitCode.Success, code);
+        Assert.Empty(error);
+        Assert.Equal("TimeLimit", result.GetProperty("termination").GetString());
+        Assert.Equal(0, result.GetProperty("iterations").GetInt32());
     }
 
     [Fact]
@@ -188,7 +208,7 @@ public sealed class ReplayCliCommandTests : IDisposable
             "record",
             "--assembly", TestAssembly,
             "--artifact", Path.Combine(_root, "missing.cwr.json"),
-            "--seed", "1");
+            "--simulation-seed", "1");
 
         Assert.Equal(ExitCode.UsageError, code);
         Assert.Contains("--scenario-type", error, StringComparison.Ordinal);
@@ -204,12 +224,27 @@ public sealed class ReplayCliCommandTests : IDisposable
             "--assembly", TestAssembly,
             "--scenario-type", typeof(SuccessScenario).FullName!,
             "--output", Path.Combine(_root, "removed-option"),
-            "--seed", "1",
+            "--simulation-seed", "1",
             "--schedule-seed", "1",
             option);
 
         Assert.Equal(ExitCode.UsageError, code);
         Assert.Contains("Unknown option", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RecordRejectsSimulationAndLegacySeedTogether()
+    {
+        (ExitCode code, _, string error) = Invoke(
+            "record",
+            "--assembly", TestAssembly,
+            "--scenario-type", typeof(SuccessScenario).FullName!,
+            "--artifact", Path.Combine(_root, "ambiguous-seed.cwr.json"),
+            "--simulation-seed", "1",
+            "--seed", "2");
+
+        Assert.Equal(ExitCode.UsageError, code);
+        Assert.Contains("not both", error, StringComparison.Ordinal);
     }
 
     public void Dispose()
@@ -317,7 +352,7 @@ public sealed class ReplayCliCommandTests : IDisposable
                 "--assembly", TestAssembly,
                 "--scenario-type", typeof(LongFaultScenario).FullName!,
                 "--artifact", artifact,
-                "--seed", "45",
+                "--simulation-seed", "45",
                 "--schedule-seed", seed.ToString(System.Globalization.CultureInfo.InvariantCulture));
             Assert.Equal(ExitCode.ExecutionFailure, code);
             if (ReplayArtifactSerializer.Read(artifact).Decisions.Count >= 4)

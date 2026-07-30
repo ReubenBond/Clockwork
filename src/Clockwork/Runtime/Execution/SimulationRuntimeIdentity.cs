@@ -17,7 +17,7 @@ namespace Clockwork.Runtime.Execution;
 /// </para>
 /// </summary>
 /// <param name="Id">A process-unique identifier for this runtime instance.</param>
-/// <param name="Seed">The deterministic root seed the runtime was created with, for diagnostics.</param>
+/// <param name="Seed">The deterministic simulation seed the runtime was created with, for diagnostics.</param>
 /// <param name="Description">An optional human-readable description, for diagnostics only.</param>
 public sealed record SimulationRuntimeIdentity(Guid Id, int Seed, string? Description = null)
 {

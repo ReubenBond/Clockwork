@@ -178,7 +178,7 @@ public static class ReplayTraceRenderer
         }
 
         builder.Append('\n');
-        builder.Append("Seeds: root=").Append(artifact.RootSeed)
+        builder.Append("Seeds: simulation=").Append(artifact.SimulationSeed)
             .Append(" schedule=").Append(artifact.Scheduler.ScheduleSeed?.ToString(CultureInfo.InvariantCulture) ?? "n/a")
             .Append('\n');
         builder.Append("Strategy: ").Append(artifact.Scheduler.Strategy).Append('\n');

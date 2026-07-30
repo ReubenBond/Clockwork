@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using Clockwork.Runtime.Exploration;
 using Clockwork.Runtime.Random;
 using Clockwork.Runtime.Replay;
 using Clockwork.Runtime.Scheduling;
@@ -12,14 +13,26 @@ public static class ReplayTestEnvironment
     /// <summary>Path to a complete artifact which should be replayed instead of recording a new run.</summary>
     public const string Artifact = "CLOCKWORK_REPLAY_ARTIFACT";
 
-    /// <summary>Optional root seed override.</summary>
-    public const string RootSeed = "CLOCKWORK_ROOT_SEED";
+    /// <summary>Optional simulation seed override.</summary>
+    public const string SimulationSeed = "CLOCKWORK_SIMULATION_SEED";
+
+    /// <summary>Legacy simulation seed override retained for compatibility.</summary>
+    public const string LegacyRootSeed = "CLOCKWORK_ROOT_SEED";
 
     /// <summary>Optional schedule seed override.</summary>
     public const string ScheduleSeed = "CLOCKWORK_SCHEDULE_SEED";
 
     /// <summary>Optional directory for failed-test artifacts.</summary>
     public const string ArtifactDirectory = "CLOCKWORK_ARTIFACT_DIRECTORY";
+
+    /// <summary>Optional maximum exploration iteration count.</summary>
+    public const string ExplorationIterations = "CLOCKWORK_EXPLORATION_ITERATIONS";
+
+    /// <summary>Optional exploration wall-clock safety limit as an invariant <see cref="TimeSpan"/>.</summary>
+    public const string ExplorationTimeLimit = "CLOCKWORK_EXPLORATION_TIME_LIMIT";
+
+    /// <summary>Optional maximum number of exploration failures to observe.</summary>
+    public const string ExplorationMaxFailures = "CLOCKWORK_EXPLORATION_MAX_FAILURES";
 }
 
 /// <summary>Configures a framework-neutral replay-aware test fixture.</summary>
@@ -31,8 +44,8 @@ public sealed record ReplayTestConfiguration
     /// <summary>Gets the stable test method/case identity.</summary>
     public required string TestMethodName { get; init; }
 
-    /// <summary>Gets an explicit root seed, overriding test-identity and environment derivation.</summary>
-    public int? RootSeed { get; init; }
+    /// <summary>Gets an explicit simulation seed, overriding test-identity and environment derivation.</summary>
+    public int? SimulationSeed { get; init; }
 
     /// <summary>Gets an explicit schedule seed, overriding environment derivation.</summary>
     public int? ScheduleSeed { get; init; }
@@ -40,7 +53,7 @@ public sealed record ReplayTestConfiguration
     /// <summary>Gets the artifact directory, overriding the environment and temporary default.</summary>
     public string? ArtifactDirectory { get; init; }
 
-    /// <summary>Gets the controlled step bound.</summary>
+    /// <summary>Gets the controlled step bound for each execution.</summary>
     public int MaxSteps { get; init; } = 1_000_000;
 
     /// <summary>Gets whether successful recordings should also be written.</summary>
@@ -50,11 +63,30 @@ public sealed record ReplayTestConfiguration
     public ReplayInstrumentationIdentity? Instrumentation { get; init; }
 }
 
+/// <summary>
+/// Configures repeated schedule exploration. Explicit values override environment settings; omitted
+/// values use environment settings and then fixture defaults.
+/// </summary>
+public sealed record ReplayTestCampaignOptions
+{
+    /// <summary>
+    /// Gets the maximum iteration count. When omitted, the default is 100 unless a time limit is the
+    /// only configured bound.
+    /// </summary>
+    public int? MaxIterations { get; init; }
+
+    /// <summary>Gets an optional wall-clock limit checked between complete deterministic iterations.</summary>
+    public TimeSpan? TimeLimit { get; init; }
+
+    /// <summary>Gets the maximum number of non-success outcomes to observe. The default is one.</summary>
+    public int? MaxFailures { get; init; }
+}
+
 /// <summary>The structured result and reproducibility data for one replay-aware test run.</summary>
 public sealed record ReplayTestResult
 {
-    /// <summary>Gets the test root seed.</summary>
-    public required int RootSeed { get; init; }
+    /// <summary>Gets the simulation seed.</summary>
+    public required int SimulationSeed { get; init; }
 
     /// <summary>Gets the schedule seed.</summary>
     public required int ScheduleSeed { get; init; }
@@ -73,7 +105,7 @@ public sealed record ReplayTestResult
     {
         var builder = new StringBuilder();
         builder.Append("Clockwork test outcome: ").Append(Execution.Artifact.Outcome.Kind).Append('\n');
-        builder.Append("Root seed: ").Append(RootSeed).Append('\n');
+        builder.Append("Simulation seed: ").Append(SimulationSeed).Append('\n');
         builder.Append("Schedule seed: ").Append(ScheduleSeed).Append('\n');
         builder.Append("Failure identity: ")
             .Append(Execution.Artifact.Outcome.FailureIdentity ?? "none")
@@ -113,6 +145,54 @@ public sealed record ReplayTestResult
     }
 }
 
+/// <summary>The aggregate result and reproducibility data for one repeated test campaign.</summary>
+public sealed record ReplayTestCampaignResult
+{
+    /// <summary>Gets the simulation seed held constant across the campaign.</summary>
+    public required int SimulationSeed { get; init; }
+
+    /// <summary>Gets the underlying deterministic exploration result.</summary>
+    public required ScheduleExplorationResult Exploration { get; init; }
+
+    /// <summary>Gets persisted artifact paths keyed by stable iteration id.</summary>
+    public required IReadOnlyDictionary<string, string> ArtifactPaths { get; init; }
+
+    /// <summary>Gets retained failure artifact paths keyed by stable failure identity.</summary>
+    public required IReadOnlyDictionary<string, string> RetainedFailureArtifactPaths { get; init; }
+
+    /// <summary>Gets whether every completed iteration succeeded.</summary>
+    public bool IsSuccessful => Exploration.FailureCount == 0;
+
+    /// <summary>Formats a stable aggregate failure message with retained replay artifacts.</summary>
+    public string ToFailureMessage()
+    {
+        var builder = new StringBuilder();
+        builder.Append("Clockwork exploration outcome: ")
+            .Append(Exploration.FailureCount)
+            .Append(" failure(s) in ")
+            .Append(Exploration.Iterations.Count)
+            .Append(" iteration(s)")
+            .Append('\n');
+        builder.Append("Termination: ").Append(Exploration.TerminationReason).Append('\n');
+        builder.Append("Simulation seed: ").Append(SimulationSeed);
+        foreach ((string failure, string path) in RetainedFailureArtifactPaths)
+        {
+            builder.Append('\n').Append("Replay artifact [").Append(failure).Append("]: ").Append(path);
+        }
+
+        return builder.ToString();
+    }
+
+    /// <summary>Throws a framework-neutral failure exception when any campaign iteration failed.</summary>
+    public void ThrowIfFailed()
+    {
+        if (!IsSuccessful)
+        {
+            throw new ReplayTestCampaignFailureException(this);
+        }
+    }
+}
+
 /// <summary>Exception thrown by <see cref="ReplayTestResult.ThrowIfFailed"/>.</summary>
 public sealed class ReplayTestFailureException : Exception
 {
@@ -127,12 +207,28 @@ public sealed class ReplayTestFailureException : Exception
     public ReplayTestResult Result { get; }
 }
 
+/// <summary>Exception thrown by <see cref="ReplayTestCampaignResult.ThrowIfFailed"/>.</summary>
+public sealed class ReplayTestCampaignFailureException : Exception
+{
+    /// <summary>Initializes a repeated exploration failure.</summary>
+    public ReplayTestCampaignFailureException(ReplayTestCampaignResult result)
+        : base(result?.ToFailureMessage())
+    {
+        Result = result ?? throw new ArgumentNullException(nameof(result));
+    }
+
+    /// <summary>Gets the structured campaign result.</summary>
+    public ReplayTestCampaignResult Result { get; }
+}
+
 /// <summary>
-/// Records failed controlled scenarios and replays an artifact selected through
-/// <see cref="ReplayTestEnvironment.Artifact"/>.
+/// Records failed controlled scenarios, explores repeated schedules, and replays an artifact selected
+/// through <see cref="ReplayTestEnvironment.Artifact"/>.
 /// </summary>
 public sealed class ReplayTestFixture
 {
+    private const int DefaultCampaignIterations = 100;
+    private const int DefaultCampaignMaxFailures = 1;
     private readonly ReplayTestConfiguration _configuration;
 
     /// <summary>Initializes a replay-aware fixture.</summary>
@@ -156,8 +252,8 @@ public sealed class ReplayTestFixture
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(scenario);
-        string? replayPath = Environment.GetEnvironmentVariable(ReplayTestEnvironment.Artifact);
-        if (!string.IsNullOrWhiteSpace(replayPath))
+        string? replayPath = GetEnvironmentValue(ReplayTestEnvironment.Artifact);
+        if (replayPath is not null)
         {
             ReplayArtifact artifact = ReplayArtifactSerializer.Read(replayPath);
             ReplayExecutionResult replay = ReplayRunner.Replay(
@@ -171,23 +267,19 @@ public sealed class ReplayTestFixture
                 cancellationToken);
             return new ReplayTestResult
             {
-                RootSeed = artifact.RootSeed,
+                SimulationSeed = artifact.SimulationSeed,
                 ScheduleSeed = artifact.Scheduler.ScheduleSeed ?? 0,
                 Execution = replay,
                 ArtifactPath = Path.GetFullPath(replayPath),
             };
         }
 
-        int rootSeed = _configuration.RootSeed ??
-            ParseEnvironmentSeed(ReplayTestEnvironment.RootSeed) ??
-            TestIdentitySeed;
-        int scheduleSeed = _configuration.ScheduleSeed ??
-            ParseEnvironmentSeed(ReplayTestEnvironment.ScheduleSeed) ??
-            new SimulationSeedAuthority(rootSeed).GetDomainSeed(SimulationSeedDomain.Scheduler);
+        int simulationSeed = ResolveSimulationSeed();
+        int scheduleSeed = ResolveScheduleSeed(simulationSeed);
         ReplayExecutionResult execution = ReplayRunner.Record(
             new ReplayRecordingOptions
             {
-                RootSeed = rootSeed,
+                SimulationSeed = simulationSeed,
                 SchedulingPolicy = ReplaySchedulingPolicy.SeededRandom,
                 ScheduleSeed = scheduleSeed,
                 MaxSteps = _configuration.MaxSteps,
@@ -200,29 +292,243 @@ public sealed class ReplayTestFixture
         if (_configuration.RecordSuccessfulRuns ||
             execution.Artifact.Outcome.Kind != ReplayTerminationKind.Completed)
         {
-            string directory = _configuration.ArtifactDirectory ??
-                Environment.GetEnvironmentVariable(ReplayTestEnvironment.ArtifactDirectory) ??
-                Path.Combine(Path.GetTempPath(), "clockwork-test-artifacts");
-            string safeIdentity = SanitizeFileName(
-                _configuration.TestClassName + "." + _configuration.TestMethodName);
-            string artifactId = execution.ArtifactId[..12];
-            artifactPath = Path.GetFullPath(Path.Combine(directory, $"{safeIdentity}-{artifactId}.cwr.json"));
-            ReplayArtifactSerializer.Write(artifactPath, execution.Artifact);
+            artifactPath = WriteArtifact(execution, iterationId: null);
         }
 
         return new ReplayTestResult
         {
-            RootSeed = rootSeed,
+            SimulationSeed = simulationSeed,
             ScheduleSeed = scheduleSeed,
             Execution = execution,
             ArtifactPath = artifactPath,
         };
     }
 
-    private static int? ParseEnvironmentSeed(string name)
+    /// <summary>Explores repeated schedules using environment settings and fixture defaults.</summary>
+    public ReplayTestCampaignResult Explore(
+        Action<SimulationScheduler> scenario,
+        CancellationToken cancellationToken) =>
+        Explore(scenario, options: null, cancellationToken);
+
+    /// <summary>
+    /// Explores repeated schedules. The callback is invoked once for each fresh scheduler and must
+    /// construct fresh scenario state on every invocation.
+    /// </summary>
+    public ReplayTestCampaignResult Explore(
+        Action<SimulationScheduler> scenario,
+        ReplayTestCampaignOptions? options,
+        CancellationToken cancellationToken)
     {
-        string? value = Environment.GetEnvironmentVariable(name);
-        if (string.IsNullOrWhiteSpace(value))
+        ArgumentNullException.ThrowIfNull(scenario);
+        options ??= new ReplayTestCampaignOptions();
+
+        if (GetEnvironmentValue(ReplayTestEnvironment.Artifact) is not null)
+        {
+            EnsureReplayHasNoCampaignOverrides(options);
+            return CreateReplayCampaignResult(Run(scenario, cancellationToken));
+        }
+
+        TimeSpan? timeLimit = options.TimeLimit ??
+            ParseEnvironmentTimeSpan(ReplayTestEnvironment.ExplorationTimeLimit);
+        int? requestedIterations = options.MaxIterations ??
+            ParseEnvironmentPositiveInt(ReplayTestEnvironment.ExplorationIterations);
+        int maxIterations = requestedIterations ??
+            (timeLimit is null ? DefaultCampaignIterations : int.MaxValue);
+        int maxFailures = options.MaxFailures ??
+            ParseEnvironmentPositiveInt(ReplayTestEnvironment.ExplorationMaxFailures) ??
+            DefaultCampaignMaxFailures;
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxIterations);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxFailures);
+        if (timeLimit <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options), "TimeLimit must be positive when specified.");
+        }
+
+        int simulationSeed = ResolveSimulationSeed();
+        int firstScheduleSeed = ResolveScheduleSeed(simulationSeed);
+        ScheduleExplorationResult exploration = ScheduleExplorer.Explore(
+            new ScheduleExplorationOptions
+            {
+                SimulationSeed = simulationSeed,
+                FirstScheduleSeed = firstScheduleSeed,
+                MaxIterations = maxIterations,
+                MaxFailures = maxFailures,
+                MaxStepsPerIteration = _configuration.MaxSteps,
+                TimeLimit = timeLimit,
+                Instrumentation = _configuration.Instrumentation,
+            },
+            scenario,
+            cancellationToken);
+        (IReadOnlyDictionary<string, string> artifactPaths,
+            IReadOnlyDictionary<string, string> retainedFailureArtifactPaths) =
+            WriteCampaignArtifacts(exploration);
+
+        return new ReplayTestCampaignResult
+        {
+            SimulationSeed = simulationSeed,
+            Exploration = exploration,
+            ArtifactPaths = artifactPaths,
+            RetainedFailureArtifactPaths = retainedFailureArtifactPaths,
+        };
+    }
+
+    private static ReplayTestCampaignResult CreateReplayCampaignResult(ReplayTestResult replay)
+    {
+        string iterationId = ScheduleExplorer.CreateIterationId(
+            replay.SimulationSeed,
+            replay.ScheduleSeed,
+            iteration: 0);
+        var iteration = new ScheduleExplorationIteration
+        {
+            Index = 0,
+            IterationId = iterationId,
+            ScheduleSeed = replay.ScheduleSeed,
+            Execution = replay.Execution,
+        };
+        var counts = new SortedDictionary<ReplayTerminationKind, int>
+        {
+            [replay.Execution.Artifact.Outcome.Kind] = 1,
+        };
+        var retained = new SortedDictionary<string, ReplayExecutionResult>(StringComparer.Ordinal);
+        var retainedPaths = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        if (!replay.IsSuccessful)
+        {
+            string failure = GetFailureKey(replay.Execution);
+            retained[failure] = replay.Execution;
+            retainedPaths[failure] = replay.ArtifactPath!;
+        }
+
+        var artifactPaths = new SortedDictionary<string, string>(StringComparer.Ordinal)
+        {
+            [iterationId] = replay.ArtifactPath!,
+        };
+        return new ReplayTestCampaignResult
+        {
+            SimulationSeed = replay.SimulationSeed,
+            Exploration = new ScheduleExplorationResult
+            {
+                TerminationReason = ExplorationTerminationReason.IterationLimit,
+                Iterations = [iteration],
+                OutcomeCounts = counts,
+                RetainedFailures = retained,
+            },
+            ArtifactPaths = artifactPaths,
+            RetainedFailureArtifactPaths = retainedPaths,
+        };
+    }
+
+    private (
+        IReadOnlyDictionary<string, string> ArtifactPaths,
+        IReadOnlyDictionary<string, string> RetainedFailureArtifactPaths)
+        WriteCampaignArtifacts(ScheduleExplorationResult exploration)
+    {
+        var artifactPaths = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        if (_configuration.RecordSuccessfulRuns)
+        {
+            foreach (ScheduleExplorationIteration iteration in exploration.Iterations)
+            {
+                artifactPaths[iteration.IterationId] =
+                    WriteArtifact(iteration.Execution, iteration.IterationId);
+            }
+        }
+
+        var retainedPaths = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        foreach ((string failure, ReplayExecutionResult retained) in exploration.RetainedFailures)
+        {
+            ScheduleExplorationIteration? iteration = exploration.Iterations.FirstOrDefault(candidate =>
+                string.Equals(candidate.Execution.ArtifactId, retained.ArtifactId, StringComparison.Ordinal));
+            if (iteration is null)
+            {
+                throw new InvalidOperationException(
+                    $"No campaign iteration matches retained artifact '{retained.ArtifactId}' for '{failure}'.");
+            }
+
+            if (!artifactPaths.TryGetValue(iteration.IterationId, out string? path))
+            {
+                path = WriteArtifact(retained, iteration.IterationId);
+                artifactPaths[iteration.IterationId] = path;
+            }
+
+            retainedPaths[failure] = path;
+        }
+
+        return (artifactPaths, retainedPaths);
+    }
+
+    private int ResolveSimulationSeed()
+    {
+        if (_configuration.SimulationSeed is { } explicitSeed)
+        {
+            return explicitSeed;
+        }
+
+        string? simulationSeed = GetEnvironmentValue(ReplayTestEnvironment.SimulationSeed);
+        string? legacyRootSeed = GetEnvironmentValue(ReplayTestEnvironment.LegacyRootSeed);
+        if (simulationSeed is not null && legacyRootSeed is not null)
+        {
+            throw new InvalidOperationException(
+                $"Set either {ReplayTestEnvironment.SimulationSeed} or the legacy " +
+                $"{ReplayTestEnvironment.LegacyRootSeed}, not both.");
+        }
+
+        return ParseSeed(
+                simulationSeed is not null
+                    ? ReplayTestEnvironment.SimulationSeed
+                    : ReplayTestEnvironment.LegacyRootSeed,
+                simulationSeed ?? legacyRootSeed) ??
+            TestIdentitySeed;
+    }
+
+    private int ResolveScheduleSeed(int simulationSeed) =>
+        _configuration.ScheduleSeed ??
+        ParseEnvironmentSeed(ReplayTestEnvironment.ScheduleSeed) ??
+        new SimulationSeedAuthority(simulationSeed).GetDomainSeed(SimulationSeedDomain.Scheduler);
+
+    private string WriteArtifact(ReplayExecutionResult execution, string? iterationId)
+    {
+        string safeIdentity = SanitizeFileName(
+            _configuration.TestClassName + "." + _configuration.TestMethodName);
+        string artifactId = execution.ArtifactId[..12];
+        string suffix = iterationId is null
+            ? artifactId
+            : string.Create(CultureInfo.InvariantCulture, $"{iterationId}-{artifactId}");
+        string path = Path.GetFullPath(Path.Combine(ResolveArtifactDirectory(), $"{safeIdentity}-{suffix}.cwr.json"));
+        ReplayArtifactSerializer.Write(path, execution.Artifact);
+        return path;
+    }
+
+    private string ResolveArtifactDirectory() =>
+        _configuration.ArtifactDirectory ??
+        GetEnvironmentValue(ReplayTestEnvironment.ArtifactDirectory) ??
+        Path.Combine(Path.GetTempPath(), "clockwork-test-artifacts");
+
+    private static void EnsureReplayHasNoCampaignOverrides(ReplayTestCampaignOptions options)
+    {
+        if (options.MaxIterations is not null ||
+            options.TimeLimit is not null ||
+            options.MaxFailures is not null ||
+            GetEnvironmentValue(ReplayTestEnvironment.ExplorationIterations) is not null ||
+            GetEnvironmentValue(ReplayTestEnvironment.ExplorationTimeLimit) is not null ||
+            GetEnvironmentValue(ReplayTestEnvironment.ExplorationMaxFailures) is not null)
+        {
+            throw new InvalidOperationException(
+                $"{ReplayTestEnvironment.Artifact} replays exactly one execution and cannot be combined " +
+                "with exploration limits.");
+        }
+    }
+
+    private static string GetFailureKey(ReplayExecutionResult execution)
+    {
+        ReplayOutcome outcome = execution.Artifact.Outcome;
+        return $"{outcome.Kind}:{outcome.FailureIdentity ?? "<none>"}";
+    }
+
+    private static int? ParseEnvironmentSeed(string name) =>
+        ParseSeed(name, GetEnvironmentValue(name));
+
+    private static int? ParseSeed(string name, string? value)
+    {
+        if (value is null)
         {
             return null;
         }
@@ -234,6 +540,48 @@ public sealed class ReplayTestFixture
         }
 
         return seed;
+    }
+
+    private static int? ParseEnvironmentPositiveInt(string name)
+    {
+        string? value = GetEnvironmentValue(name);
+        if (value is null)
+        {
+            return null;
+        }
+
+        if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed) ||
+            parsed <= 0)
+        {
+            throw new InvalidOperationException(
+                $"Environment variable {name} must be a positive 32-bit integer, not '{value}'.");
+        }
+
+        return parsed;
+    }
+
+    private static TimeSpan? ParseEnvironmentTimeSpan(string name)
+    {
+        string? value = GetEnvironmentValue(name);
+        if (value is null)
+        {
+            return null;
+        }
+
+        if (!TimeSpan.TryParse(value, CultureInfo.InvariantCulture, out TimeSpan parsed) ||
+            parsed <= TimeSpan.Zero)
+        {
+            throw new InvalidOperationException(
+                $"Environment variable {name} must be a positive invariant TimeSpan, not '{value}'.");
+        }
+
+        return parsed;
+    }
+
+    private static string? GetEnvironmentValue(string name)
+    {
+        string? value = Environment.GetEnvironmentVariable(name);
+        return string.IsNullOrWhiteSpace(value) ? null : value;
     }
 
     private static string SanitizeFileName(string value)

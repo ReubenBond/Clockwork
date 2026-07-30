@@ -608,7 +608,7 @@ public static class ReplayArtifactSerializer
         writer.WriteStartObject();
         writer.WriteString("format", artifact.Format);
         writer.WriteNumber("schemaVersion", artifact.SchemaVersion);
-        writer.WriteNumber("rootSeed", artifact.RootSeed);
+        writer.WriteNumber("rootSeed", artifact.SimulationSeed);
         WriteScheduler(writer, artifact.Scheduler);
         WriteInstrumentation(writer, artifact.Instrumentation);
         WriteEnvironment(writer, artifact.Environment);

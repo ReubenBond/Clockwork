@@ -99,9 +99,9 @@ internal static class Program
         output.WriteLine("Usage:");
         output.WriteLine("  dotnet clockwork instrument --source <dir> --output <dir> [options]");
         output.WriteLine("  dotnet clockwork inspect <assembly|dir>... [options]");
-        output.WriteLine("  dotnet clockwork record --assembly <path> --scenario-type <type> --artifact <path> --seed <int> [options]");
+        output.WriteLine("  dotnet clockwork record --assembly <path> --scenario-type <type> --artifact <path> --simulation-seed <int> [options]");
         output.WriteLine("  dotnet clockwork replay <artifact> --assembly <path> --scenario-type <type> [options]");
-        output.WriteLine("  dotnet clockwork explore --assembly <path> --scenario-type <type> --output <dir> --seed <int> [options]");
+        output.WriteLine("  dotnet clockwork explore --assembly <path> --scenario-type <type> --output <dir> --simulation-seed <int> [options]");
         output.WriteLine("  dotnet clockwork minimize <artifact> --assembly <path> --scenario-type <type> [options]");
         output.WriteLine("  dotnet clockwork trace show <artifact> [--json]");
         output.WriteLine();
@@ -140,10 +140,13 @@ internal static class Program
         output.WriteLine("  --assembly <path>          explicit scenario harness assembly");
         output.WriteLine("  --scenario-type <type>     public IReplayScenario implementation with a public parameterless constructor");
         output.WriteLine("  --manifest <path>          closure instrumentation manifest used for compatibility checks");
-        output.WriteLine("  --seed <int>               stable model/application root seed");
+        output.WriteLine("  --simulation-seed <int>    stable application/environment seed");
         output.WriteLine("  --schedule-seed <int>      explicit scheduler seed");
         output.WriteLine("  --strategy <name>          fifo|round-robin|priority|seeded-random");
         output.WriteLine("  --max-steps <int>          controlled step bound per execution");
+        output.WriteLine("  --count <int>              maximum exploration iterations");
+        output.WriteLine("  --max-failures <int>       exploration failure limit");
+        output.WriteLine("  --time-limit <timespan>    wall-clock limit checked between iterations");
         output.WriteLine("  --json                     emit deterministic JSON");
         output.WriteLine();
         output.WriteLine("Exit codes: 0 success, 1 usage, 2 configuration, 3 closure, 4 instrumentation, 5 I/O,");

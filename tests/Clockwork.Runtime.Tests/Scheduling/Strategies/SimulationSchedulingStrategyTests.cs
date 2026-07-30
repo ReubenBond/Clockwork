@@ -309,7 +309,7 @@ public sealed class SimulationSchedulingStrategyTests
     [Fact]
     public void ParallelSimulationsWithTheSameSeedAreIsolatedAndReproducible()
     {
-        // Two independent schedulers sharing a root seed must produce identical schedules and keep
+        // Two independent schedulers sharing a simulation seed must produce identical schedules and keep
         // their decision logs separate - no shared static scheduling state leaks between simulations.
         var (orderA, logA) = RunSeededWithLog(seed: 4242);
         var (orderB, logB) = RunSeededWithLog(seed: 4242);

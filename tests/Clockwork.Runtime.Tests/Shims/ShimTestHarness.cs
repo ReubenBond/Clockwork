@@ -25,9 +25,9 @@ internal static class ShimTestHarness
 
     public static TestEnvironment CreateEnvironment(
         MutableClock clock,
-        int rootSeed = 12345,
+        int simulationSeed = 12345,
         TimeZoneInfo? localTimeZone = null) =>
-        new(clock, rootSeed, localTimeZone ?? TimeZoneInfo.Utc);
+        new(clock, simulationSeed, localTimeZone ?? TimeZoneInfo.Utc);
 
     /// <summary>
     /// Runs <paramref name="body"/> inside an active simulation with the given environment registered
@@ -42,7 +42,7 @@ internal static class ShimTestHarness
         var activeRuntime = runtime ?? NewRuntime();
         using var scheduler = new SimulationScheduler(
             activeRuntime,
-            new SimulationSeedAuthority(environment.RootSeed),
+            new SimulationSeedAuthority(environment.SimulationSeed),
             environment.Clock.UtcNow,
             environment.LocalTimeZone);
         environment.Clock.Bind(scheduler);
@@ -108,14 +108,14 @@ internal static class ShimTestHarness
 
         public TestEnvironment(
             MutableClock clock,
-            int rootSeed,
+            int simulationSeed,
             TimeZoneInfo localTimeZone)
         {
             Clock = clock;
-            RootSeed = rootSeed;
+            SimulationSeed = simulationSeed;
             LocalTimeZone = localTimeZone;
             _inner = new SimulationRuntimeEnvironment(
-                new SimulationSeedAuthority(rootSeed),
+                new SimulationSeedAuthority(simulationSeed),
                 () => clock.UtcNow,
                 localTimeZone,
                 Origin);
@@ -123,7 +123,7 @@ internal static class ShimTestHarness
 
         public MutableClock Clock { get; }
 
-        public int RootSeed { get; }
+        public int SimulationSeed { get; }
 
         public TimeZoneInfo LocalTimeZone { get; }
 

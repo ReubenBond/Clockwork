@@ -445,7 +445,7 @@ public sealed class ReplayArtifactTests : IDisposable
 
     private static ReplayArtifact CreateArtifact() => new()
     {
-        RootSeed = 42,
+        SimulationSeed = 42,
         Scheduler = new ReplaySchedulerConfiguration
         {
             Strategy = "seeded-random",
