@@ -916,12 +916,23 @@ public sealed class SimulationScheduler : IDisposable
                         "The scheduler is already being driven by another thread. RunStep/Drain must be driven by a single controlling thread at a time.");
                 }
 
-                var hasRunnable = HasRunnableUnderLock();
+                var useRoundRobinFastPath = CanSelectRoundRobinWithoutSnapshot();
+                SimulationOperation? next = useRoundRobinFastPath
+                    ? FindRoundRobinRunnableUnderLock()
+                    : null;
+                var hasRunnable = useRoundRobinFastPath
+                    ? next is not null
+                    : HasRunnableUnderLock();
                 if (!hasRunnable && !_clock.HasPending && HasResumableDeadlockedSynchronousWaitUnderLock())
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     resumedDeadlock = ResumeDeadlockedSynchronousWaitUnderLock();
-                    hasRunnable = HasRunnableUnderLock();
+                    next = useRoundRobinFastPath
+                        ? FindRoundRobinRunnableUnderLock()
+                        : null;
+                    hasRunnable = useRoundRobinFastPath
+                        ? next is not null
+                        : HasRunnableUnderLock();
                 }
 
                 if (!hasRunnable)
@@ -930,7 +941,16 @@ public sealed class SimulationScheduler : IDisposable
                 }
 
                 cancellationToken.ThrowIfCancellationRequested();
-                operation = SelectRunnable() ?? throw new UnreachableException();
+                if (useRoundRobinFastPath)
+                {
+                    operation = next ?? throw new UnreachableException();
+                    _lastSelected = operation.Id;
+                }
+                else
+                {
+                    operation = SelectRunnable() ?? throw new UnreachableException();
+                }
+
                 operation.ApplyTransition(SimulationOperationState.Running);
                 _dispatchSequence++;
                 _current = operation;
@@ -2347,11 +2367,6 @@ public sealed class SimulationScheduler : IDisposable
 
     private SimulationOperation? SelectRunnable()
     {
-        if (_strategy is RoundRobinSchedulingStrategy && _decisionLog is null && _replayValidator is null)
-        {
-            return SelectRoundRobinRunnable();
-        }
-
         // Custom and instrumented strategies receive a stable snapshot which they may retain.
         List<SimulationOperation>? runnable = null;
         for (var index = 0; index < _activeOperations.Count; index++)
@@ -2387,7 +2402,10 @@ public sealed class SimulationScheduler : IDisposable
         return chosen;
     }
 
-    private SimulationOperation? SelectRoundRobinRunnable()
+    private bool CanSelectRoundRobinWithoutSnapshot() =>
+        _strategy is RoundRobinSchedulingStrategy && _decisionLog is null && _replayValidator is null;
+
+    private SimulationOperation? FindRoundRobinRunnableUnderLock()
     {
         SimulationOperation? wrapTarget = null;
         for (var index = 0; index < _activeOperations.Count; index++)
@@ -2401,14 +2419,8 @@ public sealed class SimulationScheduler : IDisposable
             wrapTarget ??= operation;
             if (operation.Id > _lastSelected)
             {
-                _lastSelected = operation.Id;
                 return operation;
             }
-        }
-
-        if (wrapTarget is not null)
-        {
-            _lastSelected = wrapTarget.Id;
         }
 
         return wrapTarget;

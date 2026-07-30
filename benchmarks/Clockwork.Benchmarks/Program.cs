@@ -61,4 +61,16 @@ if (args is ["--trace-timers", var timerIterationCount, var timerCount, var time
     return;
 }
 
+if (args is ["--trace-decisions", var decisionIterationCount, var decisionMode]
+    && int.TryParse(decisionIterationCount, out var decisionIterations)
+    && decisionIterations > 0
+    && decisionMode is "none" or "log")
+{
+    Console.WriteLine(
+        SchedulerDecisionLogBenchmarks.RunTrace(
+            decisionIterations,
+            captureDecisions: decisionMode == "log"));
+    return;
+}
+
 BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args);

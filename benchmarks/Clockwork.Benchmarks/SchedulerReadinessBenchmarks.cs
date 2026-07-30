@@ -10,8 +10,15 @@ public class SchedulerReadinessBenchmarks
     [Params(0, 1, 16, 128)]
     public int PendingWaitCount { get; set; }
 
+    [Benchmark(Baseline = true, OperationsPerInvoke = DispatchCount)]
+    public int CreatedOperationsOnly() =>
+        SchedulerBenchmarkWorkload.RunWithCreatedOperations(
+            PendingWaitCount,
+            DispatchCount,
+            initialCompletedSteps: 1);
+
     [Benchmark(OperationsPerInvoke = DispatchCount)]
-    public int DeterministicScheduler() =>
+    public int PendingReadiness() =>
         SchedulerBenchmarkWorkload.RunWithPendingReadiness(
             PendingWaitCount,
             DispatchCount,

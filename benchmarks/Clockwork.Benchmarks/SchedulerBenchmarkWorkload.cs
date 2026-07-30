@@ -1,4 +1,5 @@
 using Clockwork.Runtime.Execution;
+using Clockwork.Runtime.Decisions;
 using Clockwork.Runtime.Scheduling;
 
 namespace Clockwork.Benchmarks;
@@ -25,9 +26,11 @@ internal static class SchedulerBenchmarkWorkload
     public static int RunScheduler(
         int operationCount,
         int stepsPerOperation,
-        int initialCompletedSteps)
+        int initialCompletedSteps,
+        ISimulationDecisionLog? decisionLog = null)
     {
         using var scheduler = CreateScheduler();
+        scheduler.DecisionLog = decisionLog;
         var workload = new YieldingWorkload(
             scheduler,
             stepsPerOperation,
@@ -53,7 +56,28 @@ internal static class SchedulerBenchmarkWorkload
     public static int RunWithPendingReadiness(
         int pendingWaitCount,
         int dispatchCount,
-        int initialCompletedSteps)
+        int initialCompletedSteps) =>
+        RunWithPendingOperations(
+            pendingWaitCount,
+            dispatchCount,
+            initialCompletedSteps,
+            useReadinessWaits: true);
+
+    public static int RunWithCreatedOperations(
+        int pendingOperationCount,
+        int dispatchCount,
+        int initialCompletedSteps) =>
+        RunWithPendingOperations(
+            pendingOperationCount,
+            dispatchCount,
+            initialCompletedSteps,
+            useReadinessWaits: false);
+
+    private static int RunWithPendingOperations(
+        int pendingOperationCount,
+        int dispatchCount,
+        int initialCompletedSteps,
+        bool useReadinessWaits)
     {
         using var scheduler = CreateScheduler();
         var workload = new YieldingWorkload(
@@ -61,14 +85,20 @@ internal static class SchedulerBenchmarkWorkload
             dispatchCount,
             initialCompletedSteps);
 
-        // Register the runnable operation first so round-robin selection remains O(1). This isolates
-        // the cost of polling the pending readiness set on every dispatch.
+        // Register the runnable operation first so both benchmark variants have identical selection order.
         scheduler.Schedule("benchmark", workload.Run);
-        for (var wait = 0; wait < pendingWaitCount; wait++)
+        for (var operation = 0; operation < pendingOperationCount; operation++)
         {
-            scheduler.ScheduleWhenReady(
-                static () => false,
-                static () => throw new InvalidOperationException("A pending readiness callback ran unexpectedly."));
+            if (useReadinessWaits)
+            {
+                scheduler.ScheduleWhenReady(
+                    static () => false,
+                    static () => throw new InvalidOperationException("A pending readiness callback ran unexpectedly."));
+            }
+            else
+            {
+                scheduler.Register("pending", static () => { });
+            }
         }
 
         var dispatched = scheduler.Drain(CancellationToken.None);

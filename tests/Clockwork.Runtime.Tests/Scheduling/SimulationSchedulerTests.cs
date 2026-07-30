@@ -50,6 +50,18 @@ public sealed class SimulationSchedulerTests
     }
 
     [Fact]
+    public void DecisionLoggingIsOptIn()
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        scheduler.Schedule("first", static () => { });
+        scheduler.Schedule("second", static () => { });
+
+        scheduler.Drain(TestContext.Current.CancellationToken);
+
+        Assert.Null(scheduler.DecisionLog);
+    }
+
+    [Fact]
     public void DrainCanCancelAnOperationWhichContinuesYielding()
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();
