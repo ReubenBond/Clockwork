@@ -120,7 +120,12 @@ public static class ReplayRunner
         scheduler.SchedulingStrategy = CreateStrategy(configuration.SchedulingPolicy, scheduleSeed);
         scheduler.DecisionLog = decisionLog;
 
-        DriveResult drive = Drive(scheduler, scenario, configuration.MaxSteps, cancellationToken);
+        DriveResult drive = Drive(
+            scheduler,
+            listener,
+            scenario,
+            configuration.MaxSteps,
+            cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         ReplayArtifact artifact = CreateArtifact(
             configuration,
@@ -160,7 +165,12 @@ public static class ReplayRunner
         scheduler.ReplayValidator = new SimulationDecisionReplayValidator(
             new SimulationInMemoryDecisionReplayReader(records));
 
-        DriveResult drive = Drive(scheduler, scenario, maxSteps, cancellationToken);
+        DriveResult drive = Drive(
+            scheduler,
+            listener,
+            scenario,
+            maxSteps,
+            cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         if (!drive.IsAborted)
         {
@@ -215,6 +225,7 @@ public static class ReplayRunner
 
     private static DriveResult Drive(
         SimulationScheduler scheduler,
+        ReplayOperationListener listener,
         Action<SimulationScheduler> scenario,
         int maxSteps,
         CancellationToken cancellationToken)
@@ -229,9 +240,7 @@ public static class ReplayRunner
                 if (scheduler.RunStepForPump(cancellationToken))
                 {
                     steps++;
-                    if (scheduler.FirstRace is not null ||
-                        scheduler.CaptureStatus().Any(static status =>
-                            status.State == SimulationOperationState.Faulted))
+                    if (scheduler.FirstRace is not null || listener.FirstFailure is not null)
                     {
                         break;
                     }

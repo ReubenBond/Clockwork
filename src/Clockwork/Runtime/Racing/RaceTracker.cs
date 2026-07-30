@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using Clockwork.Runtime.Scheduling;
 
@@ -27,9 +26,12 @@ internal sealed class RaceTracker
     }
 
     private sealed record TrackedAccess(
-        RaceAccessRecord Public,
+        SimulationOperationId OperationId,
+        RaceAccessKind Kind,
+        RaceMemoryLocation Location,
+        RaceSourceLocation Source,
         Dictionary<long, long> Clock,
-        ImmutableArray<long> HeldSynchronization);
+        long[] HeldSynchronization);
 
     private readonly ConditionalWeakTable<object, WeakIdentity> _objectIdentities = new();
     private readonly ConditionalWeakTable<object, WeakIdentity> _lockIdentities = new();
@@ -102,14 +104,14 @@ internal sealed class RaceTracker
 
         OperationState operationState = StateOf(operation);
         Tick(operation.Id.Value, operationState.Clock);
-        var held = operationState.HeldSynchronization.Keys.Order().ToImmutableArray();
-        var publicAccess = new RaceAccessRecord(
+        var held = CaptureHeldSynchronization(operationState);
+        var access = new TrackedAccess(
             operation.Id,
             kind,
             location,
             source,
-            [.. held.Select(static id => $"sync#{id}")]);
-        var access = new TrackedAccess(publicAccess, new Dictionary<long, long>(operationState.Clock), held);
+            new Dictionary<long, long>(operationState.Clock),
+            held);
         if (!_locations.TryGetValue(location, out AccessState? locationState))
         {
             locationState = new AccessState();
@@ -224,7 +226,7 @@ internal sealed class RaceTracker
     {
         if (FirstRace is not null ||
             previous is null ||
-            previous.Public.OperationId == current.Public.OperationId ||
+            previous.OperationId == current.OperationId ||
             HappensBefore(previous.Clock, current.Clock) ||
             HasCommonSynchronization(previous.HeldSynchronization, current.HeldSynchronization))
         {
@@ -233,11 +235,32 @@ internal sealed class RaceTracker
 
         FirstRace = new RaceReport
         {
-            FirstAccess = previous.Public,
-            SecondAccess = current.Public,
+            FirstAccess = CreatePublicAccess(previous),
+            SecondAccess = CreatePublicAccess(current),
             ScheduleTrace = [.. trace],
         };
     }
+
+    private static long[] CaptureHeldSynchronization(OperationState state)
+    {
+        if (state.HeldSynchronization.Count == 0)
+        {
+            return [];
+        }
+
+        var held = new long[state.HeldSynchronization.Count];
+        state.HeldSynchronization.Keys.CopyTo(held, 0);
+        Array.Sort(held);
+        return held;
+    }
+
+    private static RaceAccessRecord CreatePublicAccess(TrackedAccess access) =>
+        new(
+            access.OperationId,
+            access.Kind,
+            access.Location,
+            access.Source,
+            [.. access.HeldSynchronization.Select(static id => $"sync#{id}")]);
 
     private OperationState StateOf(SimulationOperation operation) =>
         _operations.TryGetValue(operation.Id.Value, out OperationState? state)
@@ -267,8 +290,8 @@ internal sealed class RaceTracker
     }
 
     private static bool HasCommonSynchronization(
-        ImmutableArray<long> first,
-        ImmutableArray<long> second)
+        long[] first,
+        long[] second)
     {
         int left = 0;
         int right = 0;

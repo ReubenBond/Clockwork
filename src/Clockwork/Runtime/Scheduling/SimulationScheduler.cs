@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
@@ -915,12 +916,23 @@ public sealed class SimulationScheduler : IDisposable
                         "The scheduler is already being driven by another thread. RunStep/Drain must be driven by a single controlling thread at a time.");
                 }
 
-                var hasRunnable = HasRunnableUnderLock();
+                var useRoundRobinFastPath = CanSelectRoundRobinWithoutSnapshot();
+                SimulationOperation? next = useRoundRobinFastPath
+                    ? FindRoundRobinRunnableUnderLock()
+                    : null;
+                var hasRunnable = useRoundRobinFastPath
+                    ? next is not null
+                    : HasRunnableUnderLock();
                 if (!hasRunnable && !_clock.HasPending && HasResumableDeadlockedSynchronousWaitUnderLock())
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     resumedDeadlock = ResumeDeadlockedSynchronousWaitUnderLock();
-                    hasRunnable = HasRunnableUnderLock();
+                    next = useRoundRobinFastPath
+                        ? FindRoundRobinRunnableUnderLock()
+                        : null;
+                    hasRunnable = useRoundRobinFastPath
+                        ? next is not null
+                        : HasRunnableUnderLock();
                 }
 
                 if (!hasRunnable)
@@ -929,7 +941,16 @@ public sealed class SimulationScheduler : IDisposable
                 }
 
                 cancellationToken.ThrowIfCancellationRequested();
-                operation = SelectRunnable() ?? throw new UnreachableException();
+                if (useRoundRobinFastPath)
+                {
+                    operation = next ?? throw new UnreachableException();
+                    _lastSelected = operation.Id;
+                }
+                else
+                {
+                    operation = SelectRunnable() ?? throw new UnreachableException();
+                }
+
                 operation.ApplyTransition(SimulationOperationState.Running);
                 _dispatchSequence++;
                 _current = operation;
@@ -986,35 +1007,52 @@ public sealed class SimulationScheduler : IDisposable
 
     private void PromoteReadyWaits()
     {
-        ReadinessWait[] waits;
+        ReadinessWait[]? waits = null;
+        int count;
         lock (_gate)
         {
-            waits = [.. _readinessWaits];
+            count = _readinessWaits.Count;
+            if (count == 0)
+            {
+                return;
+            }
+
+            waits = ArrayPool<ReadinessWait>.Shared.Rent(count);
+            _readinessWaits.CopyTo(waits, 0);
         }
 
-        foreach (var wait in waits)
+        try
         {
-            if (wait.IsCanceled || !wait.IsReady())
+            for (var index = 0; index < count; index++)
             {
-                continue;
-            }
-
-            SimulationOperation? operation = null;
-            using (EnterTransitionPublicationScope())
-            {
-                lock (_gate)
+                var wait = waits[index];
+                if (wait.IsCanceled || !wait.IsReady())
                 {
-                    if (!_readinessWaits.Remove(wait) || wait.IsCanceled)
-                    {
-                        continue;
-                    }
-
-                    operation = wait.Operation;
-                    operation.ApplyTransition(SimulationOperationState.Runnable);
+                    continue;
                 }
 
-                Notify(operation, SimulationOperationState.Runnable);
+                SimulationOperation? operation = null;
+                using (EnterTransitionPublicationScope())
+                {
+                    lock (_gate)
+                    {
+                        if (!_readinessWaits.Remove(wait) || wait.IsCanceled)
+                        {
+                            continue;
+                        }
+
+                        operation = wait.Operation;
+                        operation.ApplyTransition(SimulationOperationState.Runnable);
+                    }
+
+                    Notify(operation, SimulationOperationState.Runnable);
+                }
             }
+        }
+        finally
+        {
+            Array.Clear(waits, 0, count);
+            ArrayPool<ReadinessWait>.Shared.Return(waits);
         }
     }
 
@@ -2329,11 +2367,6 @@ public sealed class SimulationScheduler : IDisposable
 
     private SimulationOperation? SelectRunnable()
     {
-        if (_strategy is RoundRobinSchedulingStrategy && _decisionLog is null && _replayValidator is null)
-        {
-            return SelectRoundRobinRunnable();
-        }
-
         // Custom and instrumented strategies receive a stable snapshot which they may retain.
         List<SimulationOperation>? runnable = null;
         for (var index = 0; index < _activeOperations.Count; index++)
@@ -2369,7 +2402,10 @@ public sealed class SimulationScheduler : IDisposable
         return chosen;
     }
 
-    private SimulationOperation? SelectRoundRobinRunnable()
+    private bool CanSelectRoundRobinWithoutSnapshot() =>
+        _strategy is RoundRobinSchedulingStrategy && _decisionLog is null && _replayValidator is null;
+
+    private SimulationOperation? FindRoundRobinRunnableUnderLock()
     {
         SimulationOperation? wrapTarget = null;
         for (var index = 0; index < _activeOperations.Count; index++)
@@ -2383,14 +2419,8 @@ public sealed class SimulationScheduler : IDisposable
             wrapTarget ??= operation;
             if (operation.Id > _lastSelected)
             {
-                _lastSelected = operation.Id;
                 return operation;
             }
-        }
-
-        if (wrapTarget is not null)
-        {
-            _lastSelected = wrapTarget.Id;
         }
 
         return wrapTarget;
@@ -2608,13 +2638,39 @@ public sealed class SimulationScheduler : IDisposable
 
     private static string FormatCandidateIds(List<SimulationOperation> runnable)
     {
-        var ids = new string[runnable.Count];
-        for (var i = 0; i < runnable.Count; i++)
+        var length = runnable.Count - 1;
+        Span<char> buffer = stackalloc char[20];
+        for (var index = 0; index < runnable.Count; index++)
         {
-            ids[i] = FormatOperationId(runnable[i].Id);
+            bool formatted = runnable[index].Id.Value.TryFormat(
+                buffer,
+                out var written,
+                provider: CultureInfo.InvariantCulture);
+            Debug.Assert(formatted);
+            length += written;
         }
 
-        return string.Join(",", ids);
+        return string.Create(
+            length,
+            runnable,
+            static (destination, operations) =>
+            {
+                var offset = 0;
+                for (var index = 0; index < operations.Count; index++)
+                {
+                    if (index > 0)
+                    {
+                        destination[offset++] = ',';
+                    }
+
+                    bool formatted = operations[index].Id.Value.TryFormat(
+                        destination[offset..],
+                        out var written,
+                        provider: CultureInfo.InvariantCulture);
+                    Debug.Assert(formatted);
+                    offset += written;
+                }
+            });
     }
 
     private static string FormatOperationId(SimulationOperationId id) =>
