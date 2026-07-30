@@ -16,4 +16,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Clockwork.Testing\Clockwork.Testing.csproj" />
   </ItemGroup>
+
+  <Import Project="..\..\src\Clockwork.Testing\buildTransitive\Clockwork.Simulation.Testing.props" />
 </Project>

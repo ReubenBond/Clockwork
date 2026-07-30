@@ -62,6 +62,10 @@ public sealed partial class SimulationCluster
         ArgumentNullException.ThrowIfNull(budget);
         using var control = Scheduler.EnterControlScope();
         using var _ = Guard.Enter();
+        SimulationProgressReporter? progressReporter = SimulationProgressReporter.CreateFromEnvironment(
+            RuntimeIdentity,
+            CapturePendingWorkSummary,
+            () => Scheduler.PendingOperationCount);
         return RunAdaptiveCore(
             budget,
             (batchMaxIterations, consecutiveTimeAdvances) => ExecuteDriveLoop(
@@ -71,7 +75,8 @@ public sealed partial class SimulationCluster
                 observeTeardownCancellation: false,
                 initialConsecutiveTimeAdvances: consecutiveTimeAdvances,
                 absoluteEndTime: null,
-                cancellationToken: cancellationToken));
+                cancellationToken: cancellationToken,
+                progressReporter: progressReporter));
     }
 
     /// <summary>
@@ -103,6 +108,10 @@ public sealed partial class SimulationCluster
         ArgumentNullException.ThrowIfNull(budget);
         using var control = Scheduler.EnterControlScope();
         using var _ = Guard.Enter();
+        SimulationProgressReporter? progressReporter = SimulationProgressReporter.CreateFromEnvironment(
+            RuntimeIdentity,
+            CapturePendingWorkSummary,
+            () => Scheduler.PendingOperationCount);
         return RunAdaptiveCore(
             budget,
             (batchMaxIterations, consecutiveTimeAdvances) => ExecuteDriveLoop(
@@ -112,7 +121,8 @@ public sealed partial class SimulationCluster
                 observeTeardownCancellation: true,
                 initialConsecutiveTimeAdvances: consecutiveTimeAdvances,
                 absoluteEndTime: null,
-                cancellationToken: cancellationToken));
+                cancellationToken: cancellationToken,
+                progressReporter: progressReporter));
     }
 #pragma warning restore CA1068
 

@@ -647,10 +647,20 @@ public sealed partial class SimulationCluster : IAsyncDisposable
         bool observeTeardownCancellation,
         int initialConsecutiveTimeAdvances,
         DateTimeOffset? absoluteEndTime,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        SimulationProgressReporter? progressReporter = null,
+        bool enableProgress = true)
     {
         using var control = Scheduler.EnterControlScope();
         using var _ = Guard.Enter();
+        if (enableProgress && _disposalFailures is null)
+        {
+            progressReporter ??= SimulationProgressReporter.CreateFromEnvironment(
+                RuntimeIdentity,
+                CapturePendingWorkSummary,
+                () => Scheduler.PendingOperationCount);
+        }
+
         var options = new SimulationDriveLoopOptions(
             condition,
             maxSimulatedTimeAdvance,
@@ -659,8 +669,11 @@ public sealed partial class SimulationCluster : IAsyncDisposable
             observeTeardownCancellation,
             initialConsecutiveTimeAdvances,
             absoluteEndTime,
-            cancellationToken);
-        return _driveLoop.Execute(options);
+            cancellationToken,
+            progressReporter is null ? null : progressReporter.Report);
+        SimulationExecutionResult result = _driveLoop.Execute(options);
+        progressReporter?.CompleteBatch(result);
+        return result;
     }
 
     /// <summary>
@@ -896,7 +909,8 @@ public sealed partial class SimulationCluster : IAsyncDisposable
                 observeTeardownCancellation: false,
                 initialConsecutiveTimeAdvances: 0,
                 absoluteEndTime: null,
-                cancellationToken: CancellationToken.None);
+                cancellationToken: CancellationToken.None,
+                enableProgress: false);
             if (contexts.Any(static context => context.HasPendingAttachmentWork))
             {
                 AddDisposalFailure(
