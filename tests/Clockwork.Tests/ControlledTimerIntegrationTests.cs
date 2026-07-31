@@ -10,7 +10,7 @@ public sealed class ControlledTimerIntegrationTests
         var simulation = new SimulationCluster(
             seed: 1,
             startDateTime: new DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero));
-        SimulationNode<object?> node = simulation.AddNode("node");
+        SimulationNode node = simulation.AddNode("node");
         ControlledTimer? timer = null;
         var timerFired = false;
 

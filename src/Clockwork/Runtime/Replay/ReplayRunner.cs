@@ -103,6 +103,9 @@ public sealed class ReplayOutcomeMismatchException : InvalidOperationException
 /// </summary>
 public static class ReplayRunner
 {
+    private const string ExecutionHostOption = "executionHost";
+    private const string ClusterExecutionHost = "cluster";
+
     /// <summary>Records one controlled scenario with explicit orchestration cancellation.</summary>
     public static ReplayExecutionResult Record(
         ReplayRecordingOptions configuration,
@@ -144,6 +147,60 @@ public static class ReplayRunner
         };
     }
 
+    /// <summary>
+    /// Records one fresh <see cref="SimulationCluster"/> scenario with explicit orchestration
+    /// cancellation. The runner owns cluster creation, driving, artifact capture, and disposal.
+    /// </summary>
+    public static ReplayExecutionResult RecordCluster(
+        ReplayRecordingOptions configuration,
+        Action<SimulationCluster> scenario,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(scenario);
+        ValidateConfiguration(configuration);
+
+        int scheduleSeed = GetScheduleSeed(configuration);
+        var decisionLog = new SimulationDecisionLog();
+        var listener = new ReplayOperationListener(configuration.IncludeDiagnosticMessages);
+        SimulationCluster cluster = CreateCluster(configuration.SimulationSeed, listener);
+        try
+        {
+            SimulationScheduler scheduler = cluster.Scheduler;
+            scheduler.SchedulingStrategy = CreateStrategy(configuration.SchedulingPolicy, scheduleSeed);
+            scheduler.DecisionLog = decisionLog;
+
+            DriveResult drive = Drive(
+                scheduler,
+                listener,
+                _ => scenario(cluster),
+                configuration.MaxSteps,
+                cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            ReplayArtifact artifact = CreateArtifact(
+                configuration,
+                scheduleSeed,
+                decisionLog.Records,
+                scheduler,
+                listener,
+                drive,
+                ClusterExecutionHost);
+            return new ReplayExecutionResult
+            {
+                Artifact = artifact,
+                ArtifactId = ReplayArtifactSerializer.ComputeId(artifact),
+                Steps = drive.Steps,
+                ExecutionException = drive.Exception,
+                Reproduced = false,
+            };
+        }
+        finally
+        {
+            DetachReplayState(cluster.Scheduler);
+            cluster.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
+    }
+
     /// <summary>Replays a complete artifact exactly with explicit orchestration cancellation.</summary>
     public static ReplayExecutionResult Replay(
         ReplayArtifact artifact,
@@ -157,6 +214,7 @@ public static class ReplayRunner
         ArgumentNullException.ThrowIfNull(scenario);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxSteps);
         ReplayCompatibility.Validate(artifact, requirements);
+        ValidateExecutionHost(artifact, expectCluster: false);
 
         var records = artifact.Decisions.Select(static decision => decision.ToRecord()).ToArray();
         var listener = new ReplayOperationListener(includeDiagnosticMessages: false);
@@ -207,10 +265,102 @@ public static class ReplayRunner
         };
     }
 
+    /// <summary>
+    /// Replays a cluster artifact exactly against one fresh <see cref="SimulationCluster"/> and
+    /// disposes the cluster after replay validation.
+    /// </summary>
+    public static ReplayExecutionResult ReplayCluster(
+        ReplayArtifact artifact,
+        ReplayCompatibilityRequirements requirements,
+        Action<SimulationCluster> scenario,
+        int maxSteps,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(artifact);
+        ArgumentNullException.ThrowIfNull(requirements);
+        ArgumentNullException.ThrowIfNull(scenario);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxSteps);
+        ReplayCompatibility.Validate(artifact, requirements);
+        ValidateExecutionHost(artifact, expectCluster: true);
+
+        var records = artifact.Decisions.Select(static decision => decision.ToRecord()).ToArray();
+        var listener = new ReplayOperationListener(includeDiagnosticMessages: false);
+        SimulationCluster cluster = CreateCluster(artifact.SimulationSeed, listener);
+        try
+        {
+            SimulationScheduler scheduler = cluster.Scheduler;
+            scheduler.SchedulingStrategy = SimulationSchedulingStrategies.Replay(records);
+            scheduler.ReplayValidator = new SimulationDecisionReplayValidator(
+                new SimulationInMemoryDecisionReplayReader(records));
+
+            DriveResult drive = Drive(
+                scheduler,
+                listener,
+                _ => scenario(cluster),
+                maxSteps,
+                cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!drive.IsAborted)
+            {
+                scheduler.ValidateReplayDecisionStreamsComplete();
+            }
+
+            ReplayRecordingOptions replayConfiguration = new()
+            {
+                SimulationSeed = artifact.SimulationSeed,
+                SchedulingPolicy = ParsePolicy(artifact.Scheduler.Strategy),
+                ScheduleSeed = artifact.Scheduler.ScheduleSeed,
+                MaxSteps = maxSteps,
+                Instrumentation = artifact.Instrumentation,
+            };
+            ReplayArtifact replayArtifact = CreateArtifact(
+                replayConfiguration,
+                artifact.Scheduler.ScheduleSeed ?? 0,
+                records,
+                scheduler,
+                listener,
+                drive,
+                ClusterExecutionHost);
+            if (!OutcomesMatch(artifact.Outcome, replayArtifact.Outcome))
+            {
+                throw new ReplayOutcomeMismatchException(artifact.Outcome, replayArtifact.Outcome);
+            }
+
+            return new ReplayExecutionResult
+            {
+                Artifact = artifact,
+                ArtifactId = ReplayArtifactSerializer.ComputeId(artifact),
+                Steps = drive.Steps,
+                ExecutionException = drive.Exception,
+                Reproduced = true,
+            };
+        }
+        finally
+        {
+            DetachReplayState(cluster.Scheduler);
+            cluster.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
+    }
+
     private static SimulationScheduler CreateScheduler(int seed, ISimulationOperationListener listener)
     {
         var runtime = new SimulationRuntimeIdentity(Guid.NewGuid(), seed, "replay-run");
         return new SimulationScheduler(runtime, listener);
+    }
+
+    private static SimulationCluster CreateCluster(int seed, ISimulationOperationListener listener) =>
+        new(
+            seed,
+            DateTimeOffset.UnixEpoch,
+            TimeZoneInfo.Utc,
+            listener,
+            CancellationToken.None);
+
+    private static void DetachReplayState(SimulationScheduler scheduler)
+    {
+        scheduler.DecisionLog = null;
+        scheduler.ReplayValidator = null;
+        scheduler.SchedulingStrategy = SimulationSchedulingStrategies.RoundRobin();
     }
 
     private static ISimulationSchedulingStrategy CreateStrategy(ReplaySchedulingPolicy policy, int scheduleSeed) =>
@@ -237,9 +387,20 @@ public static class ReplayRunner
             scenario(scheduler);
             while (steps < maxSteps)
             {
-                if (scheduler.RunStepForPump(cancellationToken))
+                if (scheduler.RunStepCapturingCallbackFailure(
+                    cancellationToken,
+                    out Exception? callbackFailure))
                 {
                     steps++;
+                    if (callbackFailure is not null)
+                    {
+                        return new DriveResult(
+                            steps,
+                            BoundExceeded: false,
+                            Exception: null,
+                            IsAborted: false);
+                    }
+
                     if (scheduler.FirstRace is not null || listener.FirstFailure is not null)
                     {
                         break;
@@ -270,7 +431,11 @@ public static class ReplayRunner
             exception is not SimulationDecisionReplayMismatchException &&
             exception is not ReplayOutcomeMismatchException)
         {
-            return new DriveResult(steps, BoundExceeded: false, exception, IsAborted: true);
+            return new DriveResult(
+                steps,
+                BoundExceeded: false,
+                exception,
+                IsAborted: true);
         }
     }
 
@@ -280,7 +445,8 @@ public static class ReplayRunner
         IReadOnlyList<SimulationDecisionRecord> decisions,
         SimulationScheduler scheduler,
         ReplayOperationListener listener,
-        DriveResult drive)
+        DriveResult drive,
+        string? executionHost = null)
     {
         ReplayOutcome outcome = ClassifyOutcome(configuration, scheduler, listener, drive);
         IReadOnlyList<ReplayRaceSchedulingPoint> points = scheduler.CaptureRaceSchedulingPoints()
@@ -300,6 +466,10 @@ public static class ReplayRunner
                 ? "seeded-random"
                 : "fifo",
         };
+        if (executionHost is not null)
+        {
+            schedulerOptions[ExecutionHostOption] = executionHost;
+        }
 
         return new ReplayArtifact
         {
@@ -551,6 +721,33 @@ public static class ReplayRunner
             "seeded-random" => ReplaySchedulingPolicy.SeededRandom,
             _ => throw new ReplayCompatibilityException($"Unsupported recorded scheduler strategy '{strategy}'."),
         };
+
+    private static void ValidateExecutionHost(ReplayArtifact artifact, bool expectCluster)
+    {
+        artifact.Scheduler.Options.TryGetValue(ExecutionHostOption, out string? executionHost);
+        bool isCluster;
+        if (executionHost is null || string.Equals(executionHost, "scheduler", StringComparison.Ordinal))
+        {
+            isCluster = false;
+        }
+        else if (string.Equals(executionHost, ClusterExecutionHost, StringComparison.Ordinal))
+        {
+            isCluster = true;
+        }
+        else
+        {
+            throw new ReplayCompatibilityException(
+                $"Unsupported replay execution host '{executionHost}'.");
+        }
+
+        if (expectCluster != isCluster)
+        {
+            string expected = expectCluster ? "cluster" : "scheduler";
+            string actual = isCluster ? "cluster" : "scheduler";
+            throw new ReplayCompatibilityException(
+                $"Replay execution host mismatch: artifact='{actual}', requested='{expected}'.");
+        }
+    }
 
     private static void ValidateConfiguration(ReplayRecordingOptions configuration)
     {

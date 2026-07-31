@@ -21,133 +21,28 @@ public sealed class SimulationClusterConstructionTests
     }
 
     [Fact]
-    public async Task RepeatedFailedAttachmentsDoNotRetainCanceledTimerRegistrations()
-    {
-        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch)
-        {
-            MaxSimulatedTimeAdvance = TimeSpan.FromSeconds(1),
-        };
-
-        for (var attempt = 0; attempt < 32; attempt++)
-        {
-            AggregateException exception = Assert.Throws<AggregateException>(
-                () => cluster.AddNode<int>("reused", context =>
-                {
-                    SimulationScheduler scheduler = context.SchedulerLane.Scheduler;
-                    SimulationResource resource = scheduler.CreateResource(
-                        SimulationResourceKind.Custom,
-                        "bounded attachment wait");
-                    scheduler.Schedule(
-                        "bounded attachment wait",
-                        () => scheduler.WaitOnResource(
-                            resource,
-                            TimeSpan.FromHours(1),
-                            SimulationPauseReason.ResourceWait("bounded attachment wait")),
-                        new SimulationNodeIdentity("reused"));
-                    throw new InvalidOperationException("factory failed");
-                }));
-
-            Assert.Contains(
-                exception.InnerExceptions,
-                static failure => failure is TimeoutException);
-            Assert.Equal(
-                0,
-                cluster.SchedulerLane.Scheduler.PendingTimerRegistrationCount);
-        }
-
-        Assert.Equal(DateTimeOffset.UnixEpoch, cluster.SchedulerLane.UtcNow);
-    }
-
-    [Fact]
-    public async Task PlainAndStateNodesAreFullyAttachedWhenReturned()
+    public async Task PlainNodesAreFullyAttachedWhenReturned()
     {
         await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
 
-        SimulationNode<object?> plain = cluster.AddNode("plain");
-        SimulationNode<int> counter = cluster.AddNode("counter", state: 42);
+        SimulationNode first = cluster.AddNode("first");
+        SimulationNode second = cluster.AddNode("second");
 
-        Assert.True(plain.IsInitialized);
-        Assert.True(counter.IsInitialized);
-        Assert.Equal(42, counter.State);
-        Assert.Same(counter, cluster.FindNode("counter"));
-        Assert.Same(cluster.Scheduler, plain.Context.Scheduler);
-        Assert.Same(cluster.Scheduler, counter.Context.Scheduler);
-        _ = plain.Context;
-        _ = counter.Context;
+        Assert.True(first.IsInitialized);
+        Assert.True(second.IsInitialized);
+        Assert.Same(first, cluster.FindNode("first"));
+        Assert.Same(second, cluster.FindNode("second"));
+        Assert.Same(cluster.Scheduler, first.Context.Scheduler);
+        Assert.Same(cluster.Scheduler, second.Context.Scheduler);
     }
 
     [Fact]
-    public async Task StateFactoryReceivesTheNodesAttachedContext()
-    {
-        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
-        SimulationNodeContext? captured = null;
-
-        SimulationNode<int> node = cluster.AddNode("node", context =>
-        {
-            captured = context;
-            return context.Random.Next();
-        });
-
-        Assert.NotNull(captured);
-        Assert.Same(captured, node.Context);
-        Assert.Single(cluster.Nodes);
-    }
-
-    [Fact]
-    public async Task StateFactorySuspensionKeepsTheNodeLaneDisabledUntilResume()
-    {
-        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
-        var workRan = false;
-
-        SimulationNode<int> node = cluster.AddNode("node", context =>
-        {
-            context.Suspend();
-            context.SchedulerLane.Enqueue(() => workRan = true);
-            return 42;
-        });
-
-        Assert.True(node.IsSuspended);
-        _ = cluster.RunUntilIdle(TestContext.Current.CancellationToken);
-        Assert.False(workRan);
-
-        node.Resume();
-        _ = cluster.RunUntilIdle(TestContext.Current.CancellationToken);
-        Assert.True(workRan);
-    }
-
-    [Fact]
-    public async Task StateFactoryTimedSuspensionKeepsTheNodeLaneDisabledUntilAutoResume()
-    {
-        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
-        var workRan = false;
-
-        SimulationNode<int> node = cluster.AddNode("node", context =>
-        {
-            context.SuspendFor(TimeSpan.FromSeconds(2));
-            context.SchedulerLane.Enqueue(() => workRan = true);
-            return 42;
-        });
-
-        Assert.True(node.IsSuspended);
-        _ = cluster.RunFor(TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken);
-        Assert.True(node.IsSuspended);
-        Assert.False(workRan);
-
-        Assert.Equal(
-            SimulationExecutionReason.ConditionMet,
-            cluster.RunUntil(() => !node.IsSuspended, TestContext.Current.CancellationToken).Reason);
-        _ = cluster.RunUntilIdle(TestContext.Current.CancellationToken);
-        Assert.True(workRan);
-    }
-
-    [Fact]
-    public async Task DuplicateAddressAcrossAnyOverloadThrowsBeforeInvokingTheFactory()
+    public async Task DuplicateAddressAcrossNodeKindsThrowsBeforeInvokingTheFactory()
     {
         await using var cluster = new SimulationCluster(seed: 1);
         _ = cluster.AddNode("dup");
         var invoked = false;
 
-        Assert.Throws<ArgumentException>(() => cluster.AddNode("dup", state: 1));
         Assert.Throws<ArgumentException>(() => cluster.AddCustomNode("dup", context =>
         {
             invoked = true;
@@ -160,7 +55,7 @@ public sealed class SimulationClusterConstructionTests
     public async Task FailedCustomAttachmentLeavesPreviouslyAttachedNodesUsable()
     {
         await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
-        SimulationNode<int> first = cluster.AddNode("first", 42);
+        SimulationNode first = cluster.AddNode("first");
         var failure = new InvalidOperationException("factory failed");
         var orphanedWorkRan = false;
 
@@ -174,7 +69,6 @@ public sealed class SimulationClusterConstructionTests
 
         Assert.Same(failure, actual);
         Assert.Same(first, cluster.FindNode("first"));
-        Assert.Equal(42, first.State);
         Assert.Null(cluster.FindNode("second"));
         CustomNode second = cluster.AddCustomNode(
             "second",
@@ -186,53 +80,6 @@ public sealed class SimulationClusterConstructionTests
     }
 
     [Fact]
-    public async Task FailedStateFactoryCleanupFullyDetachesSuspendedAddressBeforeReuse()
-    {
-        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
-        var staleNodeLaneWorkRan = false;
-        var reusedNodeLaneWorkRan = false;
-
-        InvalidOperationException failure = Assert.Throws<InvalidOperationException>(
-            () => cluster.AddNode<int>("reused", context =>
-            {
-                context.SchedulerLane.Enqueue(
-                    () => staleNodeLaneWorkRan = true);
-                context.SuspendFor(TimeSpan.FromSeconds(1));
-                throw new InvalidOperationException("factory failed after suspension");
-            }));
-
-        Assert.Equal("factory failed after suspension", failure.Message);
-        Assert.Null(cluster.FindNode("reused"));
-
-        SimulationNode<int> reused = cluster.AddNode("reused", state: 7);
-        reused.Context.SchedulerLane.Enqueue(
-            () => reusedNodeLaneWorkRan = true);
-
-        Assert.True(reused.Step(TestContext.Current.CancellationToken));
-        Assert.True(reusedNodeLaneWorkRan);
-        Assert.True(staleNodeLaneWorkRan);
-        Assert.False(reused.IsSuspended);
-
-        var blockedWorkRan = false;
-        reused.SuspendFor(TimeSpan.FromSeconds(2));
-        reused.Context.SchedulerLane.Enqueue(
-            () => blockedWorkRan = true);
-        Assert.Equal(
-            SimulationExecutionReason.IdleWithPendingWork,
-            cluster.RunFor(TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken).Reason);
-        Assert.True(reused.IsSuspended);
-        Assert.False(blockedWorkRan);
-        Assert.True(staleNodeLaneWorkRan);
-
-        Assert.Equal(
-            SimulationExecutionReason.ConditionMet,
-            cluster.RunUntil(() => !reused.IsSuspended, TestContext.Current.CancellationToken).Reason);
-        Assert.False(reused.IsSuspended);
-        Assert.True(reused.Context.RunUntilIdle(TestContext.Current.CancellationToken) > 0);
-        Assert.True(blockedWorkRan);
-    }
-
-    [Fact]
     public async Task FailedAttachmentContextAndLaneRemainInvalidAfterAddressReuse()
     {
         await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
@@ -240,7 +87,7 @@ public sealed class SimulationClusterConstructionTests
         SimulationSchedulerLane? staleLane = null;
 
         _ = Assert.Throws<InvalidOperationException>(
-            () => cluster.AddNode<int>("reused", context =>
+            () => cluster.AddCustomNode<CustomNode>("reused", context =>
             {
                 staleContext = context;
                 staleLane = context.SchedulerLane;
@@ -249,7 +96,7 @@ public sealed class SimulationClusterConstructionTests
 
         Assert.NotNull(staleContext);
         Assert.NotNull(staleLane);
-        SimulationNode<object?> reused = cluster.AddNode("reused");
+        SimulationNode reused = cluster.AddNode("reused");
         var reusedWorkRan = false;
 
         Assert.Throws<ObjectDisposedException>(
@@ -322,32 +169,25 @@ public sealed class SimulationClusterConstructionTests
     }
 
     [Fact]
-    public async Task DisposeAsyncDuringNodeFactoriesIsRejectedWithoutDisposingTheCluster()
+    public async Task DisposeAsyncDuringCustomNodeFactoryIsRejectedWithoutDisposingTheCluster()
     {
         await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
-        var failures = new List<InvalidOperationException>();
+        SimulationNode plainNode = cluster.AddNode("plain");
 
-        SimulationNode<int> stateNode = cluster.AddNode("state", _ =>
-        {
-            failures.Add(Assert.Throws<InvalidOperationException>(
-                () => cluster.DisposeAsync().AsTask().GetAwaiter().GetResult()));
-            return 42;
-        });
+        InvalidOperationException failure = null!;
         CustomNode customNode = cluster.AddCustomNode("custom", context =>
         {
-            failures.Add(Assert.Throws<InvalidOperationException>(
-                () => cluster.DisposeAsync().AsTask().GetAwaiter().GetResult()));
+            failure = Assert.Throws<InvalidOperationException>(
+                () => cluster.DisposeAsync().AsTask().GetAwaiter().GetResult());
             return new CustomNode("custom", context);
         });
 
-        Assert.All(
-            failures,
-            static failure => Assert.Contains(
-                "attachment factory",
-                failure.Message,
-                StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(
+            "attachment factory",
+            failure.Message,
+            StringComparison.OrdinalIgnoreCase);
         Assert.False(cluster.TeardownCancellationToken.IsCancellationRequested);
-        Assert.Same(stateNode, cluster.FindNode("state"));
+        Assert.Same(plainNode, cluster.FindNode("plain"));
         Assert.Same(customNode, cluster.FindNode("custom"));
         Assert.NotNull(cluster.AddNode("later"));
     }
@@ -392,8 +232,8 @@ public sealed class SimulationClusterConstructionTests
     {
         await using var cluster = new SimulationCluster(seed: 1);
         await using var otherCluster = new SimulationCluster(seed: 2);
-        SimulationNode<object?> localNode = cluster.AddNode("local");
-        SimulationNode<object?> otherNode = otherCluster.AddNode("other");
+        SimulationNode localNode = cluster.AddNode("local");
+        SimulationNode otherNode = otherCluster.AddNode("other");
         SimulationNodeContext invalidContext = source switch
         {
             "unattached" =>
@@ -562,10 +402,10 @@ public sealed class SimulationClusterConstructionTests
     }
 
     [Fact]
-    public async Task CustomNodeIsReturnedImmediatelyAlongsideStateNodes()
+    public async Task CustomNodeIsReturnedImmediatelyAlongsidePlainNodes()
     {
         await using var cluster = new SimulationCluster(seed: 1);
-        SimulationNode<int> stateNode = cluster.AddNode("state", 0);
+        SimulationNode plainNode = cluster.AddNode("plain");
 
         CustomNode custom = cluster.AddCustomNode(
             "custom",
@@ -573,7 +413,7 @@ public sealed class SimulationClusterConstructionTests
 
         Assert.Equal(2, cluster.Nodes.Count);
         Assert.Same(custom, cluster.FindNode<CustomNode>("custom"));
-        Assert.Same(stateNode, cluster.FindNode<SimulationNode<int>>("state"));
+        Assert.Same(plainNode, cluster.FindNode("plain"));
         custom.RecordGreeting("hello");
         Assert.Equal("hello", custom.LastGreeting);
     }
@@ -620,54 +460,22 @@ public sealed class SimulationClusterConstructionTests
     }
 
     [Fact]
-    public async Task DisposeAsyncDisposesStateAndNodesInAttachmentOrder()
+    public async Task DisposeAsyncDisposesCustomNodesInAttachmentOrder()
     {
         var events = new List<string>();
         var cluster = new SimulationCluster(seed: 1);
-        TrackingDisposable firstState = new("first-state", events);
-        SimulationNode<TrackingDisposable> first = cluster.AddNode("first", firstState);
-        TrackingNode custom = cluster.AddCustomNode(
+        TrackingNode first = cluster.AddCustomNode(
+            "first",
+            context => new TrackingNode("first", context, events));
+        TrackingNode second = cluster.AddCustomNode(
             "second",
             context => new TrackingNode("second", context, events));
 
         await cluster.DisposeAsync();
 
-        Assert.Equal(["first-state", "second"], events);
-        Assert.True(firstState.Disposed);
-        Assert.Same(firstState, first.State);
-        Assert.Empty(cluster.Nodes);
-        Assert.True(custom.Disposed);
-    }
-
-    [Fact]
-    public async Task DisposeAsyncDrainsSuspendedLaneWorkBeforeStateDisposalWhenCursorFavorsCleanup()
-    {
-        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
-        var preexistingWorkRan = false;
-        var laterWorkRan = false;
-        var state = new WorkObservingDisposable(() => preexistingWorkRan);
-        SimulationNode<WorkObservingDisposable> node = cluster.AddNode("node", state);
-        node.SuspendFor(TimeSpan.FromMinutes(1));
-        node.Context.SchedulerLane.Enqueue(
-            () => preexistingWorkRan = true);
-
-        // Make the scheduler's last selection newer than the blocked node operation.
-        // Teardown re-enables the node lane, so its existing callback must run before
-        // the newly scheduled cleanup operation disposes the state.
-        cluster.SchedulerLane.Enqueue(() => laterWorkRan = true);
-        Assert.Equal(
-            SimulationExecutionReason.ConditionMet,
-            cluster.RunUntil(() => laterWorkRan, TestContext.Current.CancellationToken).Reason);
-        Assert.True(node.IsSuspended);
-        Assert.False(preexistingWorkRan);
-
-        await cluster.DisposeAsync();
-
-        Assert.True(preexistingWorkRan);
-        Assert.True(state.Disposed);
-        Assert.True(state.WorkRanBeforeDisposal);
-        Assert.Throws<ObjectDisposedException>(
-            () => node.Context.SchedulerLane.CaptureScheduledItems());
+        Assert.Equal(["first", "second"], events);
+        Assert.True(first.Disposed);
+        Assert.True(second.Disposed);
         Assert.Empty(cluster.Nodes);
     }
 
@@ -678,9 +486,7 @@ public sealed class SimulationClusterConstructionTests
         {
             MaxSimulatedTimeAdvance = TimeSpan.FromSeconds(1),
         };
-        var events = new List<string>();
-        var state = new TrackingDisposable("state", events);
-        SimulationNode<TrackingDisposable> node = cluster.AddNode("node", state);
+        SimulationNode node = cluster.AddNode("node");
         var workRan = false;
         node.Context.SchedulerLane.EnqueueAfter(
             () => workRan = true,
@@ -690,7 +496,6 @@ public sealed class SimulationClusterConstructionTests
             () => cluster.DisposeAsync().AsTask());
 
         Assert.Contains(exception.InnerExceptions, static failure => failure is TimeoutException);
-        Assert.True(state.Disposed);
         Assert.False(workRan);
         Assert.Throws<ObjectDisposedException>(
             () => node.Context.SchedulerLane.CaptureScheduledItems());
@@ -702,16 +507,18 @@ public sealed class SimulationClusterConstructionTests
     {
         var events = new List<string>();
         var cluster = new SimulationCluster(seed: 1);
-        TrackingDisposable firstState = new("state-failure", events, throwOnDispose: true);
-        TrackingDisposable laterState = new("state-success", events);
-        _ = cluster.AddNode("state-failure", firstState);
-        TrackingNode failingNode = cluster.AddCustomNode(
-            "node-failure",
-            context => new TrackingNode("node-failure", context, events, throwOnDispose: true));
-        _ = cluster.AddNode("state-success", laterState);
         _ = cluster.AddCustomNode(
-            "node-success",
-            context => new TrackingNode("node-success", context, events));
+            "first-failure",
+            context => new TrackingNode("first-failure", context, events, throwOnDispose: true));
+        TrackingNode failingNode = cluster.AddCustomNode(
+            "second-failure",
+            context => new TrackingNode("second-failure", context, events, throwOnDispose: true));
+        _ = cluster.AddCustomNode(
+            "first-success",
+            context => new TrackingNode("first-success", context, events));
+        _ = cluster.AddCustomNode(
+            "second-success",
+            context => new TrackingNode("second-success", context, events));
         var residualWorkRan = false;
         failingNode.Context.SchedulerLane.EnqueueAfter(
             () => residualWorkRan = true,
@@ -723,10 +530,10 @@ public sealed class SimulationClusterConstructionTests
             () => cluster.DisposeAsync().AsTask());
 
         Assert.Equal(
-            ["state-failure", "node-failure", "state-success", "node-success"],
+            ["first-failure", "second-failure", "first-success", "second-success"],
             events);
         Assert.Equal(
-            ["state-failure disposal failed", "node-failure disposal failed"],
+            ["first-failure disposal failed", "second-failure disposal failed"],
             exception.InnerExceptions.Select(static error => error.Message));
         Assert.Empty(cluster.Nodes);
         Assert.Throws<ObjectDisposedException>(
@@ -738,45 +545,6 @@ public sealed class SimulationClusterConstructionTests
 
         await cluster.DisposeAsync();
         Assert.Equal(4, events.Count);
-    }
-
-    [Fact]
-    public async Task DisposeAsyncKeepsAsynchronousStateAndNodeCleanupOnTheSimulationContext()
-    {
-        var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
-        AsynchronousDisposalProbe? stateProbe = null;
-        _ = cluster.AddNode("state", context =>
-        {
-            stateProbe = new AsynchronousDisposalProbe(
-                "state",
-                context,
-                cluster.SynchronizationContext);
-            return new AsynchronousDisposableState(stateProbe);
-        });
-        AsynchronousDisposalProbe? nodeProbe = null;
-        _ = cluster.AddCustomNode(
-            "custom",
-            context => new AsynchronouslyDisposingNode(
-                "custom",
-                context,
-                nodeProbe = new AsynchronousDisposalProbe(
-                    "node",
-                    context,
-                    cluster.SynchronizationContext)));
-
-        await cluster.DisposeAsync();
-
-        Assert.NotNull(stateProbe);
-        Assert.True(stateProbe.CallbackRan);
-        Assert.True(stateProbe.ContinuationRan);
-        Assert.True(stateProbe.ContinuationSawActiveSimulation);
-        Assert.True(stateProbe.ContinuationRanOnSimulationContext);
-        Assert.NotNull(nodeProbe);
-        Assert.True(nodeProbe.CallbackRan);
-        Assert.True(nodeProbe.ContinuationRan);
-        Assert.True(nodeProbe.ContinuationSawActiveSimulation);
-        Assert.True(nodeProbe.ContinuationRanOnSimulationContext);
-        Assert.Empty(cluster.Nodes);
     }
 
     [Fact]
@@ -872,20 +640,24 @@ public sealed class SimulationClusterConstructionTests
     {
         var events = new List<string>();
         var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
-        TrackingDisposable state = new("state-failure", events, throwOnDispose: true);
-        SimulationNode<TrackingDisposable> stateNode =
-            cluster.AddNode("state-failure", state);
-        TrackingNode failingNode = cluster.AddCustomNode(
-            "node-failure",
+        TrackingNode firstFailingNode = cluster.AddCustomNode(
+            "first-failure",
             context => new TrackingNode(
-                "node-failure",
+                "first-failure",
+                context,
+                events,
+                throwOnDispose: true));
+        TrackingNode failingNode = cluster.AddCustomNode(
+            "second-failure",
+            context => new TrackingNode(
+                "second-failure",
                 context,
                 events,
                 throwOnDispose: true));
         TrackingNode succeedingNode = cluster.AddCustomNode(
             "node-success",
             context => new TrackingNode("node-success", context, events));
-        stateNode.Context.SchedulerLane.Enqueue(
+        firstFailingNode.Context.SchedulerLane.Enqueue(
             () => throw new InvalidOperationException("first callback failed"));
         cluster.SchedulerLane.Enqueue(
             () => throw new InvalidOperationException("second callback failed"));
@@ -897,52 +669,21 @@ public sealed class SimulationClusterConstructionTests
             [
                 "first callback failed",
                 "second callback failed",
-                "state-failure disposal failed",
-                "node-failure disposal failed",
+                "first-failure disposal failed",
+                "second-failure disposal failed",
             ],
             exception.InnerExceptions.Select(static error => error.Message));
-        Assert.Equal(["state-failure", "node-failure", "node-success"], events);
-        Assert.True(state.Disposed);
+        Assert.Equal(["first-failure", "second-failure", "node-success"], events);
+        Assert.True(firstFailingNode.Disposed);
         Assert.True(failingNode.Disposed);
         Assert.True(succeedingNode.Disposed);
         Assert.Empty(cluster.Nodes);
         Assert.Throws<ObjectDisposedException>(
-            () => stateNode.Context.SchedulerLane.CaptureScheduledItems());
+            () => firstFailingNode.Context.SchedulerLane.CaptureScheduledItems());
         Assert.Throws<ObjectDisposedException>(
             () => failingNode.Context.SchedulerLane.CaptureScheduledItems());
         Assert.Throws<ObjectDisposedException>(
             () => succeedingNode.Context.SchedulerLane.CaptureScheduledItems());
-    }
-
-    [Fact]
-    public async Task DisposeAsyncRunsSuspendedStateLifecycleWorkAndPendingWork()
-    {
-        var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
-        var ordinaryWorkRan = false;
-        AsynchronousDisposalProbe? probe = null;
-        SimulationNode<AsynchronousDisposableState> node = cluster.AddNode(
-            "state",
-            context => new AsynchronousDisposableState(
-                probe = new AsynchronousDisposalProbe(
-                    "state",
-                    context,
-                    cluster.SynchronizationContext)));
-        node.Context.SchedulerLane.Enqueue(
-            () => ordinaryWorkRan = true);
-        node.SuspendFor(TimeSpan.FromMinutes(1));
-
-        await cluster.DisposeAsync();
-
-        Assert.NotNull(probe);
-        Assert.True(probe.CallbackRan);
-        Assert.True(probe.ContinuationRan);
-        Assert.True(probe.ContinuationSawActiveSimulation);
-        Assert.True(probe.ContinuationRanOnSimulationContext);
-        Assert.True(ordinaryWorkRan);
-        Assert.Throws<ObjectDisposedException>(
-            () => node.Context.SchedulerLane.CaptureScheduledItems());
-        Assert.Empty(cluster.SchedulerLane.CaptureScheduledItems());
-        Assert.Empty(cluster.Nodes);
     }
 
     [Fact]
@@ -958,11 +699,11 @@ public sealed class SimulationClusterConstructionTests
     public async Task SameSeedProducesReproduciblePerNodeRandomValues()
     {
         await using var first = new SimulationCluster(seed: 42);
-        SimulationNode<int> firstNode = first.AddNode("node", context => context.Random.Next());
+        SimulationNode firstNode = first.AddNode("node");
         await using var second = new SimulationCluster(seed: 42);
-        SimulationNode<int> secondNode = second.AddNode("node", context => context.Random.Next());
+        SimulationNode secondNode = second.AddNode("node");
 
-        Assert.Equal(firstNode.State, secondNode.State);
+        Assert.Equal(firstNode.Context.Random.Next(), secondNode.Context.Random.Next());
     }
 
     [Fact]
@@ -970,13 +711,13 @@ public sealed class SimulationClusterConstructionTests
     {
         const int seed = 42;
         await using var first = new SimulationCluster(seed);
-        SimulationNode<object?> firstStable = first.AddNode("stable");
+        SimulationNode firstStable = first.AddNode("stable");
         _ = first.AddNode("peer");
 
         await using var edited = new SimulationCluster(seed);
         _ = edited.AddNode("added");
         _ = edited.AddNode("peer");
-        SimulationNode<object?> editedStable = edited.AddNode("stable");
+        SimulationNode editedStable = edited.AddNode("stable");
 
         int expectedSeed = new SimulationSeedAuthority(seed)
             .GetSiteSeed(SimulationSeedDomain.Application, "stable");
@@ -1034,43 +775,6 @@ public sealed class SimulationClusterConstructionTests
         public string? LastGreeting { get; private set; }
 
         public void RecordGreeting(string greeting) => LastGreeting = greeting;
-    }
-
-    private sealed class TrackingDisposable(
-        string name,
-        List<string> events,
-        bool throwOnDispose = false) : IDisposable
-    {
-        public bool Disposed { get; private set; }
-
-        public void Dispose()
-        {
-            events.Add(name);
-            Disposed = true;
-            if (throwOnDispose)
-            {
-                throw new InvalidOperationException($"{name} disposal failed");
-            }
-        }
-    }
-
-    private sealed class WorkObservingDisposable(Func<bool> workRan) : IDisposable
-    {
-        public bool Disposed { get; private set; }
-
-        public bool WorkRanBeforeDisposal { get; private set; }
-
-        public void Dispose()
-        {
-            WorkRanBeforeDisposal = workRan();
-            Disposed = true;
-        }
-    }
-
-    private sealed class AsynchronousDisposableState(
-        AsynchronousDisposalProbe probe) : IAsyncDisposable
-    {
-        public ValueTask DisposeAsync() => probe.DisposeAsync();
     }
 
     private sealed class TrackingNode(

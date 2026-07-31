@@ -46,6 +46,39 @@ public sealed class TransferScenario : IReplayScenario
 Loading this harness executes application code. Clockwork does not scan for scenarios, infer a command,
 or launch an arbitrary child process.
 
+The runtime also supports real cluster scenarios without requiring a separate harness type:
+
+```csharp
+ReplayExecutionResult recorded = ReplayRunner.RecordCluster(
+    new ReplayRecordingOptions
+    {
+        SimulationSeed = 123,
+        SchedulingPolicy = ReplaySchedulingPolicy.SeededRandom,
+        ScheduleSeed = 7,
+    },
+    cluster =>
+    {
+        SimulationNode sender = cluster.AddNode("sender");
+        SimulationNode receiver = cluster.AddNode("receiver");
+        sender.Context.SchedulerLane.Enqueue(cluster.Scheduler.Yield);
+        receiver.Context.SchedulerLane.Enqueue(static () => { });
+    },
+    cancellationToken);
+
+ReplayExecutionResult replayed = ReplayRunner.ReplayCluster(
+    recorded.Artifact,
+    ReplayCompatibilityRequirements.Current(),
+    cluster => ConfigureClusterScenario(cluster),
+    maxSteps: 1_000_000,
+    cancellationToken);
+```
+
+`RecordCluster` and `ReplayCluster` create a fresh cluster at `DateTimeOffset.UnixEpoch` in UTC,
+drive it to a terminal state, capture diagnostics before cleanup, detach replay recording, and then
+dispose it. Cluster disposal therefore cannot append decisions or consume the recorded replay stream.
+Artifacts identify whether they require the scheduler or cluster execution host and reject the wrong
+replay entry point.
+
 ## Commands
 
 ```powershell
@@ -90,6 +123,8 @@ Exploration is serial. The simulation seed remains fixed while schedule seeds in
 `FirstScheduleSeed`. Stop controls include iteration count, failure count, per-iteration
 step bound, cancellation, and a between-iteration wall-clock safety bound. The result contains stable
 iteration ids and outcome counts and retains the smallest artifact for each failure identity.
+`ScheduleExplorer.ExploreCluster` applies the same campaign policy while constructing and disposing a
+fresh `SimulationCluster` for every iteration.
 When `--time-limit` is supplied without `--count`, the CLI runs until the time or failure limit.
 
 The minimizer removes decision subsequences and tries discrete scheduling/resource alternatives. Each

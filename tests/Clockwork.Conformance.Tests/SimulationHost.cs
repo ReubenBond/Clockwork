@@ -11,7 +11,7 @@ namespace Clockwork.Conformance.Tests;
 internal sealed class SimulationHost : IDisposable
 {
     private readonly SimulationCluster _cluster;
-    private readonly Dictionary<string, SimulationNode<object?>> _nodes = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, SimulationNode> _nodes = new(StringComparer.Ordinal);
     private readonly string _defaultAddress;
 
     public SimulationHost(
@@ -40,7 +40,7 @@ internal sealed class SimulationHost : IDisposable
     /// <summary>Invokes the probe method as work on the named node.</summary>
     public object? InvokeOnNode(string address, MethodInfo method, params object?[] args)
     {
-        SimulationNode<object?> node = _nodes[address];
+        SimulationNode node = _nodes[address];
 
         object? result = null;
         Exception? error = null;
@@ -77,7 +77,7 @@ internal sealed class SimulationHost : IDisposable
     /// </summary>
     public object? InvokeWithWork(MethodInfo method, object?[] args, params Action[] afterWork)
     {
-        SimulationNode<object?> node = _nodes[_defaultAddress];
+        SimulationNode node = _nodes[_defaultAddress];
 
         object? result = null;
         Exception? error = null;

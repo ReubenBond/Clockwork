@@ -227,6 +227,25 @@ public sealed class ReplayRunnerTests
                 static _ => { }));
     }
 
+    [Fact]
+    public void ExternalFailureAfterObservedControlledFaultRemainsAborted()
+    {
+        ReplayExecutionResult recorded = Record(
+            SeededConfiguration(47),
+            static scheduler =>
+            {
+                scheduler.Schedule(
+                    "controlled-fault",
+                    static () => throw new KnownReplayException());
+                Assert.True(scheduler.RunStep(CancellationToken.None));
+                throw new ExternalReplayException();
+            });
+
+        Assert.Equal(ReplayTerminationKind.Aborted, recorded.Artifact.Outcome.Kind);
+        Assert.Equal(typeof(ExternalReplayException).FullName, recorded.Artifact.Outcome.FailureIdentity);
+        Assert.IsType<ExternalReplayException>(recorded.ExecutionException);
+    }
+
     private static ReplayRecordingOptions SeededConfiguration(int scheduleSeed) => new()
     {
         SimulationSeed = 1234,
@@ -340,4 +359,6 @@ public sealed class ReplayRunnerTests
     }
 
     private sealed class KnownReplayException : Exception;
+
+    private sealed class ExternalReplayException : Exception;
 }

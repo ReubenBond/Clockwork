@@ -11,8 +11,7 @@ namespace Clockwork;
 /// <summary>
 /// A directly constructible deterministic simulation cluster. The cluster owns the scheduler,
 /// runtime, network, drive loop, and every node attached through <see cref="AddNode(string)"/>,
-/// <see cref="AddNode{TState}(string, TState)"/>, or
-/// <see cref="AddCustomNode{TNode}(string, Func{SimulationNodeContext, TNode})"/>.
+/// or <see cref="AddCustomNode{TNode}(string, Func{SimulationNodeContext, TNode})"/>.
 /// </summary>
 [DebuggerDisplay("{DebuggerDisplay,nq}")]
 public sealed partial class SimulationCluster : IAsyncDisposable
@@ -45,6 +44,16 @@ public sealed partial class SimulationCluster : IAsyncDisposable
         DateTimeOffset? startDateTime = null,
         TimeZoneInfo? simulationTimeZone = null,
         CancellationToken cancellationToken = default)
+        : this(seed, startDateTime, simulationTimeZone, operationListener: null, cancellationToken)
+    {
+    }
+
+    internal SimulationCluster(
+        int seed,
+        DateTimeOffset? startDateTime,
+        TimeZoneInfo? simulationTimeZone,
+        ISimulationOperationListener? operationListener,
+        CancellationToken cancellationToken)
     {
         _teardownCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _simulationThreadId = Environment.CurrentManagedThreadId;
@@ -63,7 +72,8 @@ public sealed partial class SimulationCluster : IAsyncDisposable
             RuntimeIdentity,
             SeedAuthority,
             simulationStartDateTime,
-            SimulationTimeZone);
+            SimulationTimeZone,
+            operationListener);
         Guard = new SingleThreadedGuard(
             () => Scheduler.IsSimulationThread || Environment.CurrentManagedThreadId == _simulationThreadId
                 ? SimulationScheduler.SimulationLogicalThreadOwnerId
@@ -213,70 +223,10 @@ public sealed partial class SimulationCluster : IAsyncDisposable
     /// <summary>
     /// Attaches a node with no application state and returns it ready for immediate use.
     /// </summary>
-    public SimulationNode<object?> AddNode(string address) =>
-        AddNode<object?>(address, static _ => null);
-
-    /// <summary>
-    /// Attaches a node carrying <paramref name="state"/> and returns it ready for immediate use.
-    /// The cluster owns the state and disposes it with the node.
-    /// </summary>
-    public SimulationNode<TState> AddNode<TState>(string address, TState state) =>
-        AddNode(address, _ => state);
-
-    /// <summary>
-    /// Attaches a node whose state is created from its fully initialized context.
-    /// The cluster owns the state and disposes it with the node.
-    /// </summary>
-    public SimulationNode<TState> AddNode<TState>(
-        string address,
-        Func<SimulationNodeContext, TState> stateFactory)
-    {
-        ArgumentNullException.ThrowIfNull(stateFactory);
-        SimulationNodeContext context = BeginAttachment(address);
-        SimulationNode<TState>? node = null;
-        TState? state = default;
-        var stateCreated = false;
-        try
-        {
-            state = stateFactory(context);
-            stateCreated = true;
-            ThrowIfDisposed();
-            node = new SimulationNode<TState>(address, context, state);
-            RegisterNode(context, node, state, ownsState: true);
-            return node;
-        }
-        catch (Exception attachmentException)
-        {
-            List<Exception> cleanupFailures = [];
-            if (TryBeginAttachmentCleanup(context, cleanupFailures))
-            {
-                DrainAttachmentWorkToQuiescence([context], cleanupFailures);
-            }
-
-            if (stateCreated)
-            {
-                DisposeFailedAttachmentTarget(state, cleanupFailures);
-            }
-
-            try
-            {
-                CompleteFailedAttachment(address, context);
-            }
-            catch (Exception exception)
-            {
-                AddDisposalFailure(cleanupFailures, exception);
-            }
-
-            if (cleanupFailures.Count > 0)
-            {
-                throw new AggregateException(
-                    "Node attachment and cleanup both failed.",
-                    [attachmentException, .. cleanupFailures]);
-            }
-
-            throw;
-        }
-    }
+    public SimulationNode AddNode(string address) =>
+        AddCustomNode(
+            address,
+            context => new AttachedSimulationNode(address, context));
 
     /// <summary>
     /// Attaches a custom node created from its fully initialized context and returns the concrete
@@ -303,7 +253,7 @@ public sealed partial class SimulationCluster : IAsyncDisposable
 
             ThrowIfDisposed();
             ValidateCustomNode(address, context, node);
-            RegisterNode(context, node, state: null, ownsState: false);
+            RegisterNode(context, node);
             return node;
         }
         catch (Exception attachmentException)
@@ -976,9 +926,7 @@ public sealed partial class SimulationCluster : IAsyncDisposable
 
     private void RegisterNode(
         SimulationNodeContext attachmentContext,
-        SimulationNode node,
-        object? state,
-        bool ownsState)
+        SimulationNode node)
     {
         using var _ = Guard.Enter();
         ThrowIfDisposed();
@@ -990,7 +938,7 @@ public sealed partial class SimulationCluster : IAsyncDisposable
 
         attachmentContext.CompleteAttachment();
         _nodes.Add(node.NetworkAddress, node);
-        _nodeRegistrations.Add(new NodeRegistration(node.NetworkAddress, node, state, ownsState, attachmentContext));
+        _nodeRegistrations.Add(new NodeRegistration(node.NetworkAddress, node, attachmentContext));
     }
 
     private static void ValidateCustomNode(
@@ -1025,18 +973,6 @@ public sealed partial class SimulationCluster : IAsyncDisposable
         List<Exception>? failures = null;
         foreach (var registration in _nodeRegistrations)
         {
-            if (registration.OwnsState)
-            {
-                try
-                {
-                    await DisposeIfDisposableAsync(registration.State);
-                }
-                catch (Exception exception)
-                {
-                    AddDisposalFailure(ref failures, exception);
-                }
-            }
-
             try
             {
                 await DisposeIfDisposableAsync(registration.Node);
@@ -1113,8 +1049,6 @@ public sealed partial class SimulationCluster : IAsyncDisposable
     private sealed record NodeRegistration(
         string Address,
         SimulationNode Node,
-        object? State,
-        bool OwnsState,
         SimulationNodeContext AttachmentContext);
 
     private string DebuggerDisplay => string.Create(CultureInfo.InvariantCulture, $"SimulationCluster(Seed={Seed}, Nodes={Nodes.Count}, Time={Scheduler.VirtualTime:hh\\:mm\\:ss\\.fff})");

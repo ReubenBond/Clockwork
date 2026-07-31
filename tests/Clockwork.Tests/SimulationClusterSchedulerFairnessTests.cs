@@ -50,7 +50,7 @@ public sealed class SimulationClusterSchedulerFairnessTests
             ["node-a", "node-b", "node-a", "node-b", "node-a", "node-b", "node-a", "node-b"],
             executionOrder);
 
-        void EnqueueRepeatedly(SimulationNode<object?> node, int remaining)
+        void EnqueueRepeatedly(SimulationNode node, int remaining)
         {
             node.Context.SchedulerLane.Enqueue(() =>
             {

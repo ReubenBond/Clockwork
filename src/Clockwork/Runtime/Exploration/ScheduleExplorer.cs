@@ -103,8 +103,36 @@ public static class ScheduleExplorer
     {
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(scenario);
-        Validate(configuration);
+        return ExploreCore(
+            configuration,
+            (recording, iterationCancellation) =>
+                ReplayRunner.Record(recording, scenario, iterationCancellation),
+            cancellationToken);
+    }
 
+    /// <summary>
+    /// Explores schedule seeds serially using one fresh <see cref="SimulationCluster"/> per iteration.
+    /// </summary>
+    public static ScheduleExplorationResult ExploreCluster(
+        ScheduleExplorationOptions configuration,
+        Action<SimulationCluster> scenario,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(scenario);
+        return ExploreCore(
+            configuration,
+            (recording, iterationCancellation) =>
+                ReplayRunner.RecordCluster(recording, scenario, iterationCancellation),
+            cancellationToken);
+    }
+
+    private static ScheduleExplorationResult ExploreCore(
+        ScheduleExplorationOptions configuration,
+        Func<ReplayRecordingOptions, CancellationToken, ReplayExecutionResult> record,
+        CancellationToken cancellationToken)
+    {
+        Validate(configuration);
         var stopwatch = Stopwatch.StartNew();
         var iterations = new List<ScheduleExplorationIteration>(Math.Min(configuration.MaxIterations, 1_024));
         var counts = new SortedDictionary<ReplayTerminationKind, int>();
@@ -130,7 +158,7 @@ public static class ScheduleExplorer
             ReplayExecutionResult execution;
             try
             {
-                execution = ReplayRunner.Record(
+                execution = record(
                     new ReplayRecordingOptions
                     {
                         SimulationSeed = configuration.SimulationSeed,
@@ -139,7 +167,6 @@ public static class ScheduleExplorer
                         MaxSteps = configuration.MaxStepsPerIteration,
                         Instrumentation = configuration.Instrumentation,
                     },
-                    scenario,
                     cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

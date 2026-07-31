@@ -60,32 +60,16 @@ public abstract class SimulationNode
     public bool Step(CancellationToken cancellationToken) => Context.Step(cancellationToken);
 }
 
-/// <summary>
-/// A fully attached simulation node carrying application-defined state. Instances are created and
-/// owned by <see cref="SimulationCluster.AddNode{TState}(string, TState)"/> and its factory overload.
-/// </summary>
-/// <typeparam name="TState">The type of the application-defined state.</typeparam>
-public sealed class SimulationNode<TState> : SimulationNode
+internal sealed class AttachedSimulationNode(
+    string networkAddress,
+    SimulationNodeContext context) : SimulationNode
 {
-    internal SimulationNode(
-        string networkAddress,
-        SimulationNodeContext context,
-        TState state)
-    {
-        NetworkAddress = networkAddress;
-        Context = context;
-        State = state;
-    }
+    /// <inheritdoc />
+    public override SimulationNodeContext Context { get; } = context;
 
     /// <inheritdoc />
-    public override SimulationNodeContext Context { get; }
-
-    /// <inheritdoc />
-    public override string NetworkAddress { get; }
+    public override string NetworkAddress { get; } = networkAddress;
 
     /// <inheritdoc />
     public override bool IsInitialized => true;
-
-    /// <summary>Gets this node's application-defined state.</summary>
-    public TState State { get; }
 }

@@ -12,7 +12,8 @@ Clockwork is a deterministic simulation testing framework for distributed system
 - A directly constructible `SimulationCluster` with immediate node attachment
 - Extensible node and chaos-injection base classes
 - Versioned canonical replay artifacts with exact compatibility and divergence checks
-- Bounded seeded schedule exploration and deterministic failure-trace minimization
+- Scheduler- and cluster-aware recording/replay with bounded seeded schedule exploration
+- Deterministic failure-trace minimization
 - Stable operation/resource wait graphs, deadlock cycles, race pairs, and timer diagnostics
 - `dotnet clockwork record`, `replay`, `explore`, `minimize`, and `trace show` commands
 - Fixed and adaptive `RunUntil`/`RunUntilIdle` execution budgets
@@ -165,7 +166,7 @@ policy, compatibility rules, and limitations.
 ## Define a simulation
 
 Construct `SimulationCluster` directly. It owns the runtime, scheduler and virtual time, network, drive loop,
-nodes, and node state. Nodes are fully attached and usable as soon as `AddNode` returns:
+and nodes. Nodes are fully attached and usable as soon as `AddNode` returns:
 
 ```csharp
 using Clockwork;
@@ -174,8 +175,8 @@ await using var cluster = new SimulationCluster(
     seed: 12345,
     startDateTime: DateTimeOffset.UnixEpoch);
 using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-var node1 = cluster.AddNode("node-1", state: 0); // SimulationNode<int>
-var node2 = cluster.AddNode("node-2");           // SimulationNode<object?>
+SimulationNode node1 = cluster.AddNode("node-1");
+SimulationNode node2 = cluster.AddNode("node-2");
 
 var handled = false;
 node1.Context.SchedulerLane.EnqueueAfter(() => handled = true, TimeSpan.FromSeconds(30));
@@ -190,8 +191,8 @@ zero-node cluster is valid and its `Network` is available immediately.
 
 ### Registering custom node subclasses
 
-`AddCustomNode<TNode>` creates and immediately returns a custom `SimulationNode` subclass alongside
-typed-state nodes. The returned node must expose the exact context supplied to the factory and the
+`AddCustomNode<TNode>` creates and immediately returns a stateful custom `SimulationNode` subclass
+alongside plain nodes. The returned node must expose the exact context supplied to the factory and the
 requested network address:
 
 ```csharp
@@ -203,7 +204,7 @@ public sealed class MyWorkerNode(string address, SimulationNodeContext context) 
 }
 
 await using var cluster = new SimulationCluster(seed: 1);
-var counter = cluster.AddNode("counter", state: 0);
+var observer = cluster.AddNode("observer");
 var worker = cluster.AddCustomNode(
     "worker",
     context => new MyWorkerNode("worker", context));
@@ -211,13 +212,14 @@ var worker = cluster.AddCustomNode(
 
 There is no dependency-injection-style construction
 or startup ordering between nodes, and no per-node-type discovery beyond address lookup and
-`OfType<T>()`. The cluster disposes owned typed-state payloads and disposable custom nodes in
-attachment order. Before any state or node disposer runs, every attached context is enabled and its
+`OfType<T>()`. Plain nodes intentionally have no state or metadata bag; domain state belongs on custom
+node types. The cluster disposes disposable custom nodes in attachment order. Before any node disposer
+runs, every attached context is enabled and its
 existing tasks, timers, synchronization-context callbacks, and timed suspension callbacks drain to
 quiescence. Async disposers are then driven so their awaited lifecycle work can complete. Finally,
 remaining node or shared-lane work is canceled and the context is detached. The same deterministic
 cleanup applies when an attachment fails. Disposing the cluster
-from inside an `AddNode` or `AddCustomNode` factory is unsupported and throws without changing the
+from inside an `AddCustomNode` factory is unsupported and throws without changing the
 cluster's state. Clockwork does not provide `IHost` integration.
 
 ## Drive simulated execution
