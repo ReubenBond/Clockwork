@@ -183,12 +183,14 @@ exclude the containing assembly from instrumentation.
   failure (`CWR0001`); a targeted call is never silently skipped. A member reference whose signature a
   type substitution rewrites, but whose declaring type it keeps, binds only where that type is rewritten
   too, so the rewrite fails (`CWR0001`) for a member of an assembly the closure does not rewrite (the
-  framework, a replacement assembly, or an excluded assembly) or of a type excluded from rewriting. The
-  closure runner tells the engine which assemblies it rewrites; a direct engine caller that does not is
-  taken to rewrite none, so every such reference into another assembly fails closed. The set is part of
-  the options fingerprint, so an already-rewritten input reused in a closure that rewrites different
-  assemblies fails (`CWR0008`). Once the closure is staged, the runner resolves every reference into a
-  rewritten assembly that mentions a substituted or substitute type, from a copied assembly or an
+  framework, a replacement assembly, or an excluded assembly) or of a type excluded from rewriting, and for
+  a field of an excluded type whose type is substituted. Code excluded from rewriting keeps the original
+  signatures, so an excluded type's reference to a member of its module whose signature the rewrite changed
+  fails too. The closure runner tells the engine which assemblies it rewrites; a direct engine caller that
+  does not is taken to rewrite none, so every such reference into another assembly fails closed. The set is
+  part of the options fingerprint, so an already-rewritten input reused in a closure that rewrites
+  different assemblies fails (`CWR0008`). Once the closure is staged, the runner resolves every reference
+  into a rewritten assembly that mentions a substituted or substitute type, from a copied assembly or an
   excluded type, and fails the run (`CWR0001`) if it no longer binds.
 
 **Engine boundary:** load-time `AssemblyLoadContext` hooks, profiler/native detours, mixed-mode

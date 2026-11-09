@@ -3,6 +3,7 @@ using System.Runtime.Loader;
 using Clockwork.Instrumentation.Diagnostics;
 using Clockwork.Instrumentation.Rewriting;
 using Clockwork.Instrumentation.Rules;
+using Clockwork.Instrumentation.Rules.BuiltIn;
 using Clockwork.Instrumentation.Tests.Infrastructure;
 using Mono.Cecil;
 
@@ -10,11 +11,23 @@ namespace Clockwork.Instrumentation.Tests.Golden;
 
 /// <summary>
 /// Golden tests for the rewrite-time check that fails a rewrite (<c>CWR0001</c>) instead of emitting a member reference
-/// that does not bind: a substituted signature binds only where the declaring type is rewritten too. The closure-level
-/// cases, where the declaring type is in another assembly of the closure, are in <c>ClosureBindingTests</c>.
+/// that does not bind: a substituted signature binds only where the declaring type is rewritten too, and code excluded
+/// from rewriting keeps the original signatures, so neither side may reference the other's rewritten members. The
+/// closure-level cases, where the two sides are different assemblies, are in <c>ClosureBindingTests</c>.
 /// </summary>
 public sealed class SubstitutionBindingGoldenTests
 {
+    private const string DoNotRewriteAttributeSource = """
+        namespace Clockwork.Instrumentation.Attributes
+        {
+            [System.AttributeUsage(System.AttributeTargets.Class)]
+            public sealed class DoNotRewriteAttribute(string reason) : System.Attribute
+            {
+                public string Reason { get; } = reason;
+            }
+        }
+        """;
+
     public static TheoryData<string, string, string> UnboundCalls => new()
     {
         // Without a closure, no other assembly is known to be rewritten, so a sibling keeps its original signature.
@@ -26,6 +39,16 @@ public sealed class SubstitutionBindingGoldenTests
 
         // A type excluded from rewriting keeps its original signature.
         { "Excluded", "public static string Call(LegacyMarker marker) => Excluded.Describe(marker);", "Fx.Excluded::Describe" },
+    };
+
+    public static TheoryData<string, string, string> ExcludedCallers => new()
+    {
+        // A definition token binds to the rewritten signature, which would receive an argument of the original type.
+        { "NonGeneric", "Api.Take(marker)", "Fx.Api::Take" },
+        { "GenericMethod", "Api.TakeGeneric(marker, 1)", "Fx.Api::TakeGeneric" },
+
+        // A member of a generic instance binds by its original signature, which the rewritten type no longer declares.
+        { "GenericType", "Box<int>.Take(marker)", "Fx.Box`1::Take" },
     };
 
     [Theory]
@@ -55,6 +78,97 @@ public sealed class SubstitutionBindingGoldenTests
 
         RewriteDiagnostic error = AssertUnbound(result, unbound);
         Assert.Equal("Fx.Caller.Call", error.Method);
+    }
+
+    [Theory]
+    [MemberData(nameof(ExcludedCallers))]
+    public void ExcludedCallerOfARewrittenSignatureFailsTheRewrite(string name, string call, string unbound)
+    {
+        using var context = RewriteTestContext.Create();
+        string fixturePath = context.CompileFixture($"Fx.ExcludedCaller{name}", $$"""
+            using ClockworkFixtures.Api;
+
+            {{DoNotRewriteAttributeSource}}
+
+            namespace Fx
+            {
+                public static class Api
+                {
+                    public static string Take(LegacyMarker marker) => marker.ToString();
+
+                    public static string TakeGeneric<T>(LegacyMarker marker, T value) => marker + " " + value;
+                }
+
+                public static class Box<T>
+                {
+                    public static string Take(LegacyMarker marker) => marker.ToString();
+                }
+
+                [Clockwork.Instrumentation.Attributes.DoNotRewrite("Runs before the simulation starts.")]
+                public static class Legacy
+                {
+                    public static string Call(LegacyMarker marker) => {{call}};
+                }
+            }
+            """);
+
+        RewriteResult result = context.Rewrite(fixturePath, MarkerRuleSet(), MarkerOptions(context));
+
+        RewriteDiagnostic error = AssertUnbound(result, unbound);
+        Assert.Equal("Fx.Legacy.Call", error.Method);
+        Assert.Contains("'Fx.Legacy' is excluded from rewriting", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RewrittenCodeUsingAFieldOfAnExcludedTypeFailsTheRewrite()
+    {
+        // The excluded type keeps a real Lock in its field, which the rewritten lock statement would enter as a
+        // ControlledLock.
+        using var context = RewriteTestContext.Create();
+        string fixturePath = context.CompileFixture("Fx.ExcludedField", $$"""
+            using System.Threading;
+
+            {{DoNotRewriteAttributeSource}}
+
+            namespace Fx
+            {
+                [Clockwork.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
+                public static class Globals
+                {
+                    public static readonly Lock Gate = new();
+                }
+
+                public static class Locker
+                {
+                    public static int Run()
+                    {
+                        lock (Globals.Gate)
+                        {
+                            return 1;
+                        }
+                    }
+                }
+            }
+            """);
+        string runtimePath = typeof(ControlledLock).Assembly.Location;
+        var options = new RewriteOptions
+        {
+            ReplacementAssemblyPaths = [runtimePath],
+            ReferenceSearchDirectories = [context.Directory, Path.GetDirectoryName(runtimePath)!],
+        };
+
+        RewriteResult result = context.Rewrite(
+            fixturePath,
+            BuiltInRuleSets.BuildControlledTasks(BuiltInRuleSets.AllFamilies),
+            options);
+
+        Assert.False(result.Succeeded);
+        RewriteDiagnostic error = Assert.Single(result.Errors);
+        Assert.Equal(RewriteDiagnosticIds.UnresolvedReplacement, error.Id);
+        Assert.Equal("Fx.Locker.Run", error.Method);
+        Assert.Contains("'clockwork.lock.type'", error.Message, StringComparison.Ordinal);
+        Assert.Contains("Fx.Globals::Gate", error.Message, StringComparison.Ordinal);
+        Assert.Contains("'Fx.Globals', which is excluded from rewriting", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]

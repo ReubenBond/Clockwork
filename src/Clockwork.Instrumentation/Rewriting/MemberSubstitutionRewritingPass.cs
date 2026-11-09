@@ -21,10 +21,18 @@ namespace Clockwork.Instrumentation.Rewriting;
 /// <remarks>
 /// The pass is a no-op unless the rule set declares type substitutions (so ordinary BCL rule sets are
 /// unaffected), and it only touches references composed from substituted types, so non-async code in a
-/// rewritten assembly is left byte-for-byte unchanged. It fails closed: a member reference whose
-/// substituted signature cannot bind against its declaring type - one defined in a framework or
-/// replacement assembly, which is never rewritten, or in a type of this module excluded from rewriting -
-/// is reported as <see cref="RewriteDiagnosticIds.UnresolvedReplacement"/> instead of being emitted.
+/// rewritten assembly is left byte-for-byte unchanged. It fails closed, reporting
+/// <see cref="RewriteDiagnosticIds.UnresolvedReplacement"/> instead of emitting a member reference that does not bind:
+/// <list type="bullet">
+/// <item><description>a substituted signature whose declaring type keeps its original one: a member of an assembly
+/// the closure does not rewrite (the framework, a replacement assembly, or an excluded assembly), or of a type of this
+/// module excluded from rewriting;</description></item>
+/// <item><description>a field of an excluded type whose type is substituted, which rewritten code would otherwise use
+/// as its substitute;</description></item>
+/// <item><description>a reference from an excluded type to a member of this module whose signature the pass
+/// rewrote.</description></item>
+/// </list>
+/// The closure runner checks references between assemblies once every assembly is staged.
 /// </remarks>
 internal sealed class MemberSubstitutionRewritingPass : RewritePass
 {
@@ -40,6 +48,7 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
     private readonly HashSet<string> _reportedOutOfRange = new(StringComparer.Ordinal);
     private readonly HashSet<string> _reportedApplicationFailures = new(StringComparer.Ordinal);
     private readonly List<PendingBinding> _pendingBindings = [];
+    private readonly Dictionary<MemberReference, RewriteRule[]> _rewrittenSignatures = new(ReferenceEqualityComparer.Instance);
 
     public MemberSubstitutionRewritingPass(RewriteSession session)
         : base(session)
@@ -70,6 +79,7 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
             TypeReference? mapped = Mapper.MapType(field.FieldType);
             if (mapped is not null)
             {
+                RecordRewrittenSignature(field, [field.FieldType]);
                 RecordType(mapped, field.FieldType);
                 field.FieldType = mapped;
             }
@@ -99,17 +109,23 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
         foreach (MethodDefinition method in type.Methods)
         {
             TypeReference? mappedReturn = Mapper.MapType(method.ReturnType);
+            TypeReference?[] mappedParameters = [.. method.Parameters.Select(parameter => Mapper.MapType(parameter.ParameterType))];
+            if (mappedReturn is null && mappedParameters.All(mapped => mapped is null))
+            {
+                continue;
+            }
+
+            RecordRewrittenSignature(method, [method.ReturnType, .. method.Parameters.Select(parameter => parameter.ParameterType)]);
             if (mappedReturn is not null)
             {
                 method.ReturnType = mappedReturn;
             }
 
-            foreach (ParameterDefinition parameter in method.Parameters)
+            for (int i = 0; i < mappedParameters.Length; i++)
             {
-                TypeReference? mappedParameter = Mapper.MapType(parameter.ParameterType);
-                if (mappedParameter is not null)
+                if (mappedParameters[i] is TypeReference mappedParameter)
                 {
-                    parameter.ParameterType = mappedParameter;
+                    method.Parameters[i].ParameterType = mappedParameter;
                 }
             }
         }
@@ -150,7 +166,20 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
             case MethodReference method:
                 return VisitMethodOperand(instruction, method);
 
-            case FieldReference field and not FieldDefinition:
+            case FieldDefinition definition:
+                {
+                    // A field of this module is rewritten in place when its declaring type is visited, so the operand
+                    // is kept; a field of a type excluded from rewriting keeps its type, which this rewritten code
+                    // would use as the substitute, so that is checked once every type has been visited.
+                    if (Mapper.MapType(definition.FieldType) is not null)
+                    {
+                        _pendingBindings.Add(PendingFor(definition, definition, instruction));
+                    }
+
+                    return instruction;
+                }
+
+            case FieldReference field:
                 {
                     MemberMapping<FieldReference> mapping = Mapper.MapField(field);
                     if (mapping.Kind == MemberMappingKind.Mapped)
@@ -209,8 +238,8 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
     {
         base.CompleteVisit();
 
-        // Every type of the module has now been visited, so a rewritten declaring type carries its substituted
-        // signatures; a reference into a type excluded from rewriting does not bind.
+        // Every type of the module has now been visited, so every signature the pass rewrites is rewritten: a
+        // reference into a type excluded from rewriting, or from one into a rewritten signature, no longer binds.
         foreach (PendingBinding binding in _pendingBindings)
         {
             if (BindingFailure(binding.Mapped) is string failure)
@@ -220,6 +249,10 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
         }
 
         _pendingBindings.Clear();
+        if (IsActive)
+        {
+            CheckExcludedTypes();
+        }
     }
 
     // A mapped reference that keeps a declaring type of this module binds only if that type was rewritten too.
@@ -231,11 +264,14 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
             TypeDefinition? declaring = element.DeclaringType.Resolve();
             if (declaring is not null && Session.IsExcluded(declaring))
             {
-                return $"maps to '{mapped.FullName}', but its declaring type '{declaring.FullName}' is excluded from " +
-                    "rewriting and keeps the original signature";
+                return element is FieldDefinition field
+                    ? $"is declared by '{declaring.FullName}', which is excluded from rewriting, so it keeps type " +
+                        $"'{field.FieldType.FullName}' while rewritten code uses it as '{Mapper.MapType(field.FieldType)!.FullName}'"
+                    : $"maps to '{mapped.FullName}', but its declaring type '{declaring.FullName}' is excluded from " +
+                        "rewriting and keeps the original signature";
             }
 
-            return element.Resolve() is not null
+            return element is IMemberDefinition || element.Resolve() is not null
                 ? null
                 : $"maps to '{mapped.FullName}', which does not bind to a member of '{declaring?.FullName}'";
         }
@@ -244,6 +280,62 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
             return $"maps to '{mapped.FullName}', which could not be resolved to check that it binds: {exception.Message}";
         }
     }
+
+    // Excluded types are not visited, so their references keep the original signatures. A reference to a member of
+    // this module whose signature the pass rewrote therefore no longer binds by signature, or, through a definition
+    // token, binds to the rewritten signature with arguments of the original types.
+    private void CheckExcludedTypes()
+    {
+        foreach (TypeDefinition type in Module!.GetTypes().Where(Session.IsExcluded))
+        {
+            foreach (MethodDefinition method in type.Methods.Where(method => method.HasBody))
+            {
+                foreach (Instruction instruction in method.Body.Instructions)
+                {
+                    if (instruction.Operand is MemberReference member and (MethodReference or FieldReference)
+                        && RewrittenSignatureRules(member) is { Length: > 0 } rules)
+                    {
+                        ReportUnappliedMemberSubstitution(
+                            rules,
+                            $"{CecilNames.NormalizedTypeFullName(member.DeclaringType)}::{member.Name}",
+                            CecilNames.FullyQualifiedMethodName(method),
+                            instruction.Offset,
+                            $"has a rewritten signature, but '{type.FullName}' is excluded from rewriting and still uses the original one");
+                    }
+                }
+            }
+        }
+    }
+
+    private RewriteRule[] RewrittenSignatureRules(MemberReference member)
+    {
+        MemberReference element = member is GenericInstanceMethod generic ? generic.ElementMethod : member;
+        if (_rewrittenSignatures.TryGetValue(element, out RewriteRule[]? rules))
+        {
+            return rules;
+        }
+
+        // Any other reference into this module names a member of a generic instance of one of its types. It binds by
+        // its own signature, which is the definition's original one, so it no longer binds once that type is rewritten.
+        if (element is IMemberDefinition
+            || element.DeclaringType.Scope is not ModuleDefinition module
+            || !ReferenceEquals(module, Module)
+            || element.DeclaringType.Resolve() is not TypeDefinition declaring
+            || Session.IsExcluded(declaring))
+        {
+            return [];
+        }
+
+        return element switch
+        {
+            MethodReference method => MatchingRules([method.ReturnType, .. method.Parameters.Select(parameter => parameter.ParameterType)]),
+            FieldReference field => MatchingRules([field.FieldType]),
+            _ => [],
+        };
+    }
+
+    private void RecordRewrittenSignature(MemberReference definition, IEnumerable<TypeReference> originalTypes) =>
+        _rewrittenSignatures[definition] = MatchingRules(originalTypes);
 
     private void TrackBinding<TMember>(MemberReference original, MemberMapping<TMember> mapping, Instruction instruction)
         where TMember : MemberReference
