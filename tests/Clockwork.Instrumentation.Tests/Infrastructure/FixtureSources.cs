@@ -72,6 +72,11 @@ internal static class FixtureSources
                 public override string ToString() => "legacy";
             }
 
+            public static class MarkerSink
+            {
+                public static string Describe(LegacyMarker marker) => marker.ToString();
+            }
+
             public sealed class LegacyShapes
             {
                 public sealed class Nested { }
@@ -154,6 +159,12 @@ internal static class FixtureSources
             public sealed class ModernMarker
             {
                 public override string ToString() => "modern";
+            }
+
+            public static class MarkerShim
+            {
+                public static string Describe(LegacyMarker marker) => marker.ToString();
+                public static LegacyMarker Make<T>(T value) => new LegacyMarker();
             }
 
             public sealed class InvalidShim

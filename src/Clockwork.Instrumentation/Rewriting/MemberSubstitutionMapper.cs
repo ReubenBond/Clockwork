@@ -1,3 +1,4 @@
+using Clockwork.Instrumentation.Closure;
 using Clockwork.Instrumentation.Rules;
 using Mono.Cecil;
 
@@ -15,25 +16,33 @@ namespace Clockwork.Instrumentation.Rewriting;
 /// </summary>
 /// <remarks>
 /// Every <c>Map*</c> method returns <see langword="null"/> when nothing changed, so callers can cheaply
-/// skip untouched references. Substituted declaring types are resolved back to the replacement
+/// skip untouched references. <see cref="MapMethod"/> and <see cref="MapField"/> also return
+/// <see langword="null"/> for a reference whose substitution cannot bind, which the caller reports as a
+/// rewrite error. Substituted declaring types are resolved back to the replacement
 /// assembly's definitions and re-imported so the produced references carry a signature that binds by
 /// name at run time; when the original declaring type was a generic instance the imported open
-/// reference is re-based onto the mapped generic instance.
+/// reference is re-based onto the mapped generic instance. A reference whose declaring type is not
+/// substituted keeps it and carries the substituted signature, which binds only where that type's
+/// definition is rewritten too.
 /// </remarks>
 internal sealed class MemberSubstitutionMapper
 {
     private readonly ModuleDefinition _module;
     private readonly Dictionary<string, TypeReference> _byName;
     private readonly Dictionary<string, string> _ruleIdByName;
+    private readonly Func<string, bool> _isReplacementAssembly;
+    private readonly HashSet<MemberReference> _bindsAfterRewrite = new(ReferenceEqualityComparer.Instance);
 
     private MemberSubstitutionMapper(
         ModuleDefinition module,
         Dictionary<string, TypeReference> byName,
-        Dictionary<string, string> ruleIdByName)
+        Dictionary<string, string> ruleIdByName,
+        Func<string, bool> isReplacementAssembly)
     {
         _module = module;
         _byName = byName;
         _ruleIdByName = ruleIdByName;
+        _isReplacementAssembly = isReplacementAssembly;
     }
 
     /// <summary>Gets a value indicating whether any substitution was resolved.</summary>
@@ -63,7 +72,7 @@ internal sealed class MemberSubstitutionMapper
             }
         }
 
-        return new MemberSubstitutionMapper(session.TargetModule, byName, ruleIdByName);
+        return new MemberSubstitutionMapper(session.TargetModule, byName, ruleIdByName, session.Resolver.IsReplacementAssembly);
     }
 
     /// <summary>Gets the id of the rule that substitutes <paramref name="normalizedFullName"/>, if any.</summary>
@@ -167,13 +176,20 @@ internal sealed class MemberSubstitutionMapper
 
     /// <summary>
     /// Maps a method reference whose declaring type, return type, parameter types, or generic arguments are substituted, returning
-    /// <see langword="null"/> when unaffected.
+    /// <see langword="null"/> when unaffected or when the substituted reference cannot bind.
     /// </summary>
     public MethodReference? MapMethod(MethodReference method)
     {
         if (method is GenericInstanceMethod generic)
         {
             MethodReference? mappedElement = MapMethod(generic.ElementMethod);
+            if (mappedElement is null && IsAffected(generic.ElementMethod))
+            {
+                // The element's own signature needs a substitution that cannot be applied; instantiating the
+                // unmapped element with mapped arguments would hide that.
+                return null;
+            }
+
             TypeReference[]? mappedArguments = MapMany(generic.GenericArguments);
             if (mappedElement is null && mappedArguments is null)
             {
@@ -184,6 +200,11 @@ internal sealed class MemberSubstitutionMapper
             for (int i = 0; i < generic.GenericArguments.Count; i++)
             {
                 result.GenericArguments.Add(mappedArguments?[i] ?? generic.GenericArguments[i]);
+            }
+
+            if (mappedElement is not null && _bindsAfterRewrite.Contains(mappedElement))
+            {
+                _bindsAfterRewrite.Add(result);
             }
 
             return result;
@@ -199,7 +220,7 @@ internal sealed class MemberSubstitutionMapper
 
         if (mappedDeclaring is null)
         {
-            return Rebuild(method, method.DeclaringType, mappedReturn, mappedParameters);
+            return Admit(method.DeclaringType, Rebuild(method, method.DeclaringType, mappedReturn, mappedParameters));
         }
 
         TypeReference mappedElementType = mappedDeclaring is GenericInstanceType instance
@@ -219,7 +240,10 @@ internal sealed class MemberSubstitutionMapper
             : importedOpen;
     }
 
-    /// <summary>Maps a field reference whose declaring type or field type is substituted.</summary>
+    /// <summary>
+    /// Maps a field reference whose declaring type or field type is substituted, returning <see langword="null"/>
+    /// when unaffected or when the substituted reference cannot bind.
+    /// </summary>
     public FieldReference? MapField(FieldReference field)
     {
         TypeReference? mappedFieldType = MapType(field.FieldType);
@@ -229,11 +253,48 @@ internal sealed class MemberSubstitutionMapper
             return null;
         }
 
-        return new FieldReference(
+        var mapped = new FieldReference(
             field.Name,
             mappedFieldType ?? field.FieldType,
             mappedDeclaring ?? field.DeclaringType);
+        return mappedDeclaring is null ? Admit(field.DeclaringType, mapped) : mapped;
     }
+
+    /// <summary>
+    /// Gets a value indicating whether <paramref name="mapped"/>, returned by <see cref="MapMethod"/> or
+    /// <see cref="MapField"/>, keeps a declaring type defined in the module being rewritten, so it binds only if that
+    /// type's definitions are rewritten too; a type excluded from rewriting keeps its original signatures.
+    /// </summary>
+    public bool BindsAfterRewrite(MemberReference mapped) => _bindsAfterRewrite.Contains(mapped);
+
+    // A rebuilt reference keeps its declaring type but carries a substituted signature, so it binds only if the
+    // declaring type's definition is rewritten by the same mapping. That holds for a sibling assembly the closure
+    // rewrites with the same rule set and is checked after the pass for the module being rewritten. Framework and
+    // replacement assemblies are never rewritten, so no member with the substituted signature exists there (for
+    // example ConfiguredAsyncDisposable.DisposeAsync returning a controlled awaitable): such a reference is left
+    // unmapped, and the pass fails the rewrite rather than emit a member reference that throws
+    // MissingMethodException when the JIT binds it.
+    private TMember? Admit<TMember>(TypeReference declaringType, TMember rebuilt)
+        where TMember : MemberReference
+    {
+        switch (declaringType.Scope)
+        {
+            case ModuleDefinition module when ReferenceEquals(module, _module):
+                _bindsAfterRewrite.Add(rebuilt);
+                return rebuilt;
+            case AssemblyNameReference assembly
+                when FrameworkAssemblyClassifier.Default.IsFrameworkAssembly(assembly.Name)
+                    || _isReplacementAssembly(assembly.Name):
+                return null;
+            default:
+                return rebuilt;
+        }
+    }
+
+    private bool IsAffected(MethodReference method) =>
+        MapType(method.DeclaringType) is not null
+        || MapType(method.ReturnType) is not null
+        || MapParameters(method.Parameters) is not null;
 
     /// <summary>
     /// Builds a constructor reference for the controlled awaitable/awaiter produced by an awaiter-source

@@ -371,6 +371,17 @@ public static class BuiltInRuleSets
     private const string ControlledConfiguredValueT = ControlledNs + "ControlledConfiguredValueTaskAwaitable`1";
     private const string ControlledConfiguredValueAwaiter = ControlledNs + "ControlledConfiguredValueTaskAwaiter";
     private const string ControlledConfiguredValueAwaiterT = ControlledNs + "ControlledConfiguredValueTaskAwaiter`1";
+    private const string BclConfiguredAsyncDisposable = CompilerNs + "ConfiguredAsyncDisposable";
+    private const string BclConfiguredAsyncEnumerable = CompilerNs + "ConfiguredCancelableAsyncEnumerable`1";
+    private const string BclConfiguredAsyncEnumerator = CompilerNs + "ConfiguredCancelableAsyncEnumerable`1/Enumerator";
+    private const string ControlledConfiguredAsyncDisposable = ControlledNs + "ControlledConfiguredAsyncDisposable";
+    private const string ControlledConfiguredAsyncEnumerable = ControlledNs + "ControlledConfiguredCancelableAsyncEnumerable`1";
+    private const string ControlledConfiguredAsyncEnumerator = ControlledNs + "ControlledConfiguredCancelableAsyncEnumerable`1/Enumerator";
+    private const string TaskAsyncEnumerableExtensionsType = "System.Threading.Tasks.TaskAsyncEnumerableExtensions";
+    private const string AsyncEnumerableShim = "Clockwork.Shims.System.Threading.Tasks.ControlledTaskAsyncEnumerableExtensions";
+    private const string AsyncDisposableType = "System.IAsyncDisposable";
+    private const string AsyncEnumerableT = "System.Collections.Generic.IAsyncEnumerable`1<!!0>";
+    private const string AsyncEnumerableTDecl = "System.Collections.Generic.IAsyncEnumerable`1<T>";
 
     private static readonly ImmutableArray<BuiltInRuleEntry> DeterministicBcl = BuildDeterministicBclEntries();
     private static readonly ImmutableArray<BuiltInRuleEntry> ControlledTasks = BuildControlledTasksEntries();
@@ -643,6 +654,23 @@ public static class BuiltInRuleSets
         Sub(builder, BuiltInRuleFamily.ValueTaskMachinery, "clockwork.tasks.configured.valuetask.awaitable.generic", BclConfiguredValueT, ControlledConfiguredValueT);
         Sub(builder, BuiltInRuleFamily.ValueTaskMachinery, "clockwork.tasks.configured.valuetask.awaiter", BclConfiguredValueAwaiter, ControlledConfiguredValueAwaiter);
         Sub(builder, BuiltInRuleFamily.ValueTaskMachinery, "clockwork.tasks.configured.valuetask.awaiter.generic", BclConfiguredValueAwaiterT, ControlledConfiguredValueAwaiterT);
+
+        // The configured async disposable and enumerable that `await using` and `await foreach` consume return
+        // configured value-task awaitables from BCL members, so they are substituted together with them;
+        // otherwise those member references would name BCL methods returning the controlled awaitables, which
+        // do not exist. The extension methods that produce them redirect to factories for the controlled types.
+        Sub(builder, BuiltInRuleFamily.ValueTaskMachinery, "clockwork.tasks.configured.asyncdisposable", BclConfiguredAsyncDisposable, ControlledConfiguredAsyncDisposable);
+        Sub(builder, BuiltInRuleFamily.ValueTaskMachinery, "clockwork.tasks.configured.asyncenumerable", BclConfiguredAsyncEnumerable, ControlledConfiguredAsyncEnumerable);
+        Sub(builder, BuiltInRuleFamily.ValueTaskMachinery, "clockwork.tasks.configured.asyncenumerator", BclConfiguredAsyncEnumerator, ControlledConfiguredAsyncEnumerator);
+        TaskRule(builder, BuiltInRuleFamily.ValueTaskMachinery, "clockwork.tasks.asyncdisposable.configureawait",
+            MemberSignature.Method(TaskAsyncEnumerableExtensionsType, "ConfigureAwait", AsyncDisposableType, Boolean),
+            Shim(AsyncEnumerableShim, "ConfigureAwait", AsyncDisposableType, Boolean));
+        TaskRule(builder, BuiltInRuleFamily.ValueTaskMachinery, "clockwork.tasks.asyncenumerable.configureawait",
+            MemberSignature.Method(TaskAsyncEnumerableExtensionsType, "ConfigureAwait", AsyncEnumerableT, Boolean),
+            Shim(AsyncEnumerableShim, "ConfigureAwait", AsyncEnumerableTDecl, Boolean));
+        TaskRule(builder, BuiltInRuleFamily.ValueTaskMachinery, "clockwork.tasks.asyncenumerable.withcancellation",
+            MemberSignature.Method(TaskAsyncEnumerableExtensionsType, "WithCancellation", AsyncEnumerableT, CancellationToken),
+            Shim(AsyncEnumerableShim, "WithCancellation", AsyncEnumerableTDecl, CancellationToken));
 
         // ---- TaskFactory scheduling: StartNew offloads onto a task scheduler (the thread pool by
         // default). The controlled runtime handles it by queuing the delegate body as a fresh controlled operation on

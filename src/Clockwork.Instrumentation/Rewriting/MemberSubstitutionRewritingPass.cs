@@ -21,7 +21,10 @@ namespace Clockwork.Instrumentation.Rewriting;
 /// <remarks>
 /// The pass is a no-op unless the rule set declares type substitutions (so ordinary BCL rule sets are
 /// unaffected), and it only touches references composed from substituted types, so non-async code in a
-/// rewritten assembly is left byte-for-byte unchanged.
+/// rewritten assembly is left byte-for-byte unchanged. It fails closed: a member reference whose
+/// substituted signature cannot bind against its declaring type - one defined in a framework or
+/// replacement assembly, which is never rewritten, or in a type of this module excluded from rewriting -
+/// is reported as <see cref="RewriteDiagnosticIds.UnresolvedReplacement"/> instead of being emitted.
 /// </remarks>
 internal sealed class MemberSubstitutionRewritingPass : RewritePass
 {
@@ -36,6 +39,7 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
     private MemberSubstitutionMapper? _mapper;
     private readonly HashSet<string> _reportedOutOfRange = new(StringComparer.Ordinal);
     private readonly HashSet<string> _reportedApplicationFailures = new(StringComparer.Ordinal);
+    private readonly List<PendingBinding> _pendingBindings = [];
 
     public MemberSubstitutionRewritingPass(RewriteSession session)
         : base(session)
@@ -154,6 +158,11 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
                         instruction.Operand = mapped;
                         IsMethodBodyModified = true;
                         RecordType(mapped.FieldType, field.FieldType, instruction);
+                        TrackBinding(field, mapped, instruction);
+                    }
+                    else
+                    {
+                        ReportUnappliedMemberSubstitution(field, instruction);
                     }
 
                     return instruction;
@@ -184,6 +193,7 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
             RecordMethod(method, instruction);
             instruction.Operand = mapped;
             IsMethodBodyModified = true;
+            TrackBinding(method, mapped, instruction);
         }
         else
         {
@@ -191,6 +201,52 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
         }
 
         return instruction;
+    }
+
+    /// <inheritdoc/>
+    internal override void CompleteVisit()
+    {
+        base.CompleteVisit();
+
+        // Every type in the module has now been visited, so a rewritten declaring type carries its substituted
+        // signatures; a reference which still does not bind names a type excluded from rewriting.
+        foreach (PendingBinding binding in _pendingBindings)
+        {
+            if (!Binds(binding.Mapped))
+            {
+                ReportUnappliedMemberSubstitution(
+                    binding.Original,
+                    binding.Method,
+                    binding.Offset,
+                    $"maps to '{binding.Mapped.FullName}', but that reference does not bind because its declaring type was not rewritten");
+            }
+        }
+
+        _pendingBindings.Clear();
+    }
+
+    private static bool Binds(MemberReference reference)
+    {
+        try
+        {
+            return reference.Resolve() is not null;
+        }
+        catch (AssemblyResolutionException)
+        {
+            return false;
+        }
+    }
+
+    private void TrackBinding(MemberReference original, MemberReference mapped, Instruction instruction)
+    {
+        if (Mapper.BindsAfterRewrite(mapped))
+        {
+            _pendingBindings.Add(new PendingBinding(
+                original,
+                mapped,
+                CecilNames.FullyQualifiedMethodName(Method!),
+                instruction.Offset));
+        }
     }
 
     private Instruction? TryBuildAwaiterSource(Instruction instruction, MethodReference method)
@@ -280,28 +336,44 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
         }
     }
 
-    private void ReportUnappliedMemberSubstitution(MethodReference method, Instruction instruction)
+    private void ReportUnappliedMemberSubstitution(MemberReference member, Instruction instruction) =>
+        ReportUnappliedMemberSubstitution(
+            member,
+            CecilNames.FullyQualifiedMethodName(Method!),
+            instruction.Offset,
+            "could not be mapped to the replacement type");
+
+    private void ReportUnappliedMemberSubstitution(MemberReference member, string containing, int offset, string failure)
     {
         var rules = new Dictionary<string, RewriteRule>(StringComparer.Ordinal);
-        AddMatchingRules(method.DeclaringType, rules);
-        AddMatchingRules(method.ReturnType, rules);
-        foreach (ParameterDefinition parameter in method.Parameters)
+        switch (member)
         {
-            AddMatchingRules(parameter.ParameterType, rules);
+            case MethodReference method:
+                AddMatchingRules(method.DeclaringType, rules);
+                AddMatchingRules(method.ReturnType, rules);
+                foreach (ParameterDefinition parameter in method.Parameters)
+                {
+                    AddMatchingRules(parameter.ParameterType, rules);
+                }
+
+                if (method is GenericInstanceMethod generic)
+                {
+                    foreach (TypeReference argument in generic.GenericArguments)
+                    {
+                        AddMatchingRules(argument, rules);
+                    }
+                }
+
+                break;
+            case FieldReference field:
+                AddMatchingRules(field.DeclaringType, rules);
+                AddMatchingRules(field.FieldType, rules);
+                break;
         }
 
-        if (method is GenericInstanceMethod generic)
-        {
-            foreach (TypeReference argument in generic.GenericArguments)
-            {
-                AddMatchingRules(argument, rules);
-            }
-        }
-
-        string containing = CecilNames.FullyQualifiedMethodName(Method!);
         foreach (RewriteRule rule in rules.Values)
         {
-            string key = $"{rule.Id}|{containing}|{instruction.Offset}";
+            string key = $"{rule.Id}|{containing}|{offset}";
             if (!_reportedApplicationFailures.Add(key))
             {
                 continue;
@@ -309,9 +381,9 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
 
             Session.AddDiagnostic(RewriteDiagnostic.Error(
                 RewriteDiagnosticIds.UnresolvedReplacement,
-                $"Member-aware substitution rule '{rule.Id}' could not map targeted member '{method.FullName}' to the replacement type.",
+                $"Member-aware substitution rule '{rule.Id}' targets member '{member.FullName}', which {failure}.",
                 containing,
-                instruction.Offset));
+                offset));
             Session.AddUnresolvedReference(rule.Replacement.ToCanonicalString());
         }
     }
@@ -364,4 +436,6 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
             file,
             line));
     }
+
+    private readonly record struct PendingBinding(MemberReference Original, MemberReference Mapped, string Method, int Offset);
 }

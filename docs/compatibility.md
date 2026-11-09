@@ -180,7 +180,10 @@ exclude the containing assembly from instrumentation.
   semantic rewrite options is a verified no-op, and an incompatible rule set or options
   fingerprint fails clearly (`CWR0008`) rather than double-rewriting;
 - strict resolution — a targeted member whose replacement cannot be resolved is a hard
-  failure (`CWR0001`); a targeted call is never silently skipped.
+  failure (`CWR0001`); a targeted call is never silently skipped. A member reference whose
+  substituted signature cannot bind against its declaring type also fails (`CWR0001`): a member of a
+  framework or replacement assembly, which is never rewritten, or of a type excluded from rewriting.
+  Members of other closure assemblies are assumed to be rewritten with the same rule set.
 
 **Engine boundary:** load-time `AssemblyLoadContext` hooks, profiler/native detours, mixed-mode
 rewriting, Authenticode re-signing, application hosting, and transport interception are not
@@ -330,7 +333,15 @@ or Release state machine is fully controlled. The same pass also retargets the
 `async ValueTask`/`async ValueTask<T>` machinery — `AsyncValueTaskMethodBuilder`(`<T>`),
 `ValueTaskAwaiter`(`<T>`), and `ConfiguredValueTaskAwaitable`(`<T>`)`/ConfiguredValueTaskAwaiter` →
 their `Controlled…` counterparts (the `ValueTaskMachinery` family) — so value-task `async`/`await`
-and `ValueTask.ConfigureAwait(false)` are controlled identically. The controlled awaiter hands
+and `ValueTask.ConfigureAwait(false)` are controlled identically. The same family substitutes the
+configured async disposable and enumerable that `await using` and `await foreach` consume
+(`ConfiguredAsyncDisposable`, `ConfiguredCancelableAsyncEnumerable<T>` and its `Enumerator` →
+`ControlledConfiguredAsyncDisposable`, `ControlledConfiguredCancelableAsyncEnumerable<T>`), whose BCL
+members return configured value-task awaitables, and redirects the `TaskAsyncEnumerableExtensions.ConfigureAwait`
+and `WithCancellation` extensions that produce them. As in the BCL, the configured enumerable passes its token to
+`GetAsyncEnumerator(CancellationToken)`, where an async iterator combines it with its `[EnumeratorCancellation]`
+parameter, and each `MoveNextAsync`/`DisposeAsync` value task is configured with the requested
+`continueOnCapturedContext`, which the controlled awaitable treats as `ValueTask.ConfigureAwait(bool)` does. The controlled awaiter hands
 every continuation to the simulation coordinator rather than the awaited task's completion
 callback, which is exactly why **`ConfigureAwait(false)` stays controlled**.
 `Task.ConfigureAwait(ConfigureAwaitOptions)` and `Task<T>.ConfigureAwait(ConfigureAwaitOptions)` build

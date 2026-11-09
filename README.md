@@ -522,7 +522,12 @@ awaiter types of an `async` state machine onto controlled value-type equivalents
 `AsyncValueTaskMethodBuilder`(`<T>`), `ValueTaskAwaiter`(`<T>`),
 `ConfiguredValueTaskAwaitable`(`<T>`)`/…Awaiter` → their `Controlled…` counterparts), rewriting
 every field, local, member reference, and closed-generic type operand so both Debug and Release
-state machines are controlled. The controlled awaiter hands each continuation to the simulation
+state machines are controlled. The configured async disposable and enumerable behind
+`await using (x.ConfigureAwait(…))` and `await foreach (… in source.ConfigureAwait(…))`/`.WithCancellation(…)`
+are substituted the same way, so their dispose and iteration awaits are controlled and the token still
+reaches `GetAsyncEnumerator` as in the BCL. A member reference whose substituted signature cannot bind
+against its declaring type fails the rewrite (`CWR0001`) instead of throwing `MissingMethodException` at run
+time. The controlled awaiter hands each continuation to the simulation
 coordinator, so **`ConfigureAwait(false)` stays controlled** inside a simulation (for both `Task`
 and `ValueTask`). `Task.ConfigureAwait(ConfigureAwaitOptions)` builds the same controlled awaitable and
 honours `SuppressThrowing` and `ForceYielding` exactly as the BCL awaiter does. A synchronous

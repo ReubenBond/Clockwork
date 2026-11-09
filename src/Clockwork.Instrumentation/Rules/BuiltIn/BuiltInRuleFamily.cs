@@ -82,7 +82,9 @@ public enum BuiltInRuleFamily
     /// (<see cref="System.Runtime.CompilerServices.AsyncValueTaskMethodBuilder"/>, <c>ValueTaskAwaiter</c>,
     /// <c>ConfiguredValueTaskAwaitable</c> and their awaiters, generic and non-generic) onto Clockwork's
     /// controlled equivalents, so awaiting a <see cref="System.Threading.Tasks.ValueTask"/> is scheduled
-    /// through the coordinator and <c>ConfigureAwait(false)</c> stays controlled.
+    /// through the coordinator and <c>ConfigureAwait(false)</c> stays controlled. The configured async disposable
+    /// and enumerable that <c>await using</c> and <c>await foreach</c> consume, and the
+    /// <c>TaskAsyncEnumerableExtensions</c> methods that produce them, are controlled with them.
     /// </summary>
     ValueTaskMachinery,
 
