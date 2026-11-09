@@ -332,7 +332,11 @@ or Release state machine is fully controlled. The same pass also retargets the
 their `Controlled…` counterparts (the `ValueTaskMachinery` family) — so value-task `async`/`await`
 and `ValueTask.ConfigureAwait(false)` are controlled identically. The controlled awaiter hands
 every continuation to the simulation coordinator rather than the awaited task's completion
-callback, which is exactly why **`ConfigureAwait(false)` stays controlled**. Uninstrumented
+callback, which is exactly why **`ConfigureAwait(false)` stays controlled**.
+`Task.ConfigureAwait(ConfigureAwaitOptions)` and `Task<T>.ConfigureAwait(ConfigureAwaitOptions)` build
+the same controlled awaitables: `SuppressThrowing` completes the await normally for a faulted or
+canceled `Task`, `ForceYielding` always yields through the coordinator, and invalid options (including
+`SuppressThrowing` on `Task<T>`) throw the BCL's `ArgumentOutOfRangeException`. Uninstrumented
 production binaries retain normal BCL async semantics. A
 **call-site redirect** half routes both the
 non-generic `Task.WhenAll` / `Task.WhenAny` (array, span, pair, enumerable) combinators **and their

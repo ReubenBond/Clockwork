@@ -11,9 +11,10 @@ namespace Clockwork.Instrumentation.Rewriting;
 /// The member-aware half of <see cref="RewriteOperationKind.SubstituteType"/>: where
 /// <see cref="TypeReferenceRewritingPass"/> only replaces type-reference <em>operands</em>, this pass
 /// projects the same substitutions onto method signatures, field types, local-variable types, and the declaring types of
-/// method and field references, and rewrites the two awaiter-source calls the C# compiler emits
-/// (<c>task.GetAwaiter()</c> and <c>task.ConfigureAwait(bool)</c>) into a <c>newobj</c> of the
-/// controlled awaitable/awaiter. Together these let a compiler-generated <c>async</c> state machine be
+/// method and field references, and rewrites the awaiter-source calls the C# compiler emits
+/// (<c>task.GetAwaiter()</c>, <c>task.ConfigureAwait(bool)</c>, and
+/// <c>task.ConfigureAwait(ConfigureAwaitOptions)</c>) into a <c>newobj</c> of the controlled
+/// awaitable/awaiter. Together these let a compiler-generated <c>async</c> state machine be
 /// retargeted from the BCL builder/awaiter types onto Clockwork's controlled equivalents, so every
 /// continuation is scheduled through the simulation coordinator instead of the thread pool.
 /// </summary>
@@ -165,22 +166,16 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
 
     private Instruction VisitMethodOperand(Instruction instruction, MethodReference method)
     {
-        // The compiler produces an awaiter from task.GetAwaiter() / task.ConfigureAwait(bool). The
-        // controlled awaiter/awaitable is constructed instead, which consumes the identical stack (the
-        // receiver, plus the bool for ConfigureAwait) and pushes the controlled value, so a one-for-one
+        // The compiler produces an awaiter from task.GetAwaiter() / task.ConfigureAwait(bool) /
+        // task.ConfigureAwait(ConfigureAwaitOptions). The controlled awaiter/awaitable is constructed
+        // instead, through the constructor whose parameter types are the receiver followed by the call's
+        // own, so it consumes the identical stack and pushes the controlled value, and a one-for-one
         // instruction swap to newobj keeps the surrounding IL valid.
         if ((instruction.OpCode.Code is Code.Call or Code.Callvirt)
+            && (method.Name is "GetAwaiter" or "ConfigureAwait")
             && AwaiterSourceReceivers.Contains(CecilNames.NormalizedTypeFullName(method.DeclaringType)))
         {
-            if (method.Name == "GetAwaiter" && method.Parameters.Count == 0)
-            {
-                return TryBuildAwaiterSource(instruction, method, arity: 1) ?? instruction;
-            }
-
-            if (method.Name == "ConfigureAwait" && method.Parameters.Count == 1)
-            {
-                return TryBuildAwaiterSource(instruction, method, arity: 2) ?? instruction;
-            }
+            return TryBuildAwaiterSource(instruction, method) ?? instruction;
         }
 
         MethodReference? mapped = Mapper.MapMethod(method);
@@ -198,9 +193,9 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
         return instruction;
     }
 
-    private Instruction? TryBuildAwaiterSource(Instruction instruction, MethodReference method, int arity)
+    private Instruction? TryBuildAwaiterSource(Instruction instruction, MethodReference method)
     {
-        MethodReference? constructor = Mapper.BuildAwaiterSourceConstructor(method, arity);
+        MethodReference? constructor = Mapper.BuildAwaiterSourceConstructor(method);
         if (constructor is null)
         {
             if (Session.Matcher.GetMatchingTypeRules(method.ReturnType).Count > 0)

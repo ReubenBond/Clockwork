@@ -63,6 +63,11 @@ public sealed class ControlledTaskRuleGoldenTests
                 public static async ValueTask VtAsync(ValueTask inner) => await inner.ConfigureAwait(false);
                 public static async ValueTask<int> VtAsyncT(ValueTask<int> inner) => await inner.ConfigureAwait(false);
 
+                public static async Task ConfiguredBool(Task inner) => await inner.ConfigureAwait(false);
+                public static async Task<int> ConfiguredBoolT(Task<int> inner) => await inner.ConfigureAwait(false);
+                public static async Task ConfiguredOptions(Task inner) => await inner.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+                public static async Task<int> ConfiguredOptionsT(Task<int> inner) => await inner.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
+
                 public static Task Factory() => Task.Factory.StartNew(() => { });
                 public static Task FactoryToken() => Task.Factory.StartNew(() => { }, CancellationToken.None);
                 public static Task FactoryOptions() => Task.Factory.StartNew(() => { }, TaskCreationOptions.DenyChildAttach);
@@ -322,6 +327,23 @@ public sealed class ControlledTaskRuleGoldenTests
     }
 
     [Fact]
+    public void ConfigureAwaitOverloadsConstructTheMatchingControlledAwaitable()
+    {
+        using var context = RewriteTestContext.Create();
+        RewriteFixture(context, "Fx.TaskConfigureAwait");
+
+        using ModuleDefinition module = context.LoadModule(
+            Path.Combine(context.Directory, "Fx.TaskConfigureAwait.rewritten.dll"));
+
+        AssertConstructs(module, "ConfiguredBool", "ControlledConfiguredTaskAwaitable", "System.Boolean");
+        AssertConstructs(module, "ConfiguredBoolT", "ControlledConfiguredTaskAwaitable`1<System.Int32>", "System.Boolean");
+        AssertConstructs(
+            module, "ConfiguredOptions", "ControlledConfiguredTaskAwaitable", "System.Threading.Tasks.ConfigureAwaitOptions");
+        AssertConstructs(
+            module, "ConfiguredOptionsT", "ControlledConfiguredTaskAwaitable`1<System.Int32>", "System.Threading.Tasks.ConfigureAwaitOptions");
+    }
+
+    [Fact]
     public void TaskFactoryInstanceStartNewIsRedirectedToControlledShim()
     {
         using var context = RewriteTestContext.Create();
@@ -379,5 +401,17 @@ public sealed class ControlledTaskRuleGoldenTests
         MethodDefinition unwrappedT = CecilInspect.GetMethod(module, "Fx.TaskUser", "UnwrappedT");
         Assert.True(CecilInspect.CallsAnyContaining(unwrappedT, "ControlledTask::Unwrap"));
         Assert.False(CecilInspect.CallsAnyContaining(unwrappedT, "TaskExtensions::Unwrap"));
+    }
+
+    private static void AssertConstructs(ModuleDefinition module, string asyncMethod, string awaitable, string argument)
+    {
+        TypeDefinition stateMachine = module.GetTypes()
+            .Single(type => type.Name.StartsWith($"<{asyncMethod}>", StringComparison.Ordinal));
+        List<string> targets = CecilInspect.CallTargets(stateMachine.Methods.Single(method => method.Name == "MoveNext"));
+
+        Assert.Contains(targets, target =>
+            target.Contains($"{awaitable}::.ctor(", StringComparison.Ordinal)
+            && target.EndsWith($",{argument})", StringComparison.Ordinal));
+        Assert.DoesNotContain(targets, target => target.Contains("::ConfigureAwait(", StringComparison.Ordinal));
     }
 }

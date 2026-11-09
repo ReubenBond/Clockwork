@@ -524,7 +524,9 @@ awaiter types of an `async` state machine onto controlled value-type equivalents
 every field, local, member reference, and closed-generic type operand so both Debug and Release
 state machines are controlled. The controlled awaiter hands each continuation to the simulation
 coordinator, so **`ConfigureAwait(false)` stays controlled** inside a simulation (for both `Task`
-and `ValueTask`). Uninstrumented production binaries retain the normal BCL async machinery.
+and `ValueTask`). `Task.ConfigureAwait(ConfigureAwaitOptions)` builds the same controlled awaitable and
+honours `SuppressThrowing` and `ForceYielding` exactly as the BCL awaiter does. Uninstrumented production
+binaries retain the normal BCL async machinery.
 Alongside it, call-site redirects route the `Task.WhenAll`/`Task.WhenAny` combinators — non-generic **and their generic
 `Task<T>` overloads** — the synchronous `Task.Wait()`/`WaitAll`/`WaitAny(Task[])` waits, the
 blocking generic `Task<T>.Result` accessor, the `TaskExtensions.Unwrap` extension methods, and
