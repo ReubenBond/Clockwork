@@ -6,17 +6,21 @@ namespace Clockwork.Instrumentation.Rewriting;
 
 /// <summary>
 /// Post-rewrite validation. Reads the written assembly back with Mono.Cecil (proving it is
-/// structurally loadable) and checks per-method that every branch target and exception-handler
-/// boundary points at an instruction that still exists in the method body. Any failure is reported as
-/// a deterministic <see cref="RewriteDiagnosticIds.ValidationFailed"/> error rather than throwing.
+/// structurally loadable), checks per-method that every branch target and exception-handler
+/// boundary points at an instruction that still exists in the method body, and checks that every member reference
+/// whose binding depends on a type substitution binds. Any failure is reported as a deterministic
+/// <see cref="RewriteDiagnosticIds.ValidationFailed"/> error rather than throwing.
 /// </summary>
 internal static class RewriteValidator
 {
-    public static IReadOnlyList<RewriteDiagnostic> Validate(string assemblyPath, IEnumerable<string> searchDirectories)
+    public static IReadOnlyList<RewriteDiagnostic> Validate(
+        string assemblyPath,
+        IEnumerable<string> searchDirectories,
+        BindingScope bindings)
     {
         var diagnostics = new List<RewriteDiagnostic>();
 
-        var resolver = new DefaultAssemblyResolver();
+        using var resolver = new DefaultAssemblyResolver();
         string? directory = Path.GetDirectoryName(Path.GetFullPath(assemblyPath));
         if (!string.IsNullOrEmpty(directory))
         {
@@ -52,6 +56,8 @@ internal static class RewriteValidator
                         }
                     }
                 }
+
+                ValidateBindings(module, bindings, diagnostics);
             }
         }
         catch (Exception ex) when (ex is BadImageFormatException or IOException or Mono.Cecil.Cil.SymbolsNotMatchingException)
@@ -62,6 +68,48 @@ internal static class RewriteValidator
         }
 
         return diagnostics;
+    }
+
+    // A member reference whose signature mentions a substituted or substitute type binds only if the rewrite produced
+    // a signature its declaring type declares. One into this module, or into an assembly the closure does not rewrite
+    // (the framework, a replacement assembly, or an excluded assembly), can be resolved now, because neither changes
+    // after this rewrite; one into another rewritten assembly is checked by the closure runner once it is staged.
+    private static void ValidateBindings(ModuleDefinition module, BindingScope bindings, List<RewriteDiagnostic> diagnostics)
+    {
+        foreach (MemberReference member in module.GetMemberReferences())
+        {
+            // The runtime provides the methods of every array type, which Cecil does not resolve.
+            bool resolvable = member.DeclaringType is not ArrayType && member.DeclaringType.Scope switch
+            {
+                ModuleDefinition scope => ReferenceEquals(scope, module),
+                AssemblyNameReference assembly => !bindings.RewrittenAssemblyNames.Contains(assembly.Name)
+                    || string.Equals(assembly.Name, module.Assembly.Name.Name, StringComparison.OrdinalIgnoreCase),
+                _ => false,
+            };
+            if (!resolvable || SignatureMentions.Find(member, bindings.SignatureTypeNames).Count == 0)
+            {
+                continue;
+            }
+
+            string? failure;
+            try
+            {
+                failure = member.Resolve() is null
+                    ? $"Member reference '{member.FullName}' does not bind after rewriting: " +
+                        $"'{CecilNames.NormalizedTypeFullName(member.DeclaringType)}' declares no member with that signature."
+                    : null;
+            }
+            catch (AssemblyResolutionException exception)
+            {
+                failure = $"Member reference '{member.FullName}' could not be resolved to check that it binds after " +
+                    $"rewriting: {exception.Message}";
+            }
+
+            if (failure is not null)
+            {
+                diagnostics.Add(RewriteDiagnostic.Error(RewriteDiagnosticIds.ValidationFailed, failure));
+            }
+        }
     }
 
     private static void ValidateBody(MethodDefinition method, List<RewriteDiagnostic> diagnostics)
@@ -127,4 +175,9 @@ internal static class RewriteValidator
                 boundary.Offset));
         }
     }
+
+    /// <summary>The member references whose binding the validator checks.</summary>
+    /// <param name="SignatureTypeNames">The substituted and substitute types whose mention makes binding depend on the rewrite.</param>
+    /// <param name="RewrittenAssemblyNames">The other assemblies the closure rewrites, whose members are checked when staged.</param>
+    internal sealed record BindingScope(IReadOnlySet<string> SignatureTypeNames, IReadOnlySet<string> RewrittenAssemblyNames);
 }

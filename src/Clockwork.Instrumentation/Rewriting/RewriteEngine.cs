@@ -156,7 +156,13 @@ public static class RewriteEngine
         EnsureOutputDirectory(request.OutputPath);
         context.Write(request.OutputPath);
 
-        diagnostics.AddRange(RewriteValidator.Validate(request.OutputPath, options.ReferenceSearchDirectories));
+        diagnostics.AddRange(RewriteValidator.Validate(
+            request.OutputPath,
+            [
+                .. options.ReferenceSearchDirectories,
+                .. options.ReplacementAssemblyPaths.Select(path => Path.GetDirectoryName(Path.GetFullPath(path)) ?? string.Empty),
+            ],
+            new RewriteValidator.BindingScope(matcher.GetSubstitutionTypeNames(), session.RewrittenAssemblyNames)));
 
         string? outputHash = options.ComputeOutputHash ? ComputeFileHash(request.OutputPath) : null;
         var outputIdentity = new ManifestAssemblyIdentity(
