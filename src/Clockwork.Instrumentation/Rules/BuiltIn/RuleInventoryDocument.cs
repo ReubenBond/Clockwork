@@ -154,7 +154,10 @@ public static class RuleInventoryDocument
         BuiltInRuleFamily.TaskSynchronization =>
             "Blocking `Task.Wait()`, `Task.WaitAll`, and `Task.WaitAny` redirect to controlled waits that pump " +
             "the deterministic loop rather than blocking a physical thread; a never-satisfiable wait surfaces " +
-            "as a precise deadlock diagnostic instead of hanging the scheduler.",
+            "as a precise deadlock diagnostic instead of hanging the scheduler. " +
+            "`TaskAsyncEnumerableExtensions.ToBlockingEnumerable` redirects to an enumerable that pumps the loop " +
+            "until each `MoveNextAsync` and the final `DisposeAsync` complete, with the BCL's token, early-exit " +
+            "disposal, and exception semantics.",
         BuiltInRuleFamily.TaskContinuations =>
             "`Task.ContinueWith(Action<Task>)`, `Task<T>.ContinueWith(Action<Task<T>>)`, and the result-producing " +
             "`Task<T>.ContinueWith<TNewResult>(Func<Task<T>,TNewResult>)` redirect so the continuation is " +

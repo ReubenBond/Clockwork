@@ -374,6 +374,11 @@ is driven by antecedents that complete on the logical thread); synchronous waits
 coordinator loop until completion instead of blocking a physical thread**, then delegate to the
 real API to reproduce its exact `AggregateException` semantics, so a synchronous wait or a blocking
 `Task<T>.Result` read on incomplete controlled work never deadlocks the scheduler.
+`TaskAsyncEnumerableExtensions.ToBlockingEnumerable` redirects to
+`ControlledTaskAsyncEnumerableExtensions`, whose enumerable pumps the coordinator until each
+`MoveNextAsync` and the final `DisposeAsync` complete; as in the BCL, enumeration is deferred, the
+token reaches `GetAsyncEnumerator`, the source enumerator is disposed on completion, early exit, and
+fault, and exceptions propagate unwrapped.
 `Task.Run` and `TaskFactory.StartNew` queue controlled operations instead of escaping, while
 `Task.Delay` and `Task.WaitAsync` register virtual deadlines.
 

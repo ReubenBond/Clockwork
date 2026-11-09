@@ -97,7 +97,7 @@ Policy: **Controlled**. `Task.WhenAll`/`WhenAny` (the non-generic `Task[]`, `IEn
 
 ## TaskSynchronization family
 
-Policy: **Controlled**. Blocking `Task.Wait()`, `Task.WaitAll`, and `Task.WaitAny` redirect to controlled waits that pump the deterministic loop rather than blocking a physical thread; a never-satisfiable wait surfaces as a precise deadlock diagnostic instead of hanging the scheduler.
+Policy: **Controlled**. Blocking `Task.Wait()`, `Task.WaitAll`, and `Task.WaitAny` redirect to controlled waits that pump the deterministic loop rather than blocking a physical thread; a never-satisfiable wait surfaces as a precise deadlock diagnostic instead of hanging the scheduler. `TaskAsyncEnumerableExtensions.ToBlockingEnumerable` redirects to an enumerable that pumps the loop until each `MoveNextAsync` and the final `DisposeAsync` complete, with the BCL's token, early-exit disposal, and exception semantics.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -105,6 +105,7 @@ Policy: **Controlled**. Blocking `Task.Wait()`, `Task.WaitAll`, and `Task.WaitAn
 | `clockwork.tasks.waitall.array` | `System.Threading.Tasks.Task::WaitAll(System.Threading.Tasks.Task[])` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledTask::WaitAll(System.Threading.Tasks.Task[])` | Controlled |
 | `clockwork.tasks.waitany.array` | `System.Threading.Tasks.Task::WaitAny(System.Threading.Tasks.Task[])` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledTask::WaitAny(System.Threading.Tasks.Task[])` | Controlled |
 | `clockwork.tasks.result.generic` | `System.Threading.Tasks.Task`1::get_Result()` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledTask::Result(System.Threading.Tasks.Task`1<TResult>)` | Controlled |
+| `clockwork.tasks.asyncenumerable.toblockingenumerable` | `System.Threading.Tasks.TaskAsyncEnumerableExtensions::ToBlockingEnumerable(System.Collections.Generic.IAsyncEnumerable`1<!!0>,System.Threading.CancellationToken)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledTaskAsyncEnumerableExtensions::ToBlockingEnumerable(System.Collections.Generic.IAsyncEnumerable`1<T>,System.Threading.CancellationToken)` | Controlled |
 
 ## TaskContinuations family
 

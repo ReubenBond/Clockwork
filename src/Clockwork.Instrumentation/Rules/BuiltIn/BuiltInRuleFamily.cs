@@ -36,9 +36,10 @@ public enum BuiltInRuleFamily
     TaskCombinators,
 
     /// <summary>
-    /// Task synchronous waits: <c>Task.Wait()</c>, <c>Task.WaitAll</c>, and <c>Task.WaitAny</c>, redirected
-    /// to controlled waits that pump the deterministic loop instead of blocking a physical thread (a
-    /// never-satisfiable wait surfaces as a precise deadlock diagnostic).
+    /// Task synchronous waits: <c>Task.Wait()</c>, <c>Task.WaitAll</c>, <c>Task.WaitAny</c>, and
+    /// <c>TaskAsyncEnumerableExtensions.ToBlockingEnumerable</c>, redirected to controlled waits that pump the
+    /// deterministic loop instead of blocking a physical thread (a never-satisfiable wait surfaces as a precise
+    /// deadlock diagnostic).
     /// </summary>
     TaskSynchronization,
 

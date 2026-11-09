@@ -548,6 +548,13 @@ public static class BuiltInRuleSets
         TaskRule(builder, BuiltInRuleFamily.TaskSynchronization, "clockwork.tasks.result.generic",
             MemberSignature.Method("System.Threading.Tasks.Task`1", "get_Result"), Shim(TaskShim, "Result", TaskTDecl));
 
+        // Blocking TaskAsyncEnumerableExtensions.ToBlockingEnumerable -> a controlled enumerable that drains the loop
+        // until each MoveNextAsync and the final DisposeAsync complete, instead of blocking the logical thread that
+        // would complete them.
+        TaskRule(builder, BuiltInRuleFamily.TaskSynchronization, "clockwork.tasks.asyncenumerable.toblockingenumerable",
+            MemberSignature.Method(TaskAsyncEnumerableExtensionsType, "ToBlockingEnumerable", AsyncEnumerableT, CancellationToken),
+            Shim(AsyncEnumerableShim, "ToBlockingEnumerable", AsyncEnumerableTDecl, CancellationToken));
+
         // ---- Continuations: ContinueWith -> controlled scheduling on the logical thread ----
         TaskRule(builder, BuiltInRuleFamily.TaskContinuations, "clockwork.tasks.continuewith.action",
             MemberSignature.Method(Task, "ContinueWith", ActionOfTask), Shim(TaskShim, "ContinueWith", Task, ActionOfTask));

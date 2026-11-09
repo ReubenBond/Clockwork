@@ -542,6 +542,9 @@ blocking generic `Task<T>.Result` accessor, the `TaskExtensions.Unwrap` extensio
 `Clockwork.Shims.System.Threading.Tasks.ControlledTask`. Synchronous waits and blocking `Task<T>.Result` reads
 **pump the coordinator loop until completion instead of blocking a physical thread**, so they never
 deadlock the scheduler, then delegate to the real API for its exact `AggregateException` semantics.
+`TaskAsyncEnumerableExtensions.ToBlockingEnumerable` likewise pumps the coordinator until each
+`MoveNextAsync` and the final `DisposeAsync` complete, keeping the BCL's deferred enumeration, token,
+disposal, and exception semantics.
 
 **Simulation-only contract.** As with the BCL rule set, instrumented Controlled entry points require
 an active Clockwork simulation. Continuations and waits route through the coordinator carried by the
