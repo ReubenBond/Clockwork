@@ -128,8 +128,8 @@ public static class InstrumentationRunner
         ImmutableArray<string> replacementPaths =
             ResolveReplacementAssemblies(sourceDirectory, request.RuleSet, configuration);
         HashSet<string> replacementNames = ResolveReplacementClosureNames(sourceDirectory, replacementPaths);
-        ImmutableArray<string> rewrittenStrongNames =
-            DiscoverRewrittenStrongNameAssemblyNames(plan, replacementNames);
+        (ImmutableArray<string> rewrittenAssemblyNames, ImmutableArray<string> rewrittenStrongNames) =
+            DiscoverRewrittenAssemblyNames(plan, replacementNames);
         HashSet<string> protectedStrongNames = DiscoverCopiedStrongNameReferences(
             plan,
             replacementNames,
@@ -157,6 +157,7 @@ public static class InstrumentationRunner
             HardenExceptionHandlers = containsControlledTaskRules,
             InstrumentRaceExploration = configuration.Mode == InstrumentationMode.RaceExploration,
             StrongNameAssemblyNames = strongNameAssemblyNames,
+            RewrittenAssemblyNames = rewrittenAssemblyNames,
         };
 
         var assemblyResults = new List<AssemblyInstrumentationResult>();
@@ -375,11 +376,14 @@ public static class InstrumentationRunner
         return [.. paths];
     }
 
-    private static ImmutableArray<string> DiscoverRewrittenStrongNameAssemblyNames(
+    // The assemblies the closure rewrites - every rewrite candidate except the replacement assemblies and their
+    // dependencies, which are copied - and those of them that are strong-named.
+    private static (ImmutableArray<string> Names, ImmutableArray<string> StrongNamed) DiscoverRewrittenAssemblyNames(
         ClosurePlan plan,
         HashSet<string> replacementNames)
     {
         var names = new SortedSet<string>(StringComparer.Ordinal);
+        var strongNamed = new SortedSet<string>(StringComparer.Ordinal);
         foreach (ClosureAsset asset in plan.AssembliesToRewrite)
         {
             string fileName = Path.GetFileNameWithoutExtension(asset.RelativePath);
@@ -391,13 +395,14 @@ public static class InstrumentationRunner
             using AssemblyDefinition definition = AssemblyDefinition.ReadAssembly(
                 asset.SourcePath,
                 new ReaderParameters { ReadSymbols = false, InMemory = true });
+            names.Add(definition.Name.Name);
             if (definition.Name.HasPublicKey)
             {
-                names.Add(definition.Name.Name);
+                strongNamed.Add(definition.Name.Name);
             }
         }
 
-        return [.. names];
+        return ([.. names], [.. strongNamed]);
     }
 
     private static HashSet<string> DiscoverCopiedStrongNameReferences(

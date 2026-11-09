@@ -1,4 +1,3 @@
-using Clockwork.Instrumentation.Closure;
 using Clockwork.Instrumentation.Rules;
 using Mono.Cecil;
 
@@ -22,25 +21,26 @@ namespace Clockwork.Instrumentation.Rewriting;
 /// references carry a signature that binds by name at run time; when the original declaring type was a generic
 /// instance the imported open reference is re-based onto the mapped generic instance. A reference whose declaring
 /// type is not substituted keeps it and carries the substituted signature, which binds only where that type's
-/// definition is rewritten too.
+/// definition is rewritten too: in a type of this module that is not excluded from rewriting (checked after the
+/// pass), or in an assembly the closure rewrites with the same rule set (<see cref="RewriteSession.RewrittenAssemblyNames"/>).
 /// </remarks>
 internal sealed class MemberSubstitutionMapper
 {
     private readonly ModuleDefinition _module;
     private readonly Dictionary<string, TypeReference> _byName;
     private readonly Dictionary<string, string> _ruleIdByName;
-    private readonly Func<string, bool> _isReplacementAssembly;
+    private readonly IReadOnlySet<string> _rewrittenAssemblyNames;
 
     private MemberSubstitutionMapper(
         ModuleDefinition module,
         Dictionary<string, TypeReference> byName,
         Dictionary<string, string> ruleIdByName,
-        Func<string, bool> isReplacementAssembly)
+        IReadOnlySet<string> rewrittenAssemblyNames)
     {
         _module = module;
         _byName = byName;
         _ruleIdByName = ruleIdByName;
-        _isReplacementAssembly = isReplacementAssembly;
+        _rewrittenAssemblyNames = rewrittenAssemblyNames;
     }
 
     /// <summary>Gets a value indicating whether any substitution was resolved.</summary>
@@ -70,7 +70,7 @@ internal sealed class MemberSubstitutionMapper
             }
         }
 
-        return new MemberSubstitutionMapper(session.TargetModule, byName, ruleIdByName, session.Resolver.IsReplacementAssembly);
+        return new MemberSubstitutionMapper(session.TargetModule, byName, ruleIdByName, session.RewrittenAssemblyNames);
     }
 
     /// <summary>Gets the id of the rule that substitutes <paramref name="normalizedFullName"/>, if any.</summary>
@@ -211,14 +211,18 @@ internal sealed class MemberSubstitutionMapper
             return MemberMapping<MethodReference>.Unaffected;
         }
 
-        if (mappedDeclaring is null)
+        if (!IsSubstituted(method.DeclaringType))
         {
-            return Admit(method.DeclaringType, Rebuild(method, method.DeclaringType, mappedReturn, mappedParameters));
+            // The member keeps its declaring type, re-instantiated if a generic argument is substituted.
+            MethodReference rebuilt = Rebuild(method, mappedDeclaring ?? method.DeclaringType, mappedReturn, mappedParameters);
+            return mappedReturn is null && mappedParameters is null
+                ? MemberMapping<MethodReference>.Mapped(rebuilt, verifyAfterPass: false)
+                : Admit(method.DeclaringType, rebuilt);
         }
 
         TypeReference mappedElementType = mappedDeclaring is GenericInstanceType instance
             ? instance.ElementType
-            : mappedDeclaring;
+            : mappedDeclaring!;
 
         TypeDefinition? definition;
         try
@@ -258,31 +262,44 @@ internal sealed class MemberSubstitutionMapper
             field.Name,
             mappedFieldType ?? field.FieldType,
             mappedDeclaring ?? field.DeclaringType);
-        return mappedDeclaring is null
-            ? Admit(field.DeclaringType, mapped)
-            : MemberMapping<FieldReference>.Mapped(mapped, verifyAfterPass: false);
+        return mappedFieldType is null || IsSubstituted(field.DeclaringType)
+            ? MemberMapping<FieldReference>.Mapped(mapped, verifyAfterPass: false)
+            : Admit(field.DeclaringType, mapped);
     }
 
-    // A rebuilt reference keeps its declaring type but carries a substituted signature, so it binds only if the
-    // declaring type's definition is rewritten by the same mapping. That holds for a sibling assembly the closure
-    // rewrites with the same rule set, and for a type of this module unless it is excluded from rewriting, which is
-    // known once the pass has visited every type. Framework and replacement assemblies are never rewritten, so no
-    // member with the substituted signature exists there (for example ConfiguredAsyncDisposable.DisposeAsync returning
-    // a controlled awaitable): such a reference is unbindable, and the pass fails the rewrite rather than emit a member
-    // reference that throws MissingMethodException when the JIT binds it.
+    private bool IsSubstituted(TypeReference type) =>
+        _byName.ContainsKey(CecilNames.NormalizedTypeFullName(type));
+
+    // A rebuilt reference keeps its declaring type but carries a substituted signature, so it binds only where the
+    // declaring type's definition is rewritten by the same mapping: in this module, unless the type is excluded from
+    // rewriting, which is known once the pass has visited every type; or in another assembly the closure rewrites
+    // with the same rule set. Any other assembly - the framework, a replacement assembly, or one the closure excludes
+    // or that a direct engine caller did not name - keeps its original signatures, so the reference is unbindable
+    // and the pass fails the rewrite rather than emit a member reference that throws MissingMethodException or
+    // MissingFieldException when the runtime binds it. Array methods are provided by the runtime for every element
+    // type, so they always bind.
     private MemberMapping<TMember> Admit<TMember>(TypeReference declaringType, TMember rebuilt)
-        where TMember : MemberReference =>
-        declaringType.Scope switch
+        where TMember : MemberReference
+    {
+        if (declaringType is ArrayType)
+        {
+            return MemberMapping<TMember>.Mapped(rebuilt, verifyAfterPass: false);
+        }
+
+        return declaringType.Scope switch
         {
             ModuleDefinition module when ReferenceEquals(module, _module) =>
                 MemberMapping<TMember>.Mapped(rebuilt, verifyAfterPass: true),
-            AssemblyNameReference assembly
-                when FrameworkAssemblyClassifier.Default.IsFrameworkAssembly(assembly.Name)
-                    || _isReplacementAssembly(assembly.Name) => MemberMapping<TMember>.Unbindable(
-                $"is declared by '{CecilNames.NormalizedTypeFullName(declaringType)}' in '{assembly.Name}', which is " +
-                "never rewritten, so the member keeps its original signature"),
-            _ => MemberMapping<TMember>.Mapped(rebuilt, verifyAfterPass: false),
+            AssemblyNameReference assembly when _rewrittenAssemblyNames.Contains(assembly.Name) =>
+                MemberMapping<TMember>.Mapped(rebuilt, verifyAfterPass: false),
+            AssemblyNameReference assembly => MemberMapping<TMember>.Unbindable(
+                $"is declared by '{CecilNames.NormalizedTypeFullName(declaringType)}' in '{assembly.Name}', which is not " +
+                "rewritten in this closure, so the member keeps its original signature"),
+            _ => MemberMapping<TMember>.Unbindable(
+                $"is declared by '{CecilNames.NormalizedTypeFullName(declaringType)}' in module '{declaringType.Scope?.Name}', " +
+                "which this rewrite cannot check binds after rewriting"),
         };
+    }
 
     /// <summary>
     /// Builds a constructor reference for the controlled awaitable/awaiter produced by an awaiter-source

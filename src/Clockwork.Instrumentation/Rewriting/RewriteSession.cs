@@ -22,12 +22,14 @@ internal sealed class RewriteSession
         ModuleDefinition targetModule,
         RewriteRuleMatcher matcher,
         ReplacementResolver resolver,
-        IReadOnlySet<string> excludedTypeFullNames)
+        IReadOnlySet<string> excludedTypeFullNames,
+        IEnumerable<string> rewrittenAssemblyNames)
     {
         TargetModule = targetModule;
         Matcher = matcher;
         Resolver = resolver;
         ExcludedTypeFullNames = excludedTypeFullNames;
+        RewrittenAssemblyNames = new HashSet<string>(rewrittenAssemblyNames, StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>Gets the module being rewritten.</summary>
@@ -41,6 +43,12 @@ internal sealed class RewriteSession
 
     /// <summary>Gets the full names of the types excluded from rewriting, which no pass visits.</summary>
     public IReadOnlySet<string> ExcludedTypeFullNames { get; }
+
+    /// <summary>
+    /// Gets the simple names of the assemblies rewritten with the same rule set and options in the closure (see
+    /// <see cref="RewriteOptions.RewrittenAssemblyNames"/>), compared as the runtime binds simple names.
+    /// </summary>
+    public IReadOnlySet<string> RewrittenAssemblyNames { get; }
 
     /// <summary>Gets a value indicating whether any error-severity diagnostic has been recorded.</summary>
     public bool HasErrors { get; private set; }

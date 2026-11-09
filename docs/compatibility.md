@@ -180,10 +180,14 @@ exclude the containing assembly from instrumentation.
   semantic rewrite options is a verified no-op, and an incompatible rule set or options
   fingerprint fails clearly (`CWR0008`) rather than double-rewriting;
 - strict resolution — a targeted member whose replacement cannot be resolved is a hard
-  failure (`CWR0001`); a targeted call is never silently skipped. A member reference whose
-  substituted signature cannot bind against its declaring type also fails (`CWR0001`): a member of a
-  framework or replacement assembly, which is never rewritten, or of a type excluded from rewriting.
-  Members of other closure assemblies are assumed to be rewritten with the same rule set.
+  failure (`CWR0001`); a targeted call is never silently skipped. A member reference whose signature a
+  type substitution rewrites, but whose declaring type it keeps, binds only where that type is rewritten
+  too, so the rewrite fails (`CWR0001`) for a member of an assembly the closure does not rewrite (the
+  framework, a replacement assembly, or an excluded assembly) or of a type excluded from rewriting. The
+  closure runner tells the engine which assemblies it rewrites; a direct engine caller that does not is
+  taken to rewrite none, so every such reference into another assembly fails closed. The set is part of
+  the options fingerprint, so an already-rewritten input reused in a closure that rewrites different
+  assemblies fails (`CWR0008`).
 
 **Engine boundary:** load-time `AssemblyLoadContext` hooks, profiler/native detours, mixed-mode
 rewriting, Authenticode re-signing, application hosting, and transport interception are not

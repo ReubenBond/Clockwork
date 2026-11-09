@@ -301,6 +301,9 @@ public sealed class ModernSynchronizationRuleGoldenTests
         {
             ReplacementAssemblyPaths = [RuntimeAssemblyPath],
             ReferenceSearchDirectories = [context.Directory, Path.GetDirectoryName(RuntimeAssemblyPath)!],
+
+            // Both assemblies are rewritten, as the closure runner would declare.
+            RewrittenAssemblyNames = ["Fx.SignatureApi", "Fx.SignatureConsumer"],
         };
         RewriteRuleSet rules = BuiltInRuleSets.BuildControlledTasks(BuiltInRuleSets.AllFamilies);
 

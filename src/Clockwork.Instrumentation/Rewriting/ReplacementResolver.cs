@@ -51,9 +51,6 @@ internal sealed class ReplacementResolver : IDisposable
         }
     }
 
-    /// <summary>Gets a value indicating whether <paramref name="assemblyName"/> names a loaded replacement assembly.</summary>
-    public bool IsReplacementAssembly(string assemblyName) => _modulesByAssemblyName.ContainsKey(assemblyName);
-
     /// <summary>
     /// Resolves a type-substitution replacement to a type reference imported into
     /// <paramref name="targetModule"/>.

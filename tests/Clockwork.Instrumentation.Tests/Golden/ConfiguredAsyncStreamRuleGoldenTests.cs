@@ -8,8 +8,8 @@ using Mono.Cecil;
 namespace Clockwork.Instrumentation.Tests.Golden;
 
 /// <summary>
-/// Golden tests for the configured async disposable and enumerable substitutions, and for the rewrite-time check
-/// that fails a rewrite whose substituted member signature cannot bind against its declaring type.
+/// Golden tests for the configured async disposable and enumerable substitutions, and for the rule set without them,
+/// whose configured value-task awaitable substitutions leave BCL members that cannot bind and so fail the rewrite.
 /// </summary>
 public sealed class ConfiguredAsyncStreamRuleGoldenTests
 {
@@ -135,76 +135,6 @@ public sealed class ConfiguredAsyncStreamRuleGoldenTests
         AssertUnbound(result, "System.Runtime.CompilerServices.ConfiguredAsyncDisposable::DisposeAsync()");
         AssertUnbound(result, "System.Runtime.CompilerServices.ConfiguredCancelableAsyncEnumerable`1/Enumerator<System.Int32>::MoveNextAsync()");
         AssertUnbound(result, "System.Runtime.CompilerServices.ConfiguredCancelableAsyncEnumerable`1/Enumerator<System.Int32>::DisposeAsync()");
-    }
-
-    public static TheoryData<string, string, string?> BindingCases => new()
-    {
-        // A sibling assembly is rewritten with the same rule set in a closure, so its signature is substituted too.
-        { "Sibling", "public static string Call(LegacyMarker marker) => MarkerSink.Describe(marker);", null },
-
-        // A replacement assembly is never rewritten, so the substituted signature does not exist there.
-        { "Replacement", "public static string Call(LegacyMarker marker) => MarkerShim.Describe(marker);", "MarkerShim::Describe" },
-        { "ReplacementGeneric", "public static LegacyMarker Call(LegacyMarker marker) => MarkerShim.Make(marker);", "MarkerShim::Make" },
-
-        // A type excluded from rewriting keeps its original signature.
-        { "Excluded", "public static string Call(LegacyMarker marker) => Excluded.Describe(marker);", "Fx.Excluded::Describe" },
-    };
-
-    [Theory]
-    [MemberData(nameof(BindingCases))]
-    public void SubstitutedSignatureBindsOnlyWhereItsDeclaringTypeIsRewritten(string name, string call, string? unbound)
-    {
-        using var context = RewriteTestContext.Create();
-        string fixturePath = context.CompileFixture($"Fx.Binding{name}", $$"""
-            using ClockworkFixtures.Api;
-            using ClockworkFixtures.Shims;
-
-            namespace Fx
-            {
-                public static class Excluded
-                {
-                    public static string Describe(LegacyMarker marker) => marker.ToString();
-                }
-
-                public static class Caller
-                {
-                    {{call}}
-                }
-            }
-            """);
-        var ruleSet = new RewriteRuleSet(
-            "clockwork.fixtures.binding",
-            "1.0",
-            [
-                RewriteRule.SubstituteType(
-                    "substitute-marker",
-                    "ClockworkFixtures.Api.LegacyMarker",
-                    RewriteReplacement.Type(FixtureSources.ShimAssemblyName, "ClockworkFixtures.Shims.ModernMarker")),
-            ]);
-        var options = new RewriteOptions
-        {
-            ReplacementAssemblyPaths = [context.ShimPath],
-            ReferenceSearchDirectories = [context.Directory],
-            ExcludedTypeFullNames = ["Fx.Excluded"],
-        };
-
-        RewriteResult result = context.Rewrite(fixturePath, ruleSet, options);
-
-        if (unbound is null)
-        {
-            result.EnsureSuccess();
-            using ModuleDefinition module = context.LoadModule(Path.Combine(context.Directory, $"Fx.Binding{name}.rewritten.dll"));
-            Assert.Contains(
-                CecilInspect.CallTargets(CecilInspect.GetMethod(module, "Fx.Caller", "Call")),
-                target => target.Contains("MarkerSink::Describe(ClockworkFixtures.Shims.ModernMarker)", StringComparison.Ordinal));
-            return;
-        }
-
-        Assert.False(result.Succeeded);
-        RewriteDiagnostic error = Assert.Single(result.Errors, diagnostic => diagnostic.Message.Contains(unbound, StringComparison.Ordinal));
-        Assert.Equal(RewriteDiagnosticIds.UnresolvedReplacement, error.Id);
-        Assert.Equal("Fx.Caller.Call", error.Method);
-        Assert.Contains("substitute-marker", error.Message, StringComparison.Ordinal);
     }
 
     private static RewriteResult Rewrite(RewriteTestContext context, string assemblyName, RewriteRuleSet ruleSet)

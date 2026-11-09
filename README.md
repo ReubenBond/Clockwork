@@ -526,8 +526,8 @@ state machines are controlled. The configured async disposable and enumerable be
 `await using (x.ConfigureAwait(…))` and `await foreach (… in source.ConfigureAwait(…))`/`.WithCancellation(…)`
 are substituted the same way, so their dispose and iteration awaits are controlled and the token still
 reaches `GetAsyncEnumerator` as in the BCL. A member reference whose substituted signature cannot bind
-against its declaring type fails the rewrite (`CWR0001`) instead of throwing `MissingMethodException` at run
-time. The controlled awaiter hands each continuation to the simulation
+fails the rewrite (`CWR0001`) instead of throwing `MissingMethodException` at run time: one whose declaring
+type is in an assembly the closure does not rewrite or is excluded from rewriting. The controlled awaiter hands each continuation to the simulation
 coordinator, so **`ConfigureAwait(false)` stays controlled** inside a simulation (for both `Task`
 and `ValueTask`). `Task.ConfigureAwait(ConfigureAwaitOptions)` builds the same controlled awaitable and
 honours `SuppressThrowing` and `ForceYielding` exactly as the BCL awaiter does. A synchronous

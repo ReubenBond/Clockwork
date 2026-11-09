@@ -84,6 +84,15 @@ public sealed record RewriteOptions
     internal ImmutableArray<string> StrongNameAssemblyNames { get; init; } = [];
 
     /// <summary>
+    /// Gets the simple names of the assemblies the closure rewrites with the same rule set and options. A member
+    /// reference whose signature the rewrite substitutes, but whose declaring type it keeps, binds only where that
+    /// type's definition is rewritten too; one declared in another assembly is admitted only if that assembly is in
+    /// this set, and otherwise fails the rewrite. The closure runner supplies the set; for a direct engine caller that
+    /// does not, no other assembly is rewritten, so every such reference fails closed.
+    /// </summary>
+    internal ImmutableArray<string> RewrittenAssemblyNames { get; init; } = [];
+
+    /// <summary>
     /// Computes a canonical fingerprint of every option which can affect rewritten output,
     /// diagnostics, or manifest content. Set-like exclusions are sorted so equivalent orderings
     /// produce the same fingerprint; resolver path order is preserved because it controls precedence.
@@ -101,6 +110,7 @@ public sealed record RewriteOptions
         canonical.AddBoolean(nameof(DetectUncontrolledTasks), DetectUncontrolledTasks);
         canonical.AddBoolean(nameof(InstrumentRaceExploration), InstrumentRaceExploration);
         AppendPaths(canonical, nameof(StrongNameAssemblyNames), StrongNameAssemblyNames, sort: true);
+        AppendPaths(canonical, nameof(RewrittenAssemblyNames), RewrittenAssemblyNames, sort: true);
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString())));
     }
 
