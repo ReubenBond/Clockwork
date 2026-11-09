@@ -185,6 +185,31 @@ internal static class FixtureSources
                 public int NestedShape(Nested value) => 1;
                 public int NestedShape(string value) => 2;
             }
+
+            // Awaiter-source substitutes. Each decoy constructor is declared first and does not consume the
+            // awaiter-source call's stack, so constructor selection must skip it.
+            public readonly struct BoolOnlyConfiguredTaskAwaitable
+            {
+                public BoolOnlyConfiguredTaskAwaitable(System.Threading.Tasks.Task task, bool continueOnCapturedContext) { }
+            }
+
+            public readonly struct DecoyTaskAwaiter
+            {
+                public DecoyTaskAwaiter(ref System.Threading.Tasks.Task task) { }
+                public DecoyTaskAwaiter(System.Threading.Tasks.Task task) { }
+            }
+
+            public readonly struct DecoyTaskAwaiter<TResult>
+            {
+                public DecoyTaskAwaiter(System.Threading.Tasks.Task<int> task) { }
+                public DecoyTaskAwaiter(System.Threading.Tasks.Task<TResult> task) { }
+            }
+
+            public readonly struct DecoyValueTaskAwaiter
+            {
+                public DecoyValueTaskAwaiter(System.Threading.Tasks.ValueTask valueTask) { }
+                public DecoyValueTaskAwaiter(in System.Threading.Tasks.ValueTask valueTask) { }
+            }
         }
         """;
 }

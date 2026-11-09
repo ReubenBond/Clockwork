@@ -236,35 +236,15 @@ internal sealed class MemberSubstitutionMapper
     }
 
     /// <summary>
-    /// Builds a constructor reference on a mapped value type taking exactly <paramref name="arity"/>
-    /// parameters. Used to turn an awaiter-source call (<c>Task.GetAwaiter()</c> /
-    /// <c>Task.ConfigureAwait(bool)</c>) into a <c>newobj</c> of the controlled awaitable/awaiter, which
-    /// consumes the same stack (the receiver, plus any arguments) and pushes the controlled value.
-    /// </summary>
-    public MethodReference? BuildConstructor(TypeReference mappedType, int arity)
-    {
-        TypeReference elementType = mappedType is GenericInstanceType instance ? instance.ElementType : mappedType;
-        TypeDefinition? definition = elementType.Resolve();
-        MethodDefinition? constructor = definition?.Methods
-            .FirstOrDefault(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == arity);
-        if (constructor is null)
-        {
-            return null;
-        }
-
-        MethodReference importedOpen = _module.ImportReference(constructor);
-        return mappedType is GenericInstanceType genericType ? Rebase(importedOpen, genericType) : importedOpen;
-    }
-
-    /// <summary>
     /// Builds a constructor reference for the controlled awaitable/awaiter produced by an awaiter-source
-    /// call (<c>Task.GetAwaiter()</c> / <c>Task.ConfigureAwait(bool)</c>). The BCL return type
+    /// call (<c>Task.GetAwaiter()</c>, <c>Task.ConfigureAwait(bool)</c>, or
+    /// <c>Task.ConfigureAwait(ConfigureAwaitOptions)</c>). The BCL return type
     /// (<c>TaskAwaiter&lt;!0&gt;</c> / <c>ConfiguredTaskAwaitable&lt;!0&gt;</c>) parameterises over the
     /// awaited task's own generic parameter, so its concrete argument is taken from the receiver's
     /// declaring generic instance rather than mapped directly (mapping would carry the unbound <c>!0</c>
     /// into a non-generic state machine and produce a dangling reference).
     /// </summary>
-    public MethodReference? BuildAwaiterSourceConstructor(MethodReference source, int arity)
+    public MethodReference? BuildAwaiterSourceConstructor(MethodReference source)
     {
         TypeReference returnType = source.ReturnType;
         string openName = returnType is GenericInstanceType generic ? generic.ElementType.FullName : returnType.FullName;
@@ -290,7 +270,129 @@ internal sealed class MemberSubstitutionMapper
             mappedResult = openSubstitute;
         }
 
-        return BuildConstructor(mappedResult, arity);
+        return BuildConstructor(mappedResult, source);
+    }
+
+    /// <summary>
+    /// Builds a reference to the constructor on a mapped value type that consumes an awaiter-source call's
+    /// stack - the receiver followed by the call's arguments - so the call becomes a <c>newobj</c> that
+    /// pushes the controlled value. The constructor is selected by parameter types, so each overload (for
+    /// example <c>ConfigureAwait(bool)</c> and <c>ConfigureAwait(ConfigureAwaitOptions)</c>) binds to the
+    /// constructor taking exactly its arguments, and an overload without one is left unmapped.
+    /// </summary>
+    private MethodReference? BuildConstructor(TypeReference mappedType, MethodReference source)
+    {
+        TypeReference elementType = mappedType is GenericInstanceType instance ? instance.ElementType : mappedType;
+        TypeDefinition? definition = elementType.Resolve();
+        TypeDefinition? receiverDefinition = TryResolve(source.DeclaringType);
+        if (definition is null || receiverDefinition is null)
+        {
+            return null;
+        }
+
+        bool receiverIsValueType = receiverDefinition.IsValueType;
+        MethodDefinition? constructor = definition.Methods
+            .FirstOrDefault(m => m.IsConstructor && !m.IsStatic && ConsumesAwaiterSourceStack(m, source, receiverIsValueType));
+        if (constructor is null)
+        {
+            return null;
+        }
+
+        MethodReference importedOpen = _module.ImportReference(constructor);
+        return mappedType is GenericInstanceType genericType ? Rebase(importedOpen, genericType) : importedOpen;
+    }
+
+    private static TypeDefinition? TryResolve(TypeReference type)
+    {
+        try
+        {
+            return type.Resolve();
+        }
+        catch (AssemblyResolutionException)
+        {
+            return null;
+        }
+    }
+
+    private static bool ConsumesAwaiterSourceStack(
+        MethodDefinition constructor,
+        MethodReference source,
+        bool receiverIsValueType)
+    {
+        if (constructor.Parameters.Count != source.Parameters.Count + 1)
+        {
+            return false;
+        }
+
+        // A Task receiver is pushed as an object reference, which binds only to a by-value parameter; a
+        // ValueTask receiver is pushed as its address, which binds only to a by-reference (`in`) parameter.
+        TypeReference parameter = constructor.Parameters[0].ParameterType;
+        if ((parameter is ByReferenceType) != receiverIsValueType)
+        {
+            return false;
+        }
+
+        TypeReference receiver = parameter is ByReferenceType byReference ? byReference.ElementType : parameter;
+        if (!string.Equals(
+                CecilNames.NormalizedTypeFullName(receiver),
+                CecilNames.NormalizedTypeFullName(source.DeclaringType),
+                StringComparison.Ordinal)
+            || !TakesOwnGenericParameters(receiver, constructor.DeclaringType, source.DeclaringType))
+        {
+            return false;
+        }
+
+        for (int i = 0; i < source.Parameters.Count; i++)
+        {
+            if (!string.Equals(
+                    CecilNames.ParameterFullName(constructor.Parameters[i + 1].ParameterType),
+                    CecilNames.ParameterFullName(source.Parameters[i].ParameterType),
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// The constructor is rebased onto the controlled type instantiated with the receiver's generic
+    /// arguments, so its receiver parameter must take exactly that type's own generic parameters, in order
+    /// (<c>Task&lt;TResult&gt;</c> on <c>ControlledTaskAwaiter&lt;TResult&gt;</c>). Any other instantiation
+    /// would bind a receiver of a different type.
+    /// </summary>
+    private static bool TakesOwnGenericParameters(
+        TypeReference receiverParameter,
+        TypeDefinition constructorType,
+        TypeReference receiver)
+    {
+        int arity = receiver is GenericInstanceType receiverInstance ? receiverInstance.GenericArguments.Count : 0;
+        if (constructorType.GenericParameters.Count != arity)
+        {
+            return false;
+        }
+
+        if (receiverParameter is not GenericInstanceType parameterInstance)
+        {
+            return arity == 0;
+        }
+
+        if (parameterInstance.GenericArguments.Count != arity)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < arity; i++)
+        {
+            if (parameterInstance.GenericArguments[i] is not GenericParameter { Type: GenericParameterType.Type } argument
+                || argument.Position != i)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private MethodDefinition? FindMatchingMethod(TypeDefinition definition, MethodReference original)

@@ -25,20 +25,24 @@ public sealed class AsyncStressConformanceTests : IDisposable
         using System.Threading.Tasks;
         namespace Conf { public static class StressProbe {
             public static Task Interleave(int workers, int rounds, int[] order, int[] threadIds, int[] cursor)
-                => Impl(workers, rounds, order, threadIds, cursor);
+                => Impl(workers, rounds, order, threadIds, cursor, forceYielding: false);
 
-            private static async Task Impl(int workers, int rounds, int[] order, int[] threadIds, int[] cursor)
+            public static Task InterleaveForceYielding(int workers, int rounds, int[] order, int[] threadIds, int[] cursor)
+                => Impl(workers, rounds, order, threadIds, cursor, forceYielding: true);
+
+            private static async Task Impl(int workers, int rounds, int[] order, int[] threadIds, int[] cursor, bool forceYielding)
             {
                 var tasks = new Task[workers];
-                for (int i = 0; i < workers; i++) tasks[i] = Worker(i, rounds, order, threadIds, cursor);
+                for (int i = 0; i < workers; i++) tasks[i] = Worker(i, rounds, order, threadIds, cursor, forceYielding);
                 await Task.WhenAll(tasks);
             }
 
-            private static async Task Worker(int index, int rounds, int[] order, int[] threadIds, int[] cursor)
+            private static async Task Worker(int index, int rounds, int[] order, int[] threadIds, int[] cursor, bool forceYielding)
             {
                 for (int k = 0; k < rounds; k++)
                 {
-                    await Task.Yield();
+                    if (forceYielding) await Task.CompletedTask.ConfigureAwait(ConfigureAwaitOptions.ForceYielding);
+                    else await Task.Yield();
                     int c = cursor[0]++;
                     order[c] = index;
                     threadIds[c] = System.Environment.CurrentManagedThreadId;
@@ -63,23 +67,25 @@ public sealed class AsyncStressConformanceTests : IDisposable
         Assert.All(threadIds, id => Assert.Equal(expected, id));
     }
 
-    [Fact]
-    public void InterleavingIsReproducibleUnderTheSameSeed()
+    [Theory]
+    [InlineData("Interleave")]
+    [InlineData("InterleaveForceYielding")]
+    public void InterleavingIsReproducibleUnderTheSameSeed(string probe)
     {
-        (int[] first, int[] _) = RunInterleave(seed: 7);
-        (int[] second, int[] _) = RunInterleave(seed: 7);
+        (int[] first, int[] _) = RunInterleave(seed: 7, probe);
+        (int[] second, int[] _) = RunInterleave(seed: 7, probe);
 
         Assert.Equal(first, second);
     }
 
-    private (int[] Order, int[] ThreadIds) RunInterleave(int seed)
+    private (int[] Order, int[] ThreadIds) RunInterleave(int seed, string probe = "Interleave")
     {
         using var host = new SimulationHost(Start, seed);
         var order = new int[Steps];
         var threadIds = new int[Steps];
         var cursor = new int[1];
 
-        var task = (Task)host.Invoke(_probe.Value.Method("Interleave"), Workers, Rounds, order, threadIds, cursor)!;
+        var task = (Task)host.Invoke(_probe.Value.Method(probe), Workers, Rounds, order, threadIds, cursor)!;
 
         Assert.Equal(TaskStatus.RanToCompletion, task.Status);
         Assert.Equal(Steps, cursor[0]);

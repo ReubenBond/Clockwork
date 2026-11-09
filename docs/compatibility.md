@@ -332,7 +332,15 @@ or Release state machine is fully controlled. The same pass also retargets the
 their `Controlled…` counterparts (the `ValueTaskMachinery` family) — so value-task `async`/`await`
 and `ValueTask.ConfigureAwait(false)` are controlled identically. The controlled awaiter hands
 every continuation to the simulation coordinator rather than the awaited task's completion
-callback, which is exactly why **`ConfigureAwait(false)` stays controlled**. Uninstrumented
+callback, which is exactly why **`ConfigureAwait(false)` stays controlled**.
+`Task.ConfigureAwait(ConfigureAwaitOptions)` and `Task<T>.ConfigureAwait(ConfigureAwaitOptions)` build
+the same controlled awaitables: `SuppressThrowing` completes the await normally for a faulted or
+canceled `Task`, `ForceYielding` always yields through the coordinator, and invalid options (including
+`SuppressThrowing` on `Task<T>`) throw the BCL's `ArgumentOutOfRangeException`. As in the BCL,
+`GetAwaiter()` or `ConfigureAwait` on a null task throws `NullReferenceException` and the controlled
+awaiters keep their frames out of a rethrown exception's stack trace. A synchronous
+`GetAwaiter().GetResult()` on an incomplete task or value task pumps the coordinator until it completes
+instead of blocking. Uninstrumented
 production binaries retain normal BCL async semantics. A
 **call-site redirect** half routes both the
 non-generic `Task.WhenAll` / `Task.WhenAny` (array, span, pair, enumerable) combinators **and their
@@ -353,8 +361,8 @@ builders, awaiters, and shims require an active Clockwork simulation. Continuati
 through the coordinator carried by the complete ambient runtime and cannot silently escape to the
 thread pool.
 
-Synchronous blocking on `ValueTask`/`ValueTask<T>` remains unsupported: a value task may be
-consumed only once, so a blocking drain is unsafe and `await` is the supported controlled path.
+Blocking `ValueTask<T>.Result` reads remain unsupported: the accessor is not rewritten, so `await`, or
+`GetAwaiter().GetResult()` through the controlled awaiter, is the supported controlled path.
 Other APIs absent from the generated rule inventory are outside the support claim.
 
 #### Threads, thread pool, Parallel, and task parity

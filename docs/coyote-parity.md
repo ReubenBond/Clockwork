@@ -121,7 +121,7 @@ async machinery, `Yield`, and `Run`.
 | Coyote surface | Clockwork status | Rule / family |
 | --- | --- | --- |
 | `async ValueTask`/`ValueTask<T>` builder + awaiter types (`AsyncValueTaskMethodBuilder`, `ValueTaskAwaiter`, `ConfiguredValueTaskAwaitable`, generic + non-generic) | ✅ Controlled | ValueTaskMachinery family (type substitution) |
-| Synchronous blocking on `ValueTask`/`ValueTask<T>` (`.Result` / `.GetResult()` outside an awaiter) | ⛔ Not rewritten (documented hole) | a value task may be consumed only once, so a blocking drain is unsafe — `await` is the supported controlled path (see `rule-inventory.md` holes) |
+| Blocking `ValueTask<T>.Result` read | ⛔ Not rewritten (documented hole) | `await`, or `GetAwaiter().GetResult()` through the controlled awaiter (which pumps until the value task completes), is the supported controlled path (see `rule-inventory.md` holes) |
 
 ---
 

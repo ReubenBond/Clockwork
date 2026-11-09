@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Clockwork.Runtime.Shims;
@@ -18,6 +19,7 @@ public readonly struct ControlledValueTaskAwaiter : ICriticalNotifyCompletion, I
 
     /// <summary>Initializes a new controlled awaiter over <paramref name="valueTask"/>.</summary>
     /// <param name="valueTask">The value task being awaited.</param>
+    [StackTraceHidden]
     public ControlledValueTaskAwaiter(in ValueTask valueTask)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(ApiName);
@@ -28,9 +30,19 @@ public readonly struct ControlledValueTaskAwaiter : ICriticalNotifyCompletion, I
     public bool IsCompleted => (SimulationRuntimeDispatch.RequireActiveSimulation(ApiName), _valueTask.IsCompleted).Item2;
 
     /// <summary>Completes the await, throwing the value task's fault or cancellation.</summary>
+    /// <remarks>
+    /// Called synchronously before the value task completes, it pumps the simulation until the value task completes,
+    /// as a controlled synchronous wait does, instead of blocking the simulation's logical thread.
+    /// </remarks>
+    [StackTraceHidden]
     public void GetResult()
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(ApiName);
+        if (!_valueTask.IsCompleted)
+        {
+            SimulationTaskRuntime.DrainUntilCompleted(_valueTask, ApiName);
+        }
+
         _valueTask.GetAwaiter().GetResult();
     }
 
@@ -62,6 +74,7 @@ public readonly struct ControlledValueTaskAwaiter<TResult> : ICriticalNotifyComp
 
     /// <summary>Initializes a new controlled awaiter over <paramref name="valueTask"/>.</summary>
     /// <param name="valueTask">The value task being awaited.</param>
+    [StackTraceHidden]
     public ControlledValueTaskAwaiter(in ValueTask<TResult> valueTask)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(ApiName);
@@ -73,8 +86,21 @@ public readonly struct ControlledValueTaskAwaiter<TResult> : ICriticalNotifyComp
 
     /// <summary>Completes the await, returning the result or throwing the value task's fault/cancellation.</summary>
     /// <returns>The awaited value task's result.</returns>
-    public TResult GetResult() =>
-        (SimulationRuntimeDispatch.RequireActiveSimulation(ApiName), _valueTask.GetAwaiter().GetResult()).Item2;
+    /// <remarks>
+    /// Called synchronously before the value task completes, it pumps the simulation until the value task completes,
+    /// as a controlled synchronous wait does, instead of blocking the simulation's logical thread.
+    /// </remarks>
+    [StackTraceHidden]
+    public TResult GetResult()
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation(ApiName);
+        if (!_valueTask.IsCompleted)
+        {
+            SimulationTaskRuntime.DrainUntilCompleted(_valueTask, ApiName);
+        }
+
+        return _valueTask.GetAwaiter().GetResult();
+    }
 
     /// <inheritdoc />
     public void OnCompleted(Action continuation) => Register(continuation, flowExecutionContext: true);

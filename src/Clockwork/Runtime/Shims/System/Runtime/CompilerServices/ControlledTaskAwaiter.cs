@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Clockwork.Runtime.Racing;
@@ -22,10 +23,13 @@ public readonly struct ControlledTaskAwaiter : ICriticalNotifyCompletion, INotif
 
     /// <summary>Initializes a new controlled awaiter over <paramref name="task"/>.</summary>
     /// <param name="task">The task being awaited.</param>
+    [StackTraceHidden]
     public ControlledTaskAwaiter(Task task)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(ApiName);
-        ArgumentNullException.ThrowIfNull(task);
+
+        // The BCL call dereferences the task, so a null task throws the BCL's own NullReferenceException.
+        _ = task.GetAwaiter();
         _task = task;
     }
 
@@ -36,9 +40,19 @@ public readonly struct ControlledTaskAwaiter : ICriticalNotifyCompletion, INotif
     /// Completes the await, throwing the task's fault or cancellation exactly as the real awaiter would
     /// (the first exception unwrapped for a fault, <see cref="TaskCanceledException"/> for cancellation).
     /// </summary>
+    /// <remarks>
+    /// Called synchronously before the task completes, it pumps the simulation until the task completes,
+    /// as a controlled synchronous wait does, instead of blocking the simulation's logical thread.
+    /// </remarks>
+    [StackTraceHidden]
     public void GetResult()
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(ApiName);
+        if (!_task.IsCompleted)
+        {
+            SimulationTaskRuntime.DrainUntilCompleted(_task, ApiName, CancellationToken.None);
+        }
+
         RaceSynchronization.Wait(_task);
         _task.GetAwaiter().GetResult();
     }
@@ -64,10 +78,13 @@ public readonly struct ControlledTaskAwaiter<TResult> : ICriticalNotifyCompletio
 
     /// <summary>Initializes a new controlled awaiter over <paramref name="task"/>.</summary>
     /// <param name="task">The task being awaited.</param>
+    [StackTraceHidden]
     public ControlledTaskAwaiter(Task<TResult> task)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(ApiName);
-        ArgumentNullException.ThrowIfNull(task);
+
+        // The BCL call dereferences the task, so a null task throws the BCL's own NullReferenceException.
+        _ = task.GetAwaiter();
         _task = task;
     }
 
@@ -76,9 +93,19 @@ public readonly struct ControlledTaskAwaiter<TResult> : ICriticalNotifyCompletio
 
     /// <summary>Completes the await, returning the result or throwing the task's fault/cancellation.</summary>
     /// <returns>The awaited task's result.</returns>
+    /// <remarks>
+    /// Called synchronously before the task completes, it pumps the simulation until the task completes,
+    /// as a controlled synchronous wait does, instead of blocking the simulation's logical thread.
+    /// </remarks>
+    [StackTraceHidden]
     public TResult GetResult()
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(ApiName);
+        if (!_task.IsCompleted)
+        {
+            SimulationTaskRuntime.DrainUntilCompleted(_task, ApiName, CancellationToken.None);
+        }
+
         RaceSynchronization.Wait(_task);
         return _task.GetAwaiter().GetResult();
     }
