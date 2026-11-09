@@ -32,8 +32,11 @@ namespace Clockwork.Instrumentation.Rewriting;
 /// <item><description>a reference from an excluded type to a member of this module whose signature the pass
 /// rewrote;</description></item>
 /// <item><description>an interface implementation or override whose signature the pass rewrote on one side only: between
-/// a rewritten type and an excluded one or a type of an assembly the closure does not rewrite, or where the type names the
-/// implemented interface or base type with a substituted generic argument, which the pass does not substitute.</description></item>
+/// a rewritten type and an excluded one or a type of an assembly the closure does not rewrite, including where one of
+/// them names the implemented interface or base type with a substituted generic argument, which the pass substitutes in
+/// a rewritten type's base type and interfaces only;</description></item>
+/// <item><description>an explicit implementation or override whose declaration names a member that does not bind with
+/// the substituted signature.</description></item>
 /// </list>
 /// The closure runner checks references, implementations, and overrides between assemblies once every assembly is
 /// staged.
@@ -78,6 +81,9 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
             return;
         }
 
+        MapBaseTypes(type);
+        MapGenericConstraints(type.GenericParameters);
+
         foreach (FieldDefinition field in type.Fields)
         {
             TypeReference? mapped = Mapper.MapType(field.FieldType);
@@ -112,6 +118,7 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
         // produce incompatible closure and public API references after the whole-type substitution.
         foreach (MethodDefinition method in type.Methods)
         {
+            MapGenericConstraints(method.GenericParameters);
             TypeReference? mappedReturn = Mapper.MapType(method.ReturnType);
             TypeReference?[] mappedParameters = [.. method.Parameters.Select(parameter => Mapper.MapType(parameter.ParameterType))];
             if (mappedReturn is null && mappedParameters.All(mapped => mapped is null))
@@ -135,19 +142,44 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
         }
 
         // An explicit implementation or override names the member it implements by signature, so it is retargeted
-        // onto that member's rewritten signature as a call to it would be. A declaration whose declaring type would be
-        // re-instantiated is kept: it must name the interface or base type as the type itself does, which this pass
-        // does not substitute. Whether each implementation still matches is checked once every type is visited.
+        // onto that member's rewritten signature, and onto the interface or base type as this type now names it (such
+        // as IEnumerable<Barrier>.GetEnumerator), as a call to it would be. A definition of this module is rewritten in
+        // place with its declaring type. Whether each implementation still matches is checked once every type is
+        // visited.
         foreach (MethodDefinition method in type.Methods.Where(method => method.HasOverrides))
         {
             for (int i = 0; i < method.Overrides.Count; i++)
             {
                 MethodReference implemented = method.Overrides[i];
-                if (implemented is not MethodDefinition
-                    && Mapper.MapType(implemented.DeclaringType) is null
-                    && Mapper.MapMethod(implemented) is { Kind: MemberMappingKind.Mapped } mapping)
+                if (implemented is MethodDefinition)
+                {
+                    continue;
+                }
+
+                MemberMapping<MethodReference> mapping = Mapper.MapMethod(implemented);
+                if (mapping.Kind == MemberMappingKind.Mapped)
                 {
                     method.Overrides[i] = mapping.Reference!;
+
+                    // A member of a generic instance of this module's type binds only if that type is rewritten too.
+                    if (mapping.VerifyAfterPass)
+                    {
+                        _pendingBindings.Add(new PendingBinding(
+                            MemberRules(implemented),
+                            implemented.FullName,
+                            mapping.Reference!,
+                            CecilNames.FullyQualifiedMethodName(method),
+                            Offset: -1));
+                    }
+                }
+                else if (mapping.Kind == MemberMappingKind.Unbindable)
+                {
+                    ReportUnappliedMemberSubstitution(
+                        MemberRules(implemented),
+                        implemented.FullName,
+                        CecilNames.FullyQualifiedMethodName(method),
+                        offset: -1,
+                        mapping.Reason!);
                 }
             }
         }
@@ -215,6 +247,22 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
                     else if (mapping.Kind == MemberMappingKind.Unbindable)
                     {
                         ReportUnappliedMemberSubstitution(field, instruction, mapping.Reason!);
+                    }
+
+                    return instruction;
+                }
+
+            // TypeReferenceRewritingPass substitutes operands whose own type is substituted; this maps the
+            // remaining operands composed from one, such as the constrained. List<Barrier>.Enumerator prefix of a
+            // foreach, which must name the type of the mapped local it constrains.
+            case TypeReference type:
+                {
+                    TypeReference? mapped = Mapper.MapType(type);
+                    if (mapped is not null)
+                    {
+                        instruction.Operand = mapped;
+                        IsMethodBodyModified = true;
+                        RecordType(mapped, type, instruction);
                     }
 
                     return instruction;
@@ -450,6 +498,55 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
                 $"{error} Member-aware substitution rule '{rule.Id}' could not be applied."));
             Session.AddUnresolvedReference(rule.Replacement.ToCanonicalString());
         });
+
+    // A base type or interface composed from a substituted type, such as List<Barrier>, is mapped like any other
+    // signature. A substituted base type itself is not: the derived type keeps its layout and base constructor calls,
+    // so retargeting its members onto the replacement would invoke the replacement's members on an object of a
+    // different type. That fails the rewrite instead.
+    private void MapBaseTypes(TypeDefinition type)
+    {
+        if (type.BaseType is TypeReference baseType)
+        {
+            if (Session.Matcher.TryMatchType(baseType, out RewriteRule rule))
+            {
+                Session.AddDiagnostic(RewriteDiagnostic.Error(
+                    RewriteDiagnosticIds.UnresolvedReplacement,
+                    $"Type '{type.FullName}' derives from '{baseType.FullName}', which substitution rule '{rule.Id}' replaces; a type derived from a substituted type cannot be rewritten.",
+                    type.FullName));
+                Session.AddUnresolvedReference(rule.Replacement.ToCanonicalString());
+            }
+            else if (Mapper.MapType(baseType) is TypeReference mappedBase)
+            {
+                type.BaseType = mappedBase;
+            }
+        }
+
+        foreach (InterfaceImplementation implementation in type.Interfaces)
+        {
+            TypeReference? mappedInterface = Mapper.MapType(implementation.InterfaceType);
+            if (mappedInterface is not null)
+            {
+                implementation.InterfaceType = mappedInterface;
+            }
+        }
+    }
+
+    // A constraint such as where T : IEnumerable<Barrier> must name the mapped type: call sites rewritten to the
+    // replacement instantiate T with a type which satisfies only the mapped constraint.
+    private void MapGenericConstraints(Mono.Collections.Generic.Collection<GenericParameter> parameters)
+    {
+        foreach (GenericParameter parameter in parameters)
+        {
+            foreach (GenericParameterConstraint constraint in parameter.Constraints)
+            {
+                TypeReference? mapped = Mapper.MapType(constraint.ConstraintType);
+                if (mapped is not null)
+                {
+                    constraint.ConstraintType = mapped;
+                }
+            }
+        }
+    }
 
     private void ReportOutOfRange(IEnumerable<TypeReference> types)
     {

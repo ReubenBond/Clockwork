@@ -199,10 +199,12 @@ exclude the containing assembly from instrumentation.
   signatures, so an excluded type's reference to a member of its module whose signature the rewrite changed
   fails too. An interface implementation or override is matched to its member by signature when the type
   loads, so one whose signature the rewrite changes on one side only (between a rewritten type and an
-  excluded type or a type of an assembly the closure does not rewrite), or whose type names the implemented
-  interface or base type with a substituted generic argument, which the rewrite does not substitute, fails
-  (`CWR0001`) rather than throwing `TypeLoadException`; an explicit implementation's declaration is
-  retargeted with the member it implements. The closure runner tells the engine which assemblies it
+  excluded type or a type of an assembly the closure does not rewrite, including where one of them names the
+  implemented interface or base type with a substituted generic argument, which the rewrite substitutes in a
+  rewritten type only) fails (`CWR0001`) rather than throwing `TypeLoadException`. An explicit
+  implementation's declaration is retargeted with the member it implements, and fails (`CWR0001`) where that
+  member does not bind after rewriting: the substitute lacks it, or its declaring type keeps the original
+  signature. The closure runner tells the engine which assemblies it
   rewrites; a direct engine caller that does not is taken to rewrite none, so every such reference into
   another assembly fails closed. The set is part of the options fingerprint, so an already-rewritten input
   reused in a closure that rewrites different assemblies fails (`CWR0008`). Once the closure is staged, the

@@ -137,19 +137,72 @@ public sealed class SubstitutionBindingGoldenTests
                 "excluded from rewriting, so it keeps the original signature while 'Fx.Handler' is rewritten"
         },
         {
-            // The rewrite substitutes the method's signature but not the type's interface list.
-            "SubstitutedTypeArgument",
+            // The excluded base keeps CompareTo(LegacyMarker), while the rewritten type re-implementing the interface
+            // names it with the substitute.
+            "ExcludedBaseOfAReimplementer",
             """
-            public sealed class Ordered : IComparable<LegacyMarker>
+            [Clockwork.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
+            public class OrderedBase : IComparable<LegacyMarker>
             {
                 public int CompareTo(LegacyMarker other) => 0;
             }
+
+            public sealed class Ordered : OrderedBase, IComparable<LegacyMarker>
+            {
+            }
             """,
             null,
-            "Fx.Ordered::CompareTo",
-            "implements 'System.IComparable`1::CompareTo(ClockworkFixtures.Api.LegacyMarker) : System.Int32' as " +
-                "'CompareTo(ClockworkFixtures.Shims.ModernMarker) : System.Int32' after rewriting, because the rewrite does not " +
-                "substitute the type arguments of 'System.IComparable`1<ClockworkFixtures.Api.LegacyMarker>'"
+            "Fx.OrderedBase::CompareTo",
+            "implements 'System.IComparable`1::CompareTo(ClockworkFixtures.Shims.ModernMarker) : System.Int32' as " +
+                "'CompareTo(ClockworkFixtures.Api.LegacyMarker) : System.Int32' after rewriting, because 'Fx.OrderedBase' is " +
+                "excluded from rewriting, so it keeps the original signature while 'Fx.Ordered' is rewritten and names " +
+                "'System.IComparable`1<ClockworkFixtures.Shims.ModernMarker>'"
+        },
+        {
+            // The excluded intermediate base keeps naming its base with the substituted type argument.
+            "ExcludedIntermediateBase",
+            """
+            public abstract class Slot<T>
+            {
+                public abstract string Put(T value);
+            }
+
+            [Clockwork.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
+            public abstract class MarkerSlot : Slot<LegacyMarker>
+            {
+            }
+
+            public sealed class Slotted : MarkerSlot
+            {
+                public override string Put(LegacyMarker value) => value.ToString();
+            }
+            """,
+            null,
+            "Fx.Slotted::Put",
+            "overrides 'Fx.Slot`1::Put(ClockworkFixtures.Api.LegacyMarker) : System.String' as " +
+                "'Put(ClockworkFixtures.Shims.ModernMarker) : System.String' after rewriting, because 'Fx.MarkerSlot' is " +
+                "excluded from rewriting, so it names 'Fx.Slot`1<ClockworkFixtures.Api.LegacyMarker>' with the original type " +
+                "arguments while 'Fx.Slotted' is rewritten"
+        },
+        {
+            // The explicit implementation's declaration is retargeted onto the interface's substituted signature, which
+            // the excluded interface does not declare.
+            "ExcludedGenericInterfaceExplicitImplementer",
+            """
+            public interface IBox<T>
+            {
+                string Take(LegacyMarker marker, T value);
+            }
+
+            public sealed class Boxed : IBox<int>
+            {
+                string IBox<int>.Take(LegacyMarker marker, int value) => marker + " " + value;
+            }
+            """,
+            "Fx.IBox`1",
+            "Fx.IBox`1<System.Int32>::Take(ClockworkFixtures.Api.LegacyMarker,T)",
+            "which maps to 'System.String Fx.IBox`1<System.Int32>::Take(ClockworkFixtures.Shims.ModernMarker,T)', but its " +
+                "declaring type 'Fx.IBox`1' is excluded from rewriting and keeps the original signature"
         },
     };
 
@@ -506,6 +559,21 @@ public sealed class SubstitutionBindingGoldenTests
                     public override string Handle(LegacyMarker marker) => "overrode " + marker;
                 }
 
+                public sealed class Ordered : IComparable<LegacyMarker>
+                {
+                    public int CompareTo(LegacyMarker other) => 7;
+                }
+
+                public abstract class Slot<T>
+                {
+                    public abstract string Put(T value);
+                }
+
+                public sealed class MarkerSlot : Slot<LegacyMarker>
+                {
+                    public override string Put(LegacyMarker value) => "put " + value;
+                }
+
                 public static class Caller
                 {
                     public static string Run()
@@ -515,8 +583,10 @@ public sealed class SubstitutionBindingGoldenTests
                         IHandler explicitHandler = new ExplicitHandler();
                         IBox<int> box = new ExplicitHandler();
                         HandlerBase derived = new DerivedHandler();
+                        IComparable<LegacyMarker> ordered = new Ordered();
+                        Slot<LegacyMarker> slot = new MarkerSlot();
                         return handler.Handle(marker) + ", " + explicitHandler.Handle(marker) + ", " + box.Take(marker, 1) +
-                            ", " + derived.Handle(marker);
+                            ", " + derived.Handle(marker) + ", " + ordered.CompareTo(marker) + ", " + slot.Put(marker);
                     }
                 }
             }
@@ -530,13 +600,55 @@ public sealed class SubstitutionBindingGoldenTests
             string rewrittenPath = Path.Combine(context.Directory, "Fx.Implementations.rewritten.dll");
             Type caller = loadContext.LoadFromAssemblyPath(rewrittenPath).GetType("Fx.Caller", throwOnError: true)!;
             Assert.Equal(
-                "handled modern, explicitly handled modern, took modern 1, overrode modern",
+                "handled modern, explicitly handled modern, took modern 1, overrode modern, 7, put modern",
                 caller.GetMethod("Run")!.Invoke(null, null));
         }
         finally
         {
             loadContext.Unload();
         }
+    }
+
+    [Fact]
+    public void ExplicitImplementationOfAMemberTheSubstituteLacksFailsTheRewrite()
+    {
+        // An explicit implementation names the member it implements, so it is retargeted onto the substitute's member,
+        // which must exist for the type to load.
+        using var context = RewriteTestContext.Create();
+        string fixturePath = context.CompileFixture("Fx.ProbeImplementation", """
+            using ClockworkFixtures.Api;
+
+            namespace Fx
+            {
+                public sealed class Probe : IProbe
+                {
+                    int IProbe.Probe() => 1;
+                }
+            }
+            """);
+        var rules = new RewriteRuleSet(
+            "clockwork.fixtures.binding",
+            "1.0",
+            [
+                RewriteRule.SubstituteType(
+                    "substitute-probe",
+                    "ClockworkFixtures.Api.IProbe",
+                    RewriteReplacement.Type(FixtureSources.ShimAssemblyName, "ClockworkFixtures.Shims.IModernProbe")),
+            ]);
+
+        RewriteResult result = context.Rewrite(fixturePath, rules, MarkerOptions(context));
+
+        Assert.False(result.Succeeded, "The rewrite succeeded: " + string.Join(" | ", result.Diagnostics));
+        Assert.False(result.WasWritten);
+        RewriteDiagnostic error = Assert.Single(result.Errors);
+        Assert.Equal(RewriteDiagnosticIds.UnresolvedReplacement, error.Id);
+        Assert.Equal("Fx.Probe.ClockworkFixtures.Api.IProbe.Probe", error.Method);
+        Assert.Contains("'substitute-probe'", error.Message, StringComparison.Ordinal);
+        Assert.Contains("ClockworkFixtures.Api.IProbe::Probe()", error.Message, StringComparison.Ordinal);
+        Assert.Contains(
+            "has no matching member on the replacement type 'ClockworkFixtures.Shims.IModernProbe'",
+            error.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]

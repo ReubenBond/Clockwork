@@ -124,9 +124,9 @@ internal sealed class TypeShapeCheck
 
                 Rendered actual = Signature(method, self);
                 return named.Exact != expected.Exact
-                    ? Mismatch(method, declaring, interfaceReference, declared, isOverride: false, expected, named)
+                    ? Mismatch(method, type, declaring, interfaceReference, declared, isOverride: false, expected, named)
                     : actual.Exact != expected.Exact
-                        ? Mismatch(method, declaring, interfaceReference, declared, isOverride: false, expected, actual)
+                        ? Mismatch(method, type, declaring, interfaceReference, declared, isOverride: false, expected, actual)
                         : null;
             }
         }
@@ -161,7 +161,7 @@ internal sealed class TypeShapeCheck
 
             if (looseMethod is not null)
             {
-                return Mismatch(looseMethod, declaring, interfaceReference, declared, isOverride: false, expected, looseMatch!.Value);
+                return Mismatch(looseMethod, type, declaring, interfaceReference, declared, isOverride: false, expected, looseMatch!.Value);
             }
 
             if (current.BaseType is not { } baseReference || resolve(baseReference) is not { } baseType || !canInspect(baseType))
@@ -183,6 +183,7 @@ internal sealed class TypeShapeCheck
     {
         Rendered actual = Signature(method, self);
         TypeReference? baseReference = type.BaseType;
+        TypeDefinition naming = type;
         Rendered[] context = self;
         while (baseReference is not null && resolve(baseReference) is { } baseType && canInspect(baseType))
         {
@@ -202,11 +203,12 @@ internal sealed class TypeShapeCheck
             {
                 if (expected.Loose == actual.Loose)
                 {
-                    return Mismatch(method, baseType, baseReference, candidate, isOverride: true, expected, actual);
+                    return Mismatch(method, naming, baseType, baseReference, candidate, isOverride: true, expected, actual);
                 }
             }
 
             baseReference = baseType.BaseType;
+            naming = baseType;
         }
 
         return null;
@@ -220,6 +222,7 @@ internal sealed class TypeShapeCheck
 
     private TypeShapeMismatch Mismatch(
         MethodDefinition member,
+        TypeDefinition namingType,
         TypeDefinition declaringType,
         TypeReference declaringReference,
         MethodDefinition declared,
@@ -231,6 +234,7 @@ internal sealed class TypeShapeCheck
         mentioned.UnionWith(actual.Mentioned);
         return new TypeShapeMismatch(
             member,
+            namingType,
             declaringType,
             declaringReference,
             isOverride,
@@ -399,18 +403,23 @@ internal sealed class TypeShapeCheck
 
 /// <summary>An implementation or override that no longer matches the member it implements or overrides.</summary>
 /// <param name="Member">The implementing or overriding method.</param>
+/// <param name="NamingType">
+/// The type which names the interface or base type declaring the implemented or overridden member: the implementing
+/// type, or for an override found through intermediate base types, the most derived of them which names it.
+/// </param>
 /// <param name="DeclaringType">The interface or base type declaring the implemented or overridden member.</param>
-/// <param name="DeclaringReference">How the implementing type names that interface or base type.</param>
+/// <param name="DeclaringReference">How <paramref name="NamingType"/> names that interface or base type.</param>
 /// <param name="IsOverride">Whether <paramref name="Member"/> overrides rather than implements.</param>
 /// <param name="Expected">The implemented or overridden member's name and signature, as the implementing type sees it.</param>
 /// <param name="Actual">The implementation's or override's name and signature.</param>
 /// <param name="MentionedTypes">The substituted and substitute types the two signatures mention.</param>
 /// <param name="DeclaredSignatureMentions">
 /// Whether the implemented or overridden member's own signature mentions one of them, rather than only through the
-/// generic arguments with which the implementing type names its declaring type.
+/// generic arguments with which <paramref name="NamingType"/> names its declaring type.
 /// </param>
 internal sealed record TypeShapeMismatch(
     MethodDefinition Member,
+    TypeDefinition NamingType,
     TypeDefinition DeclaringType,
     TypeReference DeclaringReference,
     bool IsOverride,
@@ -431,14 +440,25 @@ internal sealed record TypeShapeMismatch(
     public string Describe(Func<TypeDefinition, string?> unrewritten)
     {
         TypeDefinition implementer = Member.DeclaringType;
-        string cause = DeclaredSignatureMentions
-            ? (unrewritten(implementer), unrewritten(DeclaringType)) switch
-            {
-                ({ } reason, null) => $"{reason}, so it keeps the original signature while '{DeclaringType.FullName}' is rewritten",
-                (null, { } reason) => $"{reason}, so it keeps the original signature while '{implementer.FullName}' is rewritten",
-                _ => "only one of the two signatures is rewritten",
-            }
-            : $"the rewrite does not substitute the type arguments of '{DeclaringReference.FullName}'";
+
+        // When the implemented member's own signature mentions no substituted type, the two sides differ through the
+        // generic arguments with which a type names the interface or base type, which the rewrite substitutes in a
+        // rewritten type's base type and interfaces; the implementer and that type are then on either side of the
+        // boundary.
+        TypeDefinition other = DeclaredSignatureMentions ? DeclaringType : NamingType;
+        string cause = (unrewritten(implementer), unrewritten(other)) switch
+        {
+            ({ } reason, null) when DeclaredSignatureMentions =>
+                $"{reason}, so it keeps the original signature while '{other.FullName}' is rewritten",
+            ({ } reason, null) =>
+                $"{reason}, so it keeps the original signature while '{other.FullName}' is rewritten and names '{DeclaringReference.FullName}'",
+            (null, { } reason) when DeclaredSignatureMentions =>
+                $"{reason}, so it keeps the original signature while '{implementer.FullName}' is rewritten",
+            (null, { } reason) =>
+                $"{reason}, so it names '{DeclaringReference.FullName}' with the original type arguments while " +
+                $"'{implementer.FullName}' is rewritten",
+            _ => "only one of the two signatures is rewritten",
+        };
         return $"{(IsOverride ? "overrides" : "implements")} '{DeclaringType.FullName}::{Expected}' as '{Actual}' after " +
             $"rewriting, because {cause}; the runtime would fail to load '{implementer.FullName}' or bind a different member";
     }

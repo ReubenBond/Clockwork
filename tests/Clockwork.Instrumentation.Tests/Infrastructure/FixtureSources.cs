@@ -161,6 +161,8 @@ internal static class FixtureSources
                 public override string ToString() => "modern";
             }
 
+            public interface IModernProbe { int Sample(); }
+
             public static class MarkerShim
             {
                 public static string Describe(LegacyMarker marker) => marker.ToString();
