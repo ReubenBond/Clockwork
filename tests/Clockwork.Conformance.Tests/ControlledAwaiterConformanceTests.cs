@@ -6,9 +6,10 @@ namespace Clockwork.Conformance.Tests;
 
 /// <summary>
 /// Conformance of the controlled task and value-task awaiters outside the compiler's await pattern: a
-/// rethrown exception's stack trace matches the one the BCL awaiter produces, with no Clockwork frame,
-/// and a synchronous <c>GetAwaiter().GetResult()</c> on a task which later simulation work completes pumps
-/// the simulation instead of blocking its only logical thread.
+/// rethrown exception's stack trace matches the one the BCL awaiter produces, with no Clockwork frame; a
+/// null task throws the BCL's exception, after the simulation guard; and a synchronous
+/// <c>GetAwaiter().GetResult()</c> on a task which later simulation work completes pumps the simulation
+/// instead of blocking its only logical thread.
 /// </summary>
 public sealed class ControlledAwaiterConformanceTests : IDisposable
 {
@@ -36,6 +37,16 @@ public sealed class ControlledAwaiterConformanceTests : IDisposable
             public static async Task AwaitConfiguredGenericValueTask() { _ = await new ValueTask<int>(Fail()).ConfigureAwait(false); }
             public static async Task RejectTaskOptions() { await Task.CompletedTask.ConfigureAwait((ConfigureAwaitOptions)8); }
             public static async Task RejectGenericTaskOptions() { _ = await Task.FromResult(1).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing); }
+
+            // ---- null receivers, awaited and as synchronous awaiter-source calls ----
+            public static async Task AwaitNullTask() { Task task = null; await task; }
+            public static async Task AwaitNullGenericTask() { Task<int> task = null; _ = await task; }
+            public static async Task AwaitNullConfiguredTask() { Task task = null; await task.ConfigureAwait(false); }
+            public static async Task AwaitNullConfiguredGenericTaskOptions() { Task<int> task = null; _ = await task.ConfigureAwait(ConfigureAwaitOptions.None); }
+            public static void GetNullTaskAwaiter() { Task task = null; _ = task.GetAwaiter(); }
+            public static void GetNullGenericTaskAwaiter() { Task<int> task = null; _ = task.GetAwaiter(); }
+            public static void ConfigureNullTask() { Task task = null; _ = task.ConfigureAwait(false); }
+            public static void ConfigureNullGenericTaskOptions() { Task<int> task = null; _ = task.ConfigureAwait(ConfigureAwaitOptions.None); }
 
             // ---- synchronous GetResult on an antecedent which later simulation work completes ----
             public static object GetTaskResult(Task<int> antecedent)
@@ -99,32 +110,38 @@ public sealed class ControlledAwaiterConformanceTests : IDisposable
             _fixture.CompileUninstrumented("Conf.AwaiterBclDbg", "Conf.AwaiterProbe", Source, optimize: false));
     }
 
-    public static TheoryData<bool, string> FaultingAwaits
+    public static TheoryData<bool, string> FaultingAwaits => WithOptimizations(
+        "AwaitTask",
+        "AwaitGenericTask",
+        "AwaitConfiguredTask",
+        "AwaitConfiguredTaskOptions",
+        "AwaitConfiguredGenericTask",
+        "AwaitConfiguredGenericTaskOptions",
+        "AwaitValueTask",
+        "AwaitGenericValueTask",
+        "AwaitConfiguredValueTask",
+        "AwaitConfiguredGenericValueTask",
+        "RejectTaskOptions",
+        "RejectGenericTaskOptions");
+
+    public static TheoryData<bool, string> NullAwaits => WithOptimizations(
+        "AwaitNullTask",
+        "AwaitNullGenericTask",
+        "AwaitNullConfiguredTask",
+        "AwaitNullConfiguredGenericTaskOptions");
+
+    /// <summary>A synchronous awaiter-source call on a null task, and the controlled API its shim guards.</summary>
+    public static TheoryData<bool, string, string> NullAwaiterSources
     {
         get
         {
-            string[] probes =
-            [
-                "AwaitTask",
-                "AwaitGenericTask",
-                "AwaitConfiguredTask",
-                "AwaitConfiguredTaskOptions",
-                "AwaitConfiguredGenericTask",
-                "AwaitConfiguredGenericTaskOptions",
-                "AwaitValueTask",
-                "AwaitGenericValueTask",
-                "AwaitConfiguredValueTask",
-                "AwaitConfiguredGenericValueTask",
-                "RejectTaskOptions",
-                "RejectGenericTaskOptions",
-            ];
-            var data = new TheoryData<bool, string>();
+            var data = new TheoryData<bool, string, string>();
             foreach (bool optimize in new[] { true, false })
             {
-                foreach (string probe in probes)
-                {
-                    data.Add(optimize, probe);
-                }
+                data.Add(optimize, "GetNullTaskAwaiter", "System.Threading.Tasks.Task.GetAwaiter");
+                data.Add(optimize, "GetNullGenericTaskAwaiter", "System.Threading.Tasks.Task`1.GetAwaiter");
+                data.Add(optimize, "ConfigureNullTask", "System.Threading.Tasks.Task.ConfigureAwait");
+                data.Add(optimize, "ConfigureNullGenericTaskOptions", "System.Threading.Tasks.Task`1.ConfigureAwait");
             }
 
             return data;
@@ -149,16 +166,50 @@ public sealed class ControlledAwaiterConformanceTests : IDisposable
     [MemberData(nameof(FaultingAwaits))]
     public void RethrownExceptionStackTraceMatchesTheBclAwaiter(bool optimize, string probe)
     {
-        var bclTask = (Task)(optimize ? _bclRelease : _bclDebug).Value.Method(probe).Invoke(null, null)!;
+        var bclTask = (Task)Bcl(optimize).Method(probe).Invoke(null, null)!;
         string expected = FaultStackTrace(bclTask);
         using var host = new SimulationHost(Start);
 
-        var task = (Task)host.Invoke((optimize ? _release : _debug).Value.Method(probe))!;
+        var task = (Task)host.Invoke(Staged(optimize).Method(probe))!;
 
         string actual = FaultStackTrace(task);
         Assert.Contains("Conf.AwaiterProbe", actual, StringComparison.Ordinal);
         Assert.DoesNotContain("Clockwork", actual, StringComparison.Ordinal);
         Assert.Equal(expected, actual);
+    }
+
+    [Theory]
+    [MemberData(nameof(NullAwaits))]
+    public void AwaitingANullTaskFaultsAsTheBclDoes(bool optimize, string probe)
+    {
+        var bclTask = (Task)Bcl(optimize).Method(probe).Invoke(null, null)!;
+        Fault expected = Fault.Of(Assert.IsType<NullReferenceException>(SingleFault(bclTask)));
+        using var host = new SimulationHost(Start);
+
+        var task = (Task)host.Invoke(Staged(optimize).Method(probe))!;
+
+        Fault actual = Fault.Of(SingleFault(task));
+        Assert.DoesNotContain("Clockwork", actual.StackTrace, StringComparison.Ordinal);
+        Assert.Equal(expected, actual);
+    }
+
+    [Theory]
+    [MemberData(nameof(NullAwaiterSources))]
+    public void NullTaskThrowsAsTheBclDoesAfterTheSimulationGuard(bool optimize, string probe, string apiName)
+    {
+        var invocation = Assert.Throws<TargetInvocationException>(() => Bcl(optimize).Method(probe).Invoke(null, null));
+        var expected = Assert.IsType<NullReferenceException>(invocation.InnerException);
+        MethodInfo staged = Staged(optimize).Method(probe);
+
+        // Outside a simulation the guard runs before the task is dereferenced.
+        Assert.Equal(apiName, SimulationNotActiveExceptionAssert.Throws(staged).ApiName);
+
+        using var host = new SimulationHost(Start);
+        Exception actual = Assert.ThrowsAny<Exception>(() => host.Invoke(staged));
+
+        // SimulationHost rethrows the probe's exception, which replaces its stack trace, so the awaited
+        // null-task cases compare stack traces instead.
+        Assert.Equal((expected.GetType(), expected.Message), (actual.GetType(), actual.Message));
     }
 
     [Theory(Timeout = 30_000)]
@@ -194,11 +245,38 @@ public sealed class ControlledAwaiterConformanceTests : IDisposable
         Assert.Equal(expected, Convert.ToString(result, CultureInfo.InvariantCulture));
     }
 
-    private static string FaultStackTrace(Task task)
+    private static string FaultStackTrace(Task task) => SingleFault(task).StackTrace ?? string.Empty;
+
+    private static Exception SingleFault(Task task)
     {
         Assert.Equal(TaskStatus.Faulted, task.Status);
-        return Assert.Single(task.Exception!.InnerExceptions).StackTrace ?? string.Empty;
+        return Assert.Single(task.Exception!.InnerExceptions);
     }
 
+    private static TheoryData<bool, string> WithOptimizations(params string[] probes)
+    {
+        var data = new TheoryData<bool, string>();
+        foreach (bool optimize in new[] { true, false })
+        {
+            foreach (string probe in probes)
+            {
+                data.Add(optimize, probe);
+            }
+        }
+
+        return data;
+    }
+
+    private StagedProbe Staged(bool optimize) => (optimize ? _release : _debug).Value;
+
+    private UninstrumentedProbe Bcl(bool optimize) => (optimize ? _bclRelease : _bclDebug).Value;
+
     public void Dispose() => _fixture.Dispose();
+
+    /// <summary>An exception's observable identity: its type, message, and stack trace.</summary>
+    private sealed record Fault(string? Type, string Message, string StackTrace)
+    {
+        public static Fault Of(Exception exception) =>
+            new(exception.GetType().FullName, exception.Message, exception.StackTrace ?? string.Empty);
+    }
 }

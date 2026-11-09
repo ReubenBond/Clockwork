@@ -27,7 +27,9 @@ public readonly struct ControlledTaskAwaiter : ICriticalNotifyCompletion, INotif
     public ControlledTaskAwaiter(Task task)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(ApiName);
-        ArgumentNullException.ThrowIfNull(task);
+
+        // The BCL call dereferences the task, so a null task throws the BCL's own NullReferenceException.
+        _ = task.GetAwaiter();
         _task = task;
     }
 
@@ -80,7 +82,9 @@ public readonly struct ControlledTaskAwaiter<TResult> : ICriticalNotifyCompletio
     public ControlledTaskAwaiter(Task<TResult> task)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(ApiName);
-        ArgumentNullException.ThrowIfNull(task);
+
+        // The BCL call dereferences the task, so a null task throws the BCL's own NullReferenceException.
+        _ = task.GetAwaiter();
         _task = task;
     }
 

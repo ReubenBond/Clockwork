@@ -336,10 +336,11 @@ callback, which is exactly why **`ConfigureAwait(false)` stays controlled**.
 `Task.ConfigureAwait(ConfigureAwaitOptions)` and `Task<T>.ConfigureAwait(ConfigureAwaitOptions)` build
 the same controlled awaitables: `SuppressThrowing` completes the await normally for a faulted or
 canceled `Task`, `ForceYielding` always yields through the coordinator, and invalid options (including
-`SuppressThrowing` on `Task<T>`) throw the BCL's `ArgumentOutOfRangeException`, and a null task throws
-the BCL's `NullReferenceException`. Like the BCL's, the controlled awaiters keep their frames out of a
-rethrown exception's stack trace, and a synchronous `GetAwaiter().GetResult()` on an incomplete task or
-value task pumps the coordinator until it completes. Uninstrumented
+`SuppressThrowing` on `Task<T>`) throw the BCL's `ArgumentOutOfRangeException`. As in the BCL,
+`GetAwaiter()` or `ConfigureAwait` on a null task throws `NullReferenceException` and the controlled
+awaiters keep their frames out of a rethrown exception's stack trace. A synchronous
+`GetAwaiter().GetResult()` on an incomplete task or value task pumps the coordinator until it completes
+instead of blocking. Uninstrumented
 production binaries retain normal BCL async semantics. A
 **call-site redirect** half routes both the
 non-generic `Task.WhenAll` / `Task.WhenAny` (array, span, pair, enumerable) combinators **and their
