@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Clockwork.Runtime.Racing;
@@ -25,12 +26,10 @@ public readonly struct ControlledConfiguredTaskAwaitable
     /// <summary>Initializes a new controlled configured awaitable.</summary>
     /// <param name="task">The task being awaited.</param>
     /// <param name="continueOnCapturedContext">The requested continuation-context behaviour (ignored by controlled scheduling).</param>
+    [StackTraceHidden]
     public ControlledConfiguredTaskAwaitable(Task task, bool continueOnCapturedContext)
+        : this(task, continueOnCapturedContext ? ConfigureAwaitOptions.ContinueOnCapturedContext : ConfigureAwaitOptions.None)
     {
-        SimulationRuntimeDispatch.RequireActiveSimulation(ApiName);
-        ArgumentNullException.ThrowIfNull(task);
-        _task = task;
-        _options = continueOnCapturedContext ? ConfigureAwaitOptions.ContinueOnCapturedContext : ConfigureAwaitOptions.None;
     }
 
     /// <summary>Initializes a new controlled configured awaitable.</summary>
@@ -39,12 +38,13 @@ public readonly struct ControlledConfiguredTaskAwaitable
     /// The await options. <see cref="ConfigureAwaitOptions.ContinueOnCapturedContext"/> is ignored by controlled scheduling.
     /// </param>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="options"/> is invalid for <see cref="Task"/>.</exception>
+    [StackTraceHidden]
     public ControlledConfiguredTaskAwaitable(Task task, ConfigureAwaitOptions options)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(ApiName);
-        ArgumentNullException.ThrowIfNull(task);
 
-        // The BCL validates the options and throws its own exception for invalid ones.
+        // The BCL call dereferences the task and validates the options, so a null task and invalid options
+        // throw the BCL's own exceptions.
         _ = task.ConfigureAwait(options);
         _task = task;
         _options = options;
@@ -84,9 +84,19 @@ public readonly struct ControlledConfiguredTaskAwaiter : ICriticalNotifyCompleti
     /// Completes the await, throwing the task's fault or cancellation unless
     /// <see cref="ConfigureAwaitOptions.SuppressThrowing"/> was requested.
     /// </summary>
+    /// <remarks>
+    /// Called synchronously before the task completes, it pumps the simulation until the task completes,
+    /// as a controlled synchronous wait does, instead of blocking the simulation's logical thread.
+    /// </remarks>
+    [StackTraceHidden]
     public void GetResult()
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(ApiName);
+        if (!_task.IsCompleted)
+        {
+            SimulationTaskRuntime.DrainUntilCompleted(_task, ApiName, CancellationToken.None);
+        }
+
         RaceSynchronization.Wait(_task);
 
         // The BCL awaiter applies the end-of-await semantics, including marking a suppressed fault as observed.
@@ -121,12 +131,10 @@ public readonly struct ControlledConfiguredTaskAwaitable<TResult>
     /// <summary>Initializes a new controlled configured awaitable.</summary>
     /// <param name="task">The task being awaited.</param>
     /// <param name="continueOnCapturedContext">The requested continuation-context behaviour (ignored by controlled scheduling).</param>
+    [StackTraceHidden]
     public ControlledConfiguredTaskAwaitable(Task<TResult> task, bool continueOnCapturedContext)
+        : this(task, continueOnCapturedContext ? ConfigureAwaitOptions.ContinueOnCapturedContext : ConfigureAwaitOptions.None)
     {
-        SimulationRuntimeDispatch.RequireActiveSimulation(ApiName);
-        ArgumentNullException.ThrowIfNull(task);
-        _task = task;
-        _options = continueOnCapturedContext ? ConfigureAwaitOptions.ContinueOnCapturedContext : ConfigureAwaitOptions.None;
     }
 
     /// <summary>Initializes a new controlled configured awaitable.</summary>
@@ -137,12 +145,13 @@ public readonly struct ControlledConfiguredTaskAwaitable<TResult>
     /// <exception cref="ArgumentOutOfRangeException">
     /// <paramref name="options"/> is invalid for <see cref="Task{TResult}"/>, including <see cref="ConfigureAwaitOptions.SuppressThrowing"/>.
     /// </exception>
+    [StackTraceHidden]
     public ControlledConfiguredTaskAwaitable(Task<TResult> task, ConfigureAwaitOptions options)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(ApiName);
-        ArgumentNullException.ThrowIfNull(task);
 
-        // The BCL validates the options and throws its own exception for invalid ones.
+        // The BCL call dereferences the task and validates the options, so a null task and invalid options
+        // throw the BCL's own exceptions.
         _ = task.ConfigureAwait(options);
         _task = task;
         _options = options;
@@ -181,9 +190,19 @@ public readonly struct ControlledConfiguredTaskAwaiter<TResult> : ICriticalNotif
 
     /// <summary>Completes the await, returning the result or throwing the task's fault/cancellation.</summary>
     /// <returns>The awaited task's result.</returns>
+    /// <remarks>
+    /// Called synchronously before the task completes, it pumps the simulation until the task completes,
+    /// as a controlled synchronous wait does, instead of blocking the simulation's logical thread.
+    /// </remarks>
+    [StackTraceHidden]
     public TResult GetResult()
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(ApiName);
+        if (!_task.IsCompleted)
+        {
+            SimulationTaskRuntime.DrainUntilCompleted(_task, ApiName, CancellationToken.None);
+        }
+
         RaceSynchronization.Wait(_task);
         return _task.GetAwaiter().GetResult();
     }

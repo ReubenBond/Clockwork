@@ -182,6 +182,25 @@ public static class SimulationTaskRuntime
     }
 
     /// <summary>
+    /// Deterministically pumps ready simulation work until <paramref name="valueTask"/> completes, backing a
+    /// synchronous <c>GetResult</c> on a controlled value-task awaiter. Assumes a simulation is active.
+    /// </summary>
+    /// <param name="valueTask">The value task to wait for.</param>
+    /// <param name="apiName">The controlled API, for diagnostics.</param>
+    internal static void DrainUntilCompleted(System.Threading.Tasks.ValueTask valueTask, string apiName) =>
+        DrainUntil(() => valueTask.IsCompleted, apiName, CancellationToken.None);
+
+    /// <summary>
+    /// Deterministically pumps ready simulation work until <paramref name="valueTask"/> completes, backing a
+    /// synchronous <c>GetResult</c> on a controlled value-task awaiter. Assumes a simulation is active.
+    /// </summary>
+    /// <typeparam name="TResult">The value task's result type.</typeparam>
+    /// <param name="valueTask">The value task to wait for.</param>
+    /// <param name="apiName">The controlled API, for diagnostics.</param>
+    internal static void DrainUntilCompleted<TResult>(System.Threading.Tasks.ValueTask<TResult> valueTask, string apiName) =>
+        DrainUntil(() => valueTask.IsCompleted, apiName, CancellationToken.None);
+
+    /// <summary>
     /// Deterministically pumps ready simulation work until <paramref name="completed"/> holds. Used by
     /// multi-task synchronous waits (<c>WaitAll</c>/<c>WaitAny</c>). Assumes a simulation is active.
     /// </summary>

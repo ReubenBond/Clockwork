@@ -284,8 +284,15 @@ internal sealed class MemberSubstitutionMapper
     {
         TypeReference elementType = mappedType is GenericInstanceType instance ? instance.ElementType : mappedType;
         TypeDefinition? definition = elementType.Resolve();
-        MethodDefinition? constructor = definition?.Methods
-            .FirstOrDefault(m => m.IsConstructor && !m.IsStatic && ConsumesAwaiterSourceStack(m, source));
+        TypeDefinition? receiverDefinition = TryResolve(source.DeclaringType);
+        if (definition is null || receiverDefinition is null)
+        {
+            return null;
+        }
+
+        bool receiverIsValueType = receiverDefinition.IsValueType;
+        MethodDefinition? constructor = definition.Methods
+            .FirstOrDefault(m => m.IsConstructor && !m.IsStatic && ConsumesAwaiterSourceStack(m, source, receiverIsValueType));
         if (constructor is null)
         {
             return null;
@@ -295,25 +302,42 @@ internal sealed class MemberSubstitutionMapper
         return mappedType is GenericInstanceType genericType ? Rebase(importedOpen, genericType) : importedOpen;
     }
 
-    private static bool ConsumesAwaiterSourceStack(MethodDefinition constructor, MethodReference source)
+    private static TypeDefinition? TryResolve(TypeReference type)
+    {
+        try
+        {
+            return type.Resolve();
+        }
+        catch (AssemblyResolutionException)
+        {
+            return null;
+        }
+    }
+
+    private static bool ConsumesAwaiterSourceStack(
+        MethodDefinition constructor,
+        MethodReference source,
+        bool receiverIsValueType)
     {
         if (constructor.Parameters.Count != source.Parameters.Count + 1)
         {
             return false;
         }
 
-        // A Task receiver is pushed as a reference; a ValueTask receiver is pushed as its address, which
-        // binds to an `in` parameter.
-        TypeReference receiver = constructor.Parameters[0].ParameterType;
-        if (receiver is ByReferenceType byReference)
+        // A Task receiver is pushed as an object reference, which binds only to a by-value parameter; a
+        // ValueTask receiver is pushed as its address, which binds only to a by-reference (`in`) parameter.
+        TypeReference parameter = constructor.Parameters[0].ParameterType;
+        if ((parameter is ByReferenceType) != receiverIsValueType)
         {
-            receiver = byReference.ElementType;
+            return false;
         }
 
+        TypeReference receiver = parameter is ByReferenceType byReference ? byReference.ElementType : parameter;
         if (!string.Equals(
                 CecilNames.NormalizedTypeFullName(receiver),
                 CecilNames.NormalizedTypeFullName(source.DeclaringType),
-                StringComparison.Ordinal))
+                StringComparison.Ordinal)
+            || !TakesOwnGenericParameters(receiver, constructor.DeclaringType, source.DeclaringType))
         {
             return false;
         }
@@ -324,6 +348,45 @@ internal sealed class MemberSubstitutionMapper
                     CecilNames.ParameterFullName(constructor.Parameters[i + 1].ParameterType),
                     CecilNames.ParameterFullName(source.Parameters[i].ParameterType),
                     StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// The constructor is rebased onto the controlled type instantiated with the receiver's generic
+    /// arguments, so its receiver parameter must take exactly that type's own generic parameters, in order
+    /// (<c>Task&lt;TResult&gt;</c> on <c>ControlledTaskAwaiter&lt;TResult&gt;</c>). Any other instantiation
+    /// would bind a receiver of a different type.
+    /// </summary>
+    private static bool TakesOwnGenericParameters(
+        TypeReference receiverParameter,
+        TypeDefinition constructorType,
+        TypeReference receiver)
+    {
+        int arity = receiver is GenericInstanceType receiverInstance ? receiverInstance.GenericArguments.Count : 0;
+        if (constructorType.GenericParameters.Count != arity)
+        {
+            return false;
+        }
+
+        if (receiverParameter is not GenericInstanceType parameterInstance)
+        {
+            return arity == 0;
+        }
+
+        if (parameterInstance.GenericArguments.Count != arity)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < arity; i++)
+        {
+            if (parameterInstance.GenericArguments[i] is not GenericParameter { Type: GenericParameterType.Type } argument
+                || argument.Position != i)
             {
                 return false;
             }
