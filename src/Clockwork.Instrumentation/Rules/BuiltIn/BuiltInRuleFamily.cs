@@ -72,7 +72,8 @@ public enum BuiltInRuleFamily
     /// <c>ConfiguredTaskAwaitable</c>/<c>YieldAwaitable</c> and their awaiters, generic and non-generic)
     /// onto Clockwork's controlled equivalents, plus the <c>Task.Yield()</c> redirect. Applied by the
     /// member-aware substitution pass so every awaited continuation is scheduled through the simulation
-    /// coordinator instead of the thread pool, while <c>ConfigureAwait(false)</c> stays controlled.
+    /// coordinator instead of the thread pool, while <c>ConfigureAwait(false)</c> stays controlled. The runtime-async
+    /// <c>AsyncHelpers.Await</c> intrinsics taking a configured task awaitable are rejected.
     /// </summary>
     AsyncMachinery,
 
@@ -85,7 +86,8 @@ public enum BuiltInRuleFamily
     /// controlled equivalents, so awaiting a <see cref="System.Threading.Tasks.ValueTask"/> is scheduled
     /// through the coordinator and <c>ConfigureAwait(false)</c> stays controlled. The configured async disposable
     /// and enumerable that <c>await using</c> and <c>await foreach</c> consume, and the
-    /// <c>TaskAsyncEnumerableExtensions</c> methods that produce them, are controlled with them.
+    /// <c>TaskAsyncEnumerableExtensions</c> methods that produce them, are controlled with them. The runtime-async
+    /// <c>AsyncHelpers.Await</c> intrinsics taking a configured value-task awaitable are rejected.
     /// </summary>
     ValueTaskMachinery,
 

@@ -353,7 +353,10 @@ and `WithCancellation` extensions that produce them. As in the BCL, the configur
 parameter, and each `MoveNextAsync`/`DisposeAsync` value task is configured with the requested
 `continueOnCapturedContext`, which the controlled awaitable treats as `ValueTask.ConfigureAwait(bool)` does. The controlled awaiter hands
 every continuation to the simulation coordinator rather than the awaited task's completion
-callback, which is exactly why **`ConfigureAwait(false)` stays controlled**.
+callback, which is exactly why **`ConfigureAwait(false)` stays controlled**. The runtime-async
+`AsyncHelpers.Await` intrinsics that take a configured task or value-task awaitable resume their caller
+through the runtime's own continuation machinery instead, so they are rejected by name
+(`SimulationApiException`); compile such methods without runtime async.
 `Task.ConfigureAwait(ConfigureAwaitOptions)` and `Task<T>.ConfigureAwait(ConfigureAwaitOptions)` build
 the same controlled awaitables: `SuppressThrowing` completes the await normally for a faulted or
 canceled `Task`, `ForceYielding` always yields through the coordinator, and invalid options (including

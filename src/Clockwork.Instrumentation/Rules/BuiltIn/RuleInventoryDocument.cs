@@ -176,7 +176,8 @@ public static class RuleInventoryDocument
             "awaiters, generic and non-generic) are substituted onto Clockwork's controlled equivalents by " +
             "the member-aware pass, and `Task.Yield()` redirects to the controlled yield. Every awaited " +
             "continuation is scheduled through the simulation coordinator instead of the thread pool, and " +
-            "`ConfigureAwait(false)` stays controlled.",
+            "`ConfigureAwait(false)` stays controlled. The runtime-async `AsyncHelpers.Await` intrinsics taking a " +
+            "configured task awaitable resume through the runtime's own continuation machinery, so they are rejected.",
         BuiltInRuleFamily.ValueTaskMachinery =>
             "The compiler-generated builder and awaiter types of an `async ValueTask`/`async ValueTask<T>` " +
             "state machine (`AsyncValueTaskMethodBuilder`, `ValueTaskAwaiter`, `ConfiguredValueTaskAwaitable` " +
@@ -188,7 +189,8 @@ public static class RuleInventoryDocument
             "substituted with them, and the `TaskAsyncEnumerableExtensions.ConfigureAwait`/`WithCancellation` " +
             "extensions redirect to factories for the controlled types, so iteration and dispose awaits resume " +
             "through the coordinator and the configured token reaches `GetAsyncEnumerator` as in the BCL. " +
-            "Synchronous blocking on a value task is not rewritten " +
+            "The runtime-async `AsyncHelpers.Await` intrinsics taking a configured value-task awaitable are " +
+            "rejected. Synchronous blocking on a value task is not rewritten " +
             "(a value task may be consumed only once); `await` is the supported controlled path.",
         BuiltInRuleFamily.TaskFactory =>
             "All 24 .NET 10 `TaskFactory.StartNew` and `TaskFactory<T>.StartNew` overloads are classified, " +
