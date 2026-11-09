@@ -1,0 +1,133 @@
+using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
+using System.Threading.Tasks.Sources;
+using Clockwork.Runtime.Racing;
+using Clockwork.Runtime.Shims;
+
+namespace Clockwork.Shims.System.Threading.Tasks;
+
+/// <summary>
+/// <para>
+/// Controlled <see cref="ValueTask.AsTask"/>, <see cref="ValueTask{TResult}.AsTask"/>, <see cref="ValueTask.Preserve"/>,
+/// and <see cref="ValueTask{TResult}.Preserve"/>. For a value task backed by a pending
+/// <see cref="IValueTaskSource"/>, the BCL registers a completion callback with the source through
+/// <see cref="IValueTaskSource.OnCompleted"/>, and the source invokes it however it was configured: a source which runs
+/// continuations asynchronously (such as <see cref="ManualResetValueTaskSourceCore{TResult}"/> with
+/// <see cref="ManualResetValueTaskSourceCore{TResult}.RunContinuationsAsynchronously"/>, or a channel's pending read)
+/// queues it to the real thread pool, so the returned task completes outside the coordinator.
+/// </para>
+/// <para>
+/// These shims register nothing with the source. The coordinator polls the source's status through
+/// <see cref="ValueTask.IsCompleted"/> (which calls <see cref="IValueTaskSource.GetStatus"/>), as the controlled
+/// value-task awaiters do, and a controlled operation then completes the returned task. It consumes the source exactly
+/// once, through the BCL's own conversion of a completed source (one <see cref="IValueTaskSource.GetStatus"/> and one
+/// <see cref="IValueTaskSource.GetResult"/>), so the returned task's outcome, including the cancellation exception, is
+/// the BCL's. A value task which wraps no source, wraps a task, or wraps a source that has already completed is
+/// converted by the BCL itself, synchronously and without registering anything, so the result is the BCL's own
+/// (including the wrapped task itself).
+/// </para>
+/// </summary>
+public static class ControlledValueTask
+{
+    private const string AsTaskApi = "System.Threading.Tasks.ValueTask.AsTask";
+    private const string PreserveApi = "System.Threading.Tasks.ValueTask.Preserve";
+    private const string GenericAsTaskApi = "System.Threading.Tasks.ValueTask`1.AsTask";
+    private const string GenericPreserveApi = "System.Threading.Tasks.ValueTask`1.Preserve";
+
+    /// <summary>Controlled <c>ValueTask.AsTask()</c>.</summary>
+    /// <param name="valueTask">The value task to convert; it is consumed.</param>
+    /// <returns>A task representing the value task.</returns>
+    public static Task AsTask(in ValueTask valueTask)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation(AsTaskApi);
+        return AsTaskCore(valueTask, AsTaskApi);
+    }
+
+    /// <summary>Controlled <c>ValueTask.Preserve()</c>.</summary>
+    /// <param name="valueTask">The value task to preserve; it is consumed.</param>
+    /// <returns>A value task which may be awaited any number of times.</returns>
+    public static ValueTask Preserve(in ValueTask valueTask)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation(PreserveApi);
+        ValueTask copy = valueTask;
+        return Fields.Object(ref copy) is null ? copy : new ValueTask(AsTaskCore(copy, PreserveApi));
+    }
+
+    /// <summary>Controlled <c>ValueTask&lt;TResult&gt;.AsTask()</c>.</summary>
+    /// <typeparam name="TResult">The result type.</typeparam>
+    /// <param name="valueTask">The value task to convert; it is consumed.</param>
+    /// <returns>A task representing the value task.</returns>
+    public static Task<TResult> AsTask<TResult>(in ValueTask<TResult> valueTask)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation(GenericAsTaskApi);
+        return AsTaskCore(valueTask, GenericAsTaskApi);
+    }
+
+    /// <summary>Controlled <c>ValueTask&lt;TResult&gt;.Preserve()</c>.</summary>
+    /// <typeparam name="TResult">The result type.</typeparam>
+    /// <param name="valueTask">The value task to preserve; it is consumed.</param>
+    /// <returns>A value task which may be awaited any number of times.</returns>
+    public static ValueTask<TResult> Preserve<TResult>(in ValueTask<TResult> valueTask)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation(GenericPreserveApi);
+        ValueTask<TResult> copy = valueTask;
+        return Fields<TResult>.Object(ref copy) is null ? copy : new ValueTask<TResult>(AsTaskCore(copy, GenericPreserveApi));
+    }
+
+    private static Task AsTaskCore(ValueTask valueTask, string apiName)
+    {
+        if (Fields.Object(ref valueTask) is not IValueTaskSource || valueTask.IsCompleted)
+        {
+            return valueTask.AsTask();
+        }
+
+        var promise = new TaskCompletionSource();
+        SimulationTaskRuntime.ScheduleWhenReady(
+            () => valueTask.IsCompleted,
+            () =>
+            {
+                promise.TrySetFromTask(valueTask.AsTask());
+                RaceSynchronization.Signal(promise.Task);
+            },
+            apiName);
+        return promise.Task;
+    }
+
+    private static Task<TResult> AsTaskCore<TResult>(ValueTask<TResult> valueTask, string apiName)
+    {
+        if (Fields<TResult>.Object(ref valueTask) is not IValueTaskSource<TResult> || valueTask.IsCompleted)
+        {
+            return valueTask.AsTask();
+        }
+
+        var promise = new TaskCompletionSource<TResult>();
+        SimulationTaskRuntime.ScheduleWhenReady(
+            () => valueTask.IsCompleted,
+            () =>
+            {
+                promise.TrySetFromTask(valueTask.AsTask());
+                RaceSynchronization.Signal(promise.Task);
+            },
+            apiName);
+        return promise.Task;
+    }
+
+    /// <summary>
+    /// Reads the object a <see cref="ValueTask"/> wraps: <see langword="null"/> for a synchronously completed value
+    /// task, a <see cref="Task"/>, or an <see cref="IValueTaskSource"/>. The BCL distinguishes these the same way, and
+    /// exposes no public accessor for the distinction.
+    /// </summary>
+    private static class Fields
+    {
+        [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_obj")]
+        public static extern ref object? Object(ref ValueTask valueTask);
+    }
+
+    /// <summary>Reads the object a <see cref="ValueTask{TResult}"/> wraps; see <see cref="Fields"/>.</summary>
+    /// <typeparam name="TResult">The result type.</typeparam>
+    private static class Fields<TResult>
+    {
+        [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_obj")]
+        public static extern ref object? Object(ref ValueTask<TResult> valueTask);
+    }
+}

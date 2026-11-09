@@ -1,5 +1,5 @@
+using System.Threading;
 using System.Threading.Tasks;
-using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Racing;
 using Clockwork.Runtime.Shims;
 
@@ -7,175 +7,237 @@ namespace Clockwork.Shims.System.Threading.Tasks;
 
 /// <summary>
 /// <para>
-/// A controlled <see cref="global::System.Threading.Tasks.TaskCompletionSource"/>. Application code creates
-/// completion sources to hand out a <see cref="Task"/> it will complete later; the rewriter substitutes
-/// this type so that construction stays deterministic inside a simulation.
+/// Controlled completion members of <see cref="TaskCompletionSource"/> and <see cref="TaskCompletionSource{TResult}"/>.
+/// Rewritten code keeps the real BCL completion sources, with their real <see cref="TaskCreationOptions"/>: the
+/// rewriter redirects only calls to the completion members, each to a static shim whose first parameter is the
+/// receiving source. Each shim completes the source through the BCL member itself, so validation, exceptions, and the
+/// resulting task state are the BCL's, and the completion members are not virtual, so a source derived from the BCL
+/// type completes exactly as it would without the redirect.
 /// </para>
 /// <para>
-/// <see cref="TaskCreationOptions.RunContinuationsAsynchronously"/> is stripped. That flag normally makes completion post the task's continuations to
-/// the thread pool - an escape from the single logical thread. It is safe to drop because Clockwork
-/// controls continuations at the await/ContinueWith site (via the controlled awaiters and
-/// <see cref="ControlledTask.ContinueWith(Task, Action{Task})"/>), so completion here simply sets status
-/// on the logical thread and the controlled awaiter reschedules deterministically.
+/// A successful completion publishes a race-detection release edge on the source's task, which an await, a
+/// synchronous wait, or a controlled combinator or continuation acquires when it observes the task complete. A
+/// completion from another task (<c>SetFromTask</c>) first acquires that task's edges, since it reads that task's
+/// outcome. Continuation scheduling needs no shim: Clockwork never registers a BCL continuation on a task, so completing
+/// a source runs nothing inline and posts nothing to the thread pool, whatever its options.
 /// </para>
 /// </summary>
-public sealed class ControlledTaskCompletionSource
+public static class ControlledTaskCompletionSource
 {
-    private readonly TaskCompletionSource _inner;
+    private const string Api = "System.Threading.Tasks.TaskCompletionSource";
+    private const string GenericApi = "System.Threading.Tasks.TaskCompletionSource`1";
 
-    /// <summary>Initializes a new controlled completion source with no options.</summary>
-    public ControlledTaskCompletionSource()
-        : this(TaskCreationOptions.None)
-    {
-    }
-
-    /// <summary>Initializes a new controlled completion source with the given creation options.</summary>
-    /// <param name="creationOptions">The creation options (<see cref="TaskCreationOptions.RunContinuationsAsynchronously"/> is dropped inside a simulation).</param>
-    public ControlledTaskCompletionSource(TaskCreationOptions creationOptions) =>
-        _inner = new TaskCompletionSource(SimulationTaskCompletionSourceOptions.Normalize(creationOptions));
-
-    /// <summary>Gets the task controlled by this completion source.</summary>
-    public Task Task => (RequireActive(), _inner.Task).Item2;
-
-    /// <summary>Transitions the task to <see cref="TaskStatus.RanToCompletion"/>.</summary>
-    public void SetResult()
+    /// <summary>Controlled <c>TaskCompletionSource.SetResult()</c>.</summary>
+    public static void SetResult(TaskCompletionSource source)
     {
         RequireActive();
-        _inner.SetResult();
-        RaceSynchronization.Signal(_inner.Task);
+        source.SetResult();
+        Published(source.Task);
     }
 
-    /// <summary>Attempts to transition the task to <see cref="TaskStatus.RanToCompletion"/>.</summary>
-    /// <returns><see langword="true"/> if successful.</returns>
-    public bool TrySetResult() => TryComplete(_inner.TrySetResult);
-
-    /// <summary>Transitions the task to <see cref="TaskStatus.Faulted"/> with the given exception.</summary>
-    /// <param name="exception">The fault.</param>
-    public void SetException(Exception exception)
+    /// <summary>Controlled <c>TaskCompletionSource.TrySetResult()</c>.</summary>
+    public static bool TrySetResult(TaskCompletionSource source)
     {
         RequireActive();
-        _inner.SetException(exception);
-        RaceSynchronization.Signal(_inner.Task);
+        return Published(source.TrySetResult(), source.Task);
     }
 
-    /// <summary>Attempts to transition the task to <see cref="TaskStatus.Faulted"/>.</summary>
-    /// <param name="exception">The fault.</param>
-    /// <returns><see langword="true"/> if successful.</returns>
-    public bool TrySetException(Exception exception) => TryComplete(() => _inner.TrySetException(exception));
-
-    /// <summary>Transitions the task to <see cref="TaskStatus.Canceled"/>.</summary>
-    public void SetCanceled()
+    /// <summary>Controlled <c>TaskCompletionSource.SetException(Exception)</c>.</summary>
+    public static void SetException(TaskCompletionSource source, Exception exception)
     {
         RequireActive();
-        _inner.SetCanceled();
-        RaceSynchronization.Signal(_inner.Task);
+        source.SetException(exception);
+        Published(source.Task);
     }
 
-    /// <summary>Attempts to transition the task to <see cref="TaskStatus.Canceled"/>.</summary>
-    /// <returns><see langword="true"/> if successful.</returns>
-    public bool TrySetCanceled() => TryComplete(_inner.TrySetCanceled);
-
-    private bool TryComplete(Func<bool> complete)
+    /// <summary>Controlled <c>TaskCompletionSource.SetException(IEnumerable&lt;Exception&gt;)</c>.</summary>
+    public static void SetException(TaskCompletionSource source, IEnumerable<Exception> exceptions)
     {
         RequireActive();
-        bool completed = complete();
+        source.SetException(exceptions);
+        Published(source.Task);
+    }
+
+    /// <summary>Controlled <c>TaskCompletionSource.TrySetException(Exception)</c>.</summary>
+    public static bool TrySetException(TaskCompletionSource source, Exception exception)
+    {
+        RequireActive();
+        return Published(source.TrySetException(exception), source.Task);
+    }
+
+    /// <summary>Controlled <c>TaskCompletionSource.TrySetException(IEnumerable&lt;Exception&gt;)</c>.</summary>
+    public static bool TrySetException(TaskCompletionSource source, IEnumerable<Exception> exceptions)
+    {
+        RequireActive();
+        return Published(source.TrySetException(exceptions), source.Task);
+    }
+
+    /// <summary>Controlled <c>TaskCompletionSource.SetCanceled()</c>.</summary>
+    public static void SetCanceled(TaskCompletionSource source)
+    {
+        RequireActive();
+        source.SetCanceled();
+        Published(source.Task);
+    }
+
+    /// <summary>Controlled <c>TaskCompletionSource.SetCanceled(CancellationToken)</c>.</summary>
+    public static void SetCanceled(TaskCompletionSource source, CancellationToken cancellationToken)
+    {
+        RequireActive();
+        source.SetCanceled(cancellationToken);
+        Published(source.Task);
+    }
+
+    /// <summary>Controlled <c>TaskCompletionSource.TrySetCanceled()</c>.</summary>
+    public static bool TrySetCanceled(TaskCompletionSource source)
+    {
+        RequireActive();
+        return Published(source.TrySetCanceled(), source.Task);
+    }
+
+    /// <summary>Controlled <c>TaskCompletionSource.TrySetCanceled(CancellationToken)</c>.</summary>
+    public static bool TrySetCanceled(TaskCompletionSource source, CancellationToken cancellationToken)
+    {
+        RequireActive();
+        return Published(source.TrySetCanceled(cancellationToken), source.Task);
+    }
+
+    /// <summary>Controlled <c>TaskCompletionSource.SetFromTask(Task)</c>.</summary>
+    public static void SetFromTask(TaskCompletionSource source, Task completedTask)
+    {
+        RequireActive();
+        source.SetFromTask(completedTask);
+        Published(completedTask, source.Task);
+    }
+
+    /// <summary>Controlled <c>TaskCompletionSource.TrySetFromTask(Task)</c>.</summary>
+    public static bool TrySetFromTask(TaskCompletionSource source, Task completedTask)
+    {
+        RequireActive();
+        if (!source.TrySetFromTask(completedTask))
+        {
+            return false;
+        }
+
+        Published(completedTask, source.Task);
+        return true;
+    }
+
+    /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.SetResult(TResult)</c>.</summary>
+    public static void SetResult<TResult>(TaskCompletionSource<TResult> source, TResult result)
+    {
+        RequireGenericActive();
+        source.SetResult(result);
+        Published(source.Task);
+    }
+
+    /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.TrySetResult(TResult)</c>.</summary>
+    public static bool TrySetResult<TResult>(TaskCompletionSource<TResult> source, TResult result)
+    {
+        RequireGenericActive();
+        return Published(source.TrySetResult(result), source.Task);
+    }
+
+    /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.SetException(Exception)</c>.</summary>
+    public static void SetException<TResult>(TaskCompletionSource<TResult> source, Exception exception)
+    {
+        RequireGenericActive();
+        source.SetException(exception);
+        Published(source.Task);
+    }
+
+    /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.SetException(IEnumerable&lt;Exception&gt;)</c>.</summary>
+    public static void SetException<TResult>(TaskCompletionSource<TResult> source, IEnumerable<Exception> exceptions)
+    {
+        RequireGenericActive();
+        source.SetException(exceptions);
+        Published(source.Task);
+    }
+
+    /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.TrySetException(Exception)</c>.</summary>
+    public static bool TrySetException<TResult>(TaskCompletionSource<TResult> source, Exception exception)
+    {
+        RequireGenericActive();
+        return Published(source.TrySetException(exception), source.Task);
+    }
+
+    /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.TrySetException(IEnumerable&lt;Exception&gt;)</c>.</summary>
+    public static bool TrySetException<TResult>(TaskCompletionSource<TResult> source, IEnumerable<Exception> exceptions)
+    {
+        RequireGenericActive();
+        return Published(source.TrySetException(exceptions), source.Task);
+    }
+
+    /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.SetCanceled()</c>.</summary>
+    public static void SetCanceled<TResult>(TaskCompletionSource<TResult> source)
+    {
+        RequireGenericActive();
+        source.SetCanceled();
+        Published(source.Task);
+    }
+
+    /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.SetCanceled(CancellationToken)</c>.</summary>
+    public static void SetCanceled<TResult>(TaskCompletionSource<TResult> source, CancellationToken cancellationToken)
+    {
+        RequireGenericActive();
+        source.SetCanceled(cancellationToken);
+        Published(source.Task);
+    }
+
+    /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.TrySetCanceled()</c>.</summary>
+    public static bool TrySetCanceled<TResult>(TaskCompletionSource<TResult> source)
+    {
+        RequireGenericActive();
+        return Published(source.TrySetCanceled(), source.Task);
+    }
+
+    /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.TrySetCanceled(CancellationToken)</c>.</summary>
+    public static bool TrySetCanceled<TResult>(TaskCompletionSource<TResult> source, CancellationToken cancellationToken)
+    {
+        RequireGenericActive();
+        return Published(source.TrySetCanceled(cancellationToken), source.Task);
+    }
+
+    /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.SetFromTask(Task&lt;TResult&gt;)</c>.</summary>
+    public static void SetFromTask<TResult>(TaskCompletionSource<TResult> source, Task<TResult> completedTask)
+    {
+        RequireGenericActive();
+        source.SetFromTask(completedTask);
+        Published(completedTask, source.Task);
+    }
+
+    /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.TrySetFromTask(Task&lt;TResult&gt;)</c>.</summary>
+    public static bool TrySetFromTask<TResult>(TaskCompletionSource<TResult> source, Task<TResult> completedTask)
+    {
+        RequireGenericActive();
+        if (!source.TrySetFromTask(completedTask))
+        {
+            return false;
+        }
+
+        Published(completedTask, source.Task);
+        return true;
+    }
+
+    private static void Published(Task task) => RaceSynchronization.Signal(task);
+
+    private static bool Published(bool completed, Task task)
+    {
         if (completed)
         {
-            RaceSynchronization.Signal(_inner.Task);
+            RaceSynchronization.Signal(task);
         }
 
         return completed;
     }
 
-    private static SimulationExecutionSnapshot RequireActive() =>
-        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.TaskCompletionSource");
-}
-
-/// <summary>
-/// A controlled <see cref="global::System.Threading.Tasks.TaskCompletionSource{TResult}"/>. See
-/// <see cref="ControlledTaskCompletionSource"/> for the design; this variant completes a
-/// <see cref="Task{TResult}"/> with a result.
-/// </summary>
-/// <typeparam name="TResult">The result type.</typeparam>
-public sealed class ControlledTaskCompletionSource<TResult>
-{
-    private readonly TaskCompletionSource<TResult> _inner;
-
-    /// <summary>Initializes a new controlled completion source with no options.</summary>
-    public ControlledTaskCompletionSource()
-        : this(TaskCreationOptions.None)
+    private static void Published(Task antecedent, Task task)
     {
+        RaceSynchronization.Wait(antecedent);
+        RaceSynchronization.Signal(task);
     }
 
-    /// <summary>Initializes a new controlled completion source with the given creation options.</summary>
-    /// <param name="creationOptions">The creation options (<see cref="TaskCreationOptions.RunContinuationsAsynchronously"/> is dropped inside a simulation).</param>
-    public ControlledTaskCompletionSource(TaskCreationOptions creationOptions) =>
-        _inner = new TaskCompletionSource<TResult>(SimulationTaskCompletionSourceOptions.Normalize(creationOptions));
+    private static void RequireActive() => SimulationRuntimeDispatch.RequireActiveSimulation(Api);
 
-    /// <summary>Gets the task controlled by this completion source.</summary>
-    public Task<TResult> Task => (RequireActive(), _inner.Task).Item2;
-
-    /// <summary>Transitions the task to <see cref="TaskStatus.RanToCompletion"/> with the given result.</summary>
-    /// <param name="result">The result.</param>
-    public void SetResult(TResult result)
-    {
-        RequireActive();
-        _inner.SetResult(result);
-        RaceSynchronization.Signal(_inner.Task);
-    }
-
-    /// <summary>Attempts to transition the task to <see cref="TaskStatus.RanToCompletion"/> with the given result.</summary>
-    /// <param name="result">The result.</param>
-    /// <returns><see langword="true"/> if successful.</returns>
-    public bool TrySetResult(TResult result) => TryComplete(() => _inner.TrySetResult(result));
-
-    /// <summary>Transitions the task to <see cref="TaskStatus.Faulted"/> with the given exception.</summary>
-    /// <param name="exception">The fault.</param>
-    public void SetException(Exception exception)
-    {
-        RequireActive();
-        _inner.SetException(exception);
-        RaceSynchronization.Signal(_inner.Task);
-    }
-
-    /// <summary>Attempts to transition the task to <see cref="TaskStatus.Faulted"/>.</summary>
-    /// <param name="exception">The fault.</param>
-    /// <returns><see langword="true"/> if successful.</returns>
-    public bool TrySetException(Exception exception) => TryComplete(() => _inner.TrySetException(exception));
-
-    /// <summary>Transitions the task to <see cref="TaskStatus.Canceled"/>.</summary>
-    public void SetCanceled()
-    {
-        RequireActive();
-        _inner.SetCanceled();
-        RaceSynchronization.Signal(_inner.Task);
-    }
-
-    /// <summary>Attempts to transition the task to <see cref="TaskStatus.Canceled"/>.</summary>
-    /// <returns><see langword="true"/> if successful.</returns>
-    public bool TrySetCanceled() => TryComplete(_inner.TrySetCanceled);
-
-    private bool TryComplete(Func<bool> complete)
-    {
-        RequireActive();
-        bool completed = complete();
-        if (completed)
-        {
-            RaceSynchronization.Signal(_inner.Task);
-        }
-
-        return completed;
-    }
-
-    private static SimulationExecutionSnapshot RequireActive() =>
-        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.TaskCompletionSource`1");
-}
-
-internal static class SimulationTaskCompletionSourceOptions
-{
-    public static TaskCreationOptions Normalize(TaskCreationOptions creationOptions)
-    {
-        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.TaskCompletionSource..ctor");
-        return creationOptions & ~TaskCreationOptions.RunContinuationsAsynchronously;
-    }
+    private static void RequireGenericActive() => SimulationRuntimeDispatch.RequireActiveSimulation(GenericApi);
 }

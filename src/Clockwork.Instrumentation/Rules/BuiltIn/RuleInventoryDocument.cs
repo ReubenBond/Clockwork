@@ -73,6 +73,7 @@ public static class RuleInventoryDocument
         Line("- Any `RandomNumberGenerator` overloads beyond those listed above.");
         Line("- `DateTime`/`DateTimeOffset` parsing/formatting and any culture-, timezone-, or kind-conversion helpers other than the `Now`/`UtcNow`/`Today` clocks above.");
         Line("- Blocking `ValueTask<T>.Result` reads: the accessor is not rewritten, so it would block the logical thread on an incomplete value task. `await`, or `GetAwaiter().GetResult()` through the controlled awaiter (which pumps until the value task completes), is the supported controlled path.");
+        Line("- `Task.WhenEach` and `Task.Factory.ContinueWhenAll`/`ContinueWhenAny`/`FromAsync`: they register BCL continuations on their antecedents and run their work on a task scheduler, outside the coordinator. Use `Task.WhenAny`/`Task.WhenAll` and `await`. Continuations registered by uninstrumented code likewise follow the BCL's dispatch.");
         Line("- Named/cross-process synchronization (named `EventWaitHandle`/`Mutex`/`Semaphore` and their `OpenExisting`/`TryOpenExisting` APIs): a single-process simulation cannot model kernel-object sharing, so these are rejected.");
         Line("- Custom `TimeProvider` implementations are rejected by timer-consuming controlled APIs unless Clockwork explicitly recognizes them. `System.Timers.Timer` rejects non-null `SynchronizingObject` and designer `Site` integration because those paths can marshal callbacks to uncontrolled UI or native threads. `Timer.Dispose(WaitHandle)` accepts controlled event handles only.");
         Line();
@@ -149,8 +150,12 @@ public static class RuleInventoryDocument
             "`Task.WhenAll`/`WhenAny` (the non-generic `Task[]`, `IEnumerable<Task>`, .NET 9+ params " +
             "`ReadOnlySpan<Task>`, and two-argument overloads, plus their generic `Task<TResult>` " +
             "counterparts) and the `TaskExtensions.Unwrap` extension methods redirect to controlled " +
-            "combinators. Completion and the returned winner become a deterministic function of when the " +
-            "antecedents complete on the logical thread instead of a physical thread-pool race.",
+            "combinators which register nothing on their antecedents. A result whose antecedents have already " +
+            "completed is computed by the BCL synchronously; otherwise the coordinator polls the antecedents and " +
+            "a controlled operation completes the result, with the BCL's argument validation, result, fault " +
+            "aggregation, and cancellation. `WhenAny` returns the first antecedent, in argument order, among those " +
+            "observed complete; the non-generic `WhenAll` aggregates faults in the order its antecedents are " +
+            "observed complete, with antecedents observed in the same scheduling step in argument order.",
         BuiltInRuleFamily.TaskSynchronization =>
             "Blocking `Task.Wait()`, `Task.WaitAll`, and `Task.WaitAny` redirect to controlled waits that pump " +
             "the deterministic loop rather than blocking a physical thread; a never-satisfiable wait surfaces " +
@@ -159,9 +164,18 @@ public static class RuleInventoryDocument
             "until each `MoveNextAsync` and the final `DisposeAsync` complete, with the BCL's token, early-exit " +
             "disposal, and exception semantics.",
         BuiltInRuleFamily.TaskContinuations =>
-            "`Task.ContinueWith(Action<Task>)`, `Task<T>.ContinueWith(Action<Task<T>>)`, and the result-producing " +
-            "`Task<T>.ContinueWith<TNewResult>(Func<Task<T>,TNewResult>)` redirect so the continuation is " +
-            "scheduled on the controlled coordinator and runs on the logical thread after the antecedent completes.",
+            "All 40 .NET 10 `Task.ContinueWith` and `Task<T>.ContinueWith` overloads (with and without state, a " +
+            "`CancellationToken`, `TaskContinuationOptions`, and a `TaskScheduler`) redirect. The result is a genuine " +
+            "BCL continuation task of a private gate, so its status, options, state, cancellation (including " +
+            "`LazyCancellation`), `NotOn*`/`OnlyOn*` filtering, and exceptions are the BCL's. The coordinator observes " +
+            "the antecedent complete and a controlled operation completes the gate, running the continuation inline on " +
+            "the logical thread (`ExecuteSynchronously` is a hint). `LongRunning`, `AttachedToParent`, and any " +
+            "scheduler other than `TaskScheduler.Default` cannot be preserved and are rejected.",
+        BuiltInRuleFamily.TaskCompletionSource =>
+            "Rewritten code keeps the real `TaskCompletionSource` and `TaskCompletionSource<TResult>`, with their real " +
+            "creation options. The completion members (`SetResult`, `SetException`, `SetCanceled`, `SetFromTask`, and " +
+            "their `TrySet*` forms) redirect to shims which complete the source through the same BCL member and " +
+            "publish the race-detection release edge an await, wait, combinator, or continuation acquires.",
         BuiltInRuleFamily.TaskTime =>
             "`Task.Delay` and `Task.WaitAsync` use controlled virtual deadlines, preserve cancellation and " +
             "terminal task state, and never consume wall-clock time.",
@@ -192,6 +206,12 @@ public static class RuleInventoryDocument
             "The runtime-async `AsyncHelpers.Await` intrinsics taking a configured value-task awaitable are " +
             "rejected. Synchronous blocking on a value task is not rewritten " +
             "(a value task may be consumed only once); `await` is the supported controlled path.",
+        BuiltInRuleFamily.ValueTaskConversions =>
+            "`ValueTask.AsTask`, `ValueTask<T>.AsTask`, `ValueTask.Preserve`, and `ValueTask<T>.Preserve` redirect. A " +
+            "value task backed by a pending `IValueTaskSource` is polled through the source's status by the " +
+            "coordinator, with no completion callback registered on the source, and a controlled operation consumes " +
+            "the completed source once through the BCL's own conversion. Any other value task is converted by the " +
+            "BCL itself, synchronously.",
         BuiltInRuleFamily.TaskFactory =>
             "All 24 .NET 10 `TaskFactory.StartNew` and `TaskFactory<T>.StartNew` overloads are classified, " +
             "including state-carrying delegates and the full cancellation/options/scheduler forms. Each " +

@@ -147,6 +147,38 @@ public static class BuiltInRuleSets
     private const string ActionOfTaskTDecl = "System.Action`1<System.Threading.Tasks.Task`1<TResult>>";
     private const string FuncOfTaskTAndNewResult = "System.Func`2<System.Threading.Tasks.Task`1<!0>,!!0>";
     private const string FuncOfTaskTAndNewResultDecl = "System.Func`2<System.Threading.Tasks.Task`1<TResult>,TNewResult>";
+    private const string ActionOfTaskTAndStateVar = "System.Action`2<System.Threading.Tasks.Task`1<!0>,System.Object>";
+    private const string ActionOfTaskTAndStateDecl = "System.Action`2<System.Threading.Tasks.Task`1<TResult>,System.Object>";
+    private const string FuncOfTaskTStateAndNewResult = "System.Func`3<System.Threading.Tasks.Task`1<!0>,System.Object,!!0>";
+    private const string FuncOfTaskTStateAndNewResultDecl = "System.Func`3<System.Threading.Tasks.Task`1<TResult>,System.Object,TNewResult>";
+
+    // Cecil full names for the non-generic Task.ContinueWith surface: the state-carrying Action and the
+    // result-producing Func forms (a generic method, `!!0` target and `TResult` replacement).
+    private const string ActionOfTaskAndState = "System.Action`2<System.Threading.Tasks.Task,System.Object>";
+    private const string FuncOfTaskAndResult = "System.Func`2<System.Threading.Tasks.Task,!!0>";
+    private const string FuncOfTaskAndResultDecl = "System.Func`2<System.Threading.Tasks.Task,TResult>";
+    private const string FuncOfTaskStateAndResult = "System.Func`3<System.Threading.Tasks.Task,System.Object,!!0>";
+    private const string FuncOfTaskStateAndResultDecl = "System.Func`3<System.Threading.Tasks.Task,System.Object,TResult>";
+    private const string TaskContinuationOptions = "System.Threading.Tasks.TaskContinuationOptions";
+
+    // Cecil full names for the TaskCompletionSource completion members. The generic source's members are
+    // non-generic members of the closed generic type (`!0` target), bound to the shim's TResult from the receiver.
+    private const string TaskCompletionSourceShim = "Clockwork.Shims.System.Threading.Tasks.ControlledTaskCompletionSource";
+    private const string TaskCompletionSourceType = "System.Threading.Tasks.TaskCompletionSource";
+    private const string TaskCompletionSourceTType = "System.Threading.Tasks.TaskCompletionSource`1";
+    private const string TaskCompletionSourceTDecl = "System.Threading.Tasks.TaskCompletionSource`1<TResult>";
+    private const string TypeArg0 = "!0";
+    private const string TResultDecl = "TResult";
+    private const string TaskTypeArg0 = "System.Threading.Tasks.Task`1<!0>";
+    private const string ExceptionTypeName = "System.Exception";
+    private const string IEnumerableOfException = "System.Collections.Generic.IEnumerable`1<System.Exception>";
+
+    // Cecil full names for the ValueTask conversions. The receiver is a value type, so each shim takes it by reference.
+    private const string ValueTaskShim = "Clockwork.Shims.System.Threading.Tasks.ControlledValueTask";
+    private const string ValueTaskType = "System.Threading.Tasks.ValueTask";
+    private const string ValueTaskTType = "System.Threading.Tasks.ValueTask`1";
+    private const string ValueTaskRef = "System.Threading.Tasks.ValueTask&";
+    private const string ValueTaskTRefDecl = "System.Threading.Tasks.ValueTask`1<TResult>&";
 
     // TaskCreationOptions selects the controlled StartNew overloads that carry an explicit options value.
     private const string TaskCreationOptions = "System.Threading.Tasks.TaskCreationOptions";
@@ -407,10 +439,12 @@ public static class BuiltInRuleSets
         BuiltInRuleFamily.TaskCombinators,
         BuiltInRuleFamily.TaskSynchronization,
         BuiltInRuleFamily.TaskContinuations,
+        BuiltInRuleFamily.TaskCompletionSource,
         BuiltInRuleFamily.TaskTime,
         BuiltInRuleFamily.TaskScheduling,
         BuiltInRuleFamily.AsyncMachinery,
         BuiltInRuleFamily.ValueTaskMachinery,
+        BuiltInRuleFamily.ValueTaskConversions,
         BuiltInRuleFamily.TaskFactory,
         BuiltInRuleFamily.Thread,
         BuiltInRuleFamily.ThreadPool,
@@ -561,18 +595,26 @@ public static class BuiltInRuleSets
             MemberSignature.Method(TaskAsyncEnumerableExtensionsType, "ToBlockingEnumerable", AsyncEnumerableT, CancellationToken),
             Shim(AsyncEnumerableShim, "ToBlockingEnumerable", AsyncEnumerableTDecl, CancellationToken));
 
-        // ---- Continuations: ContinueWith -> controlled scheduling on the logical thread ----
-        TaskRule(builder, BuiltInRuleFamily.TaskContinuations, "clockwork.tasks.continuewith.action",
-            MemberSignature.Method(Task, "ContinueWith", ActionOfTask), Shim(TaskShim, "ContinueWith", Task, ActionOfTask));
+        // ---- Continuations: every Task and Task<TResult> ContinueWith overload -> a genuine BCL continuation of a
+        // private gate which the coordinator completes once it observes the antecedent complete, so the BCL registers
+        // nothing on the antecedent. Each shape has the plain, CancellationToken, TaskScheduler, TaskContinuationOptions,
+        // and full (CancellationToken, TaskContinuationOptions, TaskScheduler) overloads. A Task<TResult> overload is a
+        // member of the closed generic type, so the shim's TResult binds from the receiver and a method type argument
+        // (TNewResult) follows it. ----
+        ContinueWithRules(builder, "clockwork.tasks.continuewith.action", Task, Task, ActionOfTask, ActionOfTask, hasState: false);
+        ContinueWithRules(builder, "clockwork.tasks.continuewith.action.state", Task, Task, ActionOfTaskAndState, ActionOfTaskAndState, hasState: true);
+        ContinueWithRules(builder, "clockwork.tasks.continuewith.func", Task, Task, FuncOfTaskAndResult, FuncOfTaskAndResultDecl, hasState: false);
+        ContinueWithRules(builder, "clockwork.tasks.continuewith.func.state", Task, Task, FuncOfTaskStateAndResult, FuncOfTaskStateAndResultDecl, hasState: true);
+        ContinueWithRules(builder, "clockwork.tasks.continuewith.generic.action", TaskTType, TaskTDecl, ActionOfTaskTVar, ActionOfTaskTDecl, hasState: false);
+        ContinueWithRules(builder, "clockwork.tasks.continuewith.generic.action.state", TaskTType, TaskTDecl, ActionOfTaskTAndStateVar, ActionOfTaskTAndStateDecl, hasState: true);
+        ContinueWithRules(builder, "clockwork.tasks.continuewith.generic.func", TaskTType, TaskTDecl, FuncOfTaskTAndNewResult, FuncOfTaskTAndNewResultDecl, hasState: false);
+        ContinueWithRules(builder, "clockwork.tasks.continuewith.generic.func.state", TaskTType, TaskTDecl, FuncOfTaskTStateAndNewResult, FuncOfTaskTStateAndNewResultDecl, hasState: true);
 
-        // Generic-antecedent Task<TResult>.ContinueWith: the Action<Task<TResult>> form is a non-generic
-        // member on a closed generic type (declaring-type arg binds the shim's TResult); the
-        // Func<Task<TResult>, TNewResult> form is a generic method on a closed generic type, so the shim's
-        // two type parameters bind declaring-type-first (TResult) then method-argument (TNewResult).
-        TaskRule(builder, BuiltInRuleFamily.TaskContinuations, "clockwork.tasks.continuewith.generic.action",
-            MemberSignature.Method(TaskTType, "ContinueWith", ActionOfTaskTVar), Shim(TaskShim, "ContinueWith", TaskTDecl, ActionOfTaskTDecl));
-        TaskRule(builder, BuiltInRuleFamily.TaskContinuations, "clockwork.tasks.continuewith.generic.func",
-            MemberSignature.Method(TaskTType, "ContinueWith", FuncOfTaskTAndNewResult), Shim(TaskShim, "ContinueWith", TaskTDecl, FuncOfTaskTAndNewResultDecl));
+        // ---- Completion sources: the real BCL TaskCompletionSource and TaskCompletionSource<TResult> are kept, with
+        // their real options. Only calls to their non-virtual completion members redirect, to shims which complete the
+        // source through the same member and publish a race-detection release edge on its task. ----
+        CompletionSourceRules(builder, "clockwork.tasks.completionsource", TaskCompletionSourceType, TaskCompletionSourceType, [], [], Task, Task);
+        CompletionSourceRules(builder, "clockwork.tasks.completionsource.generic", TaskCompletionSourceTType, TaskCompletionSourceTDecl, [TypeArg0], [TResultDecl], TaskTypeArg0, TaskTDecl);
 
         // ---- Virtual-time task delays and asynchronous timeout races. ----
         TaskRule(builder, BuiltInRuleFamily.TaskTime, "clockwork.tasks.delay.milliseconds",
@@ -698,6 +740,19 @@ public static class BuiltInRuleSets
         TaskRule(builder, BuiltInRuleFamily.ValueTaskMachinery, "clockwork.tasks.asyncenumerable.withcancellation",
             MemberSignature.Method(TaskAsyncEnumerableExtensionsType, "WithCancellation", AsyncEnumerableT, CancellationToken),
             Shim(AsyncEnumerableShim, "WithCancellation", AsyncEnumerableTDecl, CancellationToken));
+
+        // ---- ValueTask conversions: AsTask and Preserve of a value task backed by a pending IValueTaskSource register a
+        // BCL completion callback with the source, which a source running continuations asynchronously invokes on the
+        // thread pool. The shims poll the source through the coordinator instead. The receiver is a value type, so each
+        // shim takes it by reference, as the call pushes its address. ----
+        TaskRule(builder, BuiltInRuleFamily.ValueTaskConversions, "clockwork.tasks.valuetask.astask",
+            MemberSignature.Method(ValueTaskType, "AsTask"), Shim(ValueTaskShim, "AsTask", ValueTaskRef));
+        TaskRule(builder, BuiltInRuleFamily.ValueTaskConversions, "clockwork.tasks.valuetask.preserve",
+            MemberSignature.Method(ValueTaskType, "Preserve"), Shim(ValueTaskShim, "Preserve", ValueTaskRef));
+        TaskRule(builder, BuiltInRuleFamily.ValueTaskConversions, "clockwork.tasks.valuetask.generic.astask",
+            MemberSignature.Method(ValueTaskTType, "AsTask"), Shim(ValueTaskShim, "AsTask", ValueTaskTRefDecl));
+        TaskRule(builder, BuiltInRuleFamily.ValueTaskConversions, "clockwork.tasks.valuetask.generic.preserve",
+            MemberSignature.Method(ValueTaskTType, "Preserve"), Shim(ValueTaskShim, "Preserve", ValueTaskTRefDecl));
 
         // ---- TaskFactory scheduling: StartNew offloads onto a task scheduler (the thread pool by
         // default). The controlled runtime handles it by queuing the delegate body as a fresh controlled operation on
@@ -1627,6 +1682,73 @@ public static class BuiltInRuleSets
         RewriteReplacement replacement)
     {
         builder.Add(new BuiltInRuleEntry(family, RewriteRule.RedirectCall(id, target, replacement)));
+    }
+
+    // Adds the five overloads of one ContinueWith shape: the plain form, then the CancellationToken, TaskScheduler,
+    // TaskContinuationOptions, and full (CancellationToken, TaskContinuationOptions, TaskScheduler) forms, after the
+    // continuation delegate and, for a state-carrying shape, its state.
+    private static void ContinueWithRules(
+        ImmutableArray<BuiltInRuleEntry>.Builder builder,
+        string id,
+        string declaringType,
+        string receiver,
+        string continuation,
+        string shimContinuation,
+        bool hasState)
+    {
+        string[] target = hasState ? [continuation, ObjectType] : [continuation];
+        string[] shim = hasState ? [receiver, shimContinuation, ObjectType] : [receiver, shimContinuation];
+        (string Suffix, string[] Parameters)[] forms =
+        [
+            (string.Empty, []),
+            (".cancellationtoken", [CancellationToken]),
+            (".scheduler", [TaskSchedulerType]),
+            (".options", [TaskContinuationOptions]),
+            (".cancellationtoken.options.scheduler", [CancellationToken, TaskContinuationOptions, TaskSchedulerType]),
+        ];
+
+        foreach ((string suffix, string[] parameters) in forms)
+        {
+            TaskRule(builder, BuiltInRuleFamily.TaskContinuations, id + suffix,
+                MemberSignature.Method(declaringType, "ContinueWith", [.. target, .. parameters]),
+                Shim(TaskShim, "ContinueWith", [.. shim, .. parameters]));
+        }
+    }
+
+    // Adds the twelve completion members of one TaskCompletionSource type, each redirected to the receiver-first shim
+    // of the same name.
+    private static void CompletionSourceRules(
+        ImmutableArray<BuiltInRuleEntry>.Builder builder,
+        string id,
+        string declaringType,
+        string receiver,
+        string[] result,
+        string[] shimResult,
+        string completedTask,
+        string shimCompletedTask)
+    {
+        (string Suffix, string Member, string[] Parameters, string[] ShimParameters)[] members =
+        [
+            (".setresult", "SetResult", result, shimResult),
+            (".trysetresult", "TrySetResult", result, shimResult),
+            (".setexception", "SetException", [ExceptionTypeName], [ExceptionTypeName]),
+            (".setexception.enumerable", "SetException", [IEnumerableOfException], [IEnumerableOfException]),
+            (".trysetexception", "TrySetException", [ExceptionTypeName], [ExceptionTypeName]),
+            (".trysetexception.enumerable", "TrySetException", [IEnumerableOfException], [IEnumerableOfException]),
+            (".setcanceled", "SetCanceled", [], []),
+            (".setcanceled.cancellationtoken", "SetCanceled", [CancellationToken], [CancellationToken]),
+            (".trysetcanceled", "TrySetCanceled", [], []),
+            (".trysetcanceled.cancellationtoken", "TrySetCanceled", [CancellationToken], [CancellationToken]),
+            (".setfromtask", "SetFromTask", [completedTask], [shimCompletedTask]),
+            (".trysetfromtask", "TrySetFromTask", [completedTask], [shimCompletedTask]),
+        ];
+
+        foreach ((string suffix, string member, string[] parameters, string[] shimParameters) in members)
+        {
+            TaskRule(builder, BuiltInRuleFamily.TaskCompletionSource, id + suffix,
+                MemberSignature.Method(declaringType, member, parameters),
+                Shim(TaskCompletionSourceShim, member, [receiver, .. shimParameters]));
+        }
     }
 
     private static ImmutableArray<BuiltInRuleEntry> BuildDeterministicBclEntries()

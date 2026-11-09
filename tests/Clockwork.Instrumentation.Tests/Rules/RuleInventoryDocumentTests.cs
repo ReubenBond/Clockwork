@@ -124,6 +124,80 @@ public sealed class RuleInventoryDocumentTests
     }
 
     [Fact]
+    public void ContinueWithRulesClassifyEveryNet10Overload()
+    {
+        const BindingFlags Declared = BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly;
+        int frameworkOverloads =
+            typeof(Task).GetMethods(Declared).Count(method => method.Name == nameof(Task.ContinueWith)) +
+            typeof(Task<>).GetMethods(Declared).Count(method => method.Name == nameof(Task.ContinueWith));
+        RewriteRule[] classified = BuiltInRuleSets.ControlledTasksInventory
+            .Where(entry => entry.Family == BuiltInRuleFamily.TaskContinuations)
+            .Select(entry => entry.Rule)
+            .ToArray();
+
+        Assert.Equal(40, frameworkOverloads);
+        Assert.Equal(frameworkOverloads, classified.Length);
+        Assert.Equal(classified.Length, classified.Select(rule => rule.Target.ToCanonicalString()).Distinct().Count());
+        Assert.All(classified, rule =>
+        {
+            Assert.Equal("ContinueWith", rule.Target.MemberName);
+            Assert.Equal(Clockwork.Runtime.Policy.SimulationApiPolicy.Controlled, rule.Policy);
+        });
+    }
+
+    [Fact]
+    public void CompletionSourceRulesClassifyEveryNet10CompletionMember()
+    {
+        const BindingFlags Declared = BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly;
+        string[] Completions(Type type) =>
+        [
+            .. type.GetMethods(Declared)
+                .Where(method => method.Name.StartsWith("Set", StringComparison.Ordinal)
+                    || method.Name.StartsWith("TrySet", StringComparison.Ordinal))
+                .Select(method => type.Name + "::" + method.Name + "(" + method.GetParameters().Length + ")")
+                .Order(StringComparer.Ordinal),
+        ];
+
+        string[] framework = [.. Completions(typeof(TaskCompletionSource)), .. Completions(typeof(TaskCompletionSource<>))];
+        string[] classified =
+        [
+            .. BuiltInRuleSets.ControlledTasksInventory
+                .Where(entry => entry.Family == BuiltInRuleFamily.TaskCompletionSource)
+                .Select(entry => entry.Rule.Target)
+                .Select(target => target.DeclaringTypeFullName.Split('.')[^1] + "::" + target.MemberName + "(" + target.ParameterTypeFullNames.Length + ")")
+                .Order(StringComparer.Ordinal),
+        ];
+
+        Assert.Equal(24, framework.Length);
+        Assert.Equal(framework.Order(StringComparer.Ordinal), classified);
+        Assert.DoesNotContain(
+            BuiltInRuleSets.ControlledTasksInventory,
+            entry => entry.Rule.Operation == RewriteOperationKind.SubstituteType
+                && entry.Rule.Target.DeclaringTypeFullName.StartsWith("System.Threading.Tasks.TaskCompletionSource", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ValueTaskConversionRulesClassifyAsTaskAndPreserve()
+    {
+        string[] classified =
+        [
+            .. BuiltInRuleSets.ControlledTasksInventory
+                .Where(entry => entry.Family == BuiltInRuleFamily.ValueTaskConversions)
+                .Select(entry => entry.Rule.Target.DeclaringTypeFullName + "::" + entry.Rule.Target.MemberName)
+                .Order(StringComparer.Ordinal),
+        ];
+
+        Assert.Equal(
+            [
+                "System.Threading.Tasks.ValueTask::AsTask",
+                "System.Threading.Tasks.ValueTask::Preserve",
+                "System.Threading.Tasks.ValueTask`1::AsTask",
+                "System.Threading.Tasks.ValueTask`1::Preserve",
+            ],
+            classified);
+    }
+
+    [Fact]
     public void DocumentedHolesDoNotNameFullyClassifiedFamilies()
     {
         string rendered = RuleInventoryDocument.Render();

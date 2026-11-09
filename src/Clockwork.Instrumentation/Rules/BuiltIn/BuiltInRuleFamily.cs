@@ -44,10 +44,21 @@ public enum BuiltInRuleFamily
     TaskSynchronization,
 
     /// <summary>
-    /// Task continuations: <c>Task.ContinueWith</c>, redirected so the continuation is scheduled on the
-    /// controlled coordinator and runs on the logical thread after the antecedent.
+    /// Task continuations: every .NET 10 <c>Task.ContinueWith</c> and <c>Task&lt;TResult&gt;.ContinueWith</c>
+    /// overload, redirected so the BCL registers nothing on the antecedent: the coordinator observes the antecedent
+    /// complete and runs the genuine BCL continuation task on the logical thread.
     /// </summary>
     TaskContinuations,
+
+    /// <summary>
+    /// Task completion sources: calls to the completion members of the real
+    /// <see cref="System.Threading.Tasks.TaskCompletionSource"/> and
+    /// <see cref="System.Threading.Tasks.TaskCompletionSource{TResult}"/> (<c>SetResult</c>, <c>SetException</c>,
+    /// <c>SetCanceled</c>, <c>SetFromTask</c>, and their <c>TrySet*</c> forms), redirected to shims which complete the
+    /// source through the same member and publish the race-detection release edge an await acquires. The completion
+    /// source type, its options, and its task are unchanged.
+    /// </summary>
+    TaskCompletionSource,
 
     /// <summary>
     /// Virtual-time task APIs: every .NET 10 <c>Task.Delay</c> and <c>Task.WaitAsync</c> overload,
@@ -90,6 +101,15 @@ public enum BuiltInRuleFamily
     /// <c>AsyncHelpers.Await</c> intrinsics taking a configured value-task awaitable are rejected.
     /// </summary>
     ValueTaskMachinery,
+
+    /// <summary>
+    /// <see cref="System.Threading.Tasks.ValueTask"/> conversions: <c>AsTask</c> and <c>Preserve</c> on
+    /// <see cref="System.Threading.Tasks.ValueTask"/> and <see cref="System.Threading.Tasks.ValueTask{TResult}"/>,
+    /// redirected so a value task backed by a pending <see cref="System.Threading.Tasks.Sources.IValueTaskSource"/> is
+    /// polled through the coordinator instead of registering a completion callback the source may run on the thread
+    /// pool.
+    /// </summary>
+    ValueTaskConversions,
 
     /// <summary>
     /// <see cref="System.Threading.Tasks.TaskFactory"/> / <see cref="System.Threading.Tasks.TaskFactory{TResult}"/>

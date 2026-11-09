@@ -46,6 +46,10 @@ public sealed class NondeterministicApiAnalyzerTests
     [InlineData("_ = System.Security.Cryptography.RandomNumberGenerator.GetItems<int>([1, 2], 1);", "CW1001")]
     [InlineData("System.Security.Cryptography.RandomNumberGenerator.Shuffle<int>(System.Span<int>.Empty);", "CW1001")]
     [InlineData("_ = System.Threading.Tasks.Task.Run(() => { });", "CW1001")]
+    [InlineData("_ = System.Threading.Tasks.Task.CompletedTask.ContinueWith(_ => { });", "CW1001")]
+    [InlineData("_ = default(System.Threading.Tasks.ValueTask).AsTask();", "CW1001")]
+    [InlineData("_ = default(System.Threading.Tasks.ValueTask<int>).Preserve();", "CW1001")]
+    [InlineData("new System.Threading.Tasks.TaskCompletionSource<int>().SetResult(1);", "CW1001")]
     [InlineData("System.Threading.Thread.Sleep(1);", "CW1001")]
     [InlineData("System.Threading.ThreadPool.QueueUserWorkItem(_ => { });", "CW1001")]
     [InlineData("System.Threading.Tasks.Parallel.Invoke(() => { });", "CW1001")]
@@ -170,6 +174,8 @@ public sealed class NondeterministicApiAnalyzerTests
             BuiltInRuleFamily.TaskCombinators,
             BuiltInRuleFamily.TaskSynchronization,
             BuiltInRuleFamily.TaskContinuations,
+            BuiltInRuleFamily.TaskCompletionSource,
+            BuiltInRuleFamily.ValueTaskConversions,
             BuiltInRuleFamily.TaskTime,
             BuiltInRuleFamily.TaskScheduling,
             BuiltInRuleFamily.TaskFactory,
