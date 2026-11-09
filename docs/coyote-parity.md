@@ -20,7 +20,10 @@ every task a *controlled* task. Clockwork instead substitutes the compiler-gener
 awaiter** types (see the `AsyncMachinery`/`ValueTaskMachinery` families) and redirects the direct
 `Task` call sites (combinators, waits, `Result`, continuations, `Run`). A plain BCL `Task` produced
 by any means is therefore already controlled the moment it is awaited or waited on — which is why
-several Coyote wrapper types map to "controlled by architecture" rather than a dedicated rule.
+several Coyote wrapper types map to "controlled by architecture" rather than a dedicated rule. The
+corollary is that no controlled surface may register a BCL continuation on a task: the continuation
+would follow the task's own dispatch (the thread pool, for a `RunContinuationsAsynchronously` source), so the
+combinators, `ContinueWith`, and `ValueTask.AsTask`/`Preserve` are redirected too.
 
 Clockwork additionally goes **beyond** Coyote for `System.Threading.ThreadPool`, which Coyote does
 not model at all.
@@ -102,12 +105,11 @@ async machinery, `Yield`, and `Run`.
 | Coyote surface | Clockwork status | Rule / family |
 | --- | --- | --- |
 | `Task.Run` (8 overloads: `Action`/`Func<TResult>`/`Func<Task>`/`Func<Task<TResult>>`, ± `CancellationToken`) | ✅ Controlled | `clockwork.tasks.run.*` (TaskScheduling family) |
-| `Task.WhenAll` / `Task.WhenAny` (array, span, pair, enumerable; non-generic + generic) | ✅ Controlled | `clockwork.tasks.whenall.*` / `whenany.*` (TaskCombinators) |
+| `Task.WhenAll` / `Task.WhenAny` (array, span, pair, enumerable; non-generic + generic) | ✅ Controlled | `clockwork.tasks.whenall.*` / `whenany.*` (TaskCombinators); completed through the coordinator, registering nothing on the antecedents |
 | `Task.Wait()` / `WaitAll(Task[])` / `WaitAny(Task[])` | ✅ Controlled | `clockwork.tasks.wait.*` (TaskSynchronization) |
 | `Task<T>.Result` (blocking get) | ✅ Controlled | `clockwork.tasks.result.generic` |
-| `Task.ContinueWith(Action<Task>)` | ✅ Controlled | `clockwork.tasks.continuewith.action` |
-| `Task<T>.ContinueWith(Action<Task<T>>)` | ✅ Controlled | `clockwork.tasks.continuewith.generic.action` |
-| `Task<T>.ContinueWith<TNewResult>(Func<Task<T>,TNewResult>)` | ✅ Controlled | `clockwork.tasks.continuewith.generic.func` |
+| `Task.ContinueWith` (all 20 overloads: `Action`/`Func`, ± state, ± `CancellationToken`/`TaskContinuationOptions`/`TaskScheduler`) | ✅ Controlled | `clockwork.tasks.continuewith.{action,action.state,func,func.state}*` (TaskContinuations); `LongRunning`, `AttachedToParent`, and custom schedulers rejected |
+| `Task<T>.ContinueWith` (all 20 overloads) | ✅ Controlled | `clockwork.tasks.continuewith.generic.*` |
 | `Task.Yield()` | ✅ Controlled | `clockwork.tasks.yield.call` (AsyncMachinery) |
 | `async` builder + awaiter types (`AsyncTaskMethodBuilder`, `TaskAwaiter`, `ConfiguredTaskAwaitable`, `YieldAwaitable`, generic + non-generic) | ✅ Controlled | AsyncMachinery family (type substitution) |
 | `Task.Delay` (all 6 .NET 10 overloads: `int`/`TimeSpan`, cancellation, and `TimeProvider`) | ✅ Controlled | `clockwork.tasks.delay.*` — virtual deadlines, no wall clock |
@@ -121,6 +123,7 @@ async machinery, `Yield`, and `Run`.
 | Coyote surface | Clockwork status | Rule / family |
 | --- | --- | --- |
 | `async ValueTask`/`ValueTask<T>` builder + awaiter types (`AsyncValueTaskMethodBuilder`, `ValueTaskAwaiter`, `ConfiguredValueTaskAwaitable`, generic + non-generic) | ✅ Controlled | ValueTaskMachinery family (type substitution) |
+| `ValueTask.AsTask()` / `ValueTask<T>.AsTask()` / `Preserve()` | ✅ Controlled | `clockwork.tasks.valuetask[.generic].astask` / `.preserve` (ValueTaskConversions); a pending `IValueTaskSource` is polled through the coordinator, with no callback registered on the source |
 | Blocking `ValueTask<T>.Result` read | ⛔ Not rewritten (documented hole) | `await`, or `GetAwaiter().GetResult()` through the controlled awaiter (which pumps until the value task completes), is the supported controlled path (see `rule-inventory.md` holes) |
 
 ---
@@ -146,18 +149,19 @@ classifies and rewrites the same 24 .NET 10 `StartNew` signatures.
 
 ## `System.Threading.Tasks.TaskCompletionSource` / `TaskCompletionSource<TResult>`
 
-Coyote wraps TCS so the produced task is a controlled task. Clockwork does **not** need a rewrite
-rule: because the *awaiter* is controlled, a plain BCL `TaskCompletionSource`'s task is already
-controlled when awaited or waited on. For code that wants an explicit controlled TCS, Clockwork ships
-`Clockwork.Shims.System.Threading.Tasks.ControlledTaskCompletionSource` / `ControlledTaskCompletionSource<TResult>`
-mirroring the Coyote surface.
+Coyote wraps TCS so the produced task is a controlled task. Clockwork keeps the real BCL
+`TaskCompletionSource` and `TaskCompletionSource<TResult>`, with their real `TaskCreationOptions`: the controlled
+awaiters, combinators, and continuations observe the produced task through the coordinator and register no BCL
+continuation on it, so `RunContinuationsAsynchronously` sends none of them to the thread pool. Only the completion
+members redirect, to `Clockwork.Shims.System.Threading.Tasks.ControlledTaskCompletionSource`, which completes the
+source through the same member and publishes the race-detection release edge.
 
 | Coyote surface | Clockwork status | Notes |
 | --- | --- | --- |
-| `new TaskCompletionSource()` / `new TaskCompletionSource(TaskCreationOptions)` (and generic) | 🏛 Controlled by architecture | explicit `ControlledTaskCompletionSource(…)` / `<TResult>(…)` ctors available; `TaskCreationOptions` normalized (`Normalize`) |
-| `SetResult` / `SetException` / `SetCanceled` (and generic `SetResult(TResult)`) | 🏛 Controlled by architecture | completing the task lets the controlled awaiter pick up the continuation on the coordinator; mirrored by `ControlledTaskCompletionSource.Set*` |
-| `TrySetResult` / `TrySetException(Exception \| IEnumerable<Exception>)` / `TrySetCanceled` | 🏛 Controlled by architecture | mirrored by `ControlledTaskCompletionSource.TrySet*` |
-| `get_Task` | 🏛 Controlled by architecture | `ControlledTaskCompletionSource.Task` |
+| `new TaskCompletionSource()` / `new TaskCompletionSource(TaskCreationOptions)` (and generic, ± state) | 🏛 Controlled by architecture | the real BCL type and options; not rewritten |
+| `SetResult` / `SetException(Exception \| IEnumerable<Exception>)` / `SetCanceled(± CancellationToken)` / `SetFromTask` (and generic) | ✅ Controlled | `clockwork.tasks.completionsource[.generic].set*` (TaskCompletionSource family) |
+| `TrySetResult` / `TrySetException` / `TrySetCanceled` / `TrySetFromTask` (and generic) | ✅ Controlled | `clockwork.tasks.completionsource[.generic].tryset*` |
+| `get_Task` | 🏛 Controlled by architecture | the real task, observed through the coordinator |
 
 ---
 
@@ -165,8 +169,8 @@ mirroring the Coyote surface.
 
 | Coyote surface | .NET 10 signature | Clockwork status | Notes |
 | --- | --- | --- | --- |
-| `Unwrap(this Task<Task>)` | `Task Unwrap(this Task<Task>)` | 🏛 Controlled by architecture | `Task.Run(Func<Task>)`/`Run(Func<Task<T>>)` unwrap internally in `ControlledTask.Run`; a standalone `.Unwrap()` produces a task that is controlled when awaited |
-| `Unwrap<TResult>(this Task<Task<TResult>>)` | ditto | 🏛 Controlled by architecture | as above |
+| `Unwrap(this Task<Task>)` | `Task Unwrap(this Task<Task>)` | ✅ Controlled | `clockwork.tasks.unwrap`; the proxy is completed through the coordinator, registering nothing on the outer or inner task |
+| `Unwrap<TResult>(this Task<Task<TResult>>)` | ditto | ✅ Controlled | `clockwork.tasks.unwrap.generic` |
 
 ---
 
@@ -533,8 +537,9 @@ are rejected precisely.
   `Task.WaitAsync`/`Task<T>.WaitAsync` overloads use controlled virtual deadlines.
 - **Coyote `TaskFactory`:** all 24 .NET 10 `StartNew` signatures classified and rewritten; default
   scheduler forms controlled, unsupported scheduler/option combinations rejected.
-- **Coyote `TaskCompletionSource` / `TaskExtensions` / `ValueTask`:** controlled by architecture
-  (awaiter substitution) with explicit `Controlled*` types available.
+- **Coyote `TaskCompletionSource` / `TaskExtensions` / `ValueTask`:** the real completion sources are kept and their
+  completion members redirected to publish race-detection edges; `Unwrap`, `AsTask`, and `Preserve` are controlled,
+  and no controlled surface registers a BCL continuation on a task.
 - **Coyote `Parallel`:** simple-body overloads controlled; loop-state / thread-local / partitioner
   overloads rejected with tested diagnostics.
 - **`ThreadPool`:** modelled by Clockwork **beyond Coyote**; the registered-wait APIs

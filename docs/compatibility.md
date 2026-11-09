@@ -164,7 +164,13 @@ exclude the containing assembly from instrumentation.
 - generic-instance methods (type arguments carried onto the replacement) and calls
   embedded in generic types;
 - type-reference substitution in method bodies (`newarr`, `castclass`, `isinst`,
-  `box`, `unbox(.any)`, `ldtoken`, `initobj`, `sizeof`, `constrained.`);
+  `box`, `unbox(.any)`, `ldtoken`, `initobj`, `sizeof`, `constrained.`), including operands composed
+  from a substituted type such as the `constrained. List<Barrier>.Enumerator` prefix of a `foreach`;
+- substitution in signatures composed from a substituted type: fields, locals, parameters and return
+  types, base types and interfaces (`List<Barrier>`, `IEnumerable<CountdownEvent>`), explicit interface
+  implementations, and generic parameter constraints (`where T : IEnumerable<Barrier>`). A type which
+  derives directly from a substituted type fails the rewrite (`CWR0001`) rather than invoking the
+  replacement's members on an object of a different type;
 - optional post-call wrapping (interception after a matched call);
 - deterministic rejection injection before an unsupported/forbidden invocation;
 - correct behavior when the redirected site sits inside by-ref/array/constrained-
@@ -393,10 +399,10 @@ production binaries retain normal BCL async semantics. A
 non-generic `Task.WhenAll` / `Task.WhenAny` (array, span, pair, enumerable) combinators **and their
 generic `Task<T>` overloads** (array, span, enumerable, and the `WhenAny<T>` pair), the synchronous
 `Task.Wait()` / `Task.WaitAll` / `Task.WaitAny(Task[])` waits, the blocking generic
-`Task<T>.Result` accessor, the `TaskExtensions.Unwrap` extension methods, and
-`Task.ContinueWith(Action<Task>)` to
-`Clockwork.Shims.System.Threading.Tasks.ControlledTask`. Combinators delegate to the real BCL (their completion
-is driven by antecedents that complete on the logical thread); synchronous waits **pump the
+`Task<T>.Result` accessor, the `TaskExtensions.Unwrap` extension methods, all 40
+`Task.ContinueWith`/`Task<T>.ContinueWith` overloads, the `ValueTask`/`ValueTask<T>` `AsTask` and `Preserve`
+conversions, and the completion members of `TaskCompletionSource`/`TaskCompletionSource<T>` to shims in
+`Clockwork.Shims.System.Threading.Tasks`. Synchronous waits **pump the
 coordinator loop until completion instead of blocking a physical thread**, then delegate to the
 real API to reproduce its exact `AggregateException` semantics, so a synchronous wait or a blocking
 `Task<T>.Result` read on incomplete controlled work never deadlocks the scheduler.
@@ -408,6 +414,45 @@ fault, and exceptions propagate unwrapped.
 `Task.Run` and `TaskFactory.StartNew` queue controlled operations instead of escaping, while
 `Task.Delay` and `Task.WaitAsync` register virtual deadlines.
 
+**Clockwork registers no BCL continuation on a task.** A continuation the BCL registers inherits the
+task's dispatch: completing a `TaskCompletionSource` created with `RunContinuationsAsynchronously`, a
+channel's `Completion`, a controlled timer's `DisposeAsync`, or a value-task source which runs continuations
+asynchronously (a channel's pending `ReadAsync`/`WaitToReadAsync`, a `ManualResetValueTaskSourceCore<T>` with
+`RunContinuationsAsynchronously`) would run it on the real thread pool, so the result it completes would become
+ready at a nondeterministic scheduling step. Instead:
+
+- **Combinators.** `WhenAll`, `WhenAny`, and `Unwrap` return a result the BCL computes synchronously when their
+  antecedents have already completed (the BCL's own result, including `Task.CompletedTask` for no tasks, the
+  task itself for one task to the non-generic `WhenAll`, and the inner task for an outer task which has already
+  completed successfully). Otherwise the coordinator polls the antecedents' `IsCompleted` through a readiness wait,
+  as the controlled awaiters do, and a controlled operation completes a promise with the BCL's outcome, including
+  its exception dispatch information, the cancellation token and exception it picks, and the generic results in
+  argument order. Argument validation throws the BCL's exceptions, parameter names, and messages. `WhenAny` returns
+  the first antecedent, in argument order, among those the coordinator observes complete. The non-generic `WhenAll`
+  aggregates faults, and picks the canceled task, in the order the coordinator observes its antecedents complete
+  (as the BCL uses completion order); antecedents observed in the same scheduling step are ordered by argument
+  position. The generic `WhenAll` uses argument order, as the BCL does.
+- **`ContinueWith`.** The returned task is a genuine BCL continuation of a private gate, so its status, creation
+  options, state, cancellation (including `LazyCancellation`), `NotOn*`/`OnlyOn*` filtering, and exception and
+  `OperationCanceledException` handling are the BCL's own. The coordinator observes the antecedent complete and a
+  controlled operation copies its outcome to the gate, which runs the continuation inline on that operation, on a
+  fresh logical strand in the execution context captured by `ContinueWith`. `ExecuteSynchronously` is a hint, as in
+  the BCL: the continuation never runs inside the call which completes the antecedent or inside `ContinueWith`.
+  `LongRunning` (a dedicated thread), `AttachedToParent` (controlled tasks have no parent), and any scheduler other
+  than `TaskScheduler.Default` (explicit, or `TaskScheduler.Current` for the overloads without one) cannot be
+  preserved and throw `SimulationApiException`.
+- **`ValueTask.AsTask`/`Preserve`.** A value task backed by a pending `IValueTaskSource` is polled through the
+  source's `GetStatus` by the coordinator, with no completion callback registered on the source, and a controlled
+  operation consumes the completed source once through the BCL's own conversion (one `GetStatus`, one `GetResult`).
+  Any other value task is converted by the BCL synchronously, so `AsTask` of a value task wrapping a task returns
+  that task.
+- **`TaskCompletionSource`.** Rewritten code keeps the real `TaskCompletionSource` and `TaskCompletionSource<T>`
+  types, with their real `CreationOptions`, so their identity is unchanged at the boundary with uninstrumented
+  code. Their completion members (`SetResult`, `SetException`, `SetCanceled`, `SetFromTask`, and the `TrySet*`
+  forms) redirect to shims which complete the source through the same BCL member and publish the race-detection
+  release edge on its task; an await, synchronous wait, combinator, or continuation which observes the task
+  acquires it, and the combinators carry their antecedents' edges to their results.
+
 The redirect obeys the same simulation-only invariant as the BCL rule set: instrumented Controlled
 builders, awaiters, and shims require an active Clockwork simulation. Continuations and waits route
 through the coordinator carried by the complete ambient runtime and cannot silently escape to the
@@ -415,7 +460,29 @@ thread pool.
 
 Blocking `ValueTask<T>.Result` reads remain unsupported: the accessor is not rewritten, so `await`, or
 `GetAwaiter().GetResult()` through the controlled awaiter, is the supported controlled path.
-Other APIs absent from the generated rule inventory are outside the support claim.
+Other APIs absent from the generated rule inventory are outside the support claim. The task surfaces which can
+still run a continuation outside the coordinator are:
+
+- **`Task.WhenEach`** and **`TaskFactory.ContinueWhenAll`/`ContinueWhenAny`/`FromAsync`** are not rewritten: they
+  register BCL continuations on their antecedents and schedule their work on the task scheduler. Use
+  `Task.WhenAny`/`Task.WhenAll` and `await` instead.
+- **Continuations registered by uninstrumented code** (an assembly excluded from rewriting, or the framework itself)
+  on a task or value-task source follow the BCL's dispatch. A `RunContinuationsAsynchronously` completion source
+  completed in rewritten code still runs them on the thread pool; Clockwork's own continuations of the same task
+  stay controlled. Instrument the assemblies which await simulation work.
+- **Race-detection release edges** are published by rewritten completions (completion sources, async methods,
+  `Task.Run`, `TaskFactory.StartNew`, a controlled timer's `DisposeAsync`, and the controlled combinators and
+  continuations). A task completed by
+  uninstrumented code, including a channel's internal operations, publishes none, so the detector does not order
+  accesses through it.
+
+**Remaining deviations from the BCL.** The coordinator observes completions between scheduling steps, so
+`WhenAny` and the non-generic `WhenAll` order antecedents completed within one step by argument position rather
+than by their exact completion order; a combinator, continuation, or value-task conversion whose antecedent is
+still pending completes one controlled operation after the antecedent rather than inside the completing call; and
+a combinator or continuation whose antecedent never completes remains pending simulation work, as an await of
+that antecedent does. `ControlledTimer.DisposeAsync` completes its task without
+`RunContinuationsAsynchronously`, so its `CreationOptions` report `None`.
 
 #### Threads, thread pool, Parallel, and task parity
 
@@ -428,8 +495,7 @@ into [`rule-inventory.md`](rule-inventory.md); the Coyote parity matrix is
 [`coyote-parity.md`](coyote-parity.md).
 
 Controlled surfaces include the full `Task.Run` and `TaskFactory`/
-`TaskFactory<T>.StartNew` families; the generic `Task<T>.ContinueWith(Action<Task<T>>)`
-and result-producing `Task<T>.ContinueWith<TNewResult>(Func<Task<T>,TNewResult>)` continuations;
+`TaskFactory<T>.StartNew` families; every `Task.ContinueWith` and `Task<T>.ContinueWith` overload;
 `Thread` construction/`Start`/`Join`/`Sleep`/`Yield`/`SpinWait`; `ThreadPool.QueueUserWorkItem` and
 `UnsafeQueueUserWorkItem` (including the generic `Action<TState>` and `IThreadPoolWorkItem` forms);
 and `Parallel.Invoke`/`For`/`ForEach`.
@@ -638,10 +704,11 @@ cancels all remaining registrations without invoking user callbacks.
   Determinism is claimed **only** for those exact signatures.
 - **Controlled task rule set** (`clockwork.tasks.controlled`) controls the compiler-generated
   `async Task`/`async ValueTask` machinery and the direct `Task`/`Task<T>` combinator (non-generic
-  and generic `WhenAll`/`WhenAny`), synchronous-wait, blocking `Task<T>.Result`, and continuation
-  surface (including the generic `Task<T>.ContinueWith` and result-producing
-  `ContinueWith<TNewResult>`) enumerated in [`rule-inventory.md`](rule-inventory.md),
-  routing `async`/`await` and synchronous waits through the simulation coordinator. The inventory
+  and generic `WhenAll`/`WhenAny`, `Unwrap`), synchronous-wait, blocking `Task<T>.Result`, continuation
+  (every `Task.ContinueWith` and `Task<T>.ContinueWith` overload), `ValueTask` conversion (`AsTask`, `Preserve`),
+  and `TaskCompletionSource` completion surface enumerated in [`rule-inventory.md`](rule-inventory.md),
+  routing `async`/`await` and synchronous waits through the simulation coordinator. No controlled surface
+  registers a BCL continuation on a task. The inventory
   also controls `Task.Run`, all 24 .NET 10 `TaskFactory`/`TaskFactory<T>.StartNew` signatures, `Thread`, `ThreadPool`
   (`QueueUserWorkItem`/`UnsafeQueueUserWorkItem`), and `Parallel` under control (see the Coyote
   parity matrix, [`coyote-parity.md`](coyote-parity.md)). Control is claimed **only** for those
