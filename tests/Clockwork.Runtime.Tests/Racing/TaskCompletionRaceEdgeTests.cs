@@ -2,6 +2,8 @@ using System.Threading.Tasks;
 using Clockwork.Runtime.Racing;
 using Clockwork.Runtime.Scheduling;
 using Clockwork.Runtime.Tests.Scheduling;
+using Clockwork.Runtime.Tests.Tasks;
+using Clockwork.Runtime.Threading;
 using Clockwork.Shims.System.Runtime.CompilerServices;
 
 namespace Clockwork.Runtime.Tests.Racing;
@@ -13,7 +15,7 @@ namespace Clockwork.Runtime.Tests.Racing;
 /// value-task conversion, which acquires it, and then reads the location. Each pair is checked with the consumer
 /// starting both after the completion and before it (so the combinators take both their synchronous and their
 /// coordinator-completed paths). A write after the completion is not ordered before the read, which the detector
-/// reports.
+/// reports. A controlled timer's <c>DisposeAsync</c> publishes the same edge from the callbacks it waited for.
 /// </summary>
 public sealed class TaskCompletionRaceEdgeTests
 {
@@ -74,6 +76,45 @@ public sealed class TaskCompletionRaceEdgeTests
 
         RaceReport race = Assert.IsType<RaceReport>(scheduler.FirstRace);
         Assert.Equal(Location, race.FirstAccess.Location.Member);
+    }
+
+    [Fact]
+    public void TimerCallbackHappensBeforeTheAwaitOfDisposeAsync()
+    {
+        using var host = new SimulationSchedulerTestHost();
+        var started = new TaskCompletionSource();
+        var gate = new TaskCompletionSource();
+        var steps = new List<string>();
+
+        TaskTestHarness.RunInSimulation(host, () =>
+        {
+            var timer = new ControlledTimer(
+                _ =>
+                {
+                    // The write follows the callback's last release edge, so only disposal can order it before the read.
+                    ControlledTaskCompletionSource.SetResult(started);
+                    RaceInstrumentation.WriteStatic(Location, "callback", 1, null, -1);
+                    ControlledTask.Wait(gate.Task);
+                    steps.Add("callback");
+                },
+                null,
+                0,
+                Timeout.Infinite);
+            host.Scheduler.Schedule("consumer", () =>
+            {
+                ControlledTask.Wait(started.Task);
+                Task disposal = ControlledValueTask.AsTask(timer.DisposeAsync());
+                steps.Add("disposing " + disposal.IsCompleted);
+                ControlledTaskCompletionSource.SetResult(gate);
+                new ControlledTaskAwaiter(disposal).GetResult();
+                steps.Add("disposed");
+                Read();
+            });
+            host.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
+        });
+
+        Assert.Equal(["disposing False", "callback", "disposed"], steps);
+        Assert.Null(host.Scheduler.FirstRace);
     }
 
     private static SimulationScheduler Run(string producer, string consumer, bool consumerFirst, bool writeAfterCompletion)

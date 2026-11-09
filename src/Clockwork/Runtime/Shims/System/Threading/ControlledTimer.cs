@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Clockwork.Runtime.Execution;
+using Clockwork.Runtime.Racing;
 using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks;
 
@@ -283,7 +284,10 @@ internal sealed class ShimTimerRegistration
             return ValueTask.CompletedTask;
         }
 
-        _disposeCompletion ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        // No continuation is registered with the BCL on this task: controlled awaits, combinators, and continuations
+        // observe it through the coordinator. RunContinuationsAsynchronously would only send continuations which
+        // uncontrolled code registers to the real thread pool, so the task completes them on the logical thread.
+        _disposeCompletion ??= new TaskCompletionSource();
         return new ValueTask(_disposeCompletion.Task);
     }
 
@@ -374,7 +378,11 @@ internal sealed class ShimTimerRegistration
             _disposeSignal = null;
         }
 
-        _disposeCompletion?.TrySetResult();
+        if (_disposeCompletion is { } completion && completion.TrySetResult())
+        {
+            // Callbacks which ran before disposal completed happen before an await of DisposeAsync resumes.
+            RaceSynchronization.Signal(completion.Task);
+        }
     }
 
     private void EnsureRuntime()
