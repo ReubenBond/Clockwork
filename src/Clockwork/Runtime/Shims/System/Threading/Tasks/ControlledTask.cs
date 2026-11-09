@@ -15,10 +15,12 @@ namespace Clockwork.Shims.System.Threading.Tasks;
 /// whose first parameter is the receiver, matching Clockwork's <c>RedirectCall</c> convention.
 /// </para>
 /// <para>
-/// The guiding principle is "delegate for correctness, control for scheduling". Combinators
-/// (<see cref="WhenAll(Task[])"/>, <see cref="WhenAny(Task[])"/>) delegate to the real BCL: their
-/// completion is driven entirely by their antecedents, which complete on the simulation's single
-/// logical thread, so awaiting the result through a controlled awaiter is already deterministic.
+/// No shim registers a continuation on a task through the BCL. A BCL continuation inherits the antecedent's dispatch,
+/// so an antecedent completed with <see cref="TaskCreationOptions.RunContinuationsAsynchronously"/> (or a continuation
+/// the BCL queues) would run it on the real thread pool, outside the coordinator. Combinators
+/// (<see cref="WhenAll(Task[])"/>, <see cref="WhenAny(Task[])"/>, <see cref="Unwrap(Task{Task})"/>) and
+/// <see cref="ContinueWith(Task, Action{Task})"/> instead observe their antecedents' completion through readiness
+/// waits on the coordinator, as the controlled awaiters do, and complete their results on controlled operations.
 /// Synchronous waits (<see cref="Wait"/>, <see cref="Result{TResult}"/>, <see cref="WaitAll"/>,
 /// <see cref="WaitAny"/>) pump the coordinator instead of blocking a physical thread, then delegate to
 /// the real API to reproduce its exact completion/exception semantics. <see cref="Run(Action)"/> and
@@ -28,206 +30,12 @@ namespace Clockwork.Shims.System.Threading.Tasks;
 /// deadlines on the same coordinator and never consume wall-clock time.
 /// </para>
 /// </summary>
-public static class ControlledTask
+public static partial class ControlledTask
 {
     /// <summary>Controlled <c>Task.Yield()</c>: returns an awaitable that always suspends and resumes via the coordinator.</summary>
     /// <returns>A <see cref="ControlledYieldAwaitable"/>.</returns>
     public static ControlledYieldAwaitable Yield() =>
         (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.Yield"), default(ControlledYieldAwaitable)).Item2;
-
-    /// <summary>Controlled <c>Task.WhenAll(Task[])</c>.</summary>
-    /// <param name="tasks">The tasks to await.</param>
-    /// <returns>A task that completes when all <paramref name="tasks"/> complete.</returns>
-    public static Task WhenAll(params Task[] tasks)
-    {
-        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAll");
-        return TrackAll(Task.WhenAll(tasks), tasks);
-    }
-
-    /// <summary>
-    /// Controlled <c>Task.WhenAll(ReadOnlySpan&lt;Task&gt;)</c>: the .NET 9+ params-span overload that a
-    /// two-or-more argument <c>Task.WhenAll(a, b, ...)</c> call binds to.
-    /// </summary>
-    /// <param name="tasks">The tasks to await.</param>
-    /// <returns>A task that completes when all <paramref name="tasks"/> complete.</returns>
-    public static Task WhenAll(params ReadOnlySpan<Task> tasks)
-    {
-        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAll");
-        Task[] dependencies = tasks.ToArray();
-        return TrackAll(Task.WhenAll(dependencies), dependencies);
-    }
-
-    /// <summary>Controlled <c>Task.WhenAll(IEnumerable&lt;Task&gt;)</c>.</summary>
-    /// <param name="tasks">The tasks to await.</param>
-    /// <returns>A task that completes when all <paramref name="tasks"/> complete.</returns>
-    public static Task WhenAll(IEnumerable<Task> tasks)
-    {
-        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAll");
-        Task[] dependencies = tasks.ToArray();
-        return TrackAll(Task.WhenAll(dependencies), dependencies);
-    }
-
-    /// <summary>Controlled <c>Task.WhenAll&lt;TResult&gt;(Task&lt;TResult&gt;[])</c>.</summary>
-    /// <typeparam name="TResult">The task result type.</typeparam>
-    /// <param name="tasks">The tasks to await.</param>
-    /// <returns>A task with the ordered results once all complete.</returns>
-    public static Task<TResult[]> WhenAll<TResult>(params Task<TResult>[] tasks)
-    {
-        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAll");
-        return TrackAll(Task.WhenAll(tasks), tasks);
-    }
-
-    /// <summary>
-    /// Controlled <c>Task.WhenAll&lt;TResult&gt;(ReadOnlySpan&lt;Task&lt;TResult&gt;&gt;)</c>: the .NET 9+
-    /// params-span overload that a two-or-more argument <c>Task.WhenAll(a, b, ...)</c> of typed tasks
-    /// binds to.
-    /// </summary>
-    /// <typeparam name="TResult">The task result type.</typeparam>
-    /// <param name="tasks">The tasks to await.</param>
-    /// <returns>A task with the ordered results once all complete.</returns>
-    public static Task<TResult[]> WhenAll<TResult>(params ReadOnlySpan<Task<TResult>> tasks)
-    {
-        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAll");
-        Task<TResult>[] dependencies = tasks.ToArray();
-        return TrackAll(Task.WhenAll(dependencies), dependencies);
-    }
-
-    /// <summary>Controlled <c>Task.WhenAll&lt;TResult&gt;(IEnumerable&lt;Task&lt;TResult&gt;&gt;)</c>.</summary>
-    /// <typeparam name="TResult">The task result type.</typeparam>
-    /// <param name="tasks">The tasks to await.</param>
-    /// <returns>A task with the ordered results once all complete.</returns>
-    public static Task<TResult[]> WhenAll<TResult>(IEnumerable<Task<TResult>> tasks)
-    {
-        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAll");
-        Task<TResult>[] dependencies = tasks.ToArray();
-        return TrackAll(Task.WhenAll(dependencies), dependencies);
-    }
-
-    /// <summary>Controlled <c>Task.WhenAny(Task[])</c>. First-completer order is deterministic because tasks complete one loop step at a time.</summary>
-    /// <param name="tasks">The candidate tasks.</param>
-    /// <returns>A task whose result is the first task to complete.</returns>
-    public static Task<Task> WhenAny(params Task[] tasks)
-    {
-        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny");
-        return TrackWinner(Task.WhenAny(tasks));
-    }
-
-    /// <summary>
-    /// Controlled <c>Task.WhenAny(ReadOnlySpan&lt;Task&gt;)</c>: the .NET 9+ params-span overload that a
-    /// three-or-more argument <c>Task.WhenAny(a, b, c, ...)</c> call binds to.
-    /// </summary>
-    /// <param name="tasks">The candidate tasks.</param>
-    /// <returns>A task whose result is the first task to complete.</returns>
-    public static Task<Task> WhenAny(params ReadOnlySpan<Task> tasks)
-    {
-        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny");
-        return TrackWinner(Task.WhenAny(tasks));
-    }
-
-    /// <summary>
-    /// Controlled <c>Task.WhenAny(Task, Task)</c>: the two-argument overload that <c>Task.WhenAny(a, b)</c>
-    /// binds to.
-    /// </summary>
-    /// <param name="task1">The first candidate task.</param>
-    /// <param name="task2">The second candidate task.</param>
-    /// <returns>A task whose result is the first task to complete.</returns>
-    public static Task<Task> WhenAny(Task task1, Task task2)
-    {
-        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny");
-        return TrackWinner(Task.WhenAny(task1, task2));
-    }
-
-    /// <summary>Controlled <c>Task.WhenAny(IEnumerable&lt;Task&gt;)</c>.</summary>
-    /// <param name="tasks">The candidate tasks.</param>
-    /// <returns>A task whose result is the first task to complete.</returns>
-    public static Task<Task> WhenAny(IEnumerable<Task> tasks)
-    {
-        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny");
-        return TrackWinner(Task.WhenAny(tasks));
-    }
-
-    /// <summary>Controlled <c>Task.WhenAny&lt;TResult&gt;(Task&lt;TResult&gt;[])</c>.</summary>
-    /// <typeparam name="TResult">The task result type.</typeparam>
-    /// <param name="tasks">The candidate tasks.</param>
-    /// <returns>A task whose result is the first task to complete.</returns>
-    public static Task<Task<TResult>> WhenAny<TResult>(params Task<TResult>[] tasks)
-    {
-        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny");
-        return TrackWinner(Task.WhenAny(tasks));
-    }
-
-    /// <summary>
-    /// Controlled <c>Task.WhenAny&lt;TResult&gt;(ReadOnlySpan&lt;Task&lt;TResult&gt;&gt;)</c>: the .NET 9+
-    /// params-span overload that a three-or-more argument typed <c>Task.WhenAny(a, b, c, ...)</c> binds to.
-    /// </summary>
-    /// <typeparam name="TResult">The task result type.</typeparam>
-    /// <param name="tasks">The candidate tasks.</param>
-    /// <returns>A task whose result is the first task to complete.</returns>
-    public static Task<Task<TResult>> WhenAny<TResult>(params ReadOnlySpan<Task<TResult>> tasks)
-    {
-        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny");
-        return TrackWinner(Task.WhenAny(tasks));
-    }
-
-    /// <summary>
-    /// Controlled <c>Task.WhenAny&lt;TResult&gt;(Task&lt;TResult&gt;, Task&lt;TResult&gt;)</c>: the
-    /// two-argument overload that a typed <c>Task.WhenAny(a, b)</c> binds to.
-    /// </summary>
-    /// <typeparam name="TResult">The task result type.</typeparam>
-    /// <param name="task1">The first candidate task.</param>
-    /// <param name="task2">The second candidate task.</param>
-    /// <returns>A task whose result is the first task to complete.</returns>
-    public static Task<Task<TResult>> WhenAny<TResult>(Task<TResult> task1, Task<TResult> task2)
-    {
-        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny");
-        return TrackWinner(Task.WhenAny(task1, task2));
-    }
-
-    /// <summary>Controlled <c>Task.WhenAny&lt;TResult&gt;(IEnumerable&lt;Task&lt;TResult&gt;&gt;)</c>.</summary>
-    /// <typeparam name="TResult">The task result type.</typeparam>
-    /// <param name="tasks">The candidate tasks.</param>
-    /// <returns>A task whose result is the first task to complete.</returns>
-    public static Task<Task<TResult>> WhenAny<TResult>(IEnumerable<Task<TResult>> tasks)
-    {
-        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WhenAny");
-        return TrackWinner(Task.WhenAny(tasks));
-    }
-
-    /// <summary>
-    /// Controlled <c>TaskExtensions.Unwrap(this Task&lt;Task&gt;)</c>. Like the combinators this delegates
-    /// to the real BCL: the outer and inner tasks both complete on the simulation's single logical
-    /// thread, so the unwrapped proxy's completion is already driven deterministically and awaiting it
-    /// through a controlled awaiter needs no further scheduling.
-    /// </summary>
-    /// <param name="task">The nested task to unwrap.</param>
-    /// <returns>A task representing the completion of the inner task.</returns>
-    public static Task Unwrap(Task<Task> task)
-    {
-        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.TaskExtensions.Unwrap");
-        ArgumentNullException.ThrowIfNull(task);
-        Task proxy = task.Unwrap();
-        return RaceTaskDependencies.Register(
-            proxy,
-            () => task.Status == TaskStatus.RanToCompletion
-                ? [task, task.Result]
-                : [task]);
-    }
-
-    /// <summary>Controlled <c>TaskExtensions.Unwrap&lt;TResult&gt;(this Task&lt;Task&lt;TResult&gt;&gt;)</c>.</summary>
-    /// <typeparam name="TResult">The inner task result type.</typeparam>
-    /// <param name="task">The nested task to unwrap.</param>
-    /// <returns>A task representing the completion (and result) of the inner task.</returns>
-    public static Task<TResult> Unwrap<TResult>(Task<Task<TResult>> task)
-    {
-        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.TaskExtensions.Unwrap");
-        ArgumentNullException.ThrowIfNull(task);
-        Task<TResult> proxy = task.Unwrap();
-        return RaceTaskDependencies.Register(
-            proxy,
-            () => task.Status == TaskStatus.RanToCompletion
-                ? [task, task.Result]
-                : [task]);
-    }
 
     /// <summary>
     /// Controlled instance <c>task.Wait()</c>. Pumps the coordinator until the task completes (never
@@ -808,19 +616,6 @@ public static class ControlledTask
         return tcs.Task;
     }
 
-    private static bool AllCompleted(Task[] tasks)
-    {
-        foreach (var task in tasks)
-        {
-            if (!task.IsCompleted)
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
     private static Task DelayCore(TimeSpan delay, CancellationToken cancellationToken)
     {
         if (cancellationToken.IsCancellationRequested)
@@ -1007,19 +802,6 @@ public static class ControlledTask
             RaceSynchronization.Signal(task);
         }
     }
-
-    private static TTask TrackAll<TTask>(TTask proxy, IEnumerable<Task> dependencies)
-        where TTask : Task
-    {
-        Task[] captured = dependencies.ToArray();
-        return RaceTaskDependencies.Register(proxy, () => captured);
-    }
-
-    private static Task<Task> TrackWinner(Task<Task> proxy) =>
-        RaceTaskDependencies.Register(proxy, () => [proxy.GetAwaiter().GetResult()]);
-
-    private static Task<Task<TResult>> TrackWinner<TResult>(Task<Task<TResult>> proxy) =>
-        RaceTaskDependencies.Register(proxy, () => [proxy.GetAwaiter().GetResult()]);
 
     private static void ValidateNoNullTasks(Task[] tasks)
     {
