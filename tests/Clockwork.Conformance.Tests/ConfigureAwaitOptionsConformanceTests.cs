@@ -1,15 +1,18 @@
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 
 namespace Clockwork.Conformance.Tests;
 
 /// <summary>
-/// End-to-end conformance for <c>Task.ConfigureAwait(ConfigureAwaitOptions)</c> and
-/// <c>Task&lt;TResult&gt;.ConfigureAwait(ConfigureAwaitOptions)</c> in rewritten code. The rewriter constructs the
-/// controlled configured awaitable from the options overload, so every await resumes through the coordinator
-/// while <see cref="ConfigureAwaitOptions.SuppressThrowing"/>, <see cref="ConfigureAwaitOptions.ForceYielding"/>,
-/// and invalid options behave as they do on the BCL awaiter. The probe passes its options through as values,
-/// and the probe is staged in both Release and Debug codegen because their async state machines differ.
+/// End-to-end conformance for <c>Task.ConfigureAwait</c> and <c>Task&lt;TResult&gt;.ConfigureAwait</c> in
+/// rewritten code, with the BCL's own awaiter as the oracle. Each case awaits an antecedent inside a
+/// simulation and replays the same <c>ConfigureAwait</c> on a twin antecedent with the BCL awaiter: whether
+/// the await completes synchronously is the BCL awaiter's <c>IsCompleted</c> before the twin completes, and
+/// its outcome is what the BCL awaiter's <c>GetResult</c> throws or returns afterwards. The twin keeps the
+/// oracle from observing the probe's antecedent. Every flag combination and an undefined option is crossed
+/// with every antecedent outcome, completed before or after the await, and the probe is staged in both
+/// Release and Debug codegen because their async state machines differ.
 /// </summary>
 public sealed class ConfigureAwaitOptionsConformanceTests : IDisposable
 {
@@ -19,53 +22,67 @@ public sealed class ConfigureAwaitOptionsConformanceTests : IDisposable
         using System.Collections.Generic;
         using System.Threading.Tasks;
         namespace Conf { public static class ConfigureAwaitProbe {
-            // Reports the antecedent's status once the await itself has completed normally.
-            public static async Task<TaskStatus> Await(Task antecedent, ConfigureAwaitOptions options)
+            // Each probe logs the await's progress and whether the async method returned to its caller before
+            // the await completed.
+            public static Task Await(Task antecedent, ConfigureAwaitOptions options, List<string> log) =>
+                Returned(AwaitImpl(antecedent, options, log), log);
+
+            public static Task<int> AwaitGeneric(Task<int> antecedent, ConfigureAwaitOptions options, List<string> log) =>
+                Returned(AwaitGenericImpl(antecedent, options, log), log);
+
+            public static Task AwaitBool(Task antecedent, bool continueOnCapturedContext, List<string> log) =>
+                Returned(AwaitBoolImpl(antecedent, continueOnCapturedContext, log), log);
+
+            public static Task<int> AwaitGenericBool(Task<int> antecedent, bool continueOnCapturedContext, List<string> log) =>
+                Returned(AwaitGenericBoolImpl(antecedent, continueOnCapturedContext, log), log);
+
+            private static T Returned<T>(T pending, List<string> log) where T : Task
             {
-                await antecedent.ConfigureAwait(options);
-                return antecedent.Status;
-            }
-
-            public static async Task<int> AwaitGeneric(Task<int> antecedent, ConfigureAwaitOptions options) =>
-                await antecedent.ConfigureAwait(options);
-
-            public static async Task<int> AwaitBool(Task<int> antecedent, bool continueOnCapturedContext) =>
-                await antecedent.ConfigureAwait(continueOnCapturedContext);
-
-            // Logs whether the async method returned to its caller before it resumed from the await.
-            public static Task Logged(Task antecedent, ConfigureAwaitOptions options, List<string> log)
-            {
-                Task pending = LoggedImpl(antecedent, options, log);
                 log.Add(pending.IsCompleted ? "returned completed" : "returned pending");
                 return pending;
             }
 
-            public static Task<int> LoggedGeneric(Task<int> antecedent, ConfigureAwaitOptions options, List<string> log)
-            {
-                Task<int> pending = LoggedGenericImpl(antecedent, options, log);
-                log.Add(pending.IsCompleted ? "returned completed" : "returned pending");
-                return pending;
-            }
-
-            private static async Task LoggedImpl(Task antecedent, ConfigureAwaitOptions options, List<string> log)
+            private static async Task AwaitImpl(Task antecedent, ConfigureAwaitOptions options, List<string> log)
             {
                 log.Add("awaiting");
                 await antecedent.ConfigureAwait(options);
                 log.Add("resumed");
             }
 
-            private static async Task<int> LoggedGenericImpl(Task<int> antecedent, ConfigureAwaitOptions options, List<string> log)
+            private static async Task<int> AwaitGenericImpl(Task<int> antecedent, ConfigureAwaitOptions options, List<string> log)
             {
                 log.Add("awaiting");
                 int value = await antecedent.ConfigureAwait(options);
                 log.Add("resumed");
                 return value;
             }
+
+            private static async Task AwaitBoolImpl(Task antecedent, bool continueOnCapturedContext, List<string> log)
+            {
+                log.Add("awaiting");
+                await antecedent.ConfigureAwait(continueOnCapturedContext);
+                log.Add("resumed");
+            }
+
+            private static async Task<int> AwaitGenericBoolImpl(Task<int> antecedent, bool continueOnCapturedContext, List<string> log)
+            {
+                log.Add("awaiting");
+                int value = await antecedent.ConfigureAwait(continueOnCapturedContext);
+                log.Add("resumed");
+                return value;
+            }
         } }
         """;
 
-    private static readonly string[] Yielded = ["awaiting", "returned pending", "resumed"];
-    private static readonly string[] RanSynchronously = ["awaiting", "resumed", "returned completed"];
+    private const int SucceededValue = 41;
+
+    /// <summary>Every combination of the three defined flags, then the first undefined bit.</summary>
+    private static readonly ConfigureAwaitOptions[] AllOptions =
+        [.. Enumerable.Range(0, 9).Select(value => (ConfigureAwaitOptions)value)];
+
+    private static readonly TaskStatus[] Outcomes = [TaskStatus.RanToCompletion, TaskStatus.Faulted, TaskStatus.Canceled];
+
+    private static readonly bool[] Booleans = [false, true];
 
     private readonly RewriteFixture _fixture = new();
     private readonly Lazy<StagedProbe> _release;
@@ -79,46 +96,72 @@ public sealed class ConfigureAwaitOptionsConformanceTests : IDisposable
             _fixture.StageControlledTasks("Conf.ConfigureAwaitDbg", "Conf.ConfigureAwaitProbe", Source, optimize: false));
     }
 
-    /// <summary>Optimization, the antecedent's outcome, and whether it completes only after the await suspends.</summary>
-    public static TheoryData<bool, TaskStatus, bool> AntecedentOutcomes => new()
+    /// <summary>Optimization, options, the antecedent's outcome, and whether it completes only after the await suspends.</summary>
+    public static TheoryData<bool, ConfigureAwaitOptions, TaskStatus, bool> OptionsCases
     {
-        { true, TaskStatus.Faulted, true },
-        { true, TaskStatus.Faulted, false },
-        { true, TaskStatus.Canceled, true },
-        { true, TaskStatus.Canceled, false },
-        { false, TaskStatus.Faulted, true },
-        { false, TaskStatus.Faulted, false },
-        { false, TaskStatus.Canceled, true },
-        { false, TaskStatus.Canceled, false },
-    };
+        get
+        {
+            var data = new TheoryData<bool, ConfigureAwaitOptions, TaskStatus, bool>();
+            foreach (bool optimize in Booleans)
+            {
+                foreach (ConfigureAwaitOptions options in AllOptions)
+                {
+                    foreach (TaskStatus outcome in Outcomes)
+                    {
+                        foreach (bool pending in Booleans)
+                        {
+                            data.Add(optimize, options, outcome, pending);
+                        }
+                    }
+                }
+            }
 
-    public static TheoryData<bool, ConfigureAwaitOptions> CompletedTaskOptions => new()
+            return data;
+        }
+    }
+
+    /// <summary>Optimization, the bool argument, the antecedent's outcome, and whether it completes only after the await suspends.</summary>
+    public static TheoryData<bool, bool, TaskStatus, bool> BoolCases
     {
-        { true, ConfigureAwaitOptions.None },
-        { true, ConfigureAwaitOptions.ForceYielding },
-        { true, ConfigureAwaitOptions.ForceYielding | ConfigureAwaitOptions.ContinueOnCapturedContext },
-        { false, ConfigureAwaitOptions.None },
-        { false, ConfigureAwaitOptions.ForceYielding },
-        { false, ConfigureAwaitOptions.ForceYielding | ConfigureAwaitOptions.ContinueOnCapturedContext },
-    };
+        get
+        {
+            var data = new TheoryData<bool, bool, TaskStatus, bool>();
+            foreach (bool optimize in Booleans)
+            {
+                foreach (bool continueOnCapturedContext in Booleans)
+                {
+                    foreach (TaskStatus outcome in Outcomes)
+                    {
+                        foreach (bool pending in Booleans)
+                        {
+                            data.Add(optimize, continueOnCapturedContext, outcome, pending);
+                        }
+                    }
+                }
+            }
 
-    public static TheoryData<bool, ConfigureAwaitOptions> InvalidTaskOptions => new()
+            return data;
+        }
+    }
+
+    public static TheoryData<bool, ConfigureAwaitOptions> NullCases
     {
-        { true, (ConfigureAwaitOptions)8 },
-        { false, (ConfigureAwaitOptions)8 },
-    };
+        get
+        {
+            var data = new TheoryData<bool, ConfigureAwaitOptions>();
+            foreach (bool optimize in Booleans)
+            {
+                foreach (ConfigureAwaitOptions options in AllOptions)
+                {
+                    data.Add(optimize, options);
+                }
+            }
 
-    public static TheoryData<bool, ConfigureAwaitOptions> InvalidGenericTaskOptions => new()
-    {
-        { true, ConfigureAwaitOptions.SuppressThrowing },
-        { true, ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ForceYielding },
-        { true, (ConfigureAwaitOptions)8 },
-        { false, ConfigureAwaitOptions.SuppressThrowing },
-        { false, ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ForceYielding },
-        { false, (ConfigureAwaitOptions)8 },
-    };
+            return data;
+        }
+    }
 
-    public static TheoryData<bool, bool> BoolOverloads => new()
+    public static TheoryData<bool, bool> NullBoolCases => new()
     {
         { true, false },
         { true, true },
@@ -127,144 +170,237 @@ public sealed class ConfigureAwaitOptionsConformanceTests : IDisposable
     };
 
     [Theory]
-    [MemberData(nameof(AntecedentOutcomes))]
-    public void SuppressThrowingCompletesTheAwaitNormally(bool optimize, TaskStatus outcome, bool completesWhileSuspended)
+    [MemberData(nameof(OptionsCases))]
+    public void TaskAwaitBehavesAsTheBclAwaiter(bool optimize, ConfigureAwaitOptions options, TaskStatus outcome, bool pending)
     {
-        using var host = new SimulationHost(Start);
-        var antecedent = new TaskCompletionSource();
+        Observation expected = BclTaskAwait(options, outcome, pending);
 
-        var task = (Task<TaskStatus>)host.InvokeWithWork(
-            Method("Await", optimize),
-            [antecedent.Task, ConfigureAwaitOptions.SuppressThrowing],
-            CompletionWork(antecedent, outcome, completesWhileSuspended))!;
+        Observation actual = AwaitTask("Await", optimize, options, outcome, pending);
 
-        Assert.Equal(outcome, Result<TaskStatus>(task));
+        Assert.Equal(expected, actual);
     }
 
     [Theory]
-    [MemberData(nameof(AntecedentOutcomes))]
-    public void WithoutSuppressThrowingTheAwaitRethrows(bool optimize, TaskStatus outcome, bool completesWhileSuspended)
+    [MemberData(nameof(OptionsCases))]
+    public void GenericTaskAwaitBehavesAsTheBclAwaiter(bool optimize, ConfigureAwaitOptions options, TaskStatus outcome, bool pending)
     {
-        using var host = new SimulationHost(Start);
-        var antecedent = new TaskCompletionSource();
+        Observation expected = BclGenericTaskAwait(options, outcome, pending);
 
-        var task = (Task)host.InvokeWithWork(
-            Method("Await", optimize),
-            [antecedent.Task, ConfigureAwaitOptions.None],
-            CompletionWork(antecedent, outcome, completesWhileSuspended))!;
+        Observation actual = AwaitGenericTask("AwaitGeneric", optimize, options, outcome, pending);
 
-        Assert.Equal(outcome, task.Status);
-        if (outcome == TaskStatus.Faulted)
+        Assert.Equal(expected, actual);
+    }
+
+    [Theory]
+    [MemberData(nameof(BoolCases))]
+    public void TaskBoolOverloadBehavesAsItsOptionsEquivalent(bool optimize, bool continueOnCapturedContext, TaskStatus outcome, bool pending)
+    {
+        Observation viaOptions = AwaitTask("Await", optimize, Equivalent(continueOnCapturedContext), outcome, pending);
+
+        Observation viaBool = AwaitTask("AwaitBool", optimize, continueOnCapturedContext, outcome, pending);
+
+        Assert.Equal(viaOptions, viaBool);
+    }
+
+    [Theory]
+    [MemberData(nameof(BoolCases))]
+    public void GenericTaskBoolOverloadBehavesAsItsOptionsEquivalent(
+        bool optimize,
+        bool continueOnCapturedContext,
+        TaskStatus outcome,
+        bool pending)
+    {
+        Observation viaOptions = AwaitGenericTask("AwaitGeneric", optimize, Equivalent(continueOnCapturedContext), outcome, pending);
+
+        Observation viaBool = AwaitGenericTask("AwaitGenericBool", optimize, continueOnCapturedContext, outcome, pending);
+
+        Assert.Equal(viaOptions, viaBool);
+    }
+
+    [Theory]
+    [MemberData(nameof(NullCases))]
+    public void NullTaskThrowsAsTheBclDoes(bool optimize, ConfigureAwaitOptions options)
+    {
+        Observation expected = Rejected(Record.Exception(() => { _ = NullTask().ConfigureAwait(options); }));
+
+        Observation actual = Run("Await", optimize, antecedent: null, options, []);
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Theory]
+    [MemberData(nameof(NullCases))]
+    public void NullGenericTaskThrowsAsTheBclDoes(bool optimize, ConfigureAwaitOptions options)
+    {
+        Observation expected = Rejected(Record.Exception(() => { _ = NullGenericTask().ConfigureAwait(options); }));
+
+        Observation actual = Run("AwaitGeneric", optimize, antecedent: null, options, []);
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Theory]
+    [MemberData(nameof(NullBoolCases))]
+    public void NullTaskBoolOverloadThrowsAsTheBclDoes(bool optimize, bool continueOnCapturedContext)
+    {
+        Observation expected = Rejected(Record.Exception(() => { _ = NullTask().ConfigureAwait(continueOnCapturedContext); }));
+
+        Observation actual = Run("AwaitBool", optimize, antecedent: null, continueOnCapturedContext, []);
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Theory]
+    [MemberData(nameof(NullBoolCases))]
+    public void NullGenericTaskBoolOverloadThrowsAsTheBclDoes(bool optimize, bool continueOnCapturedContext)
+    {
+        Observation expected = Rejected(Record.Exception(() => { _ = NullGenericTask().ConfigureAwait(continueOnCapturedContext); }));
+
+        Observation actual = Run("AwaitGenericBool", optimize, antecedent: null, continueOnCapturedContext, []);
+
+        Assert.Equal(expected, actual);
+    }
+
+    /// <summary>Replays the await on the BCL awaiter of a twin <see cref="Task"/> antecedent.</summary>
+    private static Observation BclTaskAwait(ConfigureAwaitOptions options, TaskStatus outcome, bool pending)
+    {
+        var twin = new TaskCompletionSource();
+        if (!pending)
         {
-            Assert.IsType<InvalidTimeZoneException>(task.Exception!.InnerException);
+            Complete(twin, outcome);
         }
+
+        ConfiguredTaskAwaitable awaitable = default;
+        Exception? rejected = Record.Exception(() => { awaitable = twin.Task.ConfigureAwait(options); });
+        if (rejected is not null)
+        {
+            return Rejected(rejected);
+        }
+
+        ConfiguredTaskAwaitable.ConfiguredTaskAwaiter awaiter = awaitable.GetAwaiter();
+        bool synchronous = awaiter.IsCompleted;
+        if (pending)
+        {
+            Complete(twin, outcome);
+        }
+
+        return Awaited(synchronous, Record.Exception(awaiter.GetResult), result: null);
     }
 
-    [Theory]
-    [MemberData(nameof(CompletedTaskOptions))]
-    public void AwaitOnACompletedTaskYieldsThroughTheCoordinatorOnlyWhenForced(bool optimize, ConfigureAwaitOptions options)
+    /// <summary>Replays the await on the BCL awaiter of a twin <see cref="Task{TResult}"/> antecedent.</summary>
+    private static Observation BclGenericTaskAwait(ConfigureAwaitOptions options, TaskStatus outcome, bool pending)
+    {
+        var twin = new TaskCompletionSource<int>();
+        if (!pending)
+        {
+            Complete(twin, outcome);
+        }
+
+        ConfiguredTaskAwaitable<int> awaitable = default;
+        Exception? rejected = Record.Exception(() => { awaitable = twin.Task.ConfigureAwait(options); });
+        if (rejected is not null)
+        {
+            return Rejected(rejected);
+        }
+
+        ConfiguredTaskAwaitable<int>.ConfiguredTaskAwaiter awaiter = awaitable.GetAwaiter();
+        bool synchronous = awaiter.IsCompleted;
+        if (pending)
+        {
+            Complete(twin, outcome);
+        }
+
+        int? result = null;
+        Exception? thrown = Record.Exception(() => { result = awaiter.GetResult(); });
+        return Awaited(synchronous, thrown, result);
+    }
+
+    /// <summary>The observable effect of a <c>ConfigureAwait</c> call which throws: the async method faults before it awaits.</summary>
+    private static Observation Rejected(Exception? exception)
+    {
+        Assert.NotNull(exception);
+        return Awaited(synchronous: true, exception, result: null);
+    }
+
+    /// <summary>
+    /// The observable effect on the probe of an await whose awaiter reports <paramref name="synchronous"/> from
+    /// <c>IsCompleted</c> and then throws <paramref name="thrown"/> or returns <paramref name="result"/>.
+    /// </summary>
+    private static Observation Awaited(bool synchronous, Exception? thrown, int? result)
+    {
+        var log = new List<string> { "awaiting" };
+        if (!synchronous)
+        {
+            log.Add("returned pending");
+        }
+
+        if (thrown is null)
+        {
+            log.Add("resumed");
+        }
+
+        if (synchronous)
+        {
+            log.Add("returned completed");
+        }
+
+        TaskStatus status = thrown switch
+        {
+            null => TaskStatus.RanToCompletion,
+            OperationCanceledException => TaskStatus.Canceled,
+            _ => TaskStatus.Faulted,
+        };
+
+        return new Observation(string.Join(", ", log), status, Describe(thrown), result);
+    }
+
+    private Observation AwaitTask(string probe, bool optimize, object option, TaskStatus outcome, bool pending)
+    {
+        var antecedent = new TaskCompletionSource();
+        return Run(probe, optimize, antecedent.Task, option, CompletionWork(() => Complete(antecedent, outcome), pending));
+    }
+
+    private Observation AwaitGenericTask(string probe, bool optimize, object option, TaskStatus outcome, bool pending)
+    {
+        var antecedent = new TaskCompletionSource<int>();
+        return Run(probe, optimize, antecedent.Task, option, CompletionWork(() => Complete(antecedent, outcome), pending));
+    }
+
+    /// <summary>Runs the probe in a simulation, with <paramref name="work"/> running after it as further simulation work.</summary>
+    private Observation Run(string probe, bool optimize, Task? antecedent, object option, Action[] work)
     {
         using var host = new SimulationHost(Start);
         var log = new List<string>();
 
-        var task = (Task)host.Invoke(Method("Logged", optimize), Task.CompletedTask, options, log)!;
+        var task = (Task)host.InvokeWithWork(Method(probe, optimize), [antecedent, option, log], work)!;
 
-        Assert.Equal(TaskStatus.RanToCompletion, task.Status);
-        Assert.Equal(ExpectedLog(options), log);
-    }
+        Assert.True(task.IsCompleted);
+        int? result = null;
+        Exception? thrown = Record.Exception(() =>
+        {
+            if (task is Task<int> generic)
+            {
+                result = generic.GetAwaiter().GetResult();
+            }
+            else
+            {
+                task.GetAwaiter().GetResult();
+            }
+        });
 
-    [Theory]
-    [MemberData(nameof(CompletedTaskOptions))]
-    public void AwaitOnACompletedGenericTaskYieldsThroughTheCoordinatorOnlyWhenForced(bool optimize, ConfigureAwaitOptions options)
-    {
-        using var host = new SimulationHost(Start);
-        var log = new List<string>();
-
-        var task = (Task<int>)host.Invoke(Method("LoggedGeneric", optimize), Task.FromResult(41), options, log)!;
-
-        Assert.Equal(41, Result<int>(task));
-        Assert.Equal(ExpectedLog(options), log);
-    }
-
-    [Theory]
-    [MemberData(nameof(InvalidTaskOptions))]
-    public void InvalidOptionsThrowAsTheBclDoes(bool optimize, ConfigureAwaitOptions options)
-    {
-        ArgumentOutOfRangeException expected = Assert.Throws<ArgumentOutOfRangeException>(
-            () => { _ = Task.CompletedTask.ConfigureAwait(options); });
-        using var host = new SimulationHost(Start);
-
-        var task = (Task)host.Invoke(Method("Await", optimize), Task.CompletedTask, options)!;
-
-        AssertFaultedWith(expected, task);
-    }
-
-    [Theory]
-    [MemberData(nameof(InvalidGenericTaskOptions))]
-    public void GenericTaskRejectsSuppressThrowingAndInvalidOptionsAsTheBclDoes(bool optimize, ConfigureAwaitOptions options)
-    {
-        ArgumentOutOfRangeException expected = Assert.Throws<ArgumentOutOfRangeException>(
-            () => { _ = Task.FromResult(1).ConfigureAwait(options); });
-        using var host = new SimulationHost(Start);
-
-        var task = (Task)host.Invoke(Method("AwaitGeneric", optimize), Task.FromResult(1), options)!;
-
-        AssertFaultedWith(expected, task);
-    }
-
-    [Theory]
-    [MemberData(nameof(BoolOverloads))]
-    public void BoolOverloadResumesThroughTheCoordinator(bool optimize, bool continueOnCapturedContext)
-    {
-        using var host = new SimulationHost(Start);
-        var antecedent = new TaskCompletionSource<int>();
-
-        var task = (Task<int>)host.InvokeWithWork(
-            Method("AwaitBool", optimize),
-            [antecedent.Task, continueOnCapturedContext],
-            () => antecedent.SetResult(41))!;
-
-        Assert.Equal(41, Result<int>(task));
-    }
-
-    [Theory]
-    [MemberData(nameof(BoolOverloads))]
-    public void BoolOverloadRethrowsTheFault(bool optimize, bool continueOnCapturedContext)
-    {
-        using var host = new SimulationHost(Start);
-        var antecedent = new TaskCompletionSource<int>();
-
-        var task = (Task)host.InvokeWithWork(
-            Method("AwaitBool", optimize),
-            [antecedent.Task, continueOnCapturedContext],
-            () => antecedent.SetException(new InvalidTimeZoneException("boom")))!;
-
-        Assert.Equal(TaskStatus.Faulted, task.Status);
-        Assert.IsType<InvalidTimeZoneException>(task.Exception!.InnerException);
+        return new Observation(string.Join(", ", log), task.Status, Describe(thrown), result);
     }
 
     private MethodInfo Method(string name, bool optimize) =>
         (optimize ? _release : _debug).Value.Method(name);
 
     /// <summary>
-    /// Completes <paramref name="antecedent"/> with <paramref name="outcome"/>, either now (so the await
-    /// observes a completed task) or as simulation work that runs after the probe has suspended.
+    /// Completes the antecedent now (so the await observes a completed task) or returns the completion as
+    /// simulation work that runs after the probe has suspended.
     /// </summary>
-    private static Action[] CompletionWork(TaskCompletionSource antecedent, TaskStatus outcome, bool completesWhileSuspended)
+    private static Action[] CompletionWork(Action complete, bool pending)
     {
-        Action complete = () =>
-        {
-            if (outcome == TaskStatus.Faulted)
-            {
-                antecedent.SetException(new InvalidTimeZoneException("boom"));
-            }
-            else
-            {
-                antecedent.SetCanceled();
-            }
-        };
-
-        if (completesWhileSuspended)
+        if (pending)
         {
             return [complete];
         }
@@ -273,24 +409,50 @@ public sealed class ConfigureAwaitOptionsConformanceTests : IDisposable
         return [];
     }
 
-    private static string[] ExpectedLog(ConfigureAwaitOptions options) =>
-        (options & ConfigureAwaitOptions.ForceYielding) != 0 ? Yielded : RanSynchronously;
-
-    private static void AssertFaultedWith(ArgumentOutOfRangeException expected, Task task)
+    private static void Complete(TaskCompletionSource source, TaskStatus outcome)
     {
-        Assert.Equal(TaskStatus.Faulted, task.Status);
-        var actual = Assert.IsType<ArgumentOutOfRangeException>(task.Exception!.InnerException);
-        Assert.Equal(expected.ParamName, actual.ParamName);
-        Assert.Equal(expected.Message, actual.Message);
+        switch (outcome)
+        {
+            case TaskStatus.RanToCompletion:
+                source.SetResult();
+                break;
+            case TaskStatus.Faulted:
+                source.SetException(new InvalidTimeZoneException("boom"));
+                break;
+            default:
+                source.SetCanceled();
+                break;
+        }
     }
 
-    private static T Result<T>(object task)
+    private static void Complete(TaskCompletionSource<int> source, TaskStatus outcome)
     {
-        var typed = (Task)task;
-        Assert.Equal(TaskStatus.RanToCompletion, typed.Status);
-        PropertyInfo result = typed.GetType().GetProperty("Result")!;
-        return (T)result.GetValue(typed)!;
+        switch (outcome)
+        {
+            case TaskStatus.RanToCompletion:
+                source.SetResult(SucceededValue);
+                break;
+            case TaskStatus.Faulted:
+                source.SetException(new InvalidTimeZoneException("boom"));
+                break;
+            default:
+                source.SetCanceled();
+                break;
+        }
     }
+
+    private static ConfigureAwaitOptions Equivalent(bool continueOnCapturedContext) =>
+        continueOnCapturedContext ? ConfigureAwaitOptions.ContinueOnCapturedContext : ConfigureAwaitOptions.None;
+
+    private static Task NullTask() => null!;
+
+    private static Task<int> NullGenericTask() => null!;
+
+    private static string? Describe(Exception? exception) =>
+        exception is null ? null : $"{exception.GetType().FullName}: {exception.Message}";
 
     public void Dispose() => _fixture.Dispose();
+
+    /// <summary>What an await observably did: the probe's log, its task's status, and its exception or result.</summary>
+    private sealed record Observation(string Log, TaskStatus Status, string? Exception, int? Result);
 }
