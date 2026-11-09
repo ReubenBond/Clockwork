@@ -29,7 +29,8 @@ public sealed record RewriteOptions
 
     /// <summary>
     /// Gets the Cecil full names of types excluded from rewriting (in addition to types marked with
-    /// <see cref="Attributes.DoNotRewriteAttribute"/>).
+    /// <see cref="Attributes.DoNotRewriteAttribute"/>). As with the attribute, the compiler-generated types nested
+    /// in an excluded type are excluded with it, transitively.
     /// </summary>
     public ImmutableArray<string> ExcludedTypeFullNames { get; init; } = [];
 

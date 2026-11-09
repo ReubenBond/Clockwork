@@ -179,6 +179,14 @@ exclude the containing assembly from instrumentation.
 - assembly/rule-set/options-level idempotence markers: re-running with the same rule set and
   semantic rewrite options is a verified no-op, and an incompatible rule set or options
   fingerprint fails clearly (`CWR0008`) rather than double-rewriting;
+- type exclusion — a type marked `[DoNotRewrite]` or named in `ExcludedTypeFullNames` is not rewritten,
+  and neither are the compiler-generated types nested in it (marked `[CompilerGenerated]`, or nested in
+  such a type: async and iterator state machines, lambda and local-function closures, and an async
+  lambda's state machine in its closure), transitively, so the type and its helpers stay consistent and
+  its code runs with BCL behaviour, uncontrolled. An explicitly declared nested type keeps its own
+  annotation. Each excluded type is recorded in the manifest (`CWR0006`). Rewritten code cannot cross the
+  boundary with a substituted type: a reference into an excluded type whose signature mentions one fails
+  (`CWR0001`), as below;
 - strict resolution — a targeted member whose replacement cannot be resolved is a hard
   failure (`CWR0001`); a targeted call is never silently skipped. A member reference whose signature a
   type substitution rewrites, but whose declaring type it keeps, binds only where that type is rewritten

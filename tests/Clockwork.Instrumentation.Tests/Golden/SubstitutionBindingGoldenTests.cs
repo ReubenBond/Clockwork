@@ -171,6 +171,155 @@ public sealed class SubstitutionBindingGoldenTests
         Assert.Contains("'Fx.Globals', which is excluded from rewriting", error.Message, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ExcludedTypeIsNotRewrittenWithItsCompilerGeneratedTypes(bool byAttribute)
+    {
+        // The async method's state machine, the iterator, the lambda closures, and the async lambda's state machine
+        // nested in its closure are compiler-generated types nested in the excluded type, so they are excluded with
+        // it and keep the BCL machinery its stub methods use. An explicitly declared nested type is rewritten.
+        using var context = RewriteTestContext.Create();
+        string attribute = byAttribute ? "[Clockwork.Instrumentation.Attributes.DoNotRewrite(\"Runs outside the simulation.\")]" : string.Empty;
+        string fixturePath = context.CompileFixture("Fx.ExcludedHelpers", $$"""
+            using System;
+            using System.Collections.Generic;
+            using System.Threading.Tasks;
+
+            {{DoNotRewriteAttributeSource}}
+
+            namespace Fx
+            {
+                {{attribute}}
+                public static class Legacy
+                {
+                    public static async Task<int> AwaitAsync()
+                    {
+                        await Task.Yield();
+                        return 1;
+                    }
+
+                    public static IEnumerable<int> Iterate()
+                    {
+                        yield return 1;
+                        yield return 2;
+                    }
+
+                    public static int Lambda(int offset)
+                    {
+                        Func<int, int> add = value => value + offset;
+                        Func<int, int> twice = static value => value * 2;
+                        Func<Task<int>> later = async () =>
+                        {
+                            await Task.Yield();
+                            return add(1);
+                        };
+                        return twice(later().GetAwaiter().GetResult());
+                    }
+
+                    public static class Declared
+                    {
+                        public static async Task<int> AwaitAsync()
+                        {
+                            await Task.Yield();
+                            return 2;
+                        }
+                    }
+                }
+            }
+            """);
+        string runtimePath = typeof(ControlledLock).Assembly.Location;
+        var options = new RewriteOptions
+        {
+            ReplacementAssemblyPaths = [runtimePath],
+            ReferenceSearchDirectories = [context.Directory, Path.GetDirectoryName(runtimePath)!],
+            ExcludedTypeFullNames = byAttribute ? [] : ["Fx.Legacy"],
+        };
+
+        RewriteResult result = context.Rewrite(
+            fixturePath,
+            BuiltInRuleSets.BuildControlledTasks(BuiltInRuleSets.AllFamilies),
+            options);
+
+        result.EnsureSuccess();
+        using ModuleDefinition module = context.LoadModule(Path.Combine(context.Directory, "Fx.ExcludedHelpers.rewritten.dll"));
+        TypeDefinition legacy = module.GetType("Fx.Legacy");
+        TypeDefinition declared = legacy.NestedTypes.Single(type => type.Name == "Declared");
+        TypeDefinition[] generated = [.. NestedTypes(legacy).Except([declared, .. NestedTypes(declared)])];
+        string[] excluded = [.. result.Manifest.Exclusions.Select(exclusion => exclusion.TypeFullName)];
+
+        Assert.Contains(generated, type => type.Name.StartsWith("<AwaitAsync>", StringComparison.Ordinal));
+        Assert.Contains(generated, type => type.Name.StartsWith("<Iterate>", StringComparison.Ordinal));
+        Assert.Contains(generated, type => type.Name == "<>c");
+        Assert.Contains(generated, type => type.DeclaringType.Name.StartsWith("<>c__DisplayClass", StringComparison.Ordinal));
+        Assert.Equal(
+            generated.Select(type => type.FullName).Append("Fx.Legacy").Order(StringComparer.Ordinal),
+            excluded.Order(StringComparer.Ordinal));
+        Assert.All(generated.Where(IsAsyncStateMachine), type => Assert.StartsWith(
+            "System.Runtime.CompilerServices.AsyncTaskMethodBuilder`1",
+            type.Fields.Single(field => field.Name == "<>t__builder").FieldType.FullName,
+            StringComparison.Ordinal));
+        Assert.All(NestedTypes(declared).Where(IsAsyncStateMachine), type => Assert.StartsWith(
+            "Clockwork.Shims.System.Runtime.CompilerServices.ControlledAsyncTaskMethodBuilder`1",
+            type.Fields.Single(field => field.Name == "<>t__builder").FieldType.FullName,
+            StringComparison.Ordinal));
+        Assert.Equal(2, generated.Count(IsAsyncStateMachine));
+        Assert.Single(NestedTypes(declared), IsAsyncStateMachine);
+    }
+
+    [Fact]
+    public void RewrittenCallerCrossingIntoAnExcludedTypeWithASubstitutedTypeFailsTheRewrite()
+    {
+        // The excluded type and its state machine are not rewritten, so its method still returns the BCL configured
+        // awaitable, which the rewritten caller would await as the controlled one.
+        using var context = RewriteTestContext.Create();
+        string fixturePath = context.CompileFixture("Fx.ExcludedBoundary", $$"""
+            using System.Runtime.CompilerServices;
+            using System.Threading.Tasks;
+
+            {{DoNotRewriteAttributeSource}}
+
+            namespace Fx
+            {
+                [Clockwork.Instrumentation.Attributes.DoNotRewrite("Runs outside the simulation.")]
+                public static class Legacy
+                {
+                    public static async Task<int> AwaitAsync()
+                    {
+                        await Task.Yield();
+                        return 1;
+                    }
+
+                    public static ConfiguredTaskAwaitable<int> Configured() => AwaitAsync().ConfigureAwait(false);
+                }
+
+                public static class Caller
+                {
+                    public static async Task<int> Run() => await Legacy.Configured();
+                }
+            }
+            """);
+        string runtimePath = typeof(ControlledLock).Assembly.Location;
+        var options = new RewriteOptions
+        {
+            ReplacementAssemblyPaths = [runtimePath],
+            ReferenceSearchDirectories = [context.Directory, Path.GetDirectoryName(runtimePath)!],
+        };
+
+        RewriteResult result = context.Rewrite(
+            fixturePath,
+            BuiltInRuleSets.BuildControlledTasks(BuiltInRuleSets.AllFamilies),
+            options);
+
+        Assert.False(result.Succeeded);
+        RewriteDiagnostic error = Assert.Single(result.Errors);
+        Assert.Equal(RewriteDiagnosticIds.UnresolvedReplacement, error.Id);
+        Assert.StartsWith("Fx.Caller/<Run>", error.Method, StringComparison.Ordinal);
+        Assert.Contains("'clockwork.tasks.configured.awaitable.generic'", error.Message, StringComparison.Ordinal);
+        Assert.Contains("Fx.Legacy::Configured()", error.Message, StringComparison.Ordinal);
+        Assert.Contains("'Fx.Legacy' is excluded from rewriting", error.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void MultidimensionalArrayOfASubstitutedTypeBinds()
     {
@@ -215,6 +364,13 @@ public sealed class SubstitutionBindingGoldenTests
             loadContext.Unload();
         }
     }
+
+    private static IEnumerable<TypeDefinition> NestedTypes(TypeDefinition type) =>
+        type.NestedTypes.SelectMany(nested => NestedTypes(nested).Prepend(nested));
+
+    private static bool IsAsyncStateMachine(TypeDefinition type) =>
+        type.Interfaces.Any(implementation =>
+            implementation.InterfaceType.FullName == "System.Runtime.CompilerServices.IAsyncStateMachine");
 
     private static RewriteDiagnostic AssertUnbound(RewriteResult result, string unbound)
     {
