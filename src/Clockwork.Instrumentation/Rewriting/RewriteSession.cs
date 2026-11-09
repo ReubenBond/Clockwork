@@ -18,11 +18,16 @@ internal sealed class RewriteSession
     private readonly List<ManifestTransformation> _transformations = [];
     private readonly SortedSet<string> _unresolvedReferences = new(StringComparer.Ordinal);
 
-    public RewriteSession(ModuleDefinition targetModule, RewriteRuleMatcher matcher, ReplacementResolver resolver)
+    public RewriteSession(
+        ModuleDefinition targetModule,
+        RewriteRuleMatcher matcher,
+        ReplacementResolver resolver,
+        IReadOnlySet<string> excludedTypeFullNames)
     {
         TargetModule = targetModule;
         Matcher = matcher;
         Resolver = resolver;
+        ExcludedTypeFullNames = excludedTypeFullNames;
     }
 
     /// <summary>Gets the module being rewritten.</summary>
@@ -34,8 +39,14 @@ internal sealed class RewriteSession
     /// <summary>Gets the resolver that imports replacement members into <see cref="TargetModule"/>.</summary>
     public ReplacementResolver Resolver { get; }
 
+    /// <summary>Gets the full names of the types excluded from rewriting, which no pass visits.</summary>
+    public IReadOnlySet<string> ExcludedTypeFullNames { get; }
+
     /// <summary>Gets a value indicating whether any error-severity diagnostic has been recorded.</summary>
     public bool HasErrors { get; private set; }
+
+    /// <summary>Gets a value indicating whether <paramref name="type"/> is excluded from rewriting.</summary>
+    public bool IsExcluded(TypeDefinition type) => ExcludedTypeFullNames.Contains(type.FullName);
 
     /// <summary>Records a diagnostic, tracking whether it is an error.</summary>
     public void AddDiagnostic(RewriteDiagnostic diagnostic)

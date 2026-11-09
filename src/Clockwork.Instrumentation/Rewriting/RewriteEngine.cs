@@ -101,7 +101,7 @@ public static class RewriteEngine
 
         var matcher = new RewriteRuleMatcher(request.RuleSet, options.TargetRuntime);
         using var resolver = new ReplacementResolver(options.ReplacementAssemblyPaths, options.ReferenceSearchDirectories);
-        var session = new RewriteSession(context.MainModule, matcher, resolver);
+        var session = new RewriteSession(context.MainModule, matcher, resolver, skip);
 
         RewritePass[] passes =
         [
