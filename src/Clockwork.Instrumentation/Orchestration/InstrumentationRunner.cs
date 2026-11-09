@@ -72,7 +72,14 @@ public static class InstrumentationRunner
             Configuration = configuration,
         };
 
-        ClosurePlan plan = ClosureDiscovery.Discover(sourceDirectory, configuration, request.EntryAssemblyName);
+        // The one classifier that keeps framework assemblies out of the closure's rewrite also excludes them from the
+        // staged binding check, since nothing they reference is rewritten.
+        FrameworkAssemblyClassifier frameworkClassifier = FrameworkAssemblyClassifier.Default;
+        ClosurePlan plan = ClosureDiscovery.Discover(
+            sourceDirectory,
+            configuration,
+            request.EntryAssemblyName,
+            frameworkClassifier);
         ValidateClosurePlanPaths(plan, configuration, stagingDirectory, manifestPath);
         ValidateRequestPathIsolation(
             sourceDirectory,
@@ -196,6 +203,17 @@ public static class InstrumentationRunner
             {
                 copied.Add(runtimeAsset);
             }
+        }
+
+        if (!assemblyResults.SelectMany(a => a.Errors).Any())
+        {
+            topLevel.AddRange(ClosureBindingValidator.Validate(
+                plan,
+                stagingDirectory,
+                frameworkClassifier,
+                request.RuleSet,
+                configuration.TargetRuntime,
+                rewrittenAssemblyNames));
         }
 
         bool succeeded = topLevel.All(d => !d.IsError) && !assemblyResults.SelectMany(a => a.Errors).Any();

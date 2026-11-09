@@ -187,7 +187,9 @@ exclude the containing assembly from instrumentation.
   closure runner tells the engine which assemblies it rewrites; a direct engine caller that does not is
   taken to rewrite none, so every such reference into another assembly fails closed. The set is part of
   the options fingerprint, so an already-rewritten input reused in a closure that rewrites different
-  assemblies fails (`CWR0008`).
+  assemblies fails (`CWR0008`). Once the closure is staged, the runner resolves every reference into a
+  rewritten assembly that mentions a substituted or substitute type, from a copied assembly or an
+  excluded type, and fails the run (`CWR0001`) if it no longer binds.
 
 **Engine boundary:** load-time `AssemblyLoadContext` hooks, profiler/native detours, mixed-mode
 rewriting, Authenticode re-signing, application hosting, and transport interception are not

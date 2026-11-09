@@ -13,8 +13,8 @@ namespace Clockwork.Instrumentation.Tests.Orchestration;
 /// closure's assemblies. <c>Fx.Lib</c> declares <c>Sink.Take(LegacyMarker)</c>, which <c>Fx.App</c> calls; the rule
 /// substitutes <c>LegacyMarker</c> with <c>ModernMarker</c>. The reference binds only when both its declaring and its
 /// referencing code are rewritten, so the runner rewrites a sibling consistently and fails the run with
-/// <c>CWR0001</c> when only the referencing side is, instead of staging a closure that throws
-/// <see cref="MissingMethodException"/>.
+/// <c>CWR0001</c> when only one side is - an excluded sibling, an excluded consumer, or a caller marked
+/// <c>[DoNotRewrite]</c> - instead of staging a closure that throws <see cref="MissingMethodException"/>.
 /// </summary>
 public sealed class ClosureBindingTests : IDisposable
 {
@@ -37,6 +37,29 @@ public sealed class ClosureBindingTests : IDisposable
         namespace Fx.App
         {
             public static class Caller
+            {
+                public static string Run() => Sink.Take(new LegacyMarker());
+            }
+        }
+        """;
+
+    private const string DoNotRewriteAppSource = """
+        using ClockworkFixtures.Api;
+        using Fx.Lib;
+
+        namespace Clockwork.Instrumentation.Attributes
+        {
+            [System.AttributeUsage(System.AttributeTargets.Class)]
+            public sealed class DoNotRewriteAttribute(string reason) : System.Attribute
+            {
+                public string Reason { get; } = reason;
+            }
+        }
+
+        namespace Fx.App
+        {
+            [Clockwork.Instrumentation.Attributes.DoNotRewrite("Runs before the simulation starts.")]
+            public static class LegacyCaller
             {
                 public static string Run() => Sink.Take(new LegacyMarker());
             }
@@ -91,6 +114,41 @@ public sealed class ClosureBindingTests : IDisposable
         Assert.Contains("'substitute-marker'", error.Message, StringComparison.Ordinal);
         Assert.Contains("Fx.Lib.Sink::Take(ClockworkFixtures.Api.LegacyMarker)", error.Message, StringComparison.Ordinal);
         Assert.Contains("'Fx.Lib', which is not rewritten in this closure", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ExcludedConsumerOfARewrittenSiblingFailsTheRun()
+    {
+        BuildClosure(AppSource);
+
+        InstrumentationResult result = Run(new InstrumentationConfiguration { ExcludePatterns = ["Fx.App.dll"] });
+
+        // The sibling's signature takes the substitute while the copied consumer keeps the original reference.
+        Assert.False(result.Succeeded);
+        RewriteDiagnostic error = Assert.Single(result.Errors);
+        Assert.Equal(RewriteDiagnosticIds.UnresolvedReplacement, error.Id);
+        Assert.Equal("Fx.App.dll", error.Method);
+        Assert.Contains("'substitute-marker' rewrites 'Fx.Lib'", error.Message, StringComparison.Ordinal);
+        Assert.Contains("Fx.Lib.Sink::Take(ClockworkFixtures.Api.LegacyMarker)", error.Message, StringComparison.Ordinal);
+        Assert.Contains("'Fx.App' is not rewritten in this closure", error.Message, StringComparison.Ordinal);
+        Assert.Contains(result.Assemblies, assembly => assembly.RelativePath == "Fx.Lib.dll" && assembly.WasRewritten);
+    }
+
+    [Fact]
+    public void DoNotRewriteCallerOfARewrittenSiblingFailsTheRun()
+    {
+        BuildClosure(DoNotRewriteAppSource);
+
+        InstrumentationResult result = Run();
+
+        // Both assemblies are rewritten, but the excluded caller keeps the original reference.
+        Assert.False(result.Succeeded);
+        RewriteDiagnostic error = Assert.Single(result.Errors);
+        Assert.Equal(RewriteDiagnosticIds.UnresolvedReplacement, error.Id);
+        Assert.Equal("Fx.App.dll", error.Method);
+        Assert.Contains("Fx.Lib.Sink::Take(ClockworkFixtures.Api.LegacyMarker)", error.Message, StringComparison.Ordinal);
+        Assert.Contains("excluded from rewriting", error.Message, StringComparison.Ordinal);
+        Assert.Contains(result.Assemblies, assembly => assembly.RelativePath == "Fx.App.dll" && assembly.WasRewritten);
     }
 
     [Fact]
