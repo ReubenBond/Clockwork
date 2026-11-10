@@ -235,6 +235,64 @@ public sealed class SubstitutionBindingGoldenTests
         Assert.Equal("Fx.Caller.Call", error.Method);
     }
 
+    public static TheoryData<string, string, string, string> ExcludedUsesOfReshapedTypes => new()
+    {
+        {
+            // The excluded code calls List<LegacyMarker>.Add on a type whose base type is now List<ModernMarker>.
+            "BaseType",
+            """
+            public static int Use()
+            {
+                var markers = new Markers();
+                markers.Add(new LegacyMarker());
+                return markers.Count;
+            }
+            """,
+            "Fx.Legacy.Use",
+            "substitutes 'System.Collections.Generic.List`1<ClockworkFixtures.Api.LegacyMarker>' in the base type of " +
+                "'Fx.Markers', but 'Fx.Legacy' is excluded from rewriting and still uses 'Fx.Markers' as declared"
+        },
+        {
+            "InheritedBaseType",
+            """
+            public static int Use() => new DerivedMarkers().Count;
+            """,
+            "Fx.Legacy.Use",
+            "substitutes 'System.Collections.Generic.List`1<ClockworkFixtures.Api.LegacyMarker>' in the base type of " +
+                "'Fx.Markers' (inherited by 'Fx.DerivedMarkers'), but 'Fx.Legacy' is excluded from rewriting and still uses " +
+                "'Fx.DerivedMarkers' as declared"
+        },
+        {
+            "Interface",
+            """
+            public static IEnumerable<LegacyMarker> Use(IMarkers markers) => markers;
+            """,
+            "Fx.Legacy.Use",
+            "substitutes 'System.Collections.Generic.IEnumerable`1<ClockworkFixtures.Api.LegacyMarker>' in the interface of " +
+                "'Fx.IMarkers', but 'Fx.Legacy' is excluded from rewriting and still uses 'Fx.IMarkers' as declared"
+        },
+        {
+            // List<LegacyMarker> satisfies only the original constraint.
+            "TypeConstraint",
+            """
+            public static object Use() => new Holder<List<LegacyMarker>>();
+            """,
+            "Fx.Legacy.Use",
+            "substitutes 'System.Collections.Generic.IEnumerable`1<ClockworkFixtures.Api.LegacyMarker>' in the constraint on " +
+                "'T' of 'Fx.Holder`1', but 'Fx.Legacy' is excluded from rewriting and still uses 'Fx.Holder`1' as declared"
+        },
+        {
+            "MethodConstraint",
+            """
+            public static int Use() => Shelf.Stock(new List<LegacyMarker>());
+            """,
+            "Fx.Legacy.Use",
+            "substitutes 'System.Collections.Generic.IEnumerable`1<ClockworkFixtures.Api.LegacyMarker>' in the constraint on " +
+                "'T' of 'System.Int32 Fx.Shelf::Stock(T)', but 'Fx.Legacy' is excluded from rewriting and still uses " +
+                "'System.Int32 Fx.Shelf::Stock(T)' as declared"
+        },
+    };
+
     [Theory]
     [MemberData(nameof(ExcludedCallers))]
     public void ExcludedCallerOfARewrittenSignatureFailsTheRewrite(string name, string call, string unbound)
@@ -272,6 +330,135 @@ public sealed class SubstitutionBindingGoldenTests
         RewriteDiagnostic error = AssertUnbound(result, unbound);
         Assert.Equal("Fx.Legacy.Call", error.Method);
         Assert.Contains("'Fx.Legacy' is excluded from rewriting", error.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [MemberData(nameof(ExcludedUsesOfReshapedTypes))]
+    public void ExcludedUseOfAReshapedTypeFailsTheRewrite(string name, string use, string method, string reason)
+    {
+        // The rewrite substitutes the base types, interfaces, and constraints of the types and methods it rewrites, but
+        // excluded code keeps the original ones and could use the type through a base type or interface it no longer has.
+        using var context = RewriteTestContext.Create();
+        string fixturePath = context.CompileFixture($"Fx.ExcludedReshape{name}", $$"""
+            using System.Collections.Generic;
+            using ClockworkFixtures.Api;
+
+            {{DoNotRewriteAttributeSource}}
+
+            namespace Fx
+            {
+                public class Markers : List<LegacyMarker>
+                {
+                }
+
+                public sealed class DerivedMarkers : Markers
+                {
+                }
+
+                public interface IMarkers : IEnumerable<LegacyMarker>
+                {
+                }
+
+                public sealed class Holder<T>
+                    where T : IEnumerable<LegacyMarker>
+                {
+                }
+
+                public static class Shelf
+                {
+                    public static int Stock<T>(T items)
+                        where T : IEnumerable<LegacyMarker> => 1;
+                }
+
+                [Clockwork.Instrumentation.Attributes.DoNotRewrite("Runs before the simulation starts.")]
+                public static class Legacy
+                {
+                    {{use}}
+                }
+            }
+            """);
+
+        RewriteResult result = context.Rewrite(fixturePath, MarkerRuleSet(), MarkerOptions(context));
+
+        RewriteDiagnostic error = AssertUnbound(result, reason);
+        Assert.Equal(method, error.Method);
+    }
+
+    [Fact]
+    public void ExcludedTypeDerivingFromAReshapedTypeFailsTheRewrite()
+    {
+        using var context = RewriteTestContext.Create();
+        string fixturePath = context.CompileFixture("Fx.ExcludedReshapeDerived", $$"""
+            using System.Collections.Generic;
+            using ClockworkFixtures.Api;
+
+            {{DoNotRewriteAttributeSource}}
+
+            namespace Fx
+            {
+                public class Markers : List<LegacyMarker>
+                {
+                }
+
+                [Clockwork.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
+                public sealed class LegacyMarkers : Markers
+                {
+                    public LegacyMarker First() => this[0];
+                }
+            }
+            """);
+
+        RewriteResult result = context.Rewrite(fixturePath, MarkerRuleSet(), MarkerOptions(context));
+
+        // The excluded type's own members use its base type's original members; it is reported once.
+        RewriteDiagnostic error = AssertUnbound(
+            result,
+            "substitutes 'System.Collections.Generic.List`1<ClockworkFixtures.Api.LegacyMarker>' in the base type of " +
+                "'Fx.Markers', but 'Fx.LegacyMarkers' is excluded from rewriting and still uses 'Fx.Markers' as declared, " +
+                "through a base type, interface, or constraint it no longer has");
+        Assert.Equal("Fx.LegacyMarkers", error.Method);
+    }
+
+    [Fact]
+    public void ExcludedTypeUsingOnlyUnreshapedTypesIsRewritten()
+    {
+        // A type of the module whose shape mentions no substituted type is the same on both sides of the boundary.
+        using var context = RewriteTestContext.Create();
+        string fixturePath = context.CompileFixture("Fx.ExcludedUnreshaped", $$"""
+            using System.Collections.Generic;
+            using ClockworkFixtures.Api;
+
+            {{DoNotRewriteAttributeSource}}
+
+            namespace Fx
+            {
+                public class Markers : List<LegacyMarker>
+                {
+                }
+
+                public class Names : List<string>
+                {
+                }
+
+                [Clockwork.Instrumentation.Attributes.DoNotRewrite("Runs before the simulation starts.")]
+                public static class Legacy
+                {
+                    public static int Use()
+                    {
+                        var names = new Names();
+                        names.Add("name");
+                        return names.Count;
+                    }
+                }
+
+                public static class Caller
+                {
+                    public static int Run() => new Markers().Count + Legacy.Use();
+                }
+            }
+            """);
+
+        context.Rewrite(fixturePath, MarkerRuleSet(), MarkerOptions(context)).EnsureSuccess();
     }
 
     [Fact]

@@ -31,6 +31,10 @@ namespace Clockwork.Instrumentation.Rewriting;
 /// as its substitute;</description></item>
 /// <item><description>a reference from an excluded type to a member of this module whose signature the pass
 /// rewrote;</description></item>
+/// <item><description>a mention, by an excluded type, of a type of this module whose base type, interfaces, or generic
+/// parameter constraints the pass rewrote, of a type deriving from one, or of a method whose generic parameter
+/// constraints it rewrote: the excluded code keeps the original shape, so it could use the type through a base type or
+/// interface it no longer has;</description></item>
 /// <item><description>an interface implementation or override whose signature the pass rewrote on one side only: between
 /// a rewritten type and an excluded one or a type of an assembly the closure does not rewrite, including where one of
 /// them names the implemented interface or base type with a substituted generic argument, which the pass substitutes in
@@ -38,8 +42,8 @@ namespace Clockwork.Instrumentation.Rewriting;
 /// <item><description>an explicit implementation or override whose declaration names a member that does not bind with
 /// the substituted signature.</description></item>
 /// </list>
-/// The closure runner checks references, implementations, and overrides between assemblies once every assembly is
-/// staged.
+/// The closure runner checks references, implementations, overrides, and reshaped types between assemblies once every
+/// assembly is staged.
 /// </remarks>
 internal sealed class MemberSubstitutionRewritingPass : RewritePass
 {
@@ -56,6 +60,7 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
     private readonly HashSet<string> _reportedApplicationFailures = new(StringComparer.Ordinal);
     private readonly List<PendingBinding> _pendingBindings = [];
     private readonly Dictionary<MemberReference, RewriteRule[]> _rewrittenSignatures = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<IMemberDefinition, TypeReshape> _reshapes = new(ReferenceEqualityComparer.Instance);
 
     public MemberSubstitutionRewritingPass(RewriteSession session)
         : base(session)
@@ -81,6 +86,7 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
             return;
         }
 
+        RecordReshape(type, TypeReshapes.Find(type, IsMapped));
         MapBaseTypes(type);
         MapGenericConstraints(type.GenericParameters);
 
@@ -118,6 +124,7 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
         // produce incompatible closure and public API references after the whole-type substitution.
         foreach (MethodDefinition method in type.Methods)
         {
+            RecordReshape(method, TypeReshapes.Find(method, IsMapped));
             MapGenericConstraints(method.GenericParameters);
             TypeReference? mappedReturn = Mapper.MapType(method.ReturnType);
             TypeReference?[] mappedParameters = [.. method.Parameters.Select(parameter => Mapper.MapType(parameter.ParameterType))];
@@ -354,7 +361,8 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
 
     // Excluded types are not visited, so their references keep the original signatures. A reference to a member of
     // this module whose signature the pass rewrote therefore no longer binds by signature, or, through a definition
-    // token, binds to the rewritten signature with arguments of the original types.
+    // token, binds to the rewritten signature with arguments of the original types. Nor do they keep a type's original
+    // base type, interfaces, or generic constraints, so one that mentions a type or method the pass reshaped fails too.
     private void CheckExcludedTypes()
     {
         foreach (TypeDefinition type in Module!.GetTypes().Where(Session.IsExcluded))
@@ -375,6 +383,78 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
                     }
                 }
             }
+
+            foreach (ReshapedReference reference in TypeReshapes.FindReferences(type, ReshapeOf, MethodReshapeOf)
+                .DistinctBy(reference => reference.Mentioned, StringComparer.Ordinal))
+            {
+                ReportReshapedReference(type, reference);
+            }
+        }
+    }
+
+    // A rewritten type of this module whose shape the pass rewrote, or which derives from one, is reshaped.
+    private TypeReshape? ReshapeOf(TypeReference type)
+    {
+        for (TypeDefinition? current = type as TypeDefinition;
+            current is not null && !Session.IsExcluded(current);
+            current = current.BaseType?.GetElementType() as TypeDefinition)
+        {
+            if (_reshapes.TryGetValue(current, out TypeReshape? reshape))
+            {
+                return reshape;
+            }
+        }
+
+        return null;
+    }
+
+    private TypeReshape? MethodReshapeOf(MethodReference method)
+    {
+        MethodReference element = method is GenericInstanceMethod generic ? generic.ElementMethod : method;
+        MethodDefinition? definition = element as MethodDefinition;
+        if (definition is null && element.DeclaringType.GetElementType() is TypeDefinition)
+        {
+            try
+            {
+                definition = element.Resolve();
+            }
+            catch (AssemblyResolutionException)
+            {
+                return null;
+            }
+        }
+
+        return definition is not null && _reshapes.TryGetValue(definition, out TypeReshape? reshape) ? reshape : null;
+    }
+
+    private void ReportReshapedReference(TypeDefinition excluded, ReshapedReference reference)
+    {
+        foreach (RewriteRule rule in MatchingRules([reference.Reshape.Part]))
+        {
+            if (!_reportedApplicationFailures.Add($"{rule.Id}|{reference.Containing}|{reference.Offset}"))
+            {
+                continue;
+            }
+
+            Session.AddDiagnostic(RewriteDiagnostic.Error(
+                RewriteDiagnosticIds.UnresolvedReplacement,
+                $"Member-aware substitution rule '{rule.Id}' substitutes '{reference.Reshape.Part.FullName}' in " +
+                $"{reference.Reshape.Describe(reference.Mentioned)}, but '{excluded.FullName}' is excluded from rewriting " +
+                $"and still uses '{reference.Mentioned}' as declared, through a base type, interface, or constraint it no " +
+                "longer has.",
+                reference.Containing,
+                reference.Offset));
+            Session.AddUnresolvedReference(rule.Replacement.ToCanonicalString());
+        }
+    }
+
+    private bool IsMapped(TypeReference type) => Mapper.MapType(type) is not null;
+
+    private void RecordReshape(IMemberDefinition definition, TypeReshape? reshape)
+    {
+        if (reshape is not null)
+        {
+            _reshapes[definition] = reshape;
         }
     }
 

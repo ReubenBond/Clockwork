@@ -530,7 +530,9 @@ fails the rewrite (`CWR0001`) instead of throwing `MissingMethodException` at ru
 type is in an assembly the closure does not rewrite or is excluded from rewriting, or one from code the
 closure does not rewrite (an excluded assembly or a `[DoNotRewrite]` type) into a rewritten signature. An
 interface implementation or override whose signature is rewritten on one side of that boundary only fails
-the rewrite the same way instead of throwing `TypeLoadException` when the type loads. The
+the rewrite the same way instead of throwing `TypeLoadException` when the type loads, and so does such code
+mentioning a rewritten type whose base type, interfaces, or generic constraints the rewrite substitutes
+(`List<Barrier>` becomes `List<ControlledBarrier>`), which it could use through the original ones. The
 runtime-async `AsyncHelpers.Await` intrinsics on configured awaitables, which would resume outside the
 coordinator, are rejected by name. The controlled awaiter hands each continuation to the simulation
 coordinator, so **`ConfigureAwait(false)` stays controlled** inside a simulation (for both `Task`

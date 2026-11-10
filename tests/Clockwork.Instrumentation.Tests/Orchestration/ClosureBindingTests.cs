@@ -15,7 +15,9 @@ namespace Clockwork.Instrumentation.Tests.Orchestration;
 /// <c>LegacyMarker</c> with <c>ModernMarker</c>. Each binds only when both sides are rewritten, so the runner rewrites
 /// a sibling consistently and fails the run with <c>CWR0001</c> when only one side is - an excluded sibling, an
 /// excluded consumer, or a type marked <c>[DoNotRewrite]</c> - instead of staging a closure that throws
-/// <see cref="MissingMethodException"/> or <see cref="TypeLoadException"/>.
+/// <see cref="MissingMethodException"/> or <see cref="TypeLoadException"/>. The reshape cases give <c>Fx.Lib</c> a type
+/// deriving from <c>List&lt;LegacyMarker&gt;</c> and a method constrained to <c>IEnumerable&lt;LegacyMarker&gt;</c>,
+/// whose base type and constraint the rewrite substitutes, so code that keeps the original ones fails the run.
 /// </summary>
 public sealed class ClosureBindingTests : IDisposable
 {
@@ -141,6 +143,57 @@ public sealed class ClosureBindingTests : IDisposable
             }
         }
         """;
+
+    // Fx.Lib's Markers and Shelf.Stock<T> have a base type and a constraint composed from the substituted type.
+    private const string ReshapeLibSource = """
+            using System.Collections.Generic;
+            using ClockworkFixtures.Api;
+
+            namespace Fx.Lib
+            {
+                public class Markers : List<LegacyMarker>
+                {
+                }
+
+                public static class Shelf
+                {
+                    public static int Stock<T>(T items)
+                        where T : IEnumerable<LegacyMarker> => items is ICollection<LegacyMarker> collection ? collection.Count : 0;
+                }
+            }
+            """;
+
+    private const string ReshapeAppTemplate = """
+            using ClockworkFixtures.Api;
+            using Fx.Lib;
+
+            namespace Clockwork.Instrumentation.Attributes
+            {
+                [System.AttributeUsage(System.AttributeTargets.Class)]
+                public sealed class DoNotRewriteAttribute(string reason) : System.Attribute
+                {
+                    public string Reason { get; } = reason;
+                }
+            }
+
+            namespace Fx.App
+            {
+                public sealed class MoreMarkers : Markers
+                {
+                }
+
+                [ATTRIBUTE]
+                public static class Counter
+                {
+                    public static string Count()
+                    {
+                        var markers = new MoreMarkers();
+                        markers.Add(new LegacyMarker());
+                        return markers.Count + " " + markers[0] + " " + Shelf.Stock(markers);
+                    }
+                }
+            }
+            """;
 
     private readonly string _root = TestArtifacts.CreateUnique("cwr-closure-binding");
     private readonly string _source;
@@ -307,6 +360,68 @@ public sealed class ClosureBindingTests : IDisposable
     }
 
     [Fact]
+    public void RewrittenConsumerOfAReshapedSiblingRuns()
+    {
+        BuildClosure(ReshapeAppSource(doNotRewrite: false), ReshapeLibSource);
+
+        Run().EnsureSuccess();
+
+        var loadContext = new DirectoryLoadContext(_staging);
+        try
+        {
+            Assembly app = loadContext.LoadFromAssemblyPath(Path.Combine(_staging, "Fx.App.dll"));
+            MethodInfo count = app.GetType("Fx.App.Counter", throwOnError: true)!.GetMethod("Count")!;
+
+            // Both assemblies name List<ModernMarker>, so the derived type and the constraint agree.
+            Assert.Equal("1 modern 1", count.Invoke(null, null));
+        }
+        finally
+        {
+            loadContext.Unload();
+        }
+    }
+
+    [Fact]
+    public void CopiedConsumerOfAReshapedSiblingFailsTheRun()
+    {
+        BuildClosure(ReshapeAppSource(doNotRewrite: false), ReshapeLibSource);
+
+        InstrumentationResult result = Run(new InstrumentationConfiguration { ExcludePatterns = ["Fx.App.dll"] });
+
+        // The copied consumer would call List<LegacyMarker>.Add on a List<ModernMarker>, and instantiate Stock<T> with a
+        // type that satisfies only the original constraint.
+        AssertReshapeErrors(
+            result,
+            "Fx.App.dll",
+            "rewrites the base type of 'Fx.Lib.Markers' to 'System.Collections.Generic.List`1<ClockworkFixtures.Shims.ModernMarker>', " +
+                "but 'Fx.App' is not rewritten in this closure and still uses 'Fx.Lib.Markers' as declared",
+            "rewrites the constraint on 'T' of 'System.Int32 Fx.Lib.Shelf::Stock(T)' to " +
+                "'System.Collections.Generic.IEnumerable`1<ClockworkFixtures.Shims.ModernMarker>', but 'Fx.App' is not " +
+                "rewritten in this closure and still uses 'System.Int32 Fx.Lib.Shelf::Stock(T)' as declared");
+        Assert.Contains(result.Assemblies, assembly => assembly.RelativePath == "Fx.Lib.dll" && assembly.WasRewritten);
+    }
+
+    [Fact]
+    public void DoNotRewriteConsumerOfAReshapedSiblingFailsTheRun()
+    {
+        BuildClosure(ReshapeAppSource(doNotRewrite: true), ReshapeLibSource);
+
+        InstrumentationResult result = Run();
+
+        // The excluded consumer uses a rewritten type of its own assembly that inherits the sibling's rewritten base type.
+        AssertReshapeErrors(
+            result,
+            "Fx.App.dll",
+            "rewrites the base type of 'Fx.Lib.Markers' (inherited by 'Fx.App.MoreMarkers') to " +
+                "'System.Collections.Generic.List`1<ClockworkFixtures.Shims.ModernMarker>', but 'Fx.App.Counter' is excluded " +
+                "from rewriting in 'Fx.App' and still uses 'Fx.App.MoreMarkers' as declared",
+            "rewrites the constraint on 'T' of 'System.Int32 Fx.Lib.Shelf::Stock(T)' to " +
+                "'System.Collections.Generic.IEnumerable`1<ClockworkFixtures.Shims.ModernMarker>', but 'Fx.App.Counter' is " +
+                "excluded from rewriting in 'Fx.App' and still uses 'System.Int32 Fx.Lib.Shelf::Stock(T)' as declared");
+        Assert.Contains(result.Assemblies, assembly => assembly.RelativePath == "Fx.App.dll" && assembly.WasRewritten);
+    }
+
+    [Fact]
     public void PreRewrittenAssemblyIsRefusedInAClosureThatRewritesDifferentAssemblies()
     {
         BuildClosure(AppSource);
@@ -410,6 +525,30 @@ public sealed class ClosureBindingTests : IDisposable
             doNotRewrite ? "[Clockwork.Instrumentation.Attributes.DoNotRewrite(\"Shared with code outside the simulation.\")]" : string.Empty,
             StringComparison.Ordinal);
 
+    private static string ReshapeAppSource(bool doNotRewrite) =>
+        ReshapeAppTemplate.Replace(
+            "[ATTRIBUTE]",
+            doNotRewrite ? "[Clockwork.Instrumentation.Attributes.DoNotRewrite(\"Runs before the simulation starts.\")]" : string.Empty,
+            StringComparison.Ordinal);
+
+    private static void AssertReshapeErrors(InstrumentationResult result, string method, params string[] reasons)
+    {
+        Assert.False(result.Succeeded);
+        List<RewriteDiagnostic> errors = [.. result.Errors];
+        Assert.Equal(reasons.Length, errors.Count);
+        Assert.All(errors, error =>
+        {
+            Assert.Equal(RewriteDiagnosticIds.UnresolvedReplacement, error.Id);
+            Assert.Equal(method, error.Method);
+            Assert.StartsWith("Member-aware substitution rule 'substitute-marker' ", error.Message, StringComparison.Ordinal);
+            Assert.EndsWith(", through a base type, interface, or constraint it no longer has.", error.Message, StringComparison.Ordinal);
+        });
+        foreach (string reason in reasons)
+        {
+            Assert.Contains(errors, error => error.Message.Contains(reason, StringComparison.Ordinal));
+        }
+    }
+
     private static void AssertShapeErrors(
         InstrumentationResult result,
         string? method,
@@ -445,7 +584,7 @@ public sealed class ClosureBindingTests : IDisposable
                     RewriteReplacement.Type(FixtureSources.ShimAssemblyName, "ClockworkFixtures.Shims.ModernMarker")),
             ]);
 
-    private void BuildClosure(string appSource)
+    private void BuildClosure(string appSource, string libSource = LibSource)
     {
         string api = FixtureCompiler.Compile(
             FixtureSources.ApiAssemblyName, FixtureSources.Api, _source, FixtureSymbols.PortableFile, optimize: false);
@@ -453,7 +592,7 @@ public sealed class ClosureBindingTests : IDisposable
             FixtureSources.ShimAssemblyName, FixtureSources.Shims, _source, FixtureSymbols.PortableFile, optimize: false,
             additionalReferencePaths: [api]);
         string lib = FixtureCompiler.Compile(
-            "Fx.Lib", LibSource, _source, FixtureSymbols.PortableFile, optimize: false, additionalReferencePaths: [api]);
+            "Fx.Lib", libSource, _source, FixtureSymbols.PortableFile, optimize: false, additionalReferencePaths: [api]);
         FixtureCompiler.Compile(
             "Fx.App", appSource, _source, FixtureSymbols.PortableFile, optimize: false, additionalReferencePaths: [api, lib]);
     }
