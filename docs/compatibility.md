@@ -514,7 +514,10 @@ or `WhenEach` enumerator whose antecedent is still pending completes one control
 rather than inside the completing call; and a combinator or continuation whose antecedent never completes remains
 pending simulation work, as an await of that antecedent does (for `WhenEach`, until its enumeration ends, or until
 every task has completed if nothing enumerates it). `ControlledTimer.DisposeAsync` completes its task without
-`RunContinuationsAsynchronously`, so its `CreationOptions` report `None`.
+`RunContinuationsAsynchronously`, so its `CreationOptions` report `None`. Because no continuation runs inside the
+completing call, Clockwork cannot surface bugs where a continuation runs inline under the completer's lock (a
+deadlock or reentrancy the BCL's synchronous continuations can cause). `DocumentedDeviationConformanceTests` pins each
+of these deviations, with the BCL's value beside it.
 
 #### Threads, thread pool, Parallel, and task parity
 
