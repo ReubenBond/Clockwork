@@ -29,9 +29,10 @@ public enum BuiltInRuleFamily
     Crypto,
 
     /// <summary>
-    /// Task combinators: the static <see cref="System.Threading.Tasks.Task.WhenAll(System.Threading.Tasks.Task[])"/>
-    /// and <c>WhenAny</c> family, redirected to controlled equivalents whose completion order is a
-    /// deterministic function of when the antecedents complete on the logical thread.
+    /// Task combinators: the static <see cref="System.Threading.Tasks.Task.WhenAll(System.Threading.Tasks.Task[])"/>,
+    /// <c>WhenAny</c>, and <c>WhenEach</c> families and <c>TaskExtensions.Unwrap</c>, redirected to controlled
+    /// equivalents whose completion order is a deterministic function of when the antecedents complete on the logical
+    /// thread.
     /// </summary>
     TaskCombinators,
 
@@ -120,6 +121,21 @@ public enum BuiltInRuleFamily
     /// non-<c>None</c> option are rejected.
     /// </summary>
     TaskFactory,
+
+    /// <summary>
+    /// <see cref="System.Threading.Tasks.TaskFactory"/> / <see cref="System.Threading.Tasks.TaskFactory{TResult}"/>
+    /// multi-task continuations: every .NET 10 <c>ContinueWhenAll</c> and <c>ContinueWhenAny</c> overload, redirected
+    /// so the BCL registers nothing on the antecedents: the coordinator observes them complete and runs the genuine BCL
+    /// continuation task on the logical thread.
+    /// </summary>
+    TaskFactoryContinuations,
+
+    /// <summary>
+    /// The asynchronous programming model bridge: every <c>TaskFactory.FromAsync</c> and
+    /// <c>TaskFactory&lt;TResult&gt;.FromAsync</c> overload, rejected at the call site, since the returned task completes
+    /// when an <see cref="System.IAsyncResult"/> does, outside Clockwork's control.
+    /// </summary>
+    TaskFactoryFromAsync,
 
     /// <summary>
     /// <see cref="System.Threading.Thread"/> surface: construction and the <c>Start</c>/<c>Join</c>

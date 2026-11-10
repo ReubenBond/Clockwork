@@ -400,10 +400,12 @@ production binaries retain normal BCL async semantics. A
 non-generic `Task.WhenAll` / `Task.WhenAny` (array, span, pair, enumerable) combinators **and their
 generic `Task<T>` overloads** (array, span, enumerable, and the `WhenAny<T>` pair), the synchronous
 `Task.Wait()` / `Task.WaitAll` / `Task.WaitAny(Task[])` waits, the blocking generic
-`Task<T>.Result` accessor, the `TaskExtensions.Unwrap` extension methods, all 40
-`Task.ContinueWith`/`Task<T>.ContinueWith` overloads, the `ValueTask`/`ValueTask<T>` `AsTask` and `Preserve`
+`Task<T>.Result` accessor, the `TaskExtensions.Unwrap` extension methods, all 6 `Task.WhenEach` overloads, all 40
+`Task.ContinueWith`/`Task<T>.ContinueWith` overloads, all 48 `TaskFactory`/`TaskFactory<T>`
+`ContinueWhenAll`/`ContinueWhenAny` overloads, the `ValueTask`/`ValueTask<T>` `AsTask` and `Preserve`
 conversions, and the completion members of `TaskCompletionSource`/`TaskCompletionSource<T>` to shims in
-`Clockwork.Shims.System.Threading.Tasks`. Synchronous waits **pump the
+`Clockwork.Shims.System.Threading.Tasks`, and rejects every `TaskFactory`/`TaskFactory<T>` `FromAsync` overload at
+the call site. Synchronous waits **pump the
 coordinator loop until completion instead of blocking a physical thread**, then delegate to the
 real API to reproduce its exact `AggregateException` semantics, so a synchronous wait or a blocking
 `Task<T>.Result` read on incomplete controlled work never deadlocks the scheduler.
@@ -449,6 +451,27 @@ ready at a nondeterministic scheduling step. Instead:
   continuation either way. An explicit `TaskScheduler.Default` or `SimulationTaskScheduler` is accepted on the same
   terms, so `TaskScheduler.Current` inside the continuation is `TaskScheduler.Default`; any other explicit scheduler
   throws `SimulationApiException`.
+- **`Task.WhenEach`.** The BCL registers a completion action on each task when `WhenEach` is called, and yields
+  the tasks in the order those actions run through an async iterator which resumes on the thread pool. The
+  controlled sequence has the coordinator observe the tasks complete from the call on (tasks complete at the call
+  in argument order) until each has completed or the enumeration which claimed them has ended, and records the
+  order it observes. `MoveNextAsync` returns a value task which a controlled operation completes once a task is
+  available, and which a controlled await observes through the coordinator. Argument validation, the single
+  enumeration (the first enumerator to start yields every task; any other yields none), cancellation through the
+  enumerator's token (`OperationCanceledException` when a task is available, `TaskCanceledException` while waiting
+  for one), `Current`, and disposal are the BCL's. The enumerator acquires each yielded task's race-detection edge.
+- **`TaskFactory.ContinueWhenAll`/`ContinueWhenAny`.** As for `ContinueWith`, the returned task is a genuine BCL
+  continuation of a private gate, which the coordinator completes once it observes every antecedent complete, or
+  one, so its status, creation options, state (the continuation delegate, as in the BCL), and cancellation are the
+  BCL's. Argument validation follows the BCL's order and messages, and a token already canceled without
+  `LazyCancellation` yields a task canceled at creation, with no state, as in the BCL. `ContinueWhenAll` passes the
+  continuation a defensive copy of the antecedents; `ContinueWhenAny` passes the first antecedent, in argument order,
+  among those observed complete. The overloads without a scheduler use the factory's, or `TaskScheduler.Default`
+  rather than `TaskScheduler.Current`; `LongRunning`, `AttachedToParent`, and schedulers other than
+  `TaskScheduler.Default` and `SimulationTaskScheduler` throw `SimulationApiException`, as for `ContinueWith`.
+- **`TaskFactory.FromAsync`.** Every overload of both factories is rejected at the call site with
+  `SimulationApiException`: the task completes when an `IAsyncResult` completes, on a thread of its
+  implementation's choosing, outside Clockwork's control. Await a task-returning API instead.
 - **`ValueTask.AsTask`/`Preserve`.** A value task backed by a pending `IValueTaskSource` is polled through the
   source's `GetStatus` by the coordinator, with no completion callback registered on the source, and a controlled
   operation consumes the completed source once through the BCL's own conversion (one `GetStatus`, one `GetResult`).
@@ -474,9 +497,6 @@ Blocking `ValueTask<T>.Result` reads remain unsupported: the accessor is not rew
 Other APIs absent from the generated rule inventory are outside the support claim. The task surfaces which can
 still run a continuation outside the coordinator are:
 
-- **`Task.WhenEach`** and **`TaskFactory.ContinueWhenAll`/`ContinueWhenAny`/`FromAsync`** are not rewritten: they
-  register BCL continuations on their antecedents and schedule their work on the task scheduler. Use
-  `Task.WhenAny`/`Task.WhenAll` and `await` instead.
 - **Continuations registered by uninstrumented code** (an assembly excluded from rewriting, or the framework itself)
   on a task or value-task source follow the BCL's dispatch. A `RunContinuationsAsynchronously` completion source
   completed in rewritten code still runs them on the thread pool; Clockwork's own continuations of the same task
@@ -488,11 +508,12 @@ still run a continuation outside the coordinator are:
   accesses through it.
 
 **Remaining deviations from the BCL.** The coordinator observes completions between scheduling steps, so
-`WhenAny` and the non-generic `WhenAll` order antecedents completed within one step by argument position rather
-than by their exact completion order; a combinator, continuation, or value-task conversion whose antecedent is
-still pending completes one controlled operation after the antecedent rather than inside the completing call; and
-a combinator or continuation whose antecedent never completes remains pending simulation work, as an await of
-that antecedent does. `ControlledTimer.DisposeAsync` completes its task without
+`WhenAny`, the non-generic `WhenAll`, `WhenEach`, and `ContinueWhenAny` order antecedents completed within one step
+by argument position rather than by their exact completion order; a combinator, continuation, value-task conversion,
+or `WhenEach` enumerator whose antecedent is still pending completes one controlled operation after the antecedent
+rather than inside the completing call; and a combinator or continuation whose antecedent never completes remains
+pending simulation work, as an await of that antecedent does (for `WhenEach`, until its enumeration ends, or until
+every task has completed if nothing enumerates it). `ControlledTimer.DisposeAsync` completes its task without
 `RunContinuationsAsynchronously`, so its `CreationOptions` report `None`.
 
 #### Threads, thread pool, Parallel, and task parity

@@ -12,7 +12,8 @@ namespace Clockwork.Conformance.Tests;
 /// <see cref="TaskCreationOptions.RunContinuationsAsynchronously"/>, a controlled timer's <c>DisposeAsync</c>, a
 /// channel's completion and pending reads, and a <see cref="System.Threading.Tasks.Sources.ManualResetValueTaskSourceCore{TResult}"/>
 /// with <c>RunContinuationsAsynchronously</c>) posts the continuations the BCL registered on it to the real thread pool.
-/// Each probe consumes one producer through a combinator, a <c>ContinueWith</c>, or a <c>ValueTask</c> conversion while
+/// Each probe consumes one producer through a combinator (including <c>Task.WhenEach</c>), a <c>ContinueWith</c>, a
+/// <c>TaskFactory.ContinueWhenAll</c>/<c>ContinueWhenAny</c>, or a <c>ValueTask</c> conversion while
 /// workers interleave; recording the same seed repeatedly must produce the same schedule, trace, and replay artifact,
 /// and every consumer must resume as a controlled operation. The probes are staged in both Release and Debug codegen.
 /// </summary>
@@ -57,6 +58,9 @@ public sealed class EscapedCompletionConformanceTests : IDisposable
                 "channelread" => ChannelReadRound(round, trace, observe),
                 "valuetasksource" => ValueTaskSourceRound(round, trace, observe),
                 "preserve" => PreserveRound(round, trace, observe),
+                "wheneach" => WhenEachRound(round, trace, observe),
+                "continuewhenall" => ContinueWhenAllRound(round, trace, observe),
+                "continuewhenany" => ContinueWhenAnyRound(round, trace, observe),
                 _ => throw new ArgumentOutOfRangeException(nameof(producer)),
             };
 
@@ -185,6 +189,58 @@ public sealed class EscapedCompletionConformanceTests : IDisposable
                 observe("preserve");
                 trace.Add(round + ":preserved " + first + "," + second);
                 await completion;
+            }
+
+            private static async Task WhenEachRound(int round, List<string> trace, Action<string> observe)
+            {
+                var first = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var second = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+                IAsyncEnumerable<Task<int>> each = Task.WhenEach(first.Task, second.Task);
+                Task completions = Task.WhenAll(Complete(round, first, 1, trace), Complete(round, second, 2, trace));
+                await foreach (Task<int> completed in each)
+                {
+                    observe("wheneach");
+                    trace.Add(round + ":each " + completed.Result);
+                }
+
+                await completions;
+            }
+
+            private static async Task ContinueWhenAllRound(int round, List<string> trace, Action<string> observe)
+            {
+                var first = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var second = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+                Task continued = Task.Factory.ContinueWhenAll(
+                    new[] { first.Task, second.Task },
+                    all =>
+                    {
+                        observe("continuewhenall");
+                        trace.Add(round + ":continuewhenall " + all[0].Result + "," + all[1].Result);
+                    },
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
+                Task completions = Task.WhenAll(Complete(round, first, 1, trace), Complete(round, second, 2, trace));
+                await continued;
+                await completions;
+            }
+
+            private static async Task ContinueWhenAnyRound(int round, List<string> trace, Action<string> observe)
+            {
+                var first = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var second = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+                Task<int> continued = Task<int>.Factory.ContinueWhenAny(
+                    new Task[] { first.Task, second.Task },
+                    winner =>
+                    {
+                        observe("continuewhenany");
+                        int value = ((Task<int>)winner).Result;
+                        trace.Add(round + ":continuewhenany " + value);
+                        return value;
+                    });
+                Task completions = Task.WhenAll(Complete(round, first, 1, trace), Complete(round, second, 2, trace));
+                await continued;
+                await completions;
             }
 
             private static async Task Complete<T>(int round, TaskCompletionSource<T> source, T value, List<string> trace)
@@ -336,6 +392,9 @@ public sealed class EscapedCompletionConformanceTests : IDisposable
         "channelread",
         "valuetasksource",
         "preserve",
+        "wheneach",
+        "continuewhenall",
+        "continuewhenany",
     ];
 
     private readonly RewriteFixture _fixture = new();
@@ -434,7 +493,7 @@ public sealed class EscapedCompletionConformanceTests : IDisposable
             new Action<string>(point => observed.Enqueue((point, host.Scheduler.CurrentOperation is not null))))!;
 
         Assert.Equal(TaskStatus.RanToCompletion, task.Status);
-        Assert.Equal(Rounds * (producer == "continuewith" ? 2 : 1), observed.Count);
+        Assert.Equal(Rounds * (producer is "continuewith" or "wheneach" ? 2 : 1), observed.Count);
         Assert.All(observed, entry => Assert.True(entry.Controlled, $"'{entry.Point}' ran outside a controlled operation."));
         string expected = producer switch
         {
@@ -446,6 +505,9 @@ public sealed class EscapedCompletionConformanceTests : IDisposable
             "channelcompletion" => "completed True",
             "channelread" => "read 5",
             "valuetasksource" => "converted 6",
+            "wheneach" => "each 2",
+            "continuewhenall" => "continuewhenall 1,2",
+            "continuewhenany" => "continuewhenany 1",
             _ => "preserved 7,7",
         };
         for (int round = 0; round < Rounds; round++)

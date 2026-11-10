@@ -558,6 +558,9 @@ public static partial class ControlledTask
         }
 
         /// <summary>Gets the antecedents observed complete, in the order observed.</summary>
+        public IReadOnlyList<TTask> Observed => _observed;
+
+        /// <summary>Gets the antecedents observed complete, in the order observed, as an array.</summary>
         public TTask[] Completed => [.. _observed];
 
         /// <summary>Records the antecedents which have completed since the last observation.</summary>

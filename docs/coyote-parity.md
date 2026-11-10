@@ -107,6 +107,7 @@ async machinery, `Yield`, and `Run`.
 | --- | --- | --- |
 | `Task.Run` (8 overloads: `Action`/`Func<TResult>`/`Func<Task>`/`Func<Task<TResult>>`, ± `CancellationToken`) | ✅ Controlled | `clockwork.tasks.run.*` (TaskScheduling family) |
 | `Task.WhenAll` / `Task.WhenAny` (array, span, pair, enumerable; non-generic + generic) | ✅ Controlled | `clockwork.tasks.whenall.*` / `whenany.*` (TaskCombinators); completed through the coordinator, registering nothing on the antecedents |
+| `Task.WhenEach` (array, span, enumerable; non-generic + generic) | ✅ Controlled (beyond Coyote) | `clockwork.tasks.wheneach.*` (TaskCombinators); the coordinator observes the tasks complete and completes `MoveNextAsync` on a controlled operation |
 | `Task.Wait()` / `WaitAll(Task[])` / `WaitAny(Task[])` | ✅ Controlled | `clockwork.tasks.wait.*` (TaskSynchronization) |
 | `Task<T>.Result` (blocking get) | ✅ Controlled | `clockwork.tasks.result.generic` |
 | `Task.ContinueWith` (all 20 overloads: `Action`/`Func`, ± state, ± `CancellationToken`/`TaskContinuationOptions`/`TaskScheduler`) | ✅ Controlled | `clockwork.tasks.continuewith.{action,action.state,func,func.state}*` (TaskContinuations); `LongRunning`, `AttachedToParent`, and custom schedulers rejected |
@@ -144,6 +145,8 @@ classifies and rewrites the same 24 .NET 10 `StartNew` signatures.
 | `TaskFactory<TResult>.StartNew(Func<object,TResult>, object)` (+ token / options / full scheduler) | ✅ Controlled | `clockwork.tasks.factory.generic.startnew.func.state*` |
 | Full-scheduler form with `TaskScheduler.Default` and `TaskCreationOptions.None` | ✅ Controlled | state, cancellation, result, and `Task.AsyncState` are preserved |
 | Full-scheduler form with a custom scheduler; any non-`None` creation options | ⛔ Rejected (tested) | unsupported observable semantics are never silently ignored or allowed to escape the logical strand |
+| `ContinueWhenAll` / `ContinueWhenAny` (all 48 overloads of both factories: `Action`/`Func`, `Task[]`/`Task<TAntecedentResult>[]`, ± token / options / full scheduler) | ✅ Controlled (beyond Coyote) | `clockwork.tasks.factory[.generic].continuewhenall.*` / `continuewhenany.*` (TaskFactoryContinuations); a genuine BCL continuation of a gate the coordinator completes; `LongRunning`, `AttachedToParent`, and custom schedulers rejected |
+| `FromAsync` (every overload of both factories) | ⛔ Rejected (tested) | `clockwork.tasks.factory[.generic].fromasync` (TaskFactoryFromAsync); an `IAsyncResult` completes outside Clockwork's control |
 | `get_ContinuationOptions` / `get_CancellationToken` / `get_CreationOptions` / `get_Scheduler` | n/a | pure read-only property getters — no scheduling, no interception needed |
 
 ---
@@ -537,7 +540,8 @@ are rejected precisely.
 - **Coyote `Task` static / async machinery:** all six `Task.Delay` overloads and all ten
   `Task.WaitAsync`/`Task<T>.WaitAsync` overloads use controlled virtual deadlines.
 - **Coyote `TaskFactory`:** all 24 .NET 10 `StartNew` signatures classified and rewritten; default
-  scheduler forms controlled, unsupported scheduler/option combinations rejected.
+  scheduler forms controlled, unsupported scheduler/option combinations rejected. Beyond Coyote, all 48
+  `ContinueWhenAll`/`ContinueWhenAny` overloads are controlled and every `FromAsync` overload is rejected.
 - **Coyote `TaskCompletionSource` / `TaskExtensions` / `ValueTask`:** the real completion sources are kept and their
   completion members redirected to publish race-detection edges; `Unwrap`, `AsTask`, and `Preserve` are controlled,
   and no controlled surface registers a BCL continuation on a task.

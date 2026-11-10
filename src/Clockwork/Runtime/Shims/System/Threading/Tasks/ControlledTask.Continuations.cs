@@ -445,6 +445,45 @@ public static partial class ControlledTask
         ValidateContinuationOptions(continuationOptions);
         RejectUnpreservableContinuation(continuationOptions, scheduler, apiName);
 
+        return ContinueGate(
+            () => antecedent.IsCompleted,
+            () =>
+            {
+                RaceSynchronization.Wait(antecedent);
+                return antecedent.Status;
+            },
+            cancellationToken,
+            continuationOptions,
+            apiName,
+            continueGate);
+    }
+
+    /// <summary>
+    /// Creates a genuine BCL continuation of a private gate, and completes the gate on a controlled operation, in the
+    /// caller's execution context and on a fresh logical strand, once the coordinator observes the antecedents ready.
+    /// The BCL registers nothing on the antecedents.
+    /// </summary>
+    /// <param name="isReady">
+    /// Whether the antecedents are ready: a readiness predicate (see <see cref="SimulationTaskRuntime.ScheduleWhenReady"/>)
+    /// which, once it has held, holds again when the controlled operation evaluates it.
+    /// </param>
+    /// <param name="observe">
+    /// Runs on the controlled operation once the antecedents are ready: acquires their race-detection edges and returns
+    /// the status the gate takes.
+    /// </param>
+    /// <param name="cancellationToken">The continuation's cancellation token.</param>
+    /// <param name="continuationOptions">The continuation's validated options.</param>
+    /// <param name="apiName">The controlled API, for diagnostics.</param>
+    /// <param name="continueGate">Creates the continuation of the gate task, with the given token and options.</param>
+    internal static TContinuation ContinueGate<TContinuation>(
+        Func<bool> isReady,
+        Func<TaskStatus> observe,
+        CancellationToken cancellationToken,
+        TaskContinuationOptions continuationOptions,
+        string apiName,
+        Func<Task, CancellationToken, TaskContinuationOptions, TContinuation> continueGate)
+        where TContinuation : Task
+    {
         ExecutionContext? context = ExecutionContext.Capture();
         var gate = new TaskCompletionSource();
 
@@ -464,20 +503,19 @@ public static partial class ControlledTask
         }
 
         SimulationTaskRuntime.ScheduleWhenReady(
-            () => antecedent.IsCompleted || continuationTask.IsCompleted,
+            () => isReady() || continuationTask.IsCompleted,
             () => SimulationTaskRuntime.RunWithCapturedExecutionContextAsNewStrand(
                 context,
                 () =>
                 {
-                    // A continuation canceled through its token before the antecedent completes is removed from the
-                    // gate by the BCL, so nothing waits for the antecedent any longer.
-                    if (!antecedent.IsCompleted)
+                    // A continuation canceled through its token before its antecedents are ready is removed from the
+                    // gate by the BCL, so nothing waits for them any longer.
+                    if (!isReady())
                     {
                         return;
                     }
 
-                    RaceSynchronization.Wait(antecedent);
-                    CompleteGate(gate, antecedent.Status, continuationTask, apiName);
+                    CompleteGate(gate, observe(), continuationTask, apiName);
                 }),
             apiName);
         return continuationTask;
@@ -562,7 +600,7 @@ public static partial class ControlledTask
         }
     }
 
-    private static void RejectUnpreservableContinuation(
+    internal static void RejectUnpreservableContinuation(
         TaskContinuationOptions continuationOptions,
         TaskScheduler scheduler,
         string apiName)

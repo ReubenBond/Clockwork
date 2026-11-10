@@ -18,7 +18,7 @@ namespace Clockwork.Shims.System.Threading.Tasks;
 /// No shim registers a continuation on a task through the BCL. A BCL continuation inherits the antecedent's dispatch,
 /// so an antecedent completed with <see cref="TaskCreationOptions.RunContinuationsAsynchronously"/> (or a continuation
 /// the BCL queues) would run it on the real thread pool, outside the coordinator. Combinators
-/// (<see cref="WhenAll(Task[])"/>, <see cref="WhenAny(Task[])"/>, <see cref="Unwrap(Task{Task})"/>) and
+/// (<see cref="WhenAll(Task[])"/>, <see cref="WhenAny(Task[])"/>, <see cref="WhenEach(Task[])"/>, <see cref="Unwrap(Task{Task})"/>) and
 /// <see cref="ContinueWith(Task, Action{Task})"/> instead observe their antecedents' completion through readiness
 /// waits on the coordinator, as the controlled awaiters do, and complete their results on controlled operations.
 /// Synchronous waits (<see cref="Wait"/>, <see cref="Result{TResult}"/>, <see cref="WaitAll"/>,

@@ -198,6 +198,83 @@ public sealed class RuleInventoryDocumentTests
     }
 
     [Fact]
+    public void WhenEachRulesClassifyEveryNet10Overload()
+    {
+        string[] framework =
+        [
+            .. typeof(Task).GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)
+                .Where(method => method.Name == "WhenEach")
+                .Select(method => (method.IsGenericMethod ? "generic " : string.Empty) + method.GetParameters()[0].ParameterType.Name)
+                .Order(StringComparer.Ordinal),
+        ];
+        RewriteRule[] classified =
+        [
+            .. BuiltInRuleSets.ControlledTasksInventory
+                .Where(entry => entry.Family == BuiltInRuleFamily.TaskCombinators && entry.Rule.Target.MemberName == "WhenEach")
+                .Select(entry => entry.Rule),
+        ];
+
+        Assert.Equal(6, framework.Length);
+        Assert.Equal(framework.Length, classified.Length);
+        Assert.Equal(classified.Length, classified.Select(rule => rule.Target.ToCanonicalString()).Distinct().Count());
+        Assert.All(classified, rule => Assert.Equal(Clockwork.Runtime.Policy.SimulationApiPolicy.Controlled, rule.Policy));
+    }
+
+    [Fact]
+    public void MultiTaskContinuationRulesClassifyEveryNet10Overload()
+    {
+        const BindingFlags Declared = BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly;
+        string[] Shapes(Type factory) =>
+        [
+            .. factory.GetMethods(Declared)
+                .Where(method => method.Name is "ContinueWhenAll" or "ContinueWhenAny")
+                .Select(method => factory.Name + "::" + method.Name + "`" + (method.IsGenericMethod ? method.GetGenericArguments().Length : 0) +
+                    "(" + string.Join(",", method.GetParameters().Select(parameter => parameter.ParameterType.Name)) + ")"),
+        ];
+        string[] framework = [.. Shapes(typeof(TaskFactory)), .. Shapes(typeof(TaskFactory<>))];
+        RewriteRule[] classified =
+        [
+            .. BuiltInRuleSets.ControlledTasksInventory
+                .Where(entry => entry.Family == BuiltInRuleFamily.TaskFactoryContinuations)
+                .Select(entry => entry.Rule),
+        ];
+
+        Assert.Equal(48, framework.Length);
+        Assert.Equal(framework.Length, framework.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(framework.Length, classified.Length);
+        Assert.Equal(classified.Length, classified.Select(rule => rule.Target.ToCanonicalString()).Distinct().Count());
+        Assert.All(classified, rule =>
+        {
+            Assert.True(rule.Target.MemberName is "ContinueWhenAll" or "ContinueWhenAny", rule.Id);
+            Assert.Equal(Clockwork.Runtime.Policy.SimulationApiPolicy.Controlled, rule.Policy);
+        });
+    }
+
+    [Fact]
+    public void FromAsyncRulesRejectEveryOverloadOfBothFactories()
+    {
+        RewriteRule[] classified =
+        [
+            .. BuiltInRuleSets.ControlledTasksInventory
+                .Where(entry => entry.Family == BuiltInRuleFamily.TaskFactoryFromAsync)
+                .Select(entry => entry.Rule),
+        ];
+
+        Assert.Equal(
+            ["System.Threading.Tasks.TaskFactory", "System.Threading.Tasks.TaskFactory`1"],
+            classified.Select(rule => rule.Target.DeclaringTypeFullName).Order(StringComparer.Ordinal));
+        Assert.All(classified, rule =>
+        {
+            Assert.Equal("FromAsync", rule.Target.MemberName);
+            Assert.False(rule.Target.HasParameterConstraint);
+            Assert.Equal(RewriteOperationKind.InjectRejection, rule.Operation);
+            Assert.Equal(Clockwork.Runtime.Policy.SimulationApiPolicy.Rejected, rule.Policy);
+        });
+        Assert.Contains(typeof(TaskFactory).GetMethods(), method => method.Name == "FromAsync");
+        Assert.Contains(typeof(TaskFactory<>).GetMethods(), method => method.Name == "FromAsync");
+    }
+
+    [Fact]
     public void DocumentedHolesDoNotNameFullyClassifiedFamilies()
     {
         string rendered = RuleInventoryDocument.Render();
@@ -205,6 +282,9 @@ public sealed class RuleInventoryDocumentTests
 
         Assert.DoesNotMatch(new Regex(@"\bTask\.Delay\b", RegexOptions.CultureInvariant), holes);
         Assert.DoesNotMatch(new Regex(@"\bTaskFactory\b", RegexOptions.CultureInvariant), holes);
+        Assert.DoesNotMatch(new Regex(@"\bWhenEach\b", RegexOptions.CultureInvariant), holes);
+        Assert.DoesNotMatch(new Regex(@"\bContinueWhen(All|Any)\b", RegexOptions.CultureInvariant), holes);
+        Assert.DoesNotMatch(new Regex(@"\bFromAsync\b", RegexOptions.CultureInvariant), holes);
         Assert.DoesNotMatch(new Regex(@"\bMonitor\b", RegexOptions.CultureInvariant), holes);
         Assert.DoesNotMatch(new Regex(@"(?<!ReaderWriter)\bLock\b", RegexOptions.CultureInvariant), holes);
         Assert.DoesNotMatch(new Regex(@"\bSemaphoreSlim\b", RegexOptions.CultureInvariant), holes);

@@ -73,7 +73,7 @@ public static class RuleInventoryDocument
         Line("- Any `RandomNumberGenerator` overloads beyond those listed above.");
         Line("- `DateTime`/`DateTimeOffset` parsing/formatting and any culture-, timezone-, or kind-conversion helpers other than the `Now`/`UtcNow`/`Today` clocks above.");
         Line("- Blocking `ValueTask<T>.Result` reads: the accessor is not rewritten, so it would block the logical thread on an incomplete value task. `await`, or `GetAwaiter().GetResult()` through the controlled awaiter (which pumps until the value task completes), is the supported controlled path.");
-        Line("- `Task.WhenEach` and `Task.Factory.ContinueWhenAll`/`ContinueWhenAny`/`FromAsync`: they register BCL continuations on their antecedents and run their work on a task scheduler, outside the coordinator. Use `Task.WhenAny`/`Task.WhenAll` and `await`. Continuations registered by uninstrumented code likewise follow the BCL's dispatch.");
+        Line("- Continuations registered by uninstrumented code (an assembly excluded from rewriting, or the framework itself) follow the BCL's dispatch, so a source which runs its continuations asynchronously runs them on the thread pool.");
         Line("- Named/cross-process synchronization (named `EventWaitHandle`/`Mutex`/`Semaphore` and their `OpenExisting`/`TryOpenExisting` APIs): a single-process simulation cannot model kernel-object sharing, so these are rejected.");
         Line("- Custom `TimeProvider` implementations are rejected by timer-consuming controlled APIs unless Clockwork explicitly recognizes them. `System.Timers.Timer` rejects non-null `SynchronizingObject` and designer `Site` integration because those paths can marshal callbacks to uncontrolled UI or native threads. `Timer.Dispose(WaitHandle)` accepts controlled event handles only.");
         Line();
@@ -155,7 +155,10 @@ public static class RuleInventoryDocument
             "a controlled operation completes the result, with the BCL's argument validation, result, fault " +
             "aggregation, and cancellation. `WhenAny` returns the first antecedent, in argument order, among those " +
             "observed complete; the non-generic `WhenAll` aggregates faults in the order its antecedents are " +
-            "observed complete, with antecedents observed in the same scheduling step in argument order.",
+            "observed complete, with antecedents observed in the same scheduling step in argument order. " +
+            "`Task.WhenEach` (array, span, and enumerable, generic and non-generic) yields the tasks in the order the " +
+            "coordinator observes them complete, from the call on, through an enumerator whose `MoveNextAsync` a " +
+            "controlled operation completes, with the BCL's validation, single enumeration, and cancellation.",
         BuiltInRuleFamily.TaskSynchronization =>
             "Blocking `Task.Wait()`, `Task.WaitAll`, and `Task.WaitAny` redirect to controlled waits that pump " +
             "the deterministic loop rather than blocking a physical thread; a never-satisfiable wait surfaces " +
@@ -220,6 +223,19 @@ public static class RuleInventoryDocument
             "redirects to a controlled equivalent that schedules the delegate as a fresh logical strand while " +
             "preserving state, cancellation, and results. Non-default schedulers and creation options whose " +
             "semantics cannot be preserved are rejected precisely.",
+        BuiltInRuleFamily.TaskFactoryContinuations =>
+            "All 48 .NET 10 `TaskFactory` and `TaskFactory<T>` `ContinueWhenAll` and `ContinueWhenAny` overloads " +
+            "redirect. The result is a genuine BCL continuation task of a private gate, with the BCL's argument " +
+            "validation, creation options, state (the continuation delegate), and cancellation, including a task canceled " +
+            "at creation for a canceled token. The coordinator observes the antecedents complete and a controlled operation " +
+            "completes the gate, running the continuation inline on the logical thread with a defensive copy of the " +
+            "antecedents, or with the first antecedent, in argument order, among those observed complete. The overloads " +
+            "without a scheduler use the factory's or `TaskScheduler.Default`; `LongRunning`, `AttachedToParent`, and " +
+            "schedulers other than `TaskScheduler.Default` and the simulation's own are rejected, as for `ContinueWith`.",
+        BuiltInRuleFamily.TaskFactoryFromAsync =>
+            "Every `TaskFactory.FromAsync` and `TaskFactory<T>.FromAsync` overload is rejected at the call site: the task " +
+            "completes when an `IAsyncResult` does, on a thread of its implementation's choosing, outside Clockwork's " +
+            "control. Await a task-returning API instead.",
         BuiltInRuleFamily.Thread =>
             "`Thread` construction (`ThreadStart`/`ParameterizedThreadStart`, with and without a stack size), " +
             "`Start`, `Join` (all overloads), `Sleep`, `Yield`, and `SpinWait` redirect to a controlled thread " +

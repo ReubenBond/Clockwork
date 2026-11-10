@@ -24,7 +24,8 @@ public sealed class TaskCompletionRaceEdgeTests
     private static readonly string[] Producers = ["SetResult", "TrySetResult", "SetException", "TrySetCanceled", "SetFromTask"];
 
     private static readonly string[] Consumers =
-        ["await", "wait", "result", "whenall", "whenany", "unwrap", "continuewith", "continuewith-await", "astask"];
+        ["await", "wait", "result", "whenall", "whenany", "unwrap", "continuewith", "continuewith-await", "astask", "wheneach",
+            "continuewhenall", "continuewhenany"];
 
     public static TheoryData<string, string, bool> Pairs
     {
@@ -251,6 +252,18 @@ public sealed class TaskCompletionRaceEdgeTests
                 Task continuation = ControlledTask.ContinueWith(task, _ => { });
                 new ControlledTaskAwaiter(continuation).GetResult();
                 Read();
+                break;
+            case "wheneach":
+                IAsyncEnumerator<Task<int>> each = ControlledTask.WhenEach(task).GetAsyncEnumerator();
+                Assert.True(new ControlledValueTaskAwaiter<bool>(each.MoveNextAsync()).GetResult());
+                Assert.Same(task, each.Current);
+                Read();
+                break;
+            case "continuewhenall":
+                _ = ControlledTaskFactory.ContinueWhenAll(Task.Factory, new Task[] { task }, _ => Read());
+                break;
+            case "continuewhenany":
+                _ = ControlledTaskFactory.ContinueWhenAny(Task.Factory, new Task[] { task, new TaskCompletionSource().Task }, _ => Read());
                 break;
             default:
                 Task<int> converted = ControlledValueTask.AsTask(new ValueTask<int>(task));
