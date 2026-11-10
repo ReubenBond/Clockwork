@@ -169,8 +169,9 @@ public static class RuleInventoryDocument
             "BCL continuation task of a private gate, so its status, options, state, cancellation (including " +
             "`LazyCancellation`), `NotOn*`/`OnlyOn*` filtering, and exceptions are the BCL's. The coordinator observes " +
             "the antecedent complete and a controlled operation completes the gate, running the continuation inline on " +
-            "the logical thread (`ExecuteSynchronously` is a hint). `LongRunning`, `AttachedToParent`, and any " +
-            "scheduler other than `TaskScheduler.Default` cannot be preserved and are rejected.",
+            "the logical thread (`ExecuteSynchronously` is a hint). The overloads without a scheduler use " +
+            "`TaskScheduler.Default`; an explicit `TaskScheduler.Default` or the simulation's own `SimulationTaskScheduler` " +
+            "is accepted. `LongRunning`, `AttachedToParent`, and any other scheduler cannot be preserved and are rejected.",
         BuiltInRuleFamily.TaskCompletionSource =>
             "Rewritten code keeps the real `TaskCompletionSource` and `TaskCompletionSource<TResult>`, with their real " +
             "creation options. The completion members (`SetResult`, `SetException`, `SetCanceled`, `SetFromTask`, and " +

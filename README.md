@@ -559,7 +559,8 @@ operations, with the BCL's argument validation, results, fault aggregation, canc
 A result whose antecedents have already completed is computed by the BCL synchronously. Rewritten code keeps the real
 `TaskCompletionSource` and `TaskCompletionSource<T>`, with their real creation options; only their completion members
 redirect, to publish the race-detection edge an await acquires. `ContinueWith` rejects `LongRunning`,
-`AttachedToParent`, and any scheduler other than `TaskScheduler.Default`, which it cannot preserve.
+`AttachedToParent`, and any explicit scheduler other than `TaskScheduler.Default` or the simulation's own
+`SimulationTaskScheduler`, which it cannot preserve; the overloads without a scheduler use `TaskScheduler.Default`.
 
 **Simulation-only contract.** As with the BCL rule set, instrumented Controlled entry points require
 an active Clockwork simulation. Continuations and waits route through the coordinator carried by the

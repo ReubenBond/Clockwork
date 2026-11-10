@@ -23,10 +23,17 @@ namespace Clockwork.Shims.System.Threading.Tasks;
 /// <see cref="TaskContinuationOptions.ExecuteSynchronously"/> is a hint in the BCL and is always applied to the gate, so
 /// the continuation runs on the logical thread rather than being queued to the thread pool; the continuation therefore
 /// never runs inside the call that completes the antecedent, and never inside <c>ContinueWith</c> itself.
+/// </para>
+/// <para>
+/// The overloads without a scheduler use <see cref="TaskScheduler.Default"/> rather than <see cref="TaskScheduler.Current"/>,
+/// as the controlled <c>TaskFactory.StartNew</c> treats a factory without a scheduler: inside a simulation
+/// <see cref="TaskScheduler.Current"/> is <see cref="TaskScheduler.Default"/> or the simulation's own
+/// <see cref="SimulationTaskScheduler"/> (in the root task of <see cref="SimulationCluster.RunToCompletion(Func{Task}, CancellationToken, int)"/>
+/// before its first await, for example), and the continuation runs on the coordinator either way. An explicit
+/// <see cref="TaskScheduler.Default"/> or <see cref="SimulationTaskScheduler"/> is accepted on the same terms.
 /// <see cref="TaskContinuationOptions.LongRunning"/> (which requests a dedicated thread),
-/// <see cref="TaskContinuationOptions.AttachedToParent"/> (Clockwork's controlled tasks have no parent), and any
-/// scheduler other than <see cref="TaskScheduler.Default"/> (explicit, or <see cref="TaskScheduler.Current"/> for the
-/// overloads without a scheduler) cannot be preserved and throw <see cref="SimulationApiException"/>.
+/// <see cref="TaskContinuationOptions.AttachedToParent"/> (Clockwork's controlled tasks have no parent), and any other
+/// explicit scheduler cannot be preserved and throw <see cref="SimulationApiException"/>.
 /// </para>
 /// </summary>
 public static partial class ControlledTask
@@ -36,11 +43,11 @@ public static partial class ControlledTask
 
     /// <summary>Controlled <c>Task.ContinueWith(Action&lt;Task&gt;)</c>.</summary>
     public static Task ContinueWith(Task antecedent, Action<Task> continuationAction) =>
-        ContinueWith(antecedent, continuationAction, default, TaskContinuationOptions.None, TaskScheduler.Current);
+        ContinueWith(antecedent, continuationAction, default, TaskContinuationOptions.None, TaskScheduler.Default);
 
     /// <summary>Controlled <c>Task.ContinueWith(Action&lt;Task&gt;, CancellationToken)</c>.</summary>
     public static Task ContinueWith(Task antecedent, Action<Task> continuationAction, CancellationToken cancellationToken) =>
-        ContinueWith(antecedent, continuationAction, cancellationToken, TaskContinuationOptions.None, TaskScheduler.Current);
+        ContinueWith(antecedent, continuationAction, cancellationToken, TaskContinuationOptions.None, TaskScheduler.Default);
 
     /// <summary>Controlled <c>Task.ContinueWith(Action&lt;Task&gt;, TaskScheduler)</c>.</summary>
     public static Task ContinueWith(Task antecedent, Action<Task> continuationAction, TaskScheduler scheduler) =>
@@ -48,7 +55,7 @@ public static partial class ControlledTask
 
     /// <summary>Controlled <c>Task.ContinueWith(Action&lt;Task&gt;, TaskContinuationOptions)</c>.</summary>
     public static Task ContinueWith(Task antecedent, Action<Task> continuationAction, TaskContinuationOptions continuationOptions) =>
-        ContinueWith(antecedent, continuationAction, default, continuationOptions, TaskScheduler.Current);
+        ContinueWith(antecedent, continuationAction, default, continuationOptions, TaskScheduler.Default);
 
     /// <summary>Controlled <c>Task.ContinueWith(Action&lt;Task&gt;, CancellationToken, TaskContinuationOptions, TaskScheduler)</c>.</summary>
     public static Task ContinueWith(
@@ -69,7 +76,7 @@ public static partial class ControlledTask
 
     /// <summary>Controlled <c>Task.ContinueWith(Action&lt;Task, object&gt;, object)</c>.</summary>
     public static Task ContinueWith(Task antecedent, Action<Task, object?> continuationAction, object? state) =>
-        ContinueWith(antecedent, continuationAction, state, default, TaskContinuationOptions.None, TaskScheduler.Current);
+        ContinueWith(antecedent, continuationAction, state, default, TaskContinuationOptions.None, TaskScheduler.Default);
 
     /// <summary>Controlled <c>Task.ContinueWith(Action&lt;Task, object&gt;, object, CancellationToken)</c>.</summary>
     public static Task ContinueWith(
@@ -77,7 +84,7 @@ public static partial class ControlledTask
         Action<Task, object?> continuationAction,
         object? state,
         CancellationToken cancellationToken) =>
-        ContinueWith(antecedent, continuationAction, state, cancellationToken, TaskContinuationOptions.None, TaskScheduler.Current);
+        ContinueWith(antecedent, continuationAction, state, cancellationToken, TaskContinuationOptions.None, TaskScheduler.Default);
 
     /// <summary>Controlled <c>Task.ContinueWith(Action&lt;Task, object&gt;, object, TaskScheduler)</c>.</summary>
     public static Task ContinueWith(
@@ -93,7 +100,7 @@ public static partial class ControlledTask
         Action<Task, object?> continuationAction,
         object? state,
         TaskContinuationOptions continuationOptions) =>
-        ContinueWith(antecedent, continuationAction, state, default, continuationOptions, TaskScheduler.Current);
+        ContinueWith(antecedent, continuationAction, state, default, continuationOptions, TaskScheduler.Default);
 
     /// <summary>Controlled <c>Task.ContinueWith(Action&lt;Task, object&gt;, object, CancellationToken, TaskContinuationOptions, TaskScheduler)</c>.</summary>
     public static Task ContinueWith(
@@ -120,14 +127,14 @@ public static partial class ControlledTask
 
     /// <summary>Controlled <c>Task.ContinueWith&lt;TResult&gt;(Func&lt;Task, TResult&gt;)</c>.</summary>
     public static Task<TResult> ContinueWith<TResult>(Task antecedent, Func<Task, TResult> continuationFunction) =>
-        ContinueWith(antecedent, continuationFunction, default, TaskContinuationOptions.None, TaskScheduler.Current);
+        ContinueWith(antecedent, continuationFunction, default, TaskContinuationOptions.None, TaskScheduler.Default);
 
     /// <summary>Controlled <c>Task.ContinueWith&lt;TResult&gt;(Func&lt;Task, TResult&gt;, CancellationToken)</c>.</summary>
     public static Task<TResult> ContinueWith<TResult>(
         Task antecedent,
         Func<Task, TResult> continuationFunction,
         CancellationToken cancellationToken) =>
-        ContinueWith(antecedent, continuationFunction, cancellationToken, TaskContinuationOptions.None, TaskScheduler.Current);
+        ContinueWith(antecedent, continuationFunction, cancellationToken, TaskContinuationOptions.None, TaskScheduler.Default);
 
     /// <summary>Controlled <c>Task.ContinueWith&lt;TResult&gt;(Func&lt;Task, TResult&gt;, TaskScheduler)</c>.</summary>
     public static Task<TResult> ContinueWith<TResult>(
@@ -141,7 +148,7 @@ public static partial class ControlledTask
         Task antecedent,
         Func<Task, TResult> continuationFunction,
         TaskContinuationOptions continuationOptions) =>
-        ContinueWith(antecedent, continuationFunction, default, continuationOptions, TaskScheduler.Current);
+        ContinueWith(antecedent, continuationFunction, default, continuationOptions, TaskScheduler.Default);
 
     /// <summary>Controlled <c>Task.ContinueWith&lt;TResult&gt;(Func&lt;Task, TResult&gt;, CancellationToken, TaskContinuationOptions, TaskScheduler)</c>.</summary>
     public static Task<TResult> ContinueWith<TResult>(
@@ -165,7 +172,7 @@ public static partial class ControlledTask
         Task antecedent,
         Func<Task, object?, TResult> continuationFunction,
         object? state) =>
-        ContinueWith(antecedent, continuationFunction, state, default, TaskContinuationOptions.None, TaskScheduler.Current);
+        ContinueWith(antecedent, continuationFunction, state, default, TaskContinuationOptions.None, TaskScheduler.Default);
 
     /// <summary>Controlled <c>Task.ContinueWith&lt;TResult&gt;(Func&lt;Task, object, TResult&gt;, object, CancellationToken)</c>.</summary>
     public static Task<TResult> ContinueWith<TResult>(
@@ -173,7 +180,7 @@ public static partial class ControlledTask
         Func<Task, object?, TResult> continuationFunction,
         object? state,
         CancellationToken cancellationToken) =>
-        ContinueWith(antecedent, continuationFunction, state, cancellationToken, TaskContinuationOptions.None, TaskScheduler.Current);
+        ContinueWith(antecedent, continuationFunction, state, cancellationToken, TaskContinuationOptions.None, TaskScheduler.Default);
 
     /// <summary>Controlled <c>Task.ContinueWith&lt;TResult&gt;(Func&lt;Task, object, TResult&gt;, object, TaskScheduler)</c>.</summary>
     public static Task<TResult> ContinueWith<TResult>(
@@ -189,7 +196,7 @@ public static partial class ControlledTask
         Func<Task, object?, TResult> continuationFunction,
         object? state,
         TaskContinuationOptions continuationOptions) =>
-        ContinueWith(antecedent, continuationFunction, state, default, continuationOptions, TaskScheduler.Current);
+        ContinueWith(antecedent, continuationFunction, state, default, continuationOptions, TaskScheduler.Default);
 
     /// <summary>Controlled <c>Task.ContinueWith&lt;TResult&gt;(Func&lt;Task, object, TResult&gt;, object, CancellationToken, TaskContinuationOptions, TaskScheduler)</c>.</summary>
     public static Task<TResult> ContinueWith<TResult>(
@@ -216,14 +223,14 @@ public static partial class ControlledTask
 
     /// <summary>Controlled <c>Task&lt;TResult&gt;.ContinueWith(Action&lt;Task&lt;TResult&gt;&gt;)</c>.</summary>
     public static Task ContinueWith<TResult>(Task<TResult> antecedent, Action<Task<TResult>> continuationAction) =>
-        ContinueWith(antecedent, continuationAction, default, TaskContinuationOptions.None, TaskScheduler.Current);
+        ContinueWith(antecedent, continuationAction, default, TaskContinuationOptions.None, TaskScheduler.Default);
 
     /// <summary>Controlled <c>Task&lt;TResult&gt;.ContinueWith(Action&lt;Task&lt;TResult&gt;&gt;, CancellationToken)</c>.</summary>
     public static Task ContinueWith<TResult>(
         Task<TResult> antecedent,
         Action<Task<TResult>> continuationAction,
         CancellationToken cancellationToken) =>
-        ContinueWith(antecedent, continuationAction, cancellationToken, TaskContinuationOptions.None, TaskScheduler.Current);
+        ContinueWith(antecedent, continuationAction, cancellationToken, TaskContinuationOptions.None, TaskScheduler.Default);
 
     /// <summary>Controlled <c>Task&lt;TResult&gt;.ContinueWith(Action&lt;Task&lt;TResult&gt;&gt;, TaskScheduler)</c>.</summary>
     public static Task ContinueWith<TResult>(
@@ -237,7 +244,7 @@ public static partial class ControlledTask
         Task<TResult> antecedent,
         Action<Task<TResult>> continuationAction,
         TaskContinuationOptions continuationOptions) =>
-        ContinueWith(antecedent, continuationAction, default, continuationOptions, TaskScheduler.Current);
+        ContinueWith(antecedent, continuationAction, default, continuationOptions, TaskScheduler.Default);
 
     /// <summary>Controlled <c>Task&lt;TResult&gt;.ContinueWith(Action&lt;Task&lt;TResult&gt;&gt;, CancellationToken, TaskContinuationOptions, TaskScheduler)</c>.</summary>
     public static Task ContinueWith<TResult>(
@@ -261,7 +268,7 @@ public static partial class ControlledTask
         Task<TResult> antecedent,
         Action<Task<TResult>, object?> continuationAction,
         object? state) =>
-        ContinueWith(antecedent, continuationAction, state, default, TaskContinuationOptions.None, TaskScheduler.Current);
+        ContinueWith(antecedent, continuationAction, state, default, TaskContinuationOptions.None, TaskScheduler.Default);
 
     /// <summary>Controlled <c>Task&lt;TResult&gt;.ContinueWith(Action&lt;Task&lt;TResult&gt;, object&gt;, object, CancellationToken)</c>.</summary>
     public static Task ContinueWith<TResult>(
@@ -269,7 +276,7 @@ public static partial class ControlledTask
         Action<Task<TResult>, object?> continuationAction,
         object? state,
         CancellationToken cancellationToken) =>
-        ContinueWith(antecedent, continuationAction, state, cancellationToken, TaskContinuationOptions.None, TaskScheduler.Current);
+        ContinueWith(antecedent, continuationAction, state, cancellationToken, TaskContinuationOptions.None, TaskScheduler.Default);
 
     /// <summary>Controlled <c>Task&lt;TResult&gt;.ContinueWith(Action&lt;Task&lt;TResult&gt;, object&gt;, object, TaskScheduler)</c>.</summary>
     public static Task ContinueWith<TResult>(
@@ -285,7 +292,7 @@ public static partial class ControlledTask
         Action<Task<TResult>, object?> continuationAction,
         object? state,
         TaskContinuationOptions continuationOptions) =>
-        ContinueWith(antecedent, continuationAction, state, default, continuationOptions, TaskScheduler.Current);
+        ContinueWith(antecedent, continuationAction, state, default, continuationOptions, TaskScheduler.Default);
 
     /// <summary>Controlled <c>Task&lt;TResult&gt;.ContinueWith(Action&lt;Task&lt;TResult&gt;, object&gt;, object, CancellationToken, TaskContinuationOptions, TaskScheduler)</c>.</summary>
     public static Task ContinueWith<TResult>(
@@ -314,14 +321,14 @@ public static partial class ControlledTask
     public static Task<TNewResult> ContinueWith<TResult, TNewResult>(
         Task<TResult> antecedent,
         Func<Task<TResult>, TNewResult> continuationFunction) =>
-        ContinueWith(antecedent, continuationFunction, default, TaskContinuationOptions.None, TaskScheduler.Current);
+        ContinueWith(antecedent, continuationFunction, default, TaskContinuationOptions.None, TaskScheduler.Default);
 
     /// <summary>Controlled <c>Task&lt;TResult&gt;.ContinueWith&lt;TNewResult&gt;(Func&lt;Task&lt;TResult&gt;, TNewResult&gt;, CancellationToken)</c>.</summary>
     public static Task<TNewResult> ContinueWith<TResult, TNewResult>(
         Task<TResult> antecedent,
         Func<Task<TResult>, TNewResult> continuationFunction,
         CancellationToken cancellationToken) =>
-        ContinueWith(antecedent, continuationFunction, cancellationToken, TaskContinuationOptions.None, TaskScheduler.Current);
+        ContinueWith(antecedent, continuationFunction, cancellationToken, TaskContinuationOptions.None, TaskScheduler.Default);
 
     /// <summary>Controlled <c>Task&lt;TResult&gt;.ContinueWith&lt;TNewResult&gt;(Func&lt;Task&lt;TResult&gt;, TNewResult&gt;, TaskScheduler)</c>.</summary>
     public static Task<TNewResult> ContinueWith<TResult, TNewResult>(
@@ -335,7 +342,7 @@ public static partial class ControlledTask
         Task<TResult> antecedent,
         Func<Task<TResult>, TNewResult> continuationFunction,
         TaskContinuationOptions continuationOptions) =>
-        ContinueWith(antecedent, continuationFunction, default, continuationOptions, TaskScheduler.Current);
+        ContinueWith(antecedent, continuationFunction, default, continuationOptions, TaskScheduler.Default);
 
     /// <summary>
     /// Controlled <c>Task&lt;TResult&gt;.ContinueWith&lt;TNewResult&gt;(Func&lt;Task&lt;TResult&gt;, TNewResult&gt;, CancellationToken, TaskContinuationOptions, TaskScheduler)</c>.
@@ -363,7 +370,7 @@ public static partial class ControlledTask
         Task<TResult> antecedent,
         Func<Task<TResult>, object?, TNewResult> continuationFunction,
         object? state) =>
-        ContinueWith(antecedent, continuationFunction, state, default, TaskContinuationOptions.None, TaskScheduler.Current);
+        ContinueWith(antecedent, continuationFunction, state, default, TaskContinuationOptions.None, TaskScheduler.Default);
 
     /// <summary>Controlled <c>Task&lt;TResult&gt;.ContinueWith&lt;TNewResult&gt;(Func&lt;Task&lt;TResult&gt;, object, TNewResult&gt;, object, CancellationToken)</c>.</summary>
     public static Task<TNewResult> ContinueWith<TResult, TNewResult>(
@@ -371,7 +378,7 @@ public static partial class ControlledTask
         Func<Task<TResult>, object?, TNewResult> continuationFunction,
         object? state,
         CancellationToken cancellationToken) =>
-        ContinueWith(antecedent, continuationFunction, state, cancellationToken, TaskContinuationOptions.None, TaskScheduler.Current);
+        ContinueWith(antecedent, continuationFunction, state, cancellationToken, TaskContinuationOptions.None, TaskScheduler.Default);
 
     /// <summary>Controlled <c>Task&lt;TResult&gt;.ContinueWith&lt;TNewResult&gt;(Func&lt;Task&lt;TResult&gt;, object, TNewResult&gt;, object, TaskScheduler)</c>.</summary>
     public static Task<TNewResult> ContinueWith<TResult, TNewResult>(
@@ -387,7 +394,7 @@ public static partial class ControlledTask
         Func<Task<TResult>, object?, TNewResult> continuationFunction,
         object? state,
         TaskContinuationOptions continuationOptions) =>
-        ContinueWith(antecedent, continuationFunction, state, default, continuationOptions, TaskScheduler.Current);
+        ContinueWith(antecedent, continuationFunction, state, default, continuationOptions, TaskScheduler.Default);
 
     /// <summary>Controlled <c>Task&lt;TResult&gt;.ContinueWith&lt;TNewResult&gt;(Func&lt;Task&lt;TResult&gt;, object, TNewResult&gt;, object, CancellationToken, TaskContinuationOptions, TaskScheduler)</c>.</summary>
     public static Task<TNewResult> ContinueWith<TResult, TNewResult>(
@@ -514,13 +521,16 @@ public static partial class ControlledTask
         TaskScheduler scheduler,
         string apiName)
     {
-        if (!ReferenceEquals(scheduler, TaskScheduler.Default))
+        // TaskScheduler.Default and the simulation's own scheduler both name the coordinator, which runs the
+        // continuation; any other scheduler would run it outside the simulation.
+        if (!ReferenceEquals(scheduler, TaskScheduler.Default) && scheduler is not SimulationTaskScheduler)
         {
             throw new SimulationApiException(
                 SimulationApiCategory.Task,
                 apiName,
-                "a custom TaskScheduler (including a non-default TaskScheduler.Current) is not supported inside a " +
-                "simulation because executing it would escape Clockwork's controlled logical strand. Use TaskScheduler.Default.");
+                "a custom TaskScheduler is not supported inside a simulation because executing it would escape " +
+                "Clockwork's controlled logical strand. Use TaskScheduler.Default, the simulation's SimulationTaskScheduler, " +
+                "or an overload without a scheduler.");
         }
 
         if ((continuationOptions & TaskContinuationOptions.LongRunning) != 0)

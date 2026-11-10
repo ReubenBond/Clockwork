@@ -547,6 +547,46 @@ public sealed class TaskCombinatorConformanceTests : IDisposable
                 Attempt(lines, "generic custom scheduler", () => Task.FromResult(1).ContinueWith((t, s) => 1, null, exclusive));
                 return string.Join(Environment.NewLine, lines);
             }
+
+            // Passes TaskScheduler.Current explicitly to each shape before the first await: the simulation's own task
+            // scheduler when the probe is the root task of a cluster's RunToCompletion, TaskScheduler.Default otherwise.
+            public static async Task<string> CurrentScheduler(Action<TaskScheduler> observe)
+            {
+                TaskScheduler current = TaskScheduler.Current;
+                observe(current);
+                Task done = Task.CompletedTask;
+                Task<int> five = Task.FromResult(5);
+                CancellationToken none = CancellationToken.None;
+                TaskContinuationOptions options = TaskContinuationOptions.DenyChildAttach;
+                Task[] continuations =
+                [
+                    done.ContinueWith(_ => { }, current),
+                    done.ContinueWith((_, s) => { }, "s1", current),
+                    done.ContinueWith(_ => 1, current),
+                    done.ContinueWith((_, s) => (string)s! + "!", "s2", current),
+                    done.ContinueWith(_ => { }, none, options, current),
+                    five.ContinueWith(t => { }, current),
+                    five.ContinueWith((t, s) => { }, "g1", current),
+                    five.ContinueWith(t => t.Result + 1, current),
+                    five.ContinueWith((t, s) => (string)s! + t.Result, "g2", current),
+                    five.ContinueWith(t => t.Result + 2, none, options, current),
+                ];
+
+                var lines = new List<string>();
+                foreach (Task continuation in continuations)
+                {
+                    await continuation;
+                    string result = continuation switch
+                    {
+                        Task<int> number => number.Result.ToString(),
+                        Task<string> text => text.Result,
+                        _ => "-",
+                    };
+                    lines.Add(continuation.Status + " " + continuation.CreationOptions + " state=" + (continuation.AsyncState ?? "<null>") + " result=" + result);
+                }
+
+                return string.Join(Environment.NewLine, lines);
+            }
         } }
         """;
 
@@ -639,6 +679,47 @@ public sealed class TaskCombinatorConformanceTests : IDisposable
         Assert.Contains("Task`1.ContinueWith", lines[3], StringComparison.Ordinal);
     }
 
+    // The root task of SimulationCluster.RunToCompletion runs on the cluster's SimulationTaskScheduler, so
+    // TaskScheduler.Current is that scheduler until the probe's first await: an overload without a scheduler treats
+    // it as TaskScheduler.Default, as TaskFactory.StartNew does.
+    [Theory]
+    [MemberData(nameof(Optimizations))]
+    public async Task EveryContinueWithOverloadBehavesAsTheBclUnderRunToCompletion(bool optimize)
+    {
+        string expected = await Bcl("Overloads", optimize);
+
+        string actual = SimulatedRoot("Overloads", optimize);
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Theory]
+    [MemberData(nameof(Shapes))]
+    public async Task ContinueWithOptionsBehaveAsTheBclUnderRunToCompletion(bool optimize, int shape)
+    {
+        string expected = await Bcl("ContinueWithMatrix", optimize, shape);
+
+        string actual = SimulatedRoot("ContinueWithMatrix", optimize, shape);
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Theory]
+    [MemberData(nameof(Optimizations))]
+    public async Task TheSimulationsOwnTaskSchedulerIsAcceptedExplicitly(bool optimize)
+    {
+        string expected = await Bcl("CurrentScheduler", optimize, new Action<TaskScheduler>(_ => { }));
+        var observed = new List<TaskScheduler>();
+        using var host = new SimulationHost(Start);
+
+        string actual = host.RunToCompletion<string>(
+            Method("CurrentScheduler", optimize),
+            new Action<TaskScheduler>(observed.Add));
+
+        Assert.IsType<SimulationTaskScheduler>(Assert.Single(observed));
+        Assert.Equal(expected, actual);
+    }
+
     private async Task<string> Bcl(string name, bool optimize, params object[] arguments)
     {
         MethodInfo method = (optimize ? _bclRelease : _bclDebug).Value.Method(name);
@@ -651,6 +732,12 @@ public sealed class TaskCombinatorConformanceTests : IDisposable
         var task = (Task<string>)host.Invoke(Method(name, optimize), arguments)!;
         Assert.Equal(TaskStatus.RanToCompletion, task.Status);
         return task.GetAwaiter().GetResult();
+    }
+
+    private string SimulatedRoot(string name, bool optimize, params object[] arguments)
+    {
+        using var host = new SimulationHost(Start);
+        return host.RunToCompletion<string>(Method(name, optimize), arguments);
     }
 
     private MethodInfo Method(string name, bool optimize) =>

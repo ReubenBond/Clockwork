@@ -109,7 +109,7 @@ Policy: **Controlled**. Blocking `Task.Wait()`, `Task.WaitAll`, and `Task.WaitAn
 
 ## TaskContinuations family
 
-Policy: **Controlled**. All 40 .NET 10 `Task.ContinueWith` and `Task<T>.ContinueWith` overloads (with and without state, a `CancellationToken`, `TaskContinuationOptions`, and a `TaskScheduler`) redirect. The result is a genuine BCL continuation task of a private gate, so its status, options, state, cancellation (including `LazyCancellation`), `NotOn*`/`OnlyOn*` filtering, and exceptions are the BCL's. The coordinator observes the antecedent complete and a controlled operation completes the gate, running the continuation inline on the logical thread (`ExecuteSynchronously` is a hint). `LongRunning`, `AttachedToParent`, and any scheduler other than `TaskScheduler.Default` cannot be preserved and are rejected.
+Policy: **Controlled**. All 40 .NET 10 `Task.ContinueWith` and `Task<T>.ContinueWith` overloads (with and without state, a `CancellationToken`, `TaskContinuationOptions`, and a `TaskScheduler`) redirect. The result is a genuine BCL continuation task of a private gate, so its status, options, state, cancellation (including `LazyCancellation`), `NotOn*`/`OnlyOn*` filtering, and exceptions are the BCL's. The coordinator observes the antecedent complete and a controlled operation completes the gate, running the continuation inline on the logical thread (`ExecuteSynchronously` is a hint). The overloads without a scheduler use `TaskScheduler.Default`; an explicit `TaskScheduler.Default` or the simulation's own `SimulationTaskScheduler` is accepted. `LongRunning`, `AttachedToParent`, and any other scheduler cannot be preserved and are rejected.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |

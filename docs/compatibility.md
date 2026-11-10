@@ -438,9 +438,14 @@ ready at a nondeterministic scheduling step. Instead:
   controlled operation copies its outcome to the gate, which runs the continuation inline on that operation, on a
   fresh logical strand in the execution context captured by `ContinueWith`. `ExecuteSynchronously` is a hint, as in
   the BCL: the continuation never runs inside the call which completes the antecedent or inside `ContinueWith`.
-  `LongRunning` (a dedicated thread), `AttachedToParent` (controlled tasks have no parent), and any scheduler other
-  than `TaskScheduler.Default` (explicit, or `TaskScheduler.Current` for the overloads without one) cannot be
-  preserved and throw `SimulationApiException`.
+  `LongRunning` (a dedicated thread) and `AttachedToParent` (controlled tasks have no parent) cannot be preserved
+  and throw `SimulationApiException`. The overloads without a scheduler use `TaskScheduler.Default` rather than
+  `TaskScheduler.Current`, as the controlled `TaskFactory.StartNew` treats a factory without one: inside a simulation
+  `TaskScheduler.Current` is `TaskScheduler.Default` or the simulation's own `SimulationTaskScheduler` (in the root
+  task of `SimulationCluster.RunToCompletion` before its first await, for example), and the coordinator runs the
+  continuation either way. An explicit `TaskScheduler.Default` or `SimulationTaskScheduler` is accepted on the same
+  terms, so `TaskScheduler.Current` inside the continuation is `TaskScheduler.Default`; any other explicit scheduler
+  throws `SimulationApiException`.
 - **`ValueTask.AsTask`/`Preserve`.** A value task backed by a pending `IValueTaskSource` is polled through the
   source's `GetStatus` by the coordinator, with no completion callback registered on the source, and a controlled
   operation consumes the completed source once through the BCL's own conversion (one `GetStatus`, one `GetResult`).
