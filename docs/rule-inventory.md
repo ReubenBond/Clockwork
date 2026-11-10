@@ -156,7 +156,7 @@ Policy: **Controlled**. All 40 .NET 10 `Task.ContinueWith` and `Task<T>.Continue
 
 ## TaskCompletionSource family
 
-Policy: **Controlled**. Rewritten code keeps the real `TaskCompletionSource` and `TaskCompletionSource<TResult>`, with their real creation options. The completion members (`SetResult`, `SetException`, `SetCanceled`, `SetFromTask`, and their `TrySet*` forms) redirect to shims which complete the source through the same BCL member and publish the race-detection release edge an await, wait, combinator, or continuation acquires.
+Policy: **Controlled**. Rewritten code keeps the real `TaskCompletionSource` and `TaskCompletionSource<TResult>`, with their real creation options. The completion members (`SetResult`, `SetException`, `SetCanceled`, `SetFromTask`, and their `TrySet*` forms) redirect to shims which complete the source through the same BCL member and publish the race-detection release edge an await, wait, combinator, or continuation acquires. Outside a simulation (in a finalizer, or a callback from uninstrumented code) the shims call the BCL member alone.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |

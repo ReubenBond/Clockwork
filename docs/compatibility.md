@@ -29,7 +29,8 @@ nondeterminism through Clockwork APIs.
 Clockwork verifies usage with shipped Roslyn diagnostics and redirects the exact built-in rule
 inventory through opt-in IL rewriting. Controlled async/task/thread/thread-pool/Parallel and modern
 synchronization surfaces run on logical strands. Controlled code never falls through to an inactive
-or unregistered runtime service: it fails explicitly instead. Timers, delays, asynchronous timeouts,
+or unregistered runtime service: it fails explicitly instead. (Completing a `TaskCompletionSource`
+is the one exception: it passes through to the BCL outside a simulation.) Timers, delays, asynchronous timeouts,
 and timer-driven cancellation use the shared virtual-time deadline scheduler.
 
 #### Scheduling and resource model
@@ -463,7 +464,10 @@ ready at a nondeterministic scheduling step. Instead:
 The redirect obeys the same simulation-only invariant as the BCL rule set: instrumented Controlled
 builders, awaiters, and shims require an active Clockwork simulation. Continuations and waits route
 through the coordinator carried by the complete ambient runtime and cannot silently escape to the
-thread pool.
+thread pool. The `TaskCompletionSource` completion members are the one exception: a finalizer, or a
+callback from uninstrumented code, may complete a source outside any simulation, so outside one their
+shims pass through to the BCL member, and they record the race-detection edge only inside a controlled
+operation.
 
 Blocking `ValueTask<T>.Result` reads remain unsupported: the accessor is not rewritten, so `await`, or
 `GetAwaiter().GetResult()` through the controlled awaiter, is the supported controlled path.

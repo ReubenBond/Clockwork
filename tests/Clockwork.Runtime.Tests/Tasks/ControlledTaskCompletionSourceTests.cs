@@ -85,17 +85,58 @@ public sealed class ControlledTaskCompletionSourceTests
         });
     }
 
+    // Finalizers and callbacks from uninstrumented code may complete a source outside any simulation: the shims pass
+    // through to the BCL member, and publish no race-detection edge without an executing operation.
+#pragma warning disable xUnit1051 // The overloads without a token are under test; nothing waits.
     [Fact]
-    public void CompletionOutsideSimulationRequiresActiveSimulation()
+    public async Task CompletionOutsideSimulationPassesThroughToTheBcl()
     {
         Assert.False(SimulationTaskRuntime.IsSimulationActive);
-        var source = new TaskCompletionSource<int>();
+        var token = new CancellationToken(canceled: true);
+        var fault = new InvalidOperationException("boom");
+        Exception[] faults = [fault];
 
-        Exception? exception = Record.Exception(() => ControlledTaskCompletionSource.SetResult(source, 1));
+        var source = new TaskCompletionSource();
+        ControlledTaskCompletionSource.SetResult(source);
+        Assert.True(source.Task.IsCompletedSuccessfully);
+        Assert.False(ControlledTaskCompletionSource.TrySetResult(source));
+        Assert.Throws<InvalidOperationException>(() => ControlledTaskCompletionSource.SetException(source, fault));
+        Assert.Throws<InvalidOperationException>(() => ControlledTaskCompletionSource.SetException(source, faults));
+        Assert.False(ControlledTaskCompletionSource.TrySetException(source, fault));
+        Assert.False(ControlledTaskCompletionSource.TrySetException(source, faults));
+        Assert.Throws<InvalidOperationException>(() => ControlledTaskCompletionSource.SetCanceled(source));
+        Assert.Throws<InvalidOperationException>(() => ControlledTaskCompletionSource.SetCanceled(source, token));
+        Assert.False(ControlledTaskCompletionSource.TrySetCanceled(source));
+        Assert.False(ControlledTaskCompletionSource.TrySetCanceled(source, token));
+        Assert.Throws<InvalidOperationException>(() => ControlledTaskCompletionSource.SetFromTask(source, Task.CompletedTask));
+        Assert.False(ControlledTaskCompletionSource.TrySetFromTask(source, Task.CompletedTask));
 
-        Assert.False(source.Task.IsCompleted);
-        SimulationNotActiveExceptionAssert.Equal(exception, "System.Threading.Tasks.TaskCompletionSource`1");
+        var generic = new TaskCompletionSource<int>();
+        Assert.True(ControlledTaskCompletionSource.TrySetResult(generic, 1));
+        Assert.Equal(1, await generic.Task);
+        Assert.Throws<InvalidOperationException>(() => ControlledTaskCompletionSource.SetResult(generic, 2));
+        Assert.Throws<InvalidOperationException>(() => ControlledTaskCompletionSource.SetException(generic, fault));
+        Assert.Throws<InvalidOperationException>(() => ControlledTaskCompletionSource.SetException(generic, faults));
+        Assert.False(ControlledTaskCompletionSource.TrySetException(generic, fault));
+        Assert.False(ControlledTaskCompletionSource.TrySetException(generic, faults));
+        Assert.Throws<InvalidOperationException>(() => ControlledTaskCompletionSource.SetCanceled(generic));
+        Assert.Throws<InvalidOperationException>(() => ControlledTaskCompletionSource.SetCanceled(generic, token));
+        Assert.False(ControlledTaskCompletionSource.TrySetCanceled(generic));
+        Assert.False(ControlledTaskCompletionSource.TrySetCanceled(generic, token));
+        Assert.Throws<InvalidOperationException>(() => ControlledTaskCompletionSource.SetFromTask(generic, Task.FromResult(3)));
+        Assert.False(ControlledTaskCompletionSource.TrySetFromTask(generic, Task.FromResult(3)));
+
+        var faulted = new TaskCompletionSource<int>();
+        ControlledTaskCompletionSource.SetException(faulted, faults);
+        Assert.Same(fault, faulted.Task.Exception!.InnerException);
+        var canceled = new TaskCompletionSource();
+        Assert.True(ControlledTaskCompletionSource.TrySetCanceled(canceled, token));
+        Assert.True(canceled.Task.IsCanceled);
+        var copied = new TaskCompletionSource<int>();
+        ControlledTaskCompletionSource.SetFromTask(copied, Task.FromResult(7));
+        Assert.Equal(7, await copied.Task);
     }
+#pragma warning restore xUnit1051
 
     [Theory]
     [InlineData(TaskCreationOptions.None)]

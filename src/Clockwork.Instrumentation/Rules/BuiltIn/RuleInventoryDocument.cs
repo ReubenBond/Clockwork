@@ -176,7 +176,8 @@ public static class RuleInventoryDocument
             "Rewritten code keeps the real `TaskCompletionSource` and `TaskCompletionSource<TResult>`, with their real " +
             "creation options. The completion members (`SetResult`, `SetException`, `SetCanceled`, `SetFromTask`, and " +
             "their `TrySet*` forms) redirect to shims which complete the source through the same BCL member and " +
-            "publish the race-detection release edge an await, wait, combinator, or continuation acquires.",
+            "publish the race-detection release edge an await, wait, combinator, or continuation acquires. Outside a " +
+            "simulation (in a finalizer, or a callback from uninstrumented code) the shims call the BCL member alone.",
         BuiltInRuleFamily.TaskTime =>
             "`Task.Delay` and `Task.WaitAsync` use controlled virtual deadlines, preserve cancellation and " +
             "terminal task state, and never consume wall-clock time.",

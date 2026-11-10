@@ -30,8 +30,9 @@ not model at all.
 
 This ledger describes instrumented closure binaries, which are simulation/test artifacts. Their
 Controlled entry points require an active Clockwork simulation and fail before performing real BCL
-work when none is active. Production binaries remain uninstrumented and retain ordinary BCL
-behavior.
+work when none is active; the `TaskCompletionSource` completion members alone pass through to the BCL
+outside a simulation, since finalizers and uninstrumented callbacks complete sources too. Production
+binaries remain uninstrumented and retain ordinary BCL behavior.
 
 ---
 
