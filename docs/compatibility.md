@@ -185,8 +185,8 @@ exclude the containing assembly from instrumentation.
   lambda's state machine in its closure), transitively, so the type and its helpers stay consistent and
   its code runs with BCL behaviour, uncontrolled. An explicitly declared nested type keeps its own
   annotation. Each excluded type is recorded in the manifest (`CWR0006`). Rewritten code cannot cross the
-  boundary with a substituted type: a reference into an excluded type whose signature mentions one fails
-  (`CWR0001`), as below;
+  boundary with a substituted type: a reference into an excluded type whose signature mentions one, or an
+  implementation or override across it whose signature does, fails (`CWR0001`), as below;
 - strict resolution — a targeted member whose replacement cannot be resolved is a hard
   failure (`CWR0001`); a targeted call is never silently skipped. A member reference whose signature a
   type substitution rewrites, but whose declaring type it keeps, binds only where that type is rewritten
@@ -194,12 +194,18 @@ exclude the containing assembly from instrumentation.
   framework, a replacement assembly, or an excluded assembly) or of a type excluded from rewriting, and for
   a field of an excluded type whose type is substituted. Code excluded from rewriting keeps the original
   signatures, so an excluded type's reference to a member of its module whose signature the rewrite changed
-  fails too. The closure runner tells the engine which assemblies it rewrites; a direct engine caller that
-  does not is taken to rewrite none, so every such reference into another assembly fails closed. The set is
-  part of the options fingerprint, so an already-rewritten input reused in a closure that rewrites
-  different assemblies fails (`CWR0008`). Once the closure is staged, the runner resolves every reference
-  into a rewritten assembly that mentions a substituted or substitute type, from a copied assembly or an
-  excluded type, and fails the run (`CWR0001`) if it no longer binds. Read-back validation resolves every
+  fails too. An interface implementation or override is matched to its member by signature when the type
+  loads, so one whose signature the rewrite changes on one side only (between a rewritten type and an
+  excluded type or a type of an assembly the closure does not rewrite), or whose type names the implemented
+  interface or base type with a substituted generic argument, which the rewrite does not substitute, fails
+  (`CWR0001`) rather than throwing `TypeLoadException`; an explicit implementation's declaration is
+  retargeted with the member it implements. The closure runner tells the engine which assemblies it
+  rewrites; a direct engine caller that does not is taken to rewrite none, so every such reference into
+  another assembly fails closed. The set is part of the options fingerprint, so an already-rewritten input
+  reused in a closure that rewrites different assemblies fails (`CWR0008`). Once the closure is staged, the
+  runner resolves every reference into a rewritten assembly that mentions a substituted or substitute type,
+  from a copied assembly or an excluded type, checks every implementation and override across assemblies the
+  same way, and fails the run (`CWR0001`) if one no longer binds. Read-back validation resolves every
   such reference whose declaring assembly the closure does not change (this assembly, the framework, a
   replacement assembly, or an excluded one) and reports one that does not bind (`CWR0009`).
 

@@ -207,13 +207,22 @@ public static class InstrumentationRunner
 
         if (!assemblyResults.SelectMany(a => a.Errors).Any())
         {
+            var excludedTypesByAssembly = new Dictionary<string, IReadOnlySet<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (Manifest.InstrumentationManifest rewritten in assemblyResults.Select(a => a.Manifest).OfType<Manifest.InstrumentationManifest>())
+            {
+                excludedTypesByAssembly[rewritten.Input.Name] = rewritten.Exclusions
+                    .Select(exclusion => exclusion.TypeFullName)
+                    .ToHashSet(StringComparer.Ordinal);
+            }
+
             topLevel.AddRange(ClosureBindingValidator.Validate(
                 plan,
                 stagingDirectory,
                 frameworkClassifier,
                 request.RuleSet,
                 configuration.TargetRuntime,
-                rewrittenAssemblyNames));
+                rewrittenAssemblyNames,
+                excludedTypesByAssembly));
         }
 
         bool succeeded = topLevel.All(d => !d.IsError) && !assemblyResults.SelectMany(a => a.Errors).Any();

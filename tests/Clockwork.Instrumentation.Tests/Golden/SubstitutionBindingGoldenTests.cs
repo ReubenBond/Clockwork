@@ -51,6 +51,108 @@ public sealed class SubstitutionBindingGoldenTests
         { "GenericType", "Box<int>.Take(marker)", "Fx.Box`1::Take" },
     };
 
+    public static TheoryData<string, string, string?, string, string> BoundaryImplementations => new()
+    {
+        {
+            "ExcludedImplementer",
+            """
+            [Clockwork.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
+            public sealed class Handler : IHandler
+            {
+                public string Handle(LegacyMarker marker) => marker.ToString();
+            }
+            """,
+            null,
+            "Fx.Handler::Handle",
+            "implements 'Fx.IHandler::Handle(ClockworkFixtures.Shims.ModernMarker) : System.String' as " +
+                "'Handle(ClockworkFixtures.Api.LegacyMarker) : System.String' after rewriting, because 'Fx.Handler' is excluded " +
+                "from rewriting, so it keeps the original signature while 'Fx.IHandler' is rewritten"
+        },
+        {
+            "ExcludedExplicitImplementer",
+            """
+            [Clockwork.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
+            public sealed class Handler : IHandler
+            {
+                string IHandler.Handle(LegacyMarker marker) => marker.ToString();
+            }
+            """,
+            null,
+            "Fx.Handler::Fx.IHandler.Handle",
+            "because 'Fx.Handler' is excluded from rewriting, so it keeps the original signature while 'Fx.IHandler' is rewritten"
+        },
+        {
+            "ExcludedInterface",
+            """
+            public sealed class Handler : IHandler
+            {
+                public string Handle(LegacyMarker marker) => marker.ToString();
+            }
+            """,
+            "Fx.IHandler",
+            "Fx.Handler::Handle",
+            "implements 'Fx.IHandler::Handle(ClockworkFixtures.Api.LegacyMarker) : System.String' as " +
+                "'Handle(ClockworkFixtures.Shims.ModernMarker) : System.String' after rewriting, because 'Fx.IHandler' is " +
+                "excluded from rewriting, so it keeps the original signature while 'Fx.Handler' is rewritten"
+        },
+        {
+            "ExcludedInterfaceExplicitImplementer",
+            """
+            public sealed class Handler : IHandler
+            {
+                string IHandler.Handle(LegacyMarker marker) => marker.ToString();
+            }
+            """,
+            "Fx.IHandler",
+            "Fx.Handler::Fx.IHandler.Handle",
+            "because 'Fx.IHandler' is excluded from rewriting, so it keeps the original signature while 'Fx.Handler' is rewritten"
+        },
+        {
+            "ExcludedOverride",
+            """
+            [Clockwork.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
+            public sealed class Handler : HandlerBase
+            {
+                public override string Handle(LegacyMarker marker) => marker.ToString();
+            }
+            """,
+            null,
+            "Fx.Handler::Handle",
+            "overrides 'Fx.HandlerBase::Handle(ClockworkFixtures.Shims.ModernMarker) : System.String' as " +
+                "'Handle(ClockworkFixtures.Api.LegacyMarker) : System.String' after rewriting, because 'Fx.Handler' is excluded " +
+                "from rewriting, so it keeps the original signature while 'Fx.HandlerBase' is rewritten"
+        },
+        {
+            "ExcludedBase",
+            """
+            public sealed class Handler : HandlerBase
+            {
+                public override string Handle(LegacyMarker marker) => marker.ToString();
+            }
+            """,
+            "Fx.HandlerBase",
+            "Fx.Handler::Handle",
+            "overrides 'Fx.HandlerBase::Handle(ClockworkFixtures.Api.LegacyMarker) : System.String' as " +
+                "'Handle(ClockworkFixtures.Shims.ModernMarker) : System.String' after rewriting, because 'Fx.HandlerBase' is " +
+                "excluded from rewriting, so it keeps the original signature while 'Fx.Handler' is rewritten"
+        },
+        {
+            // The rewrite substitutes the method's signature but not the type's interface list.
+            "SubstitutedTypeArgument",
+            """
+            public sealed class Ordered : IComparable<LegacyMarker>
+            {
+                public int CompareTo(LegacyMarker other) => 0;
+            }
+            """,
+            null,
+            "Fx.Ordered::CompareTo",
+            "implements 'System.IComparable`1::CompareTo(ClockworkFixtures.Api.LegacyMarker) : System.Int32' as " +
+                "'CompareTo(ClockworkFixtures.Shims.ModernMarker) : System.Int32' after rewriting, because the rewrite does not " +
+                "substitute the type arguments of 'System.IComparable`1<ClockworkFixtures.Api.LegacyMarker>'"
+        },
+    };
+
     [Theory]
     [MemberData(nameof(UnboundCalls))]
     public void SubstitutedSignatureFailsWhereItsDeclaringTypeIsNotRewritten(string name, string call, string unbound)
@@ -318,6 +420,123 @@ public sealed class SubstitutionBindingGoldenTests
         Assert.Contains("'clockwork.tasks.configured.awaitable.generic'", error.Message, StringComparison.Ordinal);
         Assert.Contains("Fx.Legacy::Configured()", error.Message, StringComparison.Ordinal);
         Assert.Contains("'Fx.Legacy' is excluded from rewriting", error.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [MemberData(nameof(BoundaryImplementations))]
+    public void ImplementationOrOverrideAcrossTheExclusionBoundaryFailsTheRewrite(
+        string name,
+        string types,
+        string? excluded,
+        string member,
+        string reason)
+    {
+        // The runtime matches an implementation or override to its member by signature when it loads the type, so a
+        // signature rewritten on one side only would throw TypeLoadException.
+        using var context = RewriteTestContext.Create();
+        string fixturePath = context.CompileFixture($"Fx.Boundary{name}", $$"""
+            using System;
+            using ClockworkFixtures.Api;
+
+            {{DoNotRewriteAttributeSource}}
+
+            namespace Fx
+            {
+                public interface IHandler
+                {
+                    string Handle(LegacyMarker marker);
+                }
+
+                public abstract class HandlerBase
+                {
+                    public abstract string Handle(LegacyMarker marker);
+                }
+
+                {{types}}
+            }
+            """);
+
+        RewriteResult result = context.Rewrite(fixturePath, MarkerRuleSet(), MarkerOptions(context, excluded));
+
+        RewriteDiagnostic error = AssertUnbound(result, member);
+        Assert.Contains(reason, error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ImplementationsAndOverridesInsideTheRewriteBind()
+    {
+        // An explicit implementation names the member it implements by signature, so it is retargeted with it; that of a
+        // generic interface is a member reference whose signature the rewrite substitutes.
+        using var context = RewriteTestContext.Create();
+        string fixturePath = context.CompileFixture("Fx.Implementations", """
+            using System;
+            using ClockworkFixtures.Api;
+
+            namespace Fx
+            {
+                public interface IHandler
+                {
+                    string Handle(LegacyMarker marker);
+                }
+
+                public interface IBox<T>
+                {
+                    string Take(LegacyMarker marker, T value);
+                }
+
+                public abstract class HandlerBase
+                {
+                    public abstract string Handle(LegacyMarker marker);
+                }
+
+                public sealed class Handler : IHandler
+                {
+                    public string Handle(LegacyMarker marker) => "handled " + marker;
+                }
+
+                public sealed class ExplicitHandler : IHandler, IBox<int>
+                {
+                    string IHandler.Handle(LegacyMarker marker) => "explicitly handled " + marker;
+
+                    string IBox<int>.Take(LegacyMarker marker, int value) => "took " + marker + " " + value;
+                }
+
+                public sealed class DerivedHandler : HandlerBase
+                {
+                    public override string Handle(LegacyMarker marker) => "overrode " + marker;
+                }
+
+                public static class Caller
+                {
+                    public static string Run()
+                    {
+                        var marker = new LegacyMarker();
+                        IHandler handler = new Handler();
+                        IHandler explicitHandler = new ExplicitHandler();
+                        IBox<int> box = new ExplicitHandler();
+                        HandlerBase derived = new DerivedHandler();
+                        return handler.Handle(marker) + ", " + explicitHandler.Handle(marker) + ", " + box.Take(marker, 1) +
+                            ", " + derived.Handle(marker);
+                    }
+                }
+            }
+            """);
+
+        context.Rewrite(fixturePath, MarkerRuleSet(), MarkerOptions(context)).EnsureSuccess();
+
+        var loadContext = new DirectoryLoadContext(context.Directory);
+        try
+        {
+            string rewrittenPath = Path.Combine(context.Directory, "Fx.Implementations.rewritten.dll");
+            Type caller = loadContext.LoadFromAssemblyPath(rewrittenPath).GetType("Fx.Caller", throwOnError: true)!;
+            Assert.Equal(
+                "handled modern, explicitly handled modern, took modern 1, overrode modern",
+                caller.GetMethod("Run")!.Invoke(null, null));
+        }
+        finally
+        {
+            loadContext.Unload();
+        }
     }
 
     [Fact]

@@ -30,9 +30,13 @@ namespace Clockwork.Instrumentation.Rewriting;
 /// <item><description>a field of an excluded type whose type is substituted, which rewritten code would otherwise use
 /// as its substitute;</description></item>
 /// <item><description>a reference from an excluded type to a member of this module whose signature the pass
-/// rewrote.</description></item>
+/// rewrote;</description></item>
+/// <item><description>an interface implementation or override whose signature the pass rewrote on one side only: between
+/// a rewritten type and an excluded one or a type of an assembly the closure does not rewrite, or where the type names the
+/// implemented interface or base type with a substituted generic argument, which the pass does not substitute.</description></item>
 /// </list>
-/// The closure runner checks references between assemblies once every assembly is staged.
+/// The closure runner checks references, implementations, and overrides between assemblies once every assembly is
+/// staged.
 /// </remarks>
 internal sealed class MemberSubstitutionRewritingPass : RewritePass
 {
@@ -126,6 +130,24 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
                 if (mappedParameters[i] is TypeReference mappedParameter)
                 {
                     method.Parameters[i].ParameterType = mappedParameter;
+                }
+            }
+        }
+
+        // An explicit implementation or override names the member it implements by signature, so it is retargeted
+        // onto that member's rewritten signature as a call to it would be. A declaration whose declaring type would be
+        // re-instantiated is kept: it must name the interface or base type as the type itself does, which this pass
+        // does not substitute. Whether each implementation still matches is checked once every type is visited.
+        foreach (MethodDefinition method in type.Methods.Where(method => method.HasOverrides))
+        {
+            for (int i = 0; i < method.Overrides.Count; i++)
+            {
+                MethodReference implemented = method.Overrides[i];
+                if (implemented is not MethodDefinition
+                    && Mapper.MapType(implemented.DeclaringType) is null
+                    && Mapper.MapMethod(implemented) is { Kind: MemberMappingKind.Mapped } mapping)
+                {
+                    method.Overrides[i] = mapping.Reference!;
                 }
             }
         }
@@ -252,6 +274,7 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
         if (IsActive)
         {
             CheckExcludedTypes();
+            CheckTypeShapes();
         }
     }
 
@@ -304,6 +327,51 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
                     }
                 }
             }
+        }
+    }
+
+    // A type implements and overrides members by signature, so an implementation or override whose signature the pass
+    // rewrote on one side only - between a rewritten type and an excluded one, or a type of an assembly the closure
+    // does not rewrite - no longer matches, and the type fails to load. Definitions of this module and of an assembly
+    // the closure does not rewrite are final here; one of another assembly the closure rewrites is checked once the
+    // closure is staged.
+    private void CheckTypeShapes()
+    {
+        var check = new TypeShapeCheck(Session.Matcher.TypeSubstitutionRules);
+        foreach (TypeDefinition type in Module!.GetTypes())
+        {
+            foreach (TypeShapeMismatch mismatch in check.Check(type, TryResolve, IsFinal))
+            {
+                ReportUnappliedMemberSubstitution(
+                    check.RulesFor(mismatch),
+                    mismatch.MemberName,
+                    CecilNames.FullyQualifiedMethodName(mismatch.Member),
+                    offset: -1,
+                    mismatch.Describe(Unrewritten));
+            }
+        }
+    }
+
+    private bool IsFinal(TypeDefinition definition) =>
+        ReferenceEquals(definition.Module, Module)
+        || !Session.RewrittenAssemblyNames.Contains(definition.Module.Assembly.Name.Name);
+
+    private string? Unrewritten(TypeDefinition definition) =>
+        !ReferenceEquals(definition.Module, Module)
+            ? $"'{definition.FullName}' is declared in '{definition.Module.Assembly.Name.Name}', which is not rewritten in this closure"
+            : Session.IsExcluded(definition)
+                ? $"'{definition.FullName}' is excluded from rewriting"
+                : null;
+
+    private static TypeDefinition? TryResolve(TypeReference type)
+    {
+        try
+        {
+            return type.Resolve();
+        }
+        catch (AssemblyResolutionException)
+        {
+            return null;
         }
     }
 

@@ -528,7 +528,9 @@ are substituted the same way, so their dispose and iteration awaits are controll
 reaches `GetAsyncEnumerator` as in the BCL. A member reference whose substituted signature cannot bind
 fails the rewrite (`CWR0001`) instead of throwing `MissingMethodException` at run time: one whose declaring
 type is in an assembly the closure does not rewrite or is excluded from rewriting, or one from code the
-closure does not rewrite (an excluded assembly or a `[DoNotRewrite]` type) into a rewritten signature. The
+closure does not rewrite (an excluded assembly or a `[DoNotRewrite]` type) into a rewritten signature. An
+interface implementation or override whose signature is rewritten on one side of that boundary only fails
+the rewrite the same way instead of throwing `TypeLoadException` when the type loads. The
 runtime-async `AsyncHelpers.Await` intrinsics on configured awaitables, which would resume outside the
 coordinator, are rejected by name. The controlled awaiter hands each continuation to the simulation
 coordinator, so **`ConfigureAwait(false)` stays controlled** inside a simulation (for both `Task`
