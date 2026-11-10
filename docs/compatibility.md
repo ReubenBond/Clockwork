@@ -179,8 +179,42 @@ exclude the containing assembly from instrumentation.
 - assembly/rule-set/options-level idempotence markers: re-running with the same rule set and
   semantic rewrite options is a verified no-op, and an incompatible rule set or options
   fingerprint fails clearly (`CWR0008`) rather than double-rewriting;
+- type exclusion — a type marked `[DoNotRewrite]` or named in `ExcludedTypeFullNames` is not rewritten,
+  and neither are the compiler-generated types nested in it (marked `[CompilerGenerated]`, or nested in
+  such a type: async and iterator state machines, lambda and local-function closures, and an async
+  lambda's state machine in its closure), transitively, so the type and its helpers stay consistent and
+  its code runs with BCL behaviour, uncontrolled. An explicitly declared nested type keeps its own
+  annotation. Because its lambdas and local functions are excluded with it, a callback an excluded type hands
+  to simulated code runs uncontrolled too: its body uses real time, real timers, and the thread pool, so
+  excluding a type removes its callbacks from the simulation. Each excluded type is recorded in the manifest
+  (`CWR0006`). Rewritten code cannot cross the boundary with a substituted type: a reference into an excluded
+  type whose signature mentions one, or an implementation or override across it whose signature does, fails
+  (`CWR0001`), as below;
 - strict resolution — a targeted member whose replacement cannot be resolved is a hard
-  failure (`CWR0001`); a targeted call is never silently skipped.
+  failure (`CWR0001`); a targeted call is never silently skipped. A member reference whose signature a
+  type substitution rewrites, but whose declaring type it keeps, binds only where that type is rewritten
+  too, so the rewrite fails (`CWR0001`) for a member of an assembly the closure does not rewrite (the
+  framework, a replacement assembly, or an excluded assembly) or of a type excluded from rewriting, and for
+  a field of an excluded type whose type is substituted. Code excluded from rewriting keeps the original
+  signatures, so an excluded type's reference to a member of its module whose signature the rewrite changed
+  fails too. An interface implementation or override is matched to its member by signature when the type
+  loads, so one whose signature the rewrite changes on one side only (between a rewritten type and an
+  excluded type or a type of an assembly the closure does not rewrite), or whose type names the implemented
+  interface or base type with a substituted generic argument, which the rewrite does not substitute, fails
+  (`CWR0001`) rather than throwing `TypeLoadException`; an explicit implementation's declaration is
+  retargeted with the member it implements. The closure runner tells the engine which assemblies it
+  rewrites; a direct engine caller that does not is taken to rewrite none, so every such reference into
+  another assembly fails closed. The set is part of the options fingerprint, so an already-rewritten input
+  reused in a closure that rewrites different assemblies fails (`CWR0008`). Once the closure is staged, the
+  runner resolves every reference into a rewritten assembly that mentions a substituted or substitute type,
+  from a copied assembly or an excluded type, checks every implementation and override across assemblies the
+  same way, and fails the run (`CWR0001`) if one no longer binds. It resolves the staged closure as the
+  runtime binds it: a framework assembly is the runtime's own copy, and any other assembly is the one in the
+  staging directory, whose subdirectories (another target framework's build, say) are not searched. A cycle
+  of type forwarders met while resolving fails the rewrite or the run (`CWR0003`) rather than overflowing the
+  stack. Read-back validation resolves every such reference whose declaring assembly the closure does not
+  change (this assembly, the framework, a replacement assembly, or an excluded one) and reports one that
+  does not bind (`CWR0009`).
 
 **Engine boundary:** load-time `AssemblyLoadContext` hooks, profiler/native detours, mixed-mode
 rewriting, Authenticode re-signing, application hosting, and transport interception are not
@@ -330,9 +364,20 @@ or Release state machine is fully controlled. The same pass also retargets the
 `async ValueTask`/`async ValueTask<T>` machinery — `AsyncValueTaskMethodBuilder`(`<T>`),
 `ValueTaskAwaiter`(`<T>`), and `ConfiguredValueTaskAwaitable`(`<T>`)`/ConfiguredValueTaskAwaiter` →
 their `Controlled…` counterparts (the `ValueTaskMachinery` family) — so value-task `async`/`await`
-and `ValueTask.ConfigureAwait(false)` are controlled identically. The controlled awaiter hands
+and `ValueTask.ConfigureAwait(false)` are controlled identically. The same family substitutes the
+configured async disposable and enumerable that `await using` and `await foreach` consume
+(`ConfiguredAsyncDisposable`, `ConfiguredCancelableAsyncEnumerable<T>` and its `Enumerator` →
+`ControlledConfiguredAsyncDisposable`, `ControlledConfiguredCancelableAsyncEnumerable<T>`), whose BCL
+members return configured value-task awaitables, and redirects the `TaskAsyncEnumerableExtensions.ConfigureAwait`
+and `WithCancellation` extensions that produce them. As in the BCL, the configured enumerable passes its token to
+`GetAsyncEnumerator(CancellationToken)`, where an async iterator combines it with its `[EnumeratorCancellation]`
+parameter, and each `MoveNextAsync`/`DisposeAsync` value task is configured with the requested
+`continueOnCapturedContext`, which the controlled awaitable treats as `ValueTask.ConfigureAwait(bool)` does. The controlled awaiter hands
 every continuation to the simulation coordinator rather than the awaited task's completion
-callback, which is exactly why **`ConfigureAwait(false)` stays controlled**.
+callback, which is exactly why **`ConfigureAwait(false)` stays controlled**. The runtime-async
+`AsyncHelpers.Await` intrinsics that take a configured task or value-task awaitable resume their caller
+through the runtime's own continuation machinery instead, so they are rejected by name
+(`SimulationApiException`); compile such methods without runtime async.
 `Task.ConfigureAwait(ConfigureAwaitOptions)` and `Task<T>.ConfigureAwait(ConfigureAwaitOptions)` build
 the same controlled awaitables: `SuppressThrowing` completes the await normally for a faulted or
 canceled `Task`, `ForceYielding` always yields through the coordinator, and invalid options (including
@@ -353,6 +398,11 @@ is driven by antecedents that complete on the logical thread); synchronous waits
 coordinator loop until completion instead of blocking a physical thread**, then delegate to the
 real API to reproduce its exact `AggregateException` semantics, so a synchronous wait or a blocking
 `Task<T>.Result` read on incomplete controlled work never deadlocks the scheduler.
+`TaskAsyncEnumerableExtensions.ToBlockingEnumerable` redirects to
+`ControlledTaskAsyncEnumerableExtensions`, whose enumerable pumps the coordinator until each
+`MoveNextAsync` and the final `DisposeAsync` complete; as in the BCL, enumeration is deferred, the
+token reaches `GetAsyncEnumerator`, the source enumerator is disposed on completion, early exit, and
+fault, and exceptions propagate unwrapped.
 `Task.Run` and `TaskFactory.StartNew` queue controlled operations instead of escaping, while
 `Task.Delay` and `Task.WaitAsync` register virtual deadlines.
 

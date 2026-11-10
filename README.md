@@ -522,7 +522,17 @@ awaiter types of an `async` state machine onto controlled value-type equivalents
 `AsyncValueTaskMethodBuilder`(`<T>`), `ValueTaskAwaiter`(`<T>`),
 `ConfiguredValueTaskAwaitable`(`<T>`)`/…Awaiter` → their `Controlled…` counterparts), rewriting
 every field, local, member reference, and closed-generic type operand so both Debug and Release
-state machines are controlled. The controlled awaiter hands each continuation to the simulation
+state machines are controlled. The configured async disposable and enumerable behind
+`await using (x.ConfigureAwait(…))` and `await foreach (… in source.ConfigureAwait(…))`/`.WithCancellation(…)`
+are substituted the same way, so their dispose and iteration awaits are controlled and the token still
+reaches `GetAsyncEnumerator` as in the BCL. A member reference whose substituted signature cannot bind
+fails the rewrite (`CWR0001`) instead of throwing `MissingMethodException` at run time: one whose declaring
+type is in an assembly the closure does not rewrite or is excluded from rewriting, or one from code the
+closure does not rewrite (an excluded assembly or a `[DoNotRewrite]` type) into a rewritten signature. An
+interface implementation or override whose signature is rewritten on one side of that boundary only fails
+the rewrite the same way instead of throwing `TypeLoadException` when the type loads. The
+runtime-async `AsyncHelpers.Await` intrinsics on configured awaitables, which would resume outside the
+coordinator, are rejected by name. The controlled awaiter hands each continuation to the simulation
 coordinator, so **`ConfigureAwait(false)` stays controlled** inside a simulation (for both `Task`
 and `ValueTask`). `Task.ConfigureAwait(ConfigureAwaitOptions)` builds the same controlled awaitable and
 honours `SuppressThrowing` and `ForceYielding` exactly as the BCL awaiter does. A synchronous
@@ -536,6 +546,9 @@ blocking generic `Task<T>.Result` accessor, the `TaskExtensions.Unwrap` extensio
 `Clockwork.Shims.System.Threading.Tasks.ControlledTask`. Synchronous waits and blocking `Task<T>.Result` reads
 **pump the coordinator loop until completion instead of blocking a physical thread**, so they never
 deadlock the scheduler, then delegate to the real API for its exact `AggregateException` semantics.
+`TaskAsyncEnumerableExtensions.ToBlockingEnumerable` likewise pumps the coordinator until each
+`MoveNextAsync` and the final `DisposeAsync` complete, keeping the BCL's deferred enumeration, token,
+disposal, and exception semantics.
 
 **Simulation-only contract.** As with the BCL rule set, instrumented Controlled entry points require
 an active Clockwork simulation. Continuations and waits route through the coordinator carried by the

@@ -31,6 +31,7 @@ public static class InstrumentedApiInventory
         Api("System.Threading.Tasks.Task`1", "ContinueWith"),
         Api("System.Threading.Tasks.Task`1", "WaitAsync"),
         Api("System.Threading.Tasks.TaskExtensions", "Unwrap"),
+        Api("System.Threading.Tasks.TaskAsyncEnumerableExtensions", "ToBlockingEnumerable"),
         Api("System.Threading.Tasks.TaskFactory", "StartNew"),
         Api("System.Threading.Tasks.TaskFactory`1", "StartNew"),
         Api("System.Environment", "CurrentManagedThreadId"),

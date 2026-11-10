@@ -97,7 +97,7 @@ Policy: **Controlled**. `Task.WhenAll`/`WhenAny` (the non-generic `Task[]`, `IEn
 
 ## TaskSynchronization family
 
-Policy: **Controlled**. Blocking `Task.Wait()`, `Task.WaitAll`, and `Task.WaitAny` redirect to controlled waits that pump the deterministic loop rather than blocking a physical thread; a never-satisfiable wait surfaces as a precise deadlock diagnostic instead of hanging the scheduler.
+Policy: **Controlled**. Blocking `Task.Wait()`, `Task.WaitAll`, and `Task.WaitAny` redirect to controlled waits that pump the deterministic loop rather than blocking a physical thread; a never-satisfiable wait surfaces as a precise deadlock diagnostic instead of hanging the scheduler. `TaskAsyncEnumerableExtensions.ToBlockingEnumerable` redirects to an enumerable that pumps the loop until each `MoveNextAsync` and the final `DisposeAsync` complete, with the BCL's token, early-exit disposal, and exception semantics.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -105,6 +105,7 @@ Policy: **Controlled**. Blocking `Task.Wait()`, `Task.WaitAll`, and `Task.WaitAn
 | `clockwork.tasks.waitall.array` | `System.Threading.Tasks.Task::WaitAll(System.Threading.Tasks.Task[])` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledTask::WaitAll(System.Threading.Tasks.Task[])` | Controlled |
 | `clockwork.tasks.waitany.array` | `System.Threading.Tasks.Task::WaitAny(System.Threading.Tasks.Task[])` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledTask::WaitAny(System.Threading.Tasks.Task[])` | Controlled |
 | `clockwork.tasks.result.generic` | `System.Threading.Tasks.Task`1::get_Result()` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledTask::Result(System.Threading.Tasks.Task`1<TResult>)` | Controlled |
+| `clockwork.tasks.asyncenumerable.toblockingenumerable` | `System.Threading.Tasks.TaskAsyncEnumerableExtensions::ToBlockingEnumerable(System.Collections.Generic.IAsyncEnumerable`1<!!0>,System.Threading.CancellationToken)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledTaskAsyncEnumerableExtensions::ToBlockingEnumerable(System.Collections.Generic.IAsyncEnumerable`1<T>,System.Threading.CancellationToken)` | Controlled |
 
 ## TaskContinuations family
 
@@ -156,7 +157,7 @@ Policy: **Controlled**. `Task.Run` (all `Action`/`Func<TResult>`/`Func<Task>`/`F
 
 ## AsyncMachinery family
 
-Policy: **Controlled**. The compiler-generated builder and awaiter types of an `async` state machine (`AsyncTaskMethodBuilder`, `TaskAwaiter`, `ConfiguredTaskAwaitable`/`YieldAwaitable` and their awaiters, generic and non-generic) are substituted onto Clockwork's controlled equivalents by the member-aware pass, and `Task.Yield()` redirects to the controlled yield. Every awaited continuation is scheduled through the simulation coordinator instead of the thread pool, and `ConfigureAwait(false)` stays controlled.
+Policy: **Controlled**. The compiler-generated builder and awaiter types of an `async` state machine (`AsyncTaskMethodBuilder`, `TaskAwaiter`, `ConfiguredTaskAwaitable`/`YieldAwaitable` and their awaiters, generic and non-generic) are substituted onto Clockwork's controlled equivalents by the member-aware pass, and `Task.Yield()` redirects to the controlled yield. Every awaited continuation is scheduled through the simulation coordinator instead of the thread pool, and `ConfigureAwait(false)` stays controlled. The runtime-async `AsyncHelpers.Await` intrinsics taking a configured task awaitable resume through the runtime's own continuation machinery, so they are rejected.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -171,10 +172,12 @@ Policy: **Controlled**. The compiler-generated builder and awaiter types of an `
 | `clockwork.tasks.yield.awaitable` | `System.Runtime.CompilerServices.YieldAwaitable` | `Clockwork!Clockwork.Shims.System.Runtime.CompilerServices.ControlledYieldAwaitable` | Controlled |
 | `clockwork.tasks.yield.awaiter` | `System.Runtime.CompilerServices.YieldAwaitable/YieldAwaiter` | `Clockwork!Clockwork.Shims.System.Runtime.CompilerServices.ControlledYieldAwaiter` | Controlled |
 | `clockwork.tasks.yield.call` | `System.Threading.Tasks.Task::Yield()` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledTask::Yield()` | Controlled |
+| `clockwork.tasks.asynchelpers.await.configured` | `System.Runtime.CompilerServices.AsyncHelpers::Await(System.Runtime.CompilerServices.ConfiguredTaskAwaitable)` | `Clockwork!Clockwork.Shims.System.Runtime.CompilerServices.ControlledAsyncHelpers::Await(Clockwork.Shims.System.Runtime.CompilerServices.ControlledConfiguredTaskAwaitable)` | Rejected |
+| `clockwork.tasks.asynchelpers.await.configured.generic` | `System.Runtime.CompilerServices.AsyncHelpers::Await(System.Runtime.CompilerServices.ConfiguredTaskAwaitable`1<!!0>)` | `Clockwork!Clockwork.Shims.System.Runtime.CompilerServices.ControlledAsyncHelpers::Await(Clockwork.Shims.System.Runtime.CompilerServices.ControlledConfiguredTaskAwaitable`1<T>)` | Rejected |
 
 ## ValueTaskMachinery family
 
-Policy: **Controlled**. The compiler-generated builder and awaiter types of an `async ValueTask`/`async ValueTask<T>` state machine (`AsyncValueTaskMethodBuilder`, `ValueTaskAwaiter`, `ConfiguredValueTaskAwaitable` and their awaiters, generic and non-generic) are substituted onto Clockwork's controlled equivalents by the member-aware pass, so every awaited value-task continuation is scheduled through the simulation coordinator. `ConfigureAwait(false)` stays controlled. Synchronous blocking on a value task is not rewritten (a value task may be consumed only once); `await` is the supported controlled path.
+Policy: **Controlled**. The compiler-generated builder and awaiter types of an `async ValueTask`/`async ValueTask<T>` state machine (`AsyncValueTaskMethodBuilder`, `ValueTaskAwaiter`, `ConfiguredValueTaskAwaitable` and their awaiters, generic and non-generic) are substituted onto Clockwork's controlled equivalents by the member-aware pass, so every awaited value-task continuation is scheduled through the simulation coordinator. `ConfigureAwait(false)` stays controlled. The configured async disposable and enumerable that `await using` and `await foreach` consume (`ConfiguredAsyncDisposable`, `ConfiguredCancelableAsyncEnumerable<T>` and its `Enumerator`) are substituted with them, and the `TaskAsyncEnumerableExtensions.ConfigureAwait`/`WithCancellation` extensions redirect to factories for the controlled types, so iteration and dispose awaits resume through the coordinator and the configured token reaches `GetAsyncEnumerator` as in the BCL. The runtime-async `AsyncHelpers.Await` intrinsics taking a configured value-task awaitable are rejected. Synchronous blocking on a value task is not rewritten (a value task may be consumed only once); `await` is the supported controlled path.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -186,6 +189,14 @@ Policy: **Controlled**. The compiler-generated builder and awaiter types of an `
 | `clockwork.tasks.configured.valuetask.awaitable.generic` | `System.Runtime.CompilerServices.ConfiguredValueTaskAwaitable`1` | `Clockwork!Clockwork.Shims.System.Runtime.CompilerServices.ControlledConfiguredValueTaskAwaitable`1` | Controlled |
 | `clockwork.tasks.configured.valuetask.awaiter` | `System.Runtime.CompilerServices.ConfiguredValueTaskAwaitable/ConfiguredValueTaskAwaiter` | `Clockwork!Clockwork.Shims.System.Runtime.CompilerServices.ControlledConfiguredValueTaskAwaiter` | Controlled |
 | `clockwork.tasks.configured.valuetask.awaiter.generic` | `System.Runtime.CompilerServices.ConfiguredValueTaskAwaitable`1/ConfiguredValueTaskAwaiter` | `Clockwork!Clockwork.Shims.System.Runtime.CompilerServices.ControlledConfiguredValueTaskAwaiter`1` | Controlled |
+| `clockwork.tasks.asynchelpers.await.configured.valuetask` | `System.Runtime.CompilerServices.AsyncHelpers::Await(System.Runtime.CompilerServices.ConfiguredValueTaskAwaitable)` | `Clockwork!Clockwork.Shims.System.Runtime.CompilerServices.ControlledAsyncHelpers::Await(Clockwork.Shims.System.Runtime.CompilerServices.ControlledConfiguredValueTaskAwaitable)` | Rejected |
+| `clockwork.tasks.asynchelpers.await.configured.valuetask.generic` | `System.Runtime.CompilerServices.AsyncHelpers::Await(System.Runtime.CompilerServices.ConfiguredValueTaskAwaitable`1<!!0>)` | `Clockwork!Clockwork.Shims.System.Runtime.CompilerServices.ControlledAsyncHelpers::Await(Clockwork.Shims.System.Runtime.CompilerServices.ControlledConfiguredValueTaskAwaitable`1<T>)` | Rejected |
+| `clockwork.tasks.configured.asyncdisposable` | `System.Runtime.CompilerServices.ConfiguredAsyncDisposable` | `Clockwork!Clockwork.Shims.System.Runtime.CompilerServices.ControlledConfiguredAsyncDisposable` | Controlled |
+| `clockwork.tasks.configured.asyncenumerable` | `System.Runtime.CompilerServices.ConfiguredCancelableAsyncEnumerable`1` | `Clockwork!Clockwork.Shims.System.Runtime.CompilerServices.ControlledConfiguredCancelableAsyncEnumerable`1` | Controlled |
+| `clockwork.tasks.configured.asyncenumerator` | `System.Runtime.CompilerServices.ConfiguredCancelableAsyncEnumerable`1/Enumerator` | `Clockwork!Clockwork.Shims.System.Runtime.CompilerServices.ControlledConfiguredCancelableAsyncEnumerable`1/Enumerator` | Controlled |
+| `clockwork.tasks.asyncdisposable.configureawait` | `System.Threading.Tasks.TaskAsyncEnumerableExtensions::ConfigureAwait(System.IAsyncDisposable,System.Boolean)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledTaskAsyncEnumerableExtensions::ConfigureAwait(System.IAsyncDisposable,System.Boolean)` | Controlled |
+| `clockwork.tasks.asyncenumerable.configureawait` | `System.Threading.Tasks.TaskAsyncEnumerableExtensions::ConfigureAwait(System.Collections.Generic.IAsyncEnumerable`1<!!0>,System.Boolean)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledTaskAsyncEnumerableExtensions::ConfigureAwait(System.Collections.Generic.IAsyncEnumerable`1<T>,System.Boolean)` | Controlled |
+| `clockwork.tasks.asyncenumerable.withcancellation` | `System.Threading.Tasks.TaskAsyncEnumerableExtensions::WithCancellation(System.Collections.Generic.IAsyncEnumerable`1<!!0>,System.Threading.CancellationToken)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledTaskAsyncEnumerableExtensions::WithCancellation(System.Collections.Generic.IAsyncEnumerable`1<T>,System.Threading.CancellationToken)` | Controlled |
 
 ## TaskFactory family
 

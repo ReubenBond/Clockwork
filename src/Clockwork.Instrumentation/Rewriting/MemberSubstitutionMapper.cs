@@ -14,26 +14,33 @@ namespace Clockwork.Instrumentation.Rewriting;
 /// counterparts while preserving generic arguments, by-ref-ness, and method signatures.
 /// </summary>
 /// <remarks>
-/// Every <c>Map*</c> method returns <see langword="null"/> when nothing changed, so callers can cheaply
-/// skip untouched references. Substituted declaring types are resolved back to the replacement
-/// assembly's definitions and re-imported so the produced references carry a signature that binds by
-/// name at run time; when the original declaring type was a generic instance the imported open
-/// reference is re-based onto the mapped generic instance.
+/// <see cref="MapType"/> returns <see langword="null"/> when nothing changed, so callers can cheaply skip untouched
+/// references; <see cref="MapMethod"/> and <see cref="MapField"/> return a <see cref="MemberMapping{TMember}"/> that is
+/// unaffected, mapped, or unbindable for a stated reason, which the caller reports as a rewrite error. Substituted
+/// declaring types are resolved back to the replacement assembly's definitions and re-imported so the produced
+/// references carry a signature that binds by name at run time; when the original declaring type was a generic
+/// instance the imported open reference is re-based onto the mapped generic instance. A reference whose declaring
+/// type is not substituted keeps it and carries the substituted signature, which binds only where that type's
+/// definition is rewritten too: in a type of this module that is not excluded from rewriting (checked after the
+/// pass), or in an assembly the closure rewrites with the same rule set (<see cref="RewriteSession.RewrittenAssemblyNames"/>).
 /// </remarks>
 internal sealed class MemberSubstitutionMapper
 {
     private readonly ModuleDefinition _module;
     private readonly Dictionary<string, TypeReference> _byName;
     private readonly Dictionary<string, string> _ruleIdByName;
+    private readonly IReadOnlySet<string> _rewrittenAssemblyNames;
 
     private MemberSubstitutionMapper(
         ModuleDefinition module,
         Dictionary<string, TypeReference> byName,
-        Dictionary<string, string> ruleIdByName)
+        Dictionary<string, string> ruleIdByName,
+        IReadOnlySet<string> rewrittenAssemblyNames)
     {
         _module = module;
         _byName = byName;
         _ruleIdByName = ruleIdByName;
+        _rewrittenAssemblyNames = rewrittenAssemblyNames;
     }
 
     /// <summary>Gets a value indicating whether any substitution was resolved.</summary>
@@ -63,7 +70,7 @@ internal sealed class MemberSubstitutionMapper
             }
         }
 
-        return new MemberSubstitutionMapper(session.TargetModule, byName, ruleIdByName);
+        return new MemberSubstitutionMapper(session.TargetModule, byName, ruleIdByName, session.RewrittenAssemblyNames);
     }
 
     /// <summary>Gets the id of the rule that substitutes <paramref name="normalizedFullName"/>, if any.</summary>
@@ -166,27 +173,34 @@ internal sealed class MemberSubstitutionMapper
     }
 
     /// <summary>
-    /// Maps a method reference whose declaring type, return type, parameter types, or generic arguments are substituted, returning
-    /// <see langword="null"/> when unaffected.
+    /// Maps a method reference whose declaring type, return type, parameter types, or generic arguments are
+    /// substituted.
     /// </summary>
-    public MethodReference? MapMethod(MethodReference method)
+    public MemberMapping<MethodReference> MapMethod(MethodReference method)
     {
         if (method is GenericInstanceMethod generic)
         {
-            MethodReference? mappedElement = MapMethod(generic.ElementMethod);
-            TypeReference[]? mappedArguments = MapMany(generic.GenericArguments);
-            if (mappedElement is null && mappedArguments is null)
+            // An element whose own signature cannot be mapped stays unbindable: instantiating the unmapped element
+            // with mapped arguments would hide that.
+            MemberMapping<MethodReference> element = MapMethod(generic.ElementMethod);
+            if (element.Kind == MemberMappingKind.Unbindable)
             {
-                return null;
+                return element;
             }
 
-            var result = new GenericInstanceMethod(mappedElement ?? generic.ElementMethod);
+            TypeReference[]? mappedArguments = MapMany(generic.GenericArguments);
+            if (element.Kind == MemberMappingKind.Unaffected && mappedArguments is null)
+            {
+                return MemberMapping<MethodReference>.Unaffected;
+            }
+
+            var result = new GenericInstanceMethod(element.Reference ?? generic.ElementMethod);
             for (int i = 0; i < generic.GenericArguments.Count; i++)
             {
                 result.GenericArguments.Add(mappedArguments?[i] ?? generic.GenericArguments[i]);
             }
 
-            return result;
+            return MemberMapping<MethodReference>.Mapped(result, element.VerifyAfterPass);
         }
 
         TypeReference? mappedDeclaring = MapType(method.DeclaringType);
@@ -194,45 +208,97 @@ internal sealed class MemberSubstitutionMapper
         TypeReference[]? mappedParameters = MapParameters(method.Parameters);
         if (mappedDeclaring is null && mappedReturn is null && mappedParameters is null)
         {
-            return null;
+            return MemberMapping<MethodReference>.Unaffected;
         }
 
-        if (mappedDeclaring is null)
+        if (!IsSubstituted(method.DeclaringType))
         {
-            return Rebuild(method, method.DeclaringType, mappedReturn, mappedParameters);
+            // The member keeps its declaring type, re-instantiated if a generic argument is substituted.
+            MethodReference rebuilt = Rebuild(method, mappedDeclaring ?? method.DeclaringType, mappedReturn, mappedParameters);
+            return mappedReturn is null && mappedParameters is null
+                ? MemberMapping<MethodReference>.Mapped(rebuilt, verifyAfterPass: false)
+                : Admit(method.DeclaringType, rebuilt);
         }
 
         TypeReference mappedElementType = mappedDeclaring is GenericInstanceType instance
             ? instance.ElementType
-            : mappedDeclaring;
+            : mappedDeclaring!;
 
-        TypeDefinition? definition = mappedElementType.Resolve();
+        TypeDefinition? definition;
+        try
+        {
+            definition = mappedElementType.Resolve();
+        }
+        catch (AssemblyResolutionException exception)
+        {
+            return MemberMapping<MethodReference>.Unbindable(
+                $"has a replacement type '{mappedElementType.FullName}' that could not be resolved: {exception.Message}");
+        }
+
         MethodDefinition? controlled = definition is null ? null : FindMatchingMethod(definition, method);
         if (controlled is null)
         {
-            return null;
+            return MemberMapping<MethodReference>.Unbindable(
+                $"has no matching member on the replacement type '{mappedElementType.FullName}'");
         }
 
         MethodReference importedOpen = _module.ImportReference(controlled);
-        return mappedDeclaring is GenericInstanceType genericDeclaring
-            ? Rebase(importedOpen, genericDeclaring)
-            : importedOpen;
+        return MemberMapping<MethodReference>.Mapped(
+            mappedDeclaring is GenericInstanceType genericDeclaring ? Rebase(importedOpen, genericDeclaring) : importedOpen,
+            verifyAfterPass: false);
     }
 
     /// <summary>Maps a field reference whose declaring type or field type is substituted.</summary>
-    public FieldReference? MapField(FieldReference field)
+    public MemberMapping<FieldReference> MapField(FieldReference field)
     {
         TypeReference? mappedFieldType = MapType(field.FieldType);
         TypeReference? mappedDeclaring = MapType(field.DeclaringType);
         if (mappedFieldType is null && mappedDeclaring is null)
         {
-            return null;
+            return MemberMapping<FieldReference>.Unaffected;
         }
 
-        return new FieldReference(
+        var mapped = new FieldReference(
             field.Name,
             mappedFieldType ?? field.FieldType,
             mappedDeclaring ?? field.DeclaringType);
+        return mappedFieldType is null || IsSubstituted(field.DeclaringType)
+            ? MemberMapping<FieldReference>.Mapped(mapped, verifyAfterPass: false)
+            : Admit(field.DeclaringType, mapped);
+    }
+
+    private bool IsSubstituted(TypeReference type) =>
+        _byName.ContainsKey(CecilNames.NormalizedTypeFullName(type));
+
+    // A rebuilt reference keeps its declaring type but carries a substituted signature, so it binds only where the
+    // declaring type's definition is rewritten by the same mapping: in this module, unless the type is excluded from
+    // rewriting, which is known once the pass has visited every type; or in another assembly the closure rewrites
+    // with the same rule set. Any other assembly - the framework, a replacement assembly, or one the closure excludes
+    // or that a direct engine caller did not name - keeps its original signatures, so the reference is unbindable
+    // and the pass fails the rewrite rather than emit a member reference that throws MissingMethodException or
+    // MissingFieldException when the runtime binds it. Array methods are provided by the runtime for every element
+    // type, so they always bind.
+    private MemberMapping<TMember> Admit<TMember>(TypeReference declaringType, TMember rebuilt)
+        where TMember : MemberReference
+    {
+        if (declaringType is ArrayType)
+        {
+            return MemberMapping<TMember>.Mapped(rebuilt, verifyAfterPass: false);
+        }
+
+        return declaringType.Scope switch
+        {
+            ModuleDefinition module when ReferenceEquals(module, _module) =>
+                MemberMapping<TMember>.Mapped(rebuilt, verifyAfterPass: true),
+            AssemblyNameReference assembly when _rewrittenAssemblyNames.Contains(assembly.Name) =>
+                MemberMapping<TMember>.Mapped(rebuilt, verifyAfterPass: false),
+            AssemblyNameReference assembly => MemberMapping<TMember>.Unbindable(
+                $"is declared by '{CecilNames.NormalizedTypeFullName(declaringType)}' in '{assembly.Name}', which is not " +
+                "rewritten in this closure, so the member keeps its original signature"),
+            _ => MemberMapping<TMember>.Unbindable(
+                $"is declared by '{CecilNames.NormalizedTypeFullName(declaringType)}' in module '{declaringType.Scope?.Name}', " +
+                "which this rewrite cannot check binds after rewriting"),
+        };
     }
 
     /// <summary>

@@ -40,14 +40,14 @@ internal sealed class AssemblyRewriteContext : IDisposable
     private const string InternalsVisibleToAttributeFullName =
         "System.Runtime.CompilerServices.InternalsVisibleToAttribute";
 
-    private readonly DefaultAssemblyResolver _resolver;
+    private readonly GuardedAssemblyResolver _resolver;
     private readonly List<RewriteDiagnostic> _loadDiagnostics = [];
     private bool _disposed;
 
     private AssemblyRewriteContext(
         string filePath,
         AssemblyDefinition definition,
-        DefaultAssemblyResolver resolver,
+        GuardedAssemblyResolver resolver,
         SymbolKind symbolKind)
     {
         FilePath = filePath;
@@ -74,6 +74,9 @@ internal sealed class AssemblyRewriteContext : IDisposable
     /// <summary>Gets the diagnostics produced while loading (e.g. symbol absence).</summary>
     public IReadOnlyList<RewriteDiagnostic> LoadDiagnostics => _loadDiagnostics;
 
+    /// <summary>Gets a description of each cycle of type forwarders a resolution from this assembly met.</summary>
+    public IReadOnlyList<string> ForwarderCycles => _resolver.Guard.Cycles;
+
     /// <summary>
     /// Loads the assembly at <paramref name="filePath"/>, resolving references from the assembly's
     /// own directory plus any <paramref name="searchDirectories"/>.
@@ -94,7 +97,7 @@ internal sealed class AssemblyRewriteContext : IDisposable
             throw new FileNotFoundException($"Assembly to rewrite was not found: '{filePath}'.", filePath);
         }
 
-        var resolver = new DefaultAssemblyResolver();
+        var resolver = new GuardedAssemblyResolver();
         string? assemblyDir = Path.GetDirectoryName(Path.GetFullPath(filePath));
         if (!string.IsNullOrEmpty(assemblyDir))
         {
@@ -134,6 +137,7 @@ internal sealed class AssemblyRewriteContext : IDisposable
                 definition = AssemblyDefinition.ReadAssembly(filePath, new ReaderParameters
                 {
                     AssemblyResolver = resolver,
+                    MetadataResolver = resolver.Guard,
                     ReadSymbols = true,
                     InMemory = true,
                 });
@@ -157,6 +161,7 @@ internal sealed class AssemblyRewriteContext : IDisposable
                 definition = AssemblyDefinition.ReadAssembly(filePath, new ReaderParameters
                 {
                     AssemblyResolver = resolver,
+                    MetadataResolver = resolver.Guard,
                     ReadSymbols = false,
                     InMemory = true,
                 });
@@ -171,6 +176,7 @@ internal sealed class AssemblyRewriteContext : IDisposable
             definition = AssemblyDefinition.ReadAssembly(filePath, new ReaderParameters
             {
                 AssemblyResolver = resolver,
+                MetadataResolver = resolver.Guard,
                 ReadSymbols = false,
                 InMemory = true,
             });

@@ -36,9 +36,10 @@ public enum BuiltInRuleFamily
     TaskCombinators,
 
     /// <summary>
-    /// Task synchronous waits: <c>Task.Wait()</c>, <c>Task.WaitAll</c>, and <c>Task.WaitAny</c>, redirected
-    /// to controlled waits that pump the deterministic loop instead of blocking a physical thread (a
-    /// never-satisfiable wait surfaces as a precise deadlock diagnostic).
+    /// Task synchronous waits: <c>Task.Wait()</c>, <c>Task.WaitAll</c>, <c>Task.WaitAny</c>, and
+    /// <c>TaskAsyncEnumerableExtensions.ToBlockingEnumerable</c>, redirected to controlled waits that pump the
+    /// deterministic loop instead of blocking a physical thread (a never-satisfiable wait surfaces as a precise
+    /// deadlock diagnostic).
     /// </summary>
     TaskSynchronization,
 
@@ -71,7 +72,8 @@ public enum BuiltInRuleFamily
     /// <c>ConfiguredTaskAwaitable</c>/<c>YieldAwaitable</c> and their awaiters, generic and non-generic)
     /// onto Clockwork's controlled equivalents, plus the <c>Task.Yield()</c> redirect. Applied by the
     /// member-aware substitution pass so every awaited continuation is scheduled through the simulation
-    /// coordinator instead of the thread pool, while <c>ConfigureAwait(false)</c> stays controlled.
+    /// coordinator instead of the thread pool, while <c>ConfigureAwait(false)</c> stays controlled. The runtime-async
+    /// <c>AsyncHelpers.Await</c> intrinsics taking a configured task awaitable are rejected.
     /// </summary>
     AsyncMachinery,
 
@@ -82,7 +84,10 @@ public enum BuiltInRuleFamily
     /// (<see cref="System.Runtime.CompilerServices.AsyncValueTaskMethodBuilder"/>, <c>ValueTaskAwaiter</c>,
     /// <c>ConfiguredValueTaskAwaitable</c> and their awaiters, generic and non-generic) onto Clockwork's
     /// controlled equivalents, so awaiting a <see cref="System.Threading.Tasks.ValueTask"/> is scheduled
-    /// through the coordinator and <c>ConfigureAwait(false)</c> stays controlled.
+    /// through the coordinator and <c>ConfigureAwait(false)</c> stays controlled. The configured async disposable
+    /// and enumerable that <c>await using</c> and <c>await foreach</c> consume, and the
+    /// <c>TaskAsyncEnumerableExtensions</c> methods that produce them, are controlled with them. The runtime-async
+    /// <c>AsyncHelpers.Await</c> intrinsics taking a configured value-task awaitable are rejected.
     /// </summary>
     ValueTaskMachinery,
 

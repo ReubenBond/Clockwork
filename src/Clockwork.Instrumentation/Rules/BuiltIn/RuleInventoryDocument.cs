@@ -116,8 +116,8 @@ public static class RuleInventoryDocument
             {
                 string target = rule.Operation == RewriteOperationKind.RedirectNewObj
                     ? "new " + rule.Target.DeclaringTypeFullName + ParamSuffix(rule.Target.ParameterTypeFullNames)
-                    : rule.Target.ToCanonicalString();
-                Line($"| `{rule.Id}` | `{target}` | `{rule.Replacement.ToCanonicalString()}` | {rule.Policy} |");
+                    : Display(rule.Target);
+                Line($"| `{rule.Id}` | `{target}` | `{Display(rule.Replacement)}` | {rule.Policy} |");
             }
 
             Line();
@@ -154,7 +154,10 @@ public static class RuleInventoryDocument
         BuiltInRuleFamily.TaskSynchronization =>
             "Blocking `Task.Wait()`, `Task.WaitAll`, and `Task.WaitAny` redirect to controlled waits that pump " +
             "the deterministic loop rather than blocking a physical thread; a never-satisfiable wait surfaces " +
-            "as a precise deadlock diagnostic instead of hanging the scheduler.",
+            "as a precise deadlock diagnostic instead of hanging the scheduler. " +
+            "`TaskAsyncEnumerableExtensions.ToBlockingEnumerable` redirects to an enumerable that pumps the loop " +
+            "until each `MoveNextAsync` and the final `DisposeAsync` complete, with the BCL's token, early-exit " +
+            "disposal, and exception semantics.",
         BuiltInRuleFamily.TaskContinuations =>
             "`Task.ContinueWith(Action<Task>)`, `Task<T>.ContinueWith(Action<Task<T>>)`, and the result-producing " +
             "`Task<T>.ContinueWith<TNewResult>(Func<Task<T>,TNewResult>)` redirect so the continuation is " +
@@ -173,14 +176,21 @@ public static class RuleInventoryDocument
             "awaiters, generic and non-generic) are substituted onto Clockwork's controlled equivalents by " +
             "the member-aware pass, and `Task.Yield()` redirects to the controlled yield. Every awaited " +
             "continuation is scheduled through the simulation coordinator instead of the thread pool, and " +
-            "`ConfigureAwait(false)` stays controlled.",
+            "`ConfigureAwait(false)` stays controlled. The runtime-async `AsyncHelpers.Await` intrinsics taking a " +
+            "configured task awaitable resume through the runtime's own continuation machinery, so they are rejected.",
         BuiltInRuleFamily.ValueTaskMachinery =>
             "The compiler-generated builder and awaiter types of an `async ValueTask`/`async ValueTask<T>` " +
             "state machine (`AsyncValueTaskMethodBuilder`, `ValueTaskAwaiter`, `ConfiguredValueTaskAwaitable` " +
             "and their awaiters, generic and non-generic) are substituted onto Clockwork's controlled " +
             "equivalents by the member-aware pass, so every awaited value-task continuation is scheduled " +
-            "through the simulation coordinator. `ConfigureAwait(false)` stays controlled. Synchronous " +
-            "blocking on a value task is not rewritten " +
+            "through the simulation coordinator. `ConfigureAwait(false)` stays controlled. The configured async " +
+            "disposable and enumerable that `await using` and `await foreach` consume " +
+            "(`ConfiguredAsyncDisposable`, `ConfiguredCancelableAsyncEnumerable<T>` and its `Enumerator`) are " +
+            "substituted with them, and the `TaskAsyncEnumerableExtensions.ConfigureAwait`/`WithCancellation` " +
+            "extensions redirect to factories for the controlled types, so iteration and dispose awaits resume " +
+            "through the coordinator and the configured token reaches `GetAsyncEnumerator` as in the BCL. " +
+            "The runtime-async `AsyncHelpers.Await` intrinsics taking a configured value-task awaitable are " +
+            "rejected. Synchronous blocking on a value task is not rewritten " +
             "(a value task may be consumed only once); `await` is the supported controlled path.",
         BuiltInRuleFamily.TaskFactory =>
             "All 24 .NET 10 `TaskFactory.StartNew` and `TaskFactory<T>.StartNew` overloads are classified, " +
@@ -329,4 +339,15 @@ public static class RuleInventoryDocument
 
     private static string ParamSuffix(ImmutableArray<string> parameters) =>
         parameters.IsDefault ? "(*)" : "(" + string.Join(",", parameters) + ")";
+
+    // ToCanonicalString is the signature-hashing encoding; the inventory shows the readable member form.
+    private static string Display(MemberSignature signature) =>
+        signature.MemberName is null
+            ? signature.DeclaringTypeFullName
+            : signature.DeclaringTypeFullName + "::" + signature.MemberName + ParamSuffix(signature.ParameterTypeFullNames);
+
+    private static string Display(RewriteReplacement replacement) =>
+        replacement.AssemblyName + "!" + (replacement.MemberName is null
+            ? replacement.DeclaringTypeFullName
+            : replacement.DeclaringTypeFullName + "::" + replacement.MemberName + ParamSuffix(replacement.ParameterTypeFullNames));
 }

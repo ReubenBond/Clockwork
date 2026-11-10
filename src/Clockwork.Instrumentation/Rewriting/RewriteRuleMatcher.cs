@@ -63,6 +63,22 @@ internal sealed class RewriteRuleMatcher
     }
 
     /// <summary>
+    /// Returns the Cecil full names of the in-range substituted types and of their substitutes: the types whose
+    /// presence in a member reference's signature makes whether it binds depend on the rewrite.
+    /// </summary>
+    public IReadOnlySet<string> GetSubstitutionTypeNames()
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (KeyValuePair<string, RewriteRule> entry in TypeSubstitutionRules)
+        {
+            names.Add(entry.Key);
+            names.Add(entry.Value.Replacement.DeclaringTypeFullName);
+        }
+
+        return names;
+    }
+
+    /// <summary>
     /// Finds the first rule (in declared order) matching an invocation of <paramref name="method"/>
     /// at a call/newobj site. Returns <see langword="false"/> if no rule applies. If no in-range rule
     /// applies, the first target-matching rule whose runtime is out of range is returned via

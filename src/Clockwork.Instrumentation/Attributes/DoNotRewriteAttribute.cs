@@ -2,8 +2,11 @@ namespace Clockwork.Instrumentation.Attributes;
 
 /// <summary>
 /// Marks a type that <see cref="Rewriting.RewriteEngine"/> must never rewrite. The engine skips the
-/// whole type (and its nested members) when this attribute is present, and records the skip as an
-/// explicit exclusion in the instrumentation manifest rather than silently ignoring it.
+/// whole type, including the compiler-generated types nested in it (async and iterator state machines,
+/// lambda and local-function closures), transitively, and records each skip as an explicit exclusion in
+/// the instrumentation manifest rather than silently ignoring it. An explicitly declared nested type keeps
+/// its own annotation. A callback the type hands to simulated code - a lambda or local function - is
+/// therefore not rewritten either and runs uncontrolled, with real time, real timers, and the thread pool.
 /// </summary>
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct, AllowMultiple = false)]
 public sealed class DoNotRewriteAttribute : Attribute
