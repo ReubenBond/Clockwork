@@ -435,8 +435,10 @@ ready at a nondeterministic scheduling step. Instead:
 - **`ContinueWith`.** The returned task is a genuine BCL continuation of a private gate, so its status, creation
   options, state, cancellation (including `LazyCancellation`), `NotOn*`/`OnlyOn*` filtering, and exception and
   `OperationCanceledException` handling are the BCL's own. The coordinator observes the antecedent complete and a
-  controlled operation copies its outcome to the gate, which runs the continuation inline on that operation, on a
-  fresh logical strand in the execution context captured by `ContinueWith`. `ExecuteSynchronously` is a hint, as in
+  controlled operation completes the gate with the antecedent's status (never its exceptions, so a fault the
+  continuation ignores stays unobserved and raises `TaskScheduler.UnobservedTaskException`, as in the BCL), which
+  runs the continuation inline on that operation, on a fresh logical strand in the execution context captured by
+  `ContinueWith`. `ExecuteSynchronously` is a hint, as in
   the BCL: the continuation never runs inside the call which completes the antecedent or inside `ContinueWith`.
   `LongRunning` (a dedicated thread) and `AttachedToParent` (controlled tasks have no parent) cannot be preserved
   and throw `SimulationApiException`. The overloads without a scheduler use `TaskScheduler.Default` rather than

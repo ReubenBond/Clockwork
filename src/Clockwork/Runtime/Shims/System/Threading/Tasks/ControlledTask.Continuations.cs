@@ -16,8 +16,9 @@ namespace Clockwork.Shims.System.Threading.Tasks;
 /// <see cref="Task.AsyncState"/>, cancellation (including <see cref="TaskContinuationOptions.LazyCancellation"/>),
 /// <c>NotOn*</c>/<c>OnlyOn*</c> filtering, and exception handling are the BCL's own. It continues a private gate
 /// rather than the antecedent, so the BCL registers nothing on the antecedent: the coordinator observes the antecedent
-/// complete, as the controlled awaiters do, and a controlled operation then copies the antecedent's outcome to the
-/// gate, which runs the continuation inline on that operation.
+/// complete, as the controlled awaiters do, and a controlled operation then completes the gate with the antecedent's
+/// status, which runs the continuation inline on that operation. The gate copies the status alone, never the
+/// antecedent's exceptions, so a fault the continuation ignores stays unobserved, as in the BCL.
 /// </para>
 /// <para>
 /// <see cref="TaskContinuationOptions.ExecuteSynchronously"/> is a hint in the BCL and is always applied to the gate, so
@@ -40,6 +41,9 @@ public static partial class ControlledTask
 {
     private const string ContinueWithApi = "System.Threading.Tasks.Task.ContinueWith";
     private const string GenericContinueWithApi = "System.Threading.Tasks.Task`1.ContinueWith";
+
+    // The fault a gate carries for a faulted antecedent. It never escapes: the continuation receives the antecedent.
+    private static readonly InvalidOperationException GateFault = new("The antecedent faulted.");
 
     /// <summary>Controlled <c>Task.ContinueWith(Action&lt;Task&gt;)</c>.</summary>
     public static Task ContinueWith(Task antecedent, Action<Task> continuationAction) =>
@@ -473,15 +477,37 @@ public static partial class ControlledTask
                     }
 
                     RaceSynchronization.Wait(antecedent);
-                    gate.TrySetFromTask(antecedent);
-
-                    // The gate copies the antecedent's exceptions; marking them observed keeps the copy from raising a
-                    // second UnobservedTaskException for a fault that belongs to the antecedent.
-                    _ = gate.Task.Exception;
+                    CompleteGate(gate, antecedent.Status);
                     PublishCompletion(continuationTask);
                 }),
             apiName);
         return continuationTask;
+    }
+
+    /// <summary>
+    /// Completes a continuation's private gate from its antecedent's status alone. The continuation receives the real
+    /// antecedent, so the gate's outcome only selects whether, and with which status, the BCL runs it. Copying the
+    /// antecedent's exceptions (as <see cref="TaskCompletionSource.TrySetFromTask(Task)"/> does) would mark them
+    /// observed, and suppress the <see cref="TaskScheduler.UnobservedTaskException"/> the BCL raises for a fault which
+    /// no continuation observes.
+    /// </summary>
+    private static void CompleteGate(TaskCompletionSource gate, TaskStatus antecedentStatus)
+    {
+        switch (antecedentStatus)
+        {
+            case TaskStatus.RanToCompletion:
+                gate.TrySetResult();
+                break;
+            case TaskStatus.Canceled:
+                gate.TrySetCanceled();
+                break;
+            default:
+                gate.TrySetException(GateFault);
+
+                // The sentinel fault is Clockwork's own: observing it keeps the gate from reporting it as unobserved.
+                _ = gate.Task.Exception;
+                break;
+        }
     }
 
     /// <summary>Validates continuation options exactly as the BCL's <c>ContinueWith</c> does.</summary>
