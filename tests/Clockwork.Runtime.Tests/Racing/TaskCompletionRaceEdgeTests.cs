@@ -78,6 +78,43 @@ public sealed class TaskCompletionRaceEdgeTests
         Assert.Equal(Location, race.FirstAccess.Location.Member);
     }
 
+    // Unwrapping an outer task which has already completed successfully returns the inner task itself, which carries
+    // only its own edges. The inner task here completed without publishing one, so only the outer task's edge, which
+    // the unwrapping operation acquires as it observes the outer task complete, orders the write before the read.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void UnwrapOfACompletedOuterTaskAcquiresTheOuterEdge(bool generic)
+    {
+        Task<int> inner = Task.FromResult(1);
+        var outer = new TaskCompletionSource<Task>();
+        var genericOuter = new TaskCompletionSource<Task<int>>();
+        using SimulationScheduler scheduler = SchedulerTestHarness.NewScheduler();
+        scheduler.Schedule("producer", () =>
+        {
+            RaceInstrumentation.WriteStatic(Location, "producer", 1, null, -1);
+            if (generic)
+            {
+                ControlledTaskCompletionSource.SetResult(genericOuter, inner);
+            }
+            else
+            {
+                ControlledTaskCompletionSource.SetResult(outer, inner);
+            }
+        });
+        scheduler.Drain(TestContext.Current.CancellationToken);
+        scheduler.Schedule("consumer", () =>
+        {
+            Task unwrapped = generic ? ControlledTask.Unwrap(genericOuter.Task) : ControlledTask.Unwrap(outer.Task);
+            Assert.Same(inner, unwrapped);
+            new ControlledTaskAwaiter(unwrapped).GetResult();
+            Read();
+        });
+        scheduler.Drain(TestContext.Current.CancellationToken);
+
+        Assert.Null(scheduler.FirstRace);
+    }
+
     [Fact]
     public void TimerCallbackHappensBeforeTheAwaitOfDisposeAsync()
     {

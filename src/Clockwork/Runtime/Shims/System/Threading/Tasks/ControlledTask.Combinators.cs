@@ -211,13 +211,18 @@ public static partial class ControlledTask
         ArgumentNullException.ThrowIfNull(task);
 
         // Once the outer task has completed the BCL completes or returns the proxy synchronously; when it completed
-        // successfully, the proxy is the inner task itself.
+        // successfully, the proxy is the inner task itself. That task carries only its own edges, so the outer task's
+        // edge is acquired here, as the outer task is observed complete.
         if (task.IsCompleted)
         {
             Task unwrapped = task.Unwrap();
-            return task.IsCompletedSuccessfully && ReferenceEquals(unwrapped, task.Result)
-                ? unwrapped
-                : TrackUnwrap(unwrapped, task, () => task.Result);
+            if (task.IsCompletedSuccessfully && ReferenceEquals(unwrapped, task.Result))
+            {
+                RaceSynchronization.Wait(task);
+                return unwrapped;
+            }
+
+            return TrackUnwrap(unwrapped, task, () => task.Result);
         }
 
         var promise = new TaskCompletionSource(task.CreationOptions & TaskCreationOptions.AttachedToParent);
@@ -254,9 +259,13 @@ public static partial class ControlledTask
         if (task.IsCompleted)
         {
             Task<TResult> unwrapped = task.Unwrap();
-            return task.IsCompletedSuccessfully && ReferenceEquals(unwrapped, task.Result)
-                ? unwrapped
-                : TrackUnwrap(unwrapped, task, () => task.Result);
+            if (task.IsCompletedSuccessfully && ReferenceEquals(unwrapped, task.Result))
+            {
+                RaceSynchronization.Wait(task);
+                return unwrapped;
+            }
+
+            return TrackUnwrap(unwrapped, task, () => task.Result);
         }
 
         var promise = new TaskCompletionSource<TResult>(task.CreationOptions & TaskCreationOptions.AttachedToParent);
