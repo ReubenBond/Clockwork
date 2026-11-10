@@ -82,10 +82,15 @@ public static class SimulationTaskRuntime
     }
 
     /// <summary>
-    /// Schedules <paramref name="work"/> as a controlled operation once <paramref name="isReady"/> holds. The
-    /// coordinator evaluates the predicate between scheduling steps, so it must only observe completion state; the
-    /// work runs on the logical thread without the caller's user execution context.
+    /// Schedules <paramref name="work"/> as a controlled operation once <paramref name="isReady"/> holds; the work runs
+    /// on the logical thread without the caller's user execution context.
     /// </summary>
+    /// <remarks>
+    /// The coordinator calls the predicate on the thread driving the scheduler, once per scheduling step until it first
+    /// returns <see langword="true"/>, and never again after that. It may update its own observation state (which
+    /// antecedents it has observed complete, say), since antecedents only ever become complete, but must not otherwise
+    /// change simulation state. It runs every step, so its cost should be O(pending antecedents).
+    /// </remarks>
     /// <param name="isReady">The readiness predicate.</param>
     /// <param name="work">The work to run once ready.</param>
     /// <param name="apiName">The controlled API, for diagnostics.</param>

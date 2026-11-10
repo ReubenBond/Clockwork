@@ -308,7 +308,7 @@ public static partial class ControlledTask
         // The BCL's non-generic WhenAll aggregates faults, and picks the canceled task, in the order the antecedents
         // complete. The coordinator observes completions between scheduling steps, so antecedents observed complete
         // in the same step are ordered by argument position.
-        var order = new CompletionOrder(copy);
+        var order = new CompletionOrder<Task>(copy);
         if (order.Observe())
         {
             return Track(Task.WhenAll(order.Completed), copy);
@@ -331,13 +331,14 @@ public static partial class ControlledTask
 
         // The generic WhenAll aggregates faults, results, and the canceled task in argument order, so the BCL computes
         // the exact outcome from the completed antecedents.
-        if (AllCompleted(copy))
+        var progress = new CompletionProgress(copy);
+        if (progress.Observe())
         {
             return Track(Task.WhenAll(copy), copy);
         }
 
         var promise = new TaskCompletionSource<TResult[]>();
-        CompleteWhenReady(() => AllCompleted(copy), () => promise.TrySetFromTask(Task.WhenAll(copy)), WhenAllApi);
+        CompleteWhenReady(progress.Observe, () => promise.TrySetFromTask(Task.WhenAll(copy)), WhenAllApi);
         return Track(promise.Task, copy);
     }
 
@@ -408,7 +409,8 @@ public static partial class ControlledTask
     /// Completes with the first antecedent, in argument order, among those the coordinator observes complete. The BCL
     /// picks the first antecedent to complete, which for antecedents already complete at the call is the first in
     /// argument order; the coordinator observes completions between scheduling steps, so the winner among antecedents
-    /// completing in the same step is the first in argument order.
+    /// completing in the same step is the first in argument order. Every antecedent is pending until the winner is
+    /// observed, so each readiness check costs O(pending).
     /// </summary>
     private static Task<TTask> WhenAnyPromise<TTask>(TTask[] tasks)
         where TTask : Task
@@ -428,8 +430,8 @@ public static partial class ControlledTask
     }
 
     /// <summary>
-    /// Schedules <paramref name="complete"/> as a controlled operation once <paramref name="isReady"/> holds. The
-    /// coordinator evaluates the predicate between scheduling steps, so it must only read completion state.
+    /// Schedules <paramref name="complete"/> as a controlled operation once <paramref name="isReady"/> holds; see
+    /// <see cref="SimulationTaskRuntime.ScheduleWhenReady"/> for the predicate's contract.
     /// </summary>
     private static void CompleteWhenReady(Func<bool> isReady, Action complete, string apiName) =>
         SimulationTaskRuntime.ScheduleWhenReady(isReady, complete, apiName);
@@ -528,26 +530,77 @@ public static partial class ControlledTask
         return list;
     }
 
-    /// <summary>Records the order in which the coordinator observes antecedents complete.</summary>
-    private sealed class CompletionOrder(Task[] tasks)
+    /// <summary>
+    /// Records the order in which the coordinator observes antecedents complete; antecedents observed complete in the
+    /// same scheduling step are recorded in argument order. The antecedents not yet observed complete are kept compacted
+    /// in place, in argument order, so an observation costs O(pending).
+    /// </summary>
+    /// <typeparam name="TTask">The antecedent task type.</typeparam>
+    private sealed class CompletionOrder<TTask>
+        where TTask : Task
     {
-        private readonly bool[] _observed = new bool[tasks.Length];
-        private readonly List<Task> _completed = new(tasks.Length);
+        private readonly TTask[] _tasks;
+        private readonly int[] _pending;
+        private readonly List<TTask> _observed;
+        private int _pendingCount;
 
-        public Task[] Completed => [.. _completed];
-
-        public bool Observe()
+        public CompletionOrder(TTask[] tasks)
         {
+            _tasks = tasks;
+            _pending = new int[tasks.Length];
             for (int i = 0; i < tasks.Length; i++)
             {
-                if (!_observed[i] && tasks[i].IsCompleted)
+                _pending[i] = i;
+            }
+
+            _pendingCount = tasks.Length;
+            _observed = new List<TTask>(tasks.Length);
+        }
+
+        /// <summary>Gets the antecedents observed complete, in the order observed.</summary>
+        public TTask[] Completed => [.. _observed];
+
+        /// <summary>Records the antecedents which have completed since the last observation.</summary>
+        /// <returns>Whether every antecedent has been observed complete.</returns>
+        public bool Observe()
+        {
+            int kept = 0;
+            for (int i = 0; i < _pendingCount; i++)
+            {
+                int index = _pending[i];
+                if (_tasks[index].IsCompleted)
                 {
-                    _observed[i] = true;
-                    _completed.Add(tasks[i]);
+                    _observed.Add(_tasks[index]);
+                }
+                else
+                {
+                    _pending[kept++] = index;
                 }
             }
 
-            return _completed.Count == tasks.Length;
+            _pendingCount = kept;
+            return kept == 0;
+        }
+    }
+
+    /// <summary>
+    /// Observes whether every antecedent has completed. Antecedents only ever become complete, so each observation
+    /// resumes from the first antecedent not yet observed complete, at an amortized O(1) per scheduling step.
+    /// </summary>
+    private sealed class CompletionProgress(Task[] tasks)
+    {
+        private int _next;
+
+        /// <summary>Advances past the antecedents which have completed, in argument order.</summary>
+        /// <returns>Whether every antecedent has completed.</returns>
+        public bool Observe()
+        {
+            while (_next < tasks.Length && tasks[_next].IsCompleted)
+            {
+                _next++;
+            }
+
+            return _next == tasks.Length;
         }
     }
 }
