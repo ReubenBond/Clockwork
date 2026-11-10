@@ -215,6 +215,31 @@ public sealed class ControlledTaskApiTests
         });
     }
 
+    [Fact]
+    public async Task AContinuationTheRuntimeQueuesFailsTheOperationInsteadOfEscaping()
+    {
+        // The BCL queues a gate's continuation instead of running it inline when the stack is nearly exhausted. A gate
+        // which runs its continuations asynchronously makes the BCL queue it deterministically.
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var queued = new ManualResetEventSlim();
+        Task continuation = gate.Task.ContinueWith(
+            _ => queued.Wait(TestContext.Current.CancellationToken),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+
+        var exception = Assert.Throws<SimulationApiException>(() => ControlledTask.CompleteGate(
+            gate,
+            TaskStatus.RanToCompletion,
+            continuation,
+            "System.Threading.Tasks.Task.ContinueWith"));
+
+        Assert.Contains("the runtime queued the continuation", exception.Message, StringComparison.Ordinal);
+        Assert.False(continuation.IsCompleted);
+        queued.Set();
+        await continuation;
+    }
+
 #pragma warning disable xUnit1051 // The token is part of the overload under test; no asynchronous wait occurs.
     public static TheoryData<Func<Task>> DelayCalls =>
         new()

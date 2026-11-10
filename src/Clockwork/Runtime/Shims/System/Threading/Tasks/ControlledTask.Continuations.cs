@@ -477,21 +477,29 @@ public static partial class ControlledTask
                     }
 
                     RaceSynchronization.Wait(antecedent);
-                    CompleteGate(gate, antecedent.Status);
-                    PublishCompletion(continuationTask);
+                    CompleteGate(gate, antecedent.Status, continuationTask, apiName);
                 }),
             apiName);
         return continuationTask;
     }
 
     /// <summary>
-    /// Completes a continuation's private gate from its antecedent's status alone. The continuation receives the real
+    /// <para>
+    /// Completes a continuation's private gate, on the controlled operation which observed the antecedent complete, from
+    /// the antecedent's status alone, then publishes the continuation's completion. The continuation receives the real
     /// antecedent, so the gate's outcome only selects whether, and with which status, the BCL runs it. Copying the
     /// antecedent's exceptions (as <see cref="TaskCompletionSource.TrySetFromTask(Task)"/> does) would mark them
     /// observed, and suppress the <see cref="TaskScheduler.UnobservedTaskException"/> the BCL raises for a fault which
     /// no continuation observes.
+    /// </para>
+    /// <para>
+    /// The gate's continuation is <see cref="TaskContinuationOptions.ExecuteSynchronously"/> on
+    /// <see cref="TaskScheduler.Default"/>, so the BCL runs it inside the gate's completion unless it must queue it
+    /// instead, as it does when the stack is nearly exhausted. A queued continuation would run on the thread pool,
+    /// outside the simulation, so that fails the operation rather than going unnoticed.
+    /// </para>
     /// </summary>
-    private static void CompleteGate(TaskCompletionSource gate, TaskStatus antecedentStatus)
+    internal static void CompleteGate(TaskCompletionSource gate, TaskStatus antecedentStatus, Task continuationTask, string apiName)
     {
         switch (antecedentStatus)
         {
@@ -508,6 +516,18 @@ public static partial class ControlledTask
                 _ = gate.Task.Exception;
                 break;
         }
+
+        if (!continuationTask.IsCompleted)
+        {
+            throw new SimulationApiException(
+                SimulationApiCategory.Task,
+                apiName,
+                "the runtime queued the continuation instead of running it inline on the controlled operation which " +
+                "observed its antecedent complete (for example, because the stack was nearly exhausted), so it would run " +
+                "outside the simulation.");
+        }
+
+        RaceSynchronization.Signal(continuationTask);
     }
 
     /// <summary>Validates continuation options exactly as the BCL's <c>ContinueWith</c> does.</summary>
