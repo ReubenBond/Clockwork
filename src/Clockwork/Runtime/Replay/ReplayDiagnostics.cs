@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.Json.Serialization;
 using Clockwork.Runtime.Racing;
 using Clockwork.Runtime.Scheduling;
 
@@ -148,13 +149,29 @@ public sealed record ReplayDiagnosticSnapshot
     /// <summary>Gets operation statuses in operation-id order.</summary>
     public IReadOnlyList<ReplayOperationDiagnostic> Operations { get; init; } = [];
 
+    /// <summary>
+    /// Gets the operations in <see cref="Operations"/> that ended canceled, in operation-id order: for
+    /// example, the awaited-task continuation a <c>Task.WaitAsync</c> withdraws when its timeout or token
+    /// wins, a lane callback whose timer was changed or disposed before it ran, an operation canceled
+    /// through the scheduler, or work a node detachment canceled. A canceled operation is a diagnostic;
+    /// it never decides the run's <see cref="ReplayTerminationKind"/>. An operation whose body lets an
+    /// <see cref="OperationCanceledException"/> escape is faulted, not canceled. Derived from
+    /// <see cref="Operations"/>; not persisted separately.
+    /// </summary>
+    [JsonIgnore]
+    public IReadOnlyList<ReplayOperationDiagnostic> CanceledOperations =>
+        [.. Operations.Where(static operation => operation.State == nameof(SimulationOperationState.Canceled))];
+
     /// <summary>Gets resources in resource-id order.</summary>
     public IReadOnlyList<ReplayResourceDiagnostic> Resources { get; init; } = [];
 
     /// <summary>Gets pending timers in due-time/sequence order.</summary>
     public IReadOnlyList<ReplayTimerDiagnostic> PendingTimers { get; init; } = [];
 
-    /// <summary>Gets deadlock cycles.</summary>
+    /// <summary>
+    /// Gets the wait-for cycles at the terminal boundary. A cycle left when an entry task completed is
+    /// reported here without deciding the outcome; see <see cref="ReplayTerminationKind.Deadlocked"/>.
+    /// </summary>
     public IReadOnlyList<ReplayDeadlockCycleDiagnostic> DeadlockCycles { get; init; } = [];
 
     /// <summary>Gets the detected race pair, when present.</summary>
@@ -214,6 +231,15 @@ public static class ReplayTraceRenderer
 
             builder.Append('\n');
         }
+
+        IReadOnlyList<ReplayOperationDiagnostic> canceled = diagnostics.CanceledOperations;
+        builder.Append("Canceled operations: ").Append(canceled.Count);
+        for (var index = 0; index < canceled.Count; index++)
+        {
+            builder.Append(index == 0 ? " (" : ", ").Append("op").Append(canceled[index].Id);
+        }
+
+        builder.Append(canceled.Count == 0 ? "\n" : ")\n");
 
         builder.Append("Resources:\n");
         foreach (ReplayResourceDiagnostic resource in diagnostics.Resources)

@@ -239,15 +239,16 @@ public sealed class SimulationSchedulerTests
     }
 
     [Fact]
-    public void BodyThrowingOperationCanceledTransitionsToCanceled()
+    public void BodyLettingOperationCanceledExceptionEscapeTransitionsToFaulted()
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();
-        var op = scheduler.Schedule("w", () => throw new OperationCanceledException());
+        var canceled = new OperationCanceledException();
+        var op = scheduler.Schedule("w", () => throw canceled);
 
         scheduler.Drain(TestContext.Current.CancellationToken);
 
-        Assert.Equal(SimulationOperationState.Canceled, op.State);
-        Assert.Null(op.TerminalException);
+        Assert.Equal(SimulationOperationState.Faulted, op.State);
+        Assert.Same(canceled, op.TerminalException);
     }
 
     [Fact]

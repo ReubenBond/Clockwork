@@ -45,7 +45,7 @@ public sealed class ReplayRunnerTests
     }
 
     [Fact]
-    public void RecordAndReplayCanceledOperation()
+    public void CanceledOperationIsADiagnosticAndLeavesRunCompleted()
     {
         static void Scenario(SimulationScheduler scheduler)
         {
@@ -58,7 +58,9 @@ public sealed class ReplayRunnerTests
             recorded.Artifact,
             Scenario);
 
-        Assert.Equal(ReplayTerminationKind.Canceled, recorded.Artifact.Outcome.Kind);
+        Assert.Equal(ReplayTerminationKind.Completed, recorded.Artifact.Outcome.Kind);
+        Assert.Null(recorded.Artifact.Outcome.FailureIdentity);
+        Assert.Equal(1, Assert.Single(recorded.Artifact.Diagnostics.CanceledOperations).Id);
         Assert.True(replayed.Reproduced);
     }
 

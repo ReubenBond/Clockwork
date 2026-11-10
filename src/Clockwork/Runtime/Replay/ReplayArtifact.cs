@@ -6,25 +6,69 @@ using System.Text.Json.Serialization;
 
 namespace Clockwork.Runtime.Replay;
 
-/// <summary>Classifies the terminal outcome of a recorded execution.</summary>
+/// <summary>
+/// <para>
+/// Classifies the terminal outcome of a recorded execution. The first applicable rule decides:
+/// <see cref="Aborted"/>, <see cref="RaceDetected"/>, <see cref="Faulted"/> for an exception which
+/// escaped an operation body, <see cref="Deadlocked"/> for a wait-for cycle while the entry is
+/// incomplete, <see cref="BoundExceeded"/>, and otherwise the entry task's own terminal state:
+/// <see cref="Completed"/>, <see cref="Canceled"/>, <see cref="Faulted"/>, or, when it never
+/// completed, <see cref="Deadlocked"/>.
+/// </para>
+/// <para>
+/// The entry task is the task returned by an entry-task scenario
+/// (<see cref="ReplayRunner.RecordClusterEntry"/>); the run ends when it completes, as a process ends
+/// when <c>Main</c> returns. A synchronous scenario callback is an entry which ran to completion when
+/// it returned; its run continues until the work it registered quiesces. A canceled operation never
+/// decides the outcome; canceled operations are reported in
+/// <see cref="ReplayDiagnosticSnapshot.CanceledOperations"/>.
+/// </para>
+/// </summary>
 public enum ReplayTerminationKind
 {
-    /// <summary>All controlled operations completed successfully.</summary>
+    /// <summary>
+    /// The entry task ran to completion and no other rule applies. Operations canceled during the run
+    /// and work still pending when it ended, including a wait-for cycle left behind by an entry task
+    /// which completed, are diagnostics and do not change this outcome.
+    /// </summary>
     Completed,
 
-    /// <summary>A controlled operation faulted.</summary>
+    /// <summary>
+    /// An exception escaped a controlled operation's body, or the entry task faulted. An exception
+    /// escaping a body is unhandled wherever .NET would crash the process: a <c>Thread</c> body, a
+    /// thread-pool work item, a <c>System.Threading.Timer</c> callback, a scheduler-lane or
+    /// synchronization-context callback, or a raw
+    /// <see cref="Scheduling.SimulationScheduler.Schedule(string, Action, Execution.SimulationNodeIdentity?, int)"/>
+    /// body. This includes an <see cref="OperationCanceledException"/>. The failure identity is the
+    /// concrete type of the first such exception, such as <c>System.OperationCanceledException</c> or
+    /// <c>System.Threading.Tasks.TaskCanceledException</c>, or of the entry task's first inner exception.
+    /// A task-backed operation (<c>Task.Run</c>, <c>TaskFactory.StartNew</c>, a continuation, or an
+    /// async method) captures its delegate's exception, including cancellation, in its task, so it is
+    /// not an operation fault.
+    /// </summary>
     Faulted,
 
-    /// <summary>A controlled operation was canceled.</summary>
+    /// <summary>
+    /// The entry task ended canceled. The failure identity is <c>entry-task-canceled</c>.
+    /// </summary>
     Canceled,
 
-    /// <summary>The controlled wait graph reached a deadlock.</summary>
+    /// <summary>
+    /// The terminal wait-for graph contains a cycle while the entry is incomplete or is a synchronous
+    /// entry, whose run continues until quiescence (the identity is <c>deadlock:</c> and a hash of the
+    /// cycle), or the entry task had not completed when nothing was runnable and no timer was pending
+    /// (the identity is <c>entry-task-incomplete</c>). A cycle left when an entry task completes is a
+    /// diagnostic (<see cref="ReplayDiagnosticSnapshot.DeadlockCycles"/>), not this outcome.
+    /// </summary>
     Deadlocked,
 
     /// <summary>Race exploration detected a data race.</summary>
     RaceDetected,
 
-    /// <summary>An execution bound was reached.</summary>
+    /// <summary>
+    /// The step bound was reached before the run's work was done: the entry task had not completed, or,
+    /// for a synchronous entry, operations were still pending. The identity is <c>step-bound</c>.
+    /// </summary>
     BoundExceeded,
 
     /// <summary>The recording was aborted before a terminal boundary.</summary>

@@ -506,7 +506,7 @@ public sealed partial class SimulationCluster : IAsyncDisposable
         return task.GetAwaiter().GetResult();
     }
 
-    private Task StartTask(Func<Task> taskFactory)
+    internal Task StartTask(Func<Task> taskFactory)
     {
         Task<Task> outer;
         using (ExecutionContext.SuppressFlow())

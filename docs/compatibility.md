@@ -111,6 +111,23 @@ divergence, including expected/actual source, candidate metadata, and selected r
 that the complete decision stream was consumed at the reproduced terminal boundary. An `Aborted`
 outcome identifies an interrupted decision prefix and is rejected for exact replay.
 
+The terminal outcome is `Aborted`, `RaceDetected`, `Faulted` for an exception that escapes an operation
+body, `Deadlocked` for a wait-for cycle, or `BoundExceeded` when one applies, and otherwise the entry
+task's own terminal state. For an asynchronous entry (`RecordClusterEntry`, `ReplayClusterEntry`,
+`ExploreClusterEntry`), the entry task is the task the scenario returns, and the runner stops when it
+completes, as a process ends when `Main` returns: work left at that point, including a wait-for cycle,
+is reported in the diagnostics and does not change the outcome. A synchronous scenario callback
+(`Record`, `RecordCluster`, `ExploreCluster`) is an entry which completed when it returned; its run
+continues until the work it registered quiesces or reaches a bound, and a wait-for cycle at that
+quiescence is `Deadlocked`. Artifacts record the entry form, and replaying one in the other form is
+rejected. An exception, including an `OperationCanceledException`, that escapes a `Thread` body,
+thread-pool item, timer callback, scheduler-lane or synchronization-context callback, or raw `Schedule`
+body is unhandled, as in .NET, and faults the run with its concrete type; task-backed operations such as
+`Task.Run` capture it in their task instead. Canceled operations, including the continuation a
+`Task.WaitAsync` withdraws when its timeout or token wins, are diagnostics and never make a run
+`Canceled`. See [`replay.md`](replay.md#outcome-classification) for the exact rules and failure
+identities.
+
 `ScheduleExplorer` varies only the schedule seed while keeping the simulation seed fixed.
 Iterations run serially; iteration, failure, step, cancellation, and optional wall-clock safety bounds
 are explicit. Iteration ids are deterministic, aggregate outcomes are stable, and the smallest artifact
@@ -444,6 +461,11 @@ and `Parallel.Invoke`/`For`/`ForEach`.
 - **`Thread.Sleep` / `Thread.Join(timeout)` are virtual waits.** They yield the logical thread
   through the deterministic loop rather than consuming real wall-clock time. The same virtual-time
   scheduler now backs timers, delays, asynchronous timeouts, and timer-driven cancellation.
+- **An unhandled exception faults the run instead of terminating the process.** An exception,
+  including an `OperationCanceledException`, that escapes a `Thread` body, a thread-pool work item, or
+  a timer callback crashes a real process. Here it faults that controlled operation, which a replayed
+  run reports as `Faulted`. A `Join` on the thread returns, observing the terminated thread, because
+  `Join` never surfaces a thread's exception.
 - **Safe vs. unsafe `ExecutionContext` flow is modelled.** `QueueUserWorkItem` captures and flows
   the caller's `ExecutionContext`; `UnsafeQueueUserWorkItem` does not — matching the BCL contract —
   so `AsyncLocal` values observed by the callback differ between the two exactly as they do on the

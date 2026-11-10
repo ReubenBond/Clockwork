@@ -98,15 +98,27 @@ public sealed class ReplayOutcomeMismatchException : InvalidOperationException
 }
 
 /// <summary>
-/// Records and replays controlled scheduler scenarios. The callback only registers controlled work;
-/// this runner owns scheduler creation, driving, terminal classification, and replay validation.
+/// Records and replays controlled scheduler scenarios. A scenario is the run's entry: a synchronous
+/// callback (<see cref="Record"/>, <see cref="RecordCluster"/>) registers controlled work, and an
+/// entry-task scenario (<see cref="RecordClusterEntry"/>) returns the entry task. Artifacts record the
+/// entry form, and replay rejects the other form. This runner owns scheduler creation, driving, terminal
+/// classification (see <see cref="ReplayTerminationKind"/>), and replay validation.
 /// </summary>
 public static class ReplayRunner
 {
     private const string ExecutionHostOption = "executionHost";
     private const string ClusterExecutionHost = "cluster";
+    private const string EntryOption = "entry";
+    private const string CallbackEntry = "callback";
+    private const string TaskEntry = "task";
+    private const string EntryTaskCanceledIdentity = "entry-task-canceled";
+    private const string EntryTaskIncompleteIdentity = "entry-task-incomplete";
 
-    /// <summary>Records one controlled scenario with explicit orchestration cancellation.</summary>
+    /// <summary>
+    /// Records one controlled scenario with explicit orchestration cancellation. The callback is a
+    /// synchronous entry: it registers controlled work, and the runner drives that work until it
+    /// quiesces or the run ends otherwise.
+    /// </summary>
     public static ReplayExecutionResult Record(
         ReplayRecordingOptions configuration,
         Action<SimulationScheduler> scenario,
@@ -126,7 +138,11 @@ public static class ReplayRunner
         DriveResult drive = Drive(
             scheduler,
             listener,
-            scenario,
+            () =>
+            {
+                scenario(scheduler);
+                return null;
+            },
             configuration.MaxSteps,
             cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
@@ -150,6 +166,8 @@ public static class ReplayRunner
     /// <summary>
     /// Records one fresh <see cref="SimulationCluster"/> scenario with explicit orchestration
     /// cancellation. The runner owns cluster creation, driving, artifact capture, and disposal.
+    /// The callback is a synchronous entry: it registers work and returns, and the runner drives that
+    /// work until it quiesces or the run ends otherwise.
     /// </summary>
     public static ReplayExecutionResult RecordCluster(
         ReplayRecordingOptions configuration,
@@ -158,6 +176,33 @@ public static class ReplayRunner
     {
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(scenario);
+        return RecordClusterCore(configuration, StartSynchronousEntry(scenario), isEntryTask: false, cancellationToken);
+    }
+
+    /// <summary>
+    /// Records one fresh <see cref="SimulationCluster"/> scenario whose returned task is the run's entry
+    /// task. The runner starts the scenario on the cluster's task scheduler, as
+    /// <see cref="SimulationCluster.RunToCompletion(Func{Task}, CancellationToken, int)"/> does, drives
+    /// until the entry task completes or the run ends otherwise, and classifies the run from the entry
+    /// task's terminal state (see <see cref="ReplayTerminationKind"/>). The artifact records the entry
+    /// form, and only <see cref="ReplayClusterEntry"/> replays it.
+    /// </summary>
+    public static ReplayExecutionResult RecordClusterEntry(
+        ReplayRecordingOptions configuration,
+        Func<SimulationCluster, Task> scenario,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(scenario);
+        return RecordClusterCore(configuration, StartEntryTask(scenario), isEntryTask: true, cancellationToken);
+    }
+
+    private static ReplayExecutionResult RecordClusterCore(
+        ReplayRecordingOptions configuration,
+        Func<SimulationCluster, Task?> startEntry,
+        bool isEntryTask,
+        CancellationToken cancellationToken)
+    {
         ValidateConfiguration(configuration);
 
         int scheduleSeed = GetScheduleSeed(configuration);
@@ -173,7 +218,7 @@ public static class ReplayRunner
             DriveResult drive = Drive(
                 scheduler,
                 listener,
-                _ => scenario(cluster),
+                () => startEntry(cluster),
                 configuration.MaxSteps,
                 cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
@@ -184,7 +229,8 @@ public static class ReplayRunner
                 scheduler,
                 listener,
                 drive,
-                ClusterExecutionHost);
+                ClusterExecutionHost,
+                isEntryTask);
             return new ReplayExecutionResult
             {
                 Artifact = artifact,
@@ -214,7 +260,7 @@ public static class ReplayRunner
         ArgumentNullException.ThrowIfNull(scenario);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxSteps);
         ReplayCompatibility.Validate(artifact, requirements);
-        ValidateExecutionHost(artifact, expectCluster: false);
+        ValidateExecutionHost(artifact, expectCluster: false, expectEntryTask: false);
 
         var records = artifact.Decisions.Select(static decision => decision.ToRecord()).ToArray();
         var listener = new ReplayOperationListener(includeDiagnosticMessages: false);
@@ -226,7 +272,11 @@ public static class ReplayRunner
         DriveResult drive = Drive(
             scheduler,
             listener,
-            scenario,
+            () =>
+            {
+                scenario(scheduler);
+                return null;
+            },
             maxSteps,
             cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
@@ -267,7 +317,9 @@ public static class ReplayRunner
 
     /// <summary>
     /// Replays a cluster artifact exactly against one fresh <see cref="SimulationCluster"/> and
-    /// disposes the cluster after replay validation.
+    /// disposes the cluster after replay validation. The callback is a synchronous entry, as for
+    /// <see cref="RecordCluster(ReplayRecordingOptions, Action{SimulationCluster}, CancellationToken)"/>;
+    /// an artifact recorded with an entry task is rejected.
     /// </summary>
     public static ReplayExecutionResult ReplayCluster(
         ReplayArtifact artifact,
@@ -279,9 +331,38 @@ public static class ReplayRunner
         ArgumentNullException.ThrowIfNull(artifact);
         ArgumentNullException.ThrowIfNull(requirements);
         ArgumentNullException.ThrowIfNull(scenario);
+        return ReplayClusterCore(artifact, requirements, StartSynchronousEntry(scenario), isEntryTask: false, maxSteps, cancellationToken);
+    }
+
+    /// <summary>
+    /// Replays an artifact recorded by <see cref="RecordClusterEntry"/> exactly against one fresh
+    /// <see cref="SimulationCluster"/> whose scenario returns the run's entry task, and disposes the
+    /// cluster after replay validation. An artifact recorded with a synchronous entry is rejected.
+    /// </summary>
+    public static ReplayExecutionResult ReplayClusterEntry(
+        ReplayArtifact artifact,
+        ReplayCompatibilityRequirements requirements,
+        Func<SimulationCluster, Task> scenario,
+        int maxSteps,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(artifact);
+        ArgumentNullException.ThrowIfNull(requirements);
+        ArgumentNullException.ThrowIfNull(scenario);
+        return ReplayClusterCore(artifact, requirements, StartEntryTask(scenario), isEntryTask: true, maxSteps, cancellationToken);
+    }
+
+    private static ReplayExecutionResult ReplayClusterCore(
+        ReplayArtifact artifact,
+        ReplayCompatibilityRequirements requirements,
+        Func<SimulationCluster, Task?> startEntry,
+        bool isEntryTask,
+        int maxSteps,
+        CancellationToken cancellationToken)
+    {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxSteps);
         ReplayCompatibility.Validate(artifact, requirements);
-        ValidateExecutionHost(artifact, expectCluster: true);
+        ValidateExecutionHost(artifact, expectCluster: true, expectEntryTask: isEntryTask);
 
         var records = artifact.Decisions.Select(static decision => decision.ToRecord()).ToArray();
         var listener = new ReplayOperationListener(includeDiagnosticMessages: false);
@@ -296,7 +377,7 @@ public static class ReplayRunner
             DriveResult drive = Drive(
                 scheduler,
                 listener,
-                _ => scenario(cluster),
+                () => startEntry(cluster),
                 maxSteps,
                 cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
@@ -320,7 +401,8 @@ public static class ReplayRunner
                 scheduler,
                 listener,
                 drive,
-                ClusterExecutionHost);
+                ClusterExecutionHost,
+                isEntryTask);
             if (!OutcomesMatch(artifact.Outcome, replayArtifact.Outcome))
             {
                 throw new ReplayOutcomeMismatchException(artifact.Outcome, replayArtifact.Outcome);
@@ -373,19 +455,39 @@ public static class ReplayRunner
             _ => throw new ArgumentOutOfRangeException(nameof(policy)),
         };
 
+    // A synchronous scenario callback is an entry which ran to completion when it returned; the
+    // runner represents it with no entry task.
+    private static Func<SimulationCluster, Task?> StartSynchronousEntry(Action<SimulationCluster> scenario) =>
+        cluster =>
+        {
+            scenario(cluster);
+            return null;
+        };
+
+    private static Func<SimulationCluster, Task?> StartEntryTask(Func<SimulationCluster, Task> scenario) =>
+        cluster => cluster.StartTask(
+            () => scenario(cluster) ?? throw new InvalidOperationException("The replay scenario returned a null entry task."));
+
+    /// <summary>
+    /// Starts the entry and drives the scheduler until a race or an operation fault (including a lane
+    /// callback's unhandled exception, which the lane also reports) stops the run; the entry task completes; nothing is runnable and no timer is
+    /// pending; or the step bound is reached. Without an entry task, the run is the work the
+    /// synchronous entry registered, so the runner drives it until it quiesces.
+    /// </summary>
     private static DriveResult Drive(
         SimulationScheduler scheduler,
         ReplayOperationListener listener,
-        Action<SimulationScheduler> scenario,
+        Func<Task?> startEntry,
         int maxSteps,
         CancellationToken cancellationToken)
     {
         var steps = 0;
+        Task? entry = null;
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            scenario(scheduler);
-            while (steps < maxSteps)
+            entry = startEntry();
+            while (steps < maxSteps && entry is not { IsCompleted: true })
             {
                 if (scheduler.RunStepCapturingCallbackFailure(
                     cancellationToken,
@@ -398,7 +500,8 @@ public static class ReplayRunner
                             steps,
                             BoundExceeded: false,
                             Exception: null,
-                            IsAborted: false);
+                            IsAborted: false,
+                            entry);
                     }
 
                     if (scheduler.FirstRace is not null || listener.FirstFailure is not null)
@@ -421,11 +524,15 @@ public static class ReplayRunner
                 }
             }
 
+            bool workRemains = entry is null
+                ? scheduler.PendingOperationCount > 0
+                : !entry.IsCompleted;
             return new DriveResult(
                 steps,
-                BoundExceeded: steps >= maxSteps && scheduler.PendingOperationCount > 0,
+                BoundExceeded: steps >= maxSteps && workRemains,
                 Exception: null,
-                IsAborted: false);
+                IsAborted: false,
+                entry);
         }
         catch (Exception exception) when (
             exception is not SimulationDecisionReplayMismatchException &&
@@ -435,7 +542,8 @@ public static class ReplayRunner
                 steps,
                 BoundExceeded: false,
                 exception,
-                IsAborted: true);
+                IsAborted: true,
+                entry);
         }
     }
 
@@ -446,7 +554,8 @@ public static class ReplayRunner
         SimulationScheduler scheduler,
         ReplayOperationListener listener,
         DriveResult drive,
-        string? executionHost = null)
+        string? executionHost = null,
+        bool isEntryTask = false)
     {
         ReplayOutcome outcome = ClassifyOutcome(configuration, scheduler, listener, drive);
         IReadOnlyList<ReplayRaceSchedulingPoint> points = scheduler.CaptureRaceSchedulingPoints()
@@ -469,6 +578,13 @@ public static class ReplayRunner
         if (executionHost is not null)
         {
             schedulerOptions[ExecutionHostOption] = executionHost;
+        }
+
+        // Only an entry-task run records its form; an absent option is a synchronous callback entry,
+        // so callback artifacts are unchanged.
+        if (isEntryTask)
+        {
+            schedulerOptions[EntryOption] = TaskEntry;
         }
 
         return new ReplayArtifact
@@ -622,8 +738,12 @@ public static class ReplayRunner
             };
         }
 
+        // A completed entry task ends the run, as a process ends when Main returns, so a wait-for cycle
+        // left behind is reported in the diagnostics (DeadlockCycles) with the other leftover work rather
+        // than deciding the outcome. A synchronous entry's run continues until quiescence, so its cycles
+        // decide the run, as do cycles found while an entry task is still incomplete.
         SimulationDeadlockReport deadlock = scheduler.DetectDeadlock();
-        if (deadlock.IsDeadlocked)
+        if (drive.Entry is not { IsCompleted: true } && deadlock.IsDeadlocked)
         {
             return new ReplayOutcome
             {
@@ -645,17 +765,35 @@ public static class ReplayRunner
             };
         }
 
-        if (scheduler.CaptureStatus().Any(static status => status.State == SimulationOperationState.Canceled))
+        // Otherwise the entry task's own terminal state decides the run. Canceled operations are
+        // diagnostics (ReplayDiagnosticSnapshot.CanceledOperations), never the run's outcome.
+        return drive.Entry switch
         {
-            return new ReplayOutcome
+            null or { IsCompletedSuccessfully: true } => new ReplayOutcome { Kind = ReplayTerminationKind.Completed },
+            { IsCanceled: true } => new ReplayOutcome
             {
                 Kind = ReplayTerminationKind.Canceled,
-                FailureIdentity = "controlled-operation-canceled",
-            };
-        }
-
-        return new ReplayOutcome { Kind = ReplayTerminationKind.Completed };
+                FailureIdentity = EntryTaskCanceledIdentity,
+            },
+            { Exception.InnerExceptions: [var exception, ..] } => Faulted(configuration, exception),
+            _ => new ReplayOutcome
+            {
+                Kind = ReplayTerminationKind.Deadlocked,
+                FailureIdentity = EntryTaskIncompleteIdentity,
+                Diagnostic = configuration.IncludeDiagnosticMessages ? Bound(scheduler.DescribeLiveness()) : null,
+            },
+        };
     }
+
+    private static ReplayOutcome Faulted(ReplayRecordingOptions configuration, Exception exception) => new()
+    {
+        Kind = ReplayTerminationKind.Faulted,
+        FailureIdentity = GetExceptionIdentity(exception),
+        Diagnostic = configuration.IncludeDiagnosticMessages ? Bound(exception.Message) : null,
+    };
+
+    private static string GetExceptionIdentity(Exception exception) =>
+        exception.GetType().FullName ?? exception.GetType().Name;
 
     private static bool OutcomesMatch(ReplayOutcome expected, ReplayOutcome actual) =>
         expected.Kind == actual.Kind &&
@@ -722,7 +860,7 @@ public static class ReplayRunner
             _ => throw new ReplayCompatibilityException($"Unsupported recorded scheduler strategy '{strategy}'."),
         };
 
-    private static void ValidateExecutionHost(ReplayArtifact artifact, bool expectCluster)
+    private static void ValidateExecutionHost(ReplayArtifact artifact, bool expectCluster, bool expectEntryTask)
     {
         artifact.Scheduler.Options.TryGetValue(ExecutionHostOption, out string? executionHost);
         bool isCluster;
@@ -747,6 +885,32 @@ public static class ReplayRunner
             throw new ReplayCompatibilityException(
                 $"Replay execution host mismatch: artifact='{actual}', requested='{expected}'.");
         }
+
+        // A run's entry form decides when it ends and how it is classified, so replaying it in the
+        // other form would diverge; reject the mismatch before any scenario code runs.
+        artifact.Scheduler.Options.TryGetValue(EntryOption, out string? entry);
+        bool isEntryTask;
+        if (entry is null || string.Equals(entry, CallbackEntry, StringComparison.Ordinal))
+        {
+            isEntryTask = false;
+        }
+        else if (string.Equals(entry, TaskEntry, StringComparison.Ordinal))
+        {
+            isEntryTask = true;
+        }
+        else
+        {
+            throw new ReplayCompatibilityException($"Unsupported replay entry form '{entry}'.");
+        }
+
+        if (expectEntryTask != isEntryTask)
+        {
+            string expected = expectEntryTask ? TaskEntry : CallbackEntry;
+            string actual = isEntryTask ? TaskEntry : CallbackEntry;
+            throw new ReplayCompatibilityException(
+                $"Replay entry form mismatch: artifact='{actual}', requested='{expected}'. " +
+                $"Replay an '{TaskEntry}' artifact with {nameof(ReplayClusterEntry)} and a '{CallbackEntry}' artifact with {nameof(ReplayCluster)} or {nameof(Replay)}.");
+        }
     }
 
     private static void ValidateConfiguration(ReplayRecordingOptions configuration)
@@ -761,7 +925,12 @@ public static class ReplayRunner
         }
     }
 
-    private sealed record DriveResult(int Steps, bool BoundExceeded, Exception? Exception, bool IsAborted);
+    private sealed record DriveResult(
+        int Steps,
+        bool BoundExceeded,
+        Exception? Exception,
+        bool IsAborted,
+        Task? Entry);
 
     private sealed class ReplayOperationListener(bool includeDiagnosticMessages) : ISimulationOperationListener
     {
@@ -779,7 +948,7 @@ public static class ReplayRunner
             }
 
             FirstFailure = new OperationFailure(
-                exception.GetType().FullName ?? exception.GetType().Name,
+                GetExceptionIdentity(exception),
                 _includeDiagnosticMessages ? exception.Message : null);
         }
     }

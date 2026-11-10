@@ -121,9 +121,9 @@ public sealed class SimulationOperation
     public SimulationPauseReason? PauseReason { get; private set; }
 
     /// <summary>
-    /// Gets the exception that faulted the operation (<see cref="SimulationOperationState.Faulted"/>),
-    /// or <see langword="null"/> otherwise. The kernel's internal teardown-unwind signal is never
-    /// surfaced here.
+    /// Gets the exception that escaped the operation's body (<see cref="SimulationOperationState.Faulted"/>),
+    /// including an <see cref="OperationCanceledException"/>, or <see langword="null"/> otherwise. The
+    /// kernel's internal teardown-unwind signal is never surfaced here.
     /// </summary>
     public Exception? TerminalException { get; private set; }
 

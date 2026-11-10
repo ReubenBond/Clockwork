@@ -112,6 +112,8 @@ public static class ScheduleExplorer
 
     /// <summary>
     /// Explores schedule seeds serially using one fresh <see cref="SimulationCluster"/> per iteration.
+    /// The scenario is a synchronous entry, as for
+    /// <see cref="ReplayRunner.RecordCluster(ReplayRecordingOptions, Action{SimulationCluster}, CancellationToken)"/>.
     /// </summary>
     public static ScheduleExplorationResult ExploreCluster(
         ScheduleExplorationOptions configuration,
@@ -124,6 +126,25 @@ public static class ScheduleExplorer
             configuration,
             (recording, iterationCancellation) =>
                 ReplayRunner.RecordCluster(recording, scenario, iterationCancellation),
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Explores schedule seeds serially using one fresh <see cref="SimulationCluster"/> per iteration,
+    /// recording each run with <see cref="ReplayRunner.RecordClusterEntry"/>: the scenario returns the
+    /// run's entry task. Replay a retained artifact with <see cref="ReplayRunner.ReplayClusterEntry"/>.
+    /// </summary>
+    public static ScheduleExplorationResult ExploreClusterEntry(
+        ScheduleExplorationOptions configuration,
+        Func<SimulationCluster, Task> scenario,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(scenario);
+        return ExploreCore(
+            configuration,
+            (recording, iterationCancellation) =>
+                ReplayRunner.RecordClusterEntry(recording, scenario, iterationCancellation),
             cancellationToken);
     }
 

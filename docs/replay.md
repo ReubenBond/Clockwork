@@ -79,6 +79,97 @@ dispose it. Cluster disposal therefore cannot append decisions or consume the re
 Artifacts identify whether they require the scheduler or cluster execution host and reject the wrong
 replay entry point.
 
+A cluster scenario may instead return the run's entry task, through separately named methods:
+
+```csharp
+ReplayExecutionResult recorded = ReplayRunner.RecordClusterEntry(
+    options,
+    async cluster =>
+    {
+        SimulationNode node = cluster.AddNode("node");
+        await RunWorkloadAsync(node);
+    },
+    cancellationToken);
+
+ReplayExecutionResult replayed = ReplayRunner.ReplayClusterEntry(
+    recorded.Artifact,
+    ReplayCompatibilityRequirements.Current(),
+    async cluster => await RunScenarioAsync(cluster),
+    maxSteps: 1_000_000,
+    cancellationToken);
+```
+
+The runner starts an entry-task scenario on the cluster's task scheduler, as
+`SimulationCluster.RunToCompletion` does, so its continuations stay on the controlled scheduler.
+`ScheduleExplorer.ExploreClusterEntry` explores the same form. The names are distinct so that an
+`async` lambda or a `Task`-returning call passed to `RecordCluster`, `ReplayCluster`, or
+`ExploreCluster` still binds to the synchronous `Action` form: it registers work, and the runner drives
+that work. An entry-task artifact records `entry: task` in `scheduler.options`, alongside
+`executionHost`; an artifact without it has a synchronous callback entry. Replaying an artifact in the
+other form fails before scenario code runs with a `ReplayCompatibilityException` naming both forms.
+
+## Outcome classification
+
+The entry is the scenario. An entry-task scenario's returned task (`RecordClusterEntry`) is the entry
+task, and the run ends when it completes, as a process ends when `Main` returns. A synchronous callback
+(`Record`, `RecordCluster`, `IReplayScenario.Configure`) is an entry which ran to completion when it
+returned; the run's work is the controlled work it registered, which the runner drives until it
+quiesces. An exception from a synchronous callback aborts the recording.
+
+The runner drives one step at a time and stops at the first of:
+
+- a detected race, or an operation fault (the first exception that escapes a controlled operation's
+  body; a lane callback's escaping exception also stops the run as an unhandled callback failure);
+- completion of the entry task;
+- quiescence: nothing is runnable and no timer is pending;
+- the step bound.
+
+A synchronous entry has already completed, so its run continues until quiescence or the bound.
+
+The outcome is the first rule that applies. Recording and replay use the same rules; replay compares
+only the kind and failure identity.
+
+| Outcome | Rule | Failure identity |
+|---|---|---|
+| `Aborted` | The synchronous callback, or the runner outside any controlled operation, threw before a terminal boundary. Not replayable. | exception type |
+| `RaceDetected` | Race exploration found a data race. | `race:<hash>` |
+| `Faulted` | An exception, including an `OperationCanceledException`, escaped a controlled operation's body. | concrete exception type |
+| `Deadlocked` | The terminal wait-for graph has a cycle, and the entry is a synchronous callback or an incomplete entry task. | `deadlock:<hash>` |
+| `BoundExceeded` | The step bound was reached while the entry task was incomplete or, for a synchronous entry, operations were still pending. | `step-bound` |
+| `Completed` | Otherwise: the entry task ran to completion. | none |
+| `Canceled` | Otherwise: the entry task ended canceled. | `entry-task-canceled` |
+| `Faulted` | Otherwise: the entry task faulted. | type of its first inner exception |
+| `Deadlocked` | Otherwise: the entry task had not completed at quiescence. | `entry-task-incomplete` |
+
+An exception escaping an operation body is unhandled, as it is in .NET, where it crashes the process:
+a `Thread` body, a thread-pool work item, a `System.Threading.Timer` callback, a scheduler-lane or
+synchronization-context callback, or a raw `SimulationScheduler.Schedule` body. This includes an
+`OperationCanceledException`; the failure identity is its concrete type, such as
+`System.OperationCanceledException` or `System.Threading.Tasks.TaskCanceledException`. Task-backed
+operations (`Task.Run`, `TaskFactory.StartNew`, continuations, and async methods) capture their
+delegate's exception, including cancellation, in their task, so their operations complete and a fault
+or cancellation the program observes through the task does not make the run `Faulted`.
+`System.Timers.Timer` suppresses exceptions from `Elapsed` handlers, as .NET does. A `Join` on a thread
+whose body threw returns, observing the terminated thread, because `Join` never surfaces a thread's
+exception; the run itself has already faulted.
+
+A canceled operation never decides the outcome. In .NET, cancellation is an ordinary result, and the
+scheduler also cancels operations as bookkeeping: for example, the continuation a `Task.WaitAsync`
+withdraws when its timeout or token wins, or a lane callback whose timer is reset before it runs.
+An operation is canceled only by the scheduler (`SimulationScheduler.Cancel`, such withdrawals, node
+detachment, or teardown), never by an exception from its own body. Every operation's terminal state is
+recorded in the artifact's operation diagnostics; `ReplayDiagnosticSnapshot.CanceledOperations` lists
+the canceled ones in id order, and `trace show` prints their count and ids.
+
+After an entry task completes, the runner does not drive leftover work, and that work never changes
+the outcome: the diagnostics report its operations, liveness, virtual time, and any wait-for cycle
+(`DeadlockCycles`) at that boundary, whether or not unrelated work is still pending. A wait-for cycle
+found while the entry task is incomplete, or at the quiescence that ends a synchronous entry's run, is
+`Deadlocked`; other work still pending at that quiescence is reported but does not change the outcome.
+Diagnostics are captured before teardown, so scheduler teardown and the cluster disposal that follows
+never appear in the artifact. A node detached during the run, such as one whose attachment failed,
+cancels its pending operations; they appear as canceled operations.
+
 ## Commands
 
 ```powershell
