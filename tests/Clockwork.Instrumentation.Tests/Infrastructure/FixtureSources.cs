@@ -72,6 +72,8 @@ internal static class FixtureSources
                 public override string ToString() => "legacy";
             }
 
+            public class MarkerList : System.Collections.Generic.List<LegacyMarker> { }
+
             public static class MarkerSink
             {
                 public static string Describe(LegacyMarker marker) => marker.ToString();
@@ -160,6 +162,8 @@ internal static class FixtureSources
             {
                 public override string ToString() => "modern";
             }
+
+            public interface IModernProbe { int Sample(); }
 
             public static class MarkerShim
             {

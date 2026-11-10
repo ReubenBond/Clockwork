@@ -14,7 +14,11 @@ namespace Clockwork.Instrumentation.Orchestration;
 /// boundary binds any more. Each such reference, implementation, and override whose signature mentions a substituted or
 /// substitute type is checked against the staged closure, and one that does not bind fails the run with
 /// <see cref="RewriteDiagnosticIds.UnresolvedReplacement"/> instead of throwing <see cref="MissingMemberException"/> or
-/// <see cref="TypeLoadException"/> when the runtime binds it.
+/// <see cref="TypeLoadException"/> when the runtime binds it. A rewrite also substitutes the base types, interfaces, and
+/// generic parameter constraints composed from a substituted type, so such code fails the run too where it mentions a
+/// type or method so reshaped: it could use the type through a base type or interface it no longer has. Conversely,
+/// rewritten code fails the run where it mentions a type that keeps such a part - an excluded type of another rewritten
+/// assembly, or a type deriving from one - which the rewrite could not know was excluded.
 /// </summary>
 internal static class ClosureBindingValidator
 {
@@ -55,7 +59,9 @@ internal static class ClosureBindingValidator
 
         var closure = new Closure(
             new HashSet<string>(rewrittenAssemblyNames, StringComparer.OrdinalIgnoreCase),
-            excludedTypesByAssembly);
+            excludedTypesByAssembly,
+            signatureTypes,
+            matcher.TypeSubstitutionRules.Select(entry => entry.Key).ToHashSet(StringComparer.Ordinal));
         var typeShapes = new TypeShapeCheck(matcher.TypeSubstitutionRules);
         ClosureAsset[] candidates =
         [
@@ -125,6 +131,56 @@ internal static class ClosureBindingValidator
                     }
                 }
             }
+
+            // A rewrite substitutes the base types, interfaces, and generic parameter constraints of the types and
+            // methods it rewrites, and code the closure does not rewrite keeps relying on the original ones.
+            if (!closure.IsRewritten(consumer))
+            {
+                foreach (TypeReference reference in module.GetTypeReferences())
+                {
+                    if (closure.ReshapeOf(reference) is { } reshape)
+                    {
+                        ReportReshape(asset, reference.FullName, reshape, $"'{consumer}' is not rewritten in this closure");
+                    }
+                }
+
+                foreach (MethodReference method in module.GetMemberReferences().OfType<MethodReference>())
+                {
+                    if (closure.MethodReshapeOf(method) is { } reshape)
+                    {
+                        ReportReshape(asset, reshape.Owner, reshape, $"'{consumer}' is not rewritten in this closure");
+                    }
+                }
+            }
+            else
+            {
+                foreach (TypeDefinition type in module.GetTypes().Where(type => closure.IsExcluded(consumer, type.FullName)))
+                {
+                    foreach (ReshapedReference reference in TypeReshapes.FindReferences(type, closure.ReshapeOf, closure.MethodReshapeOf))
+                    {
+                        ReportReshape(
+                            asset,
+                            reference.Mentioned,
+                            reference.Reshape,
+                            $"'{type.FullName}' is excluded from rewriting in '{consumer}'");
+                    }
+                }
+
+                // Conversely, the rewritten code sees such a part as composed from the substitute, so it cannot use a
+                // type that keeps the original one. The rewrite checked the types it knew were not rewritten; whether
+                // a type of another assembly the closure rewrites is excluded there is known only now.
+                if (closure.HasExclusions)
+                {
+                    foreach (TypeDefinition type in module.GetTypes().Where(type => !closure.IsExcluded(consumer, type.FullName)))
+                    {
+                        foreach (ReshapedReference reference in TypeReshapes.FindReferences(type, closure.KeptShapeOf, closure.KeptMethodShapeOf)
+                            .DistinctBy(reference => reference.Mentioned, StringComparer.Ordinal))
+                        {
+                            ReportKeptShape(asset, consumer, type.FullName, reference);
+                        }
+                    }
+                }
+            }
         }
 
         // A resolution that met a cycle of type forwarders failed, so whatever depended on it was not checked; the
@@ -137,6 +193,43 @@ internal static class ClosureBindingValidator
         }
 
         return diagnostics;
+
+        void ReportReshape(ClosureAsset asset, string mentioned, TypeReshape reshape, string referrer)
+        {
+            foreach (string ruleId in SignatureMentions.Find(reshape.Part, signatureTypes)
+                .Select(type => ruleIdByType[type])
+                .Distinct(StringComparer.Ordinal))
+            {
+                if (reported.Add($"{ruleId}|{asset.RelativePath}|{mentioned}"))
+                {
+                    diagnostics.Add(RewriteDiagnostic.Error(
+                        RewriteDiagnosticIds.UnresolvedReplacement,
+                        $"Member-aware substitution rule '{ruleId}' rewrites {reshape.Describe(mentioned)} to " +
+                        $"'{reshape.Part.FullName}', but {referrer} and still uses '{mentioned}' as declared, through a base " +
+                        "type, interface, or constraint it no longer has.",
+                        asset.RelativePath));
+                }
+            }
+        }
+
+        void ReportKeptShape(ClosureAsset asset, string consumer, string user, ReshapedReference reference)
+        {
+            TypeReshape kept = reference.Reshape;
+            foreach (string ruleId in SignatureMentions.Find(kept.Part, signatureTypes)
+                .Select(type => ruleIdByType[type])
+                .Distinct(StringComparer.Ordinal))
+            {
+                if (reported.Add($"kept|{ruleId}|{asset.RelativePath}|{reference.Mentioned}"))
+                {
+                    diagnostics.Add(RewriteDiagnostic.Error(
+                        RewriteDiagnosticIds.UnresolvedReplacement,
+                        $"Member-aware substitution rule '{ruleId}' substitutes '{kept.Part.FullName}' in '{user}' of " +
+                        $"'{consumer}', but {kept.Describe(reference.Mentioned)} keeps it, because {kept.Cause}, so '{user}' " +
+                        $"would use '{reference.Mentioned}' through a base type, interface, or constraint it does not have.",
+                        asset.RelativePath));
+                }
+            }
+        }
     }
 
     private static TypeDefinition? TryResolve(TypeReference type)
@@ -156,9 +249,104 @@ internal static class ClosureBindingValidator
 
     private sealed class Closure(
         HashSet<string> rewrittenAssemblyNames,
-        IReadOnlyDictionary<string, IReadOnlySet<string>> excludedTypesByAssembly)
+        IReadOnlyDictionary<string, IReadOnlySet<string>> excludedTypesByAssembly,
+        IReadOnlySet<string> signatureTypes,
+        IReadOnlySet<string> substitutedTypes)
     {
+        private readonly Dictionary<TypeDefinition, TypeReshape?> _reshapes = new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<TypeDefinition, TypeReshape?> _keptShapes = new(ReferenceEqualityComparer.Instance);
+
+        public bool HasExclusions { get; } = excludedTypesByAssembly.Values.Any(excluded => excluded.Count > 0);
+
         public bool IsRewritten(string assemblyName) => rewrittenAssemblyNames.Contains(assemblyName);
+
+        public bool IsExcluded(string assemblyName, string typeFullName) =>
+            excludedTypesByAssembly.TryGetValue(assemblyName, out IReadOnlySet<string>? excluded) && excluded.Contains(typeFullName);
+
+        /// <summary>
+        /// The reshape of a type of a rewritten assembly - one the rewrite does not exclude whose base type, interfaces,
+        /// or generic parameter constraints name a substituted or substitute type, or which derives from one - or null.
+        /// </summary>
+        public TypeReshape? ReshapeOf(TypeReference type)
+        {
+            if (!IsInRewrittenScope(type.Scope) || TryResolve(type) is not { } definition)
+            {
+                return null;
+            }
+
+            if (_reshapes.TryGetValue(definition, out TypeReshape? known))
+            {
+                return known;
+            }
+
+            string assembly = definition.Module.Assembly.Name.Name;
+            TypeReshape? reshape = IsRewritten(assembly) && !IsExcluded(assembly, definition.FullName)
+                ? TypeReshapes.Find(definition, MentionsSignatureType) ?? (definition.BaseType is { } baseType ? ReshapeOf(baseType) : null)
+                : null;
+            _reshapes[definition] = reshape;
+            return reshape;
+        }
+
+        /// <summary>The reshape of a generic method of a rewritten assembly whose constraints name a substituted or substitute type, or null.</summary>
+        public TypeReshape? MethodReshapeOf(MethodReference method)
+        {
+            MethodReference element = method is GenericInstanceMethod generic ? generic.ElementMethod : method;
+            if (!element.HasGenericParameters || !IsInRewrittenScope(element.DeclaringType.Scope))
+            {
+                return null;
+            }
+
+            MethodDefinition? definition;
+            try
+            {
+                definition = element.Resolve();
+            }
+            catch (AssemblyResolutionException)
+            {
+                return null;
+            }
+
+            string? assembly = definition?.Module.Assembly.Name.Name;
+            return assembly is not null && IsRewritten(assembly) && !IsExcluded(assembly, definition!.DeclaringType.FullName)
+                ? TypeReshapes.Find(definition, MentionsSignatureType)
+                : null;
+        }
+
+        /// <summary>
+        /// The part composed from a substituted type that a type of a rewritten assembly keeps - being excluded there,
+        /// or deriving from such a type through types that are not rewritten either - or null.
+        /// </summary>
+        public TypeReshape? KeptShapeOf(TypeReference type) =>
+            IsInRewrittenScope(type.Scope) && TryResolve(type) is { } definition ? KeptShape(definition) : null;
+
+        /// <summary>
+        /// The constraint composed from a substituted type that a generic method of an excluded type of a rewritten
+        /// assembly keeps, or null.
+        /// </summary>
+        public TypeReshape? KeptMethodShapeOf(MethodReference method)
+        {
+            MethodReference element = method is GenericInstanceMethod generic ? generic.ElementMethod : method;
+            if (!element.HasGenericParameters || !IsInRewrittenScope(element.DeclaringType.Scope))
+            {
+                return null;
+            }
+
+            MethodDefinition? definition;
+            try
+            {
+                definition = element.Resolve();
+            }
+            catch (AssemblyResolutionException)
+            {
+                return null;
+            }
+
+            return definition is not null
+                && Unrewritten(definition.DeclaringType) is string cause
+                && TypeReshapes.Find(definition, NamesSubstitutedType) is { } kept
+                    ? kept with { Cause = cause }
+                    : null;
+        }
 
         public bool ReachesOtherRewrittenAssembly(TypeDefinition type, string assemblyName)
         {
@@ -228,8 +416,37 @@ internal static class ClosureBindingValidator
             return IsRewritten(declaring) && !string.Equals(declaring, assemblyName, StringComparison.OrdinalIgnoreCase);
         }
 
-        private bool IsExcluded(string assemblyName, string typeFullName) =>
-            excludedTypesByAssembly.TryGetValue(assemblyName, out IReadOnlySet<string>? excluded) && excluded.Contains(typeFullName);
+        // Only a type of a rewritten assembly, or of the module being checked, can be reshaped; the scope check avoids
+        // resolving every reference into the framework and the assemblies the closure copies.
+        private bool IsInRewrittenScope(IMetadataScope scope) => scope switch
+        {
+            AssemblyNameReference assembly => IsRewritten(assembly.Name),
+            ModuleDefinition => true,
+            _ => false,
+        };
+
+        private bool MentionsSignatureType(TypeReference type) => SignatureMentions.Find(type, signatureTypes).Count > 0;
+
+        private bool NamesSubstitutedType(TypeReference type) => SignatureMentions.Find(type, substitutedTypes).Count > 0;
+
+        private TypeReshape? KeptShape(TypeDefinition definition)
+        {
+            if (_keptShapes.TryGetValue(definition, out TypeReshape? known))
+            {
+                return known;
+            }
+
+            TypeReshape? kept = null;
+            if (Unrewritten(definition) is string cause)
+            {
+                kept = TypeReshapes.Find(definition, NamesSubstitutedType) is { } own
+                    ? own with { Cause = cause }
+                    : definition.BaseType is { } baseType && TryResolve(baseType) is { } baseDefinition ? KeptShape(baseDefinition) : null;
+            }
+
+            _keptShapes[definition] = kept;
+            return kept;
+        }
 
         private string? ExcludedReferencingType(MemberReference member, ModuleDefinition consumerModule, string consumer)
         {

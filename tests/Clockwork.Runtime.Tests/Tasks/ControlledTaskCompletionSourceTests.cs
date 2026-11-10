@@ -5,145 +5,162 @@ using Clockwork.Shims.System.Runtime.CompilerServices;
 namespace Clockwork.Runtime.Tests.Tasks;
 
 /// <summary>
-/// Tests for <see cref="ControlledTaskCompletionSource"/> and its generic variant: success/fault/cancel
-/// transitions, the try-variants, and the key property that
-/// <see cref="TaskCreationOptions.RunContinuationsAsynchronously"/> is neutralized inside a simulation so
-/// completion stays on the logical thread while awaited continuations still run through the coordinator.
+/// Tests for the <see cref="ControlledTaskCompletionSource"/> completion redirects: each completes the real BCL
+/// completion source through the same member, so the result, the try-variants, and the source's creation options are
+/// the BCL's own, and an awaited completion still resumes through the coordinator rather than inside the completion.
 /// </summary>
 public sealed class ControlledTaskCompletionSourceTests
 {
     [Fact]
-    public void SetResultCompletesTheTaskOnTheLogicalThread()
+    public void CompletionMembersCompleteTheRealSource()
     {
         var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            var tcs = new ControlledTaskCompletionSource<int>();
-            Assert.False(tcs.Task.IsCompleted);
+            var result = new TaskCompletionSource<int>();
+            ControlledTaskCompletionSource.SetResult(result, 42);
+            Assert.Equal(42, result.Task.Result);
 
-            tcs.SetResult(42);
+            var fault = new TaskCompletionSource();
+            var boom = new InvalidOperationException("boom");
+            ControlledTaskCompletionSource.SetException(fault, boom);
+            Assert.Same(boom, fault.Task.Exception!.InnerException);
 
-            Assert.True(tcs.Task.IsCompletedSuccessfully);
-            Assert.Equal(42, tcs.Task.Result);
+            var token = new CancellationToken(canceled: true);
+            var canceled = new TaskCompletionSource<int>();
+            ControlledTaskCompletionSource.SetCanceled(canceled, token);
+            Assert.Equal(token, Assert.ThrowsAny<OperationCanceledException>(() => canceled.Task.GetAwaiter().GetResult()).CancellationToken);
+
+            var copied = new TaskCompletionSource<int>();
+            ControlledTaskCompletionSource.SetFromTask(copied, Task.FromResult(7));
+            Assert.Equal(7, copied.Task.Result);
         });
     }
 
     [Fact]
-    public void NonGenericSetResultCompletesTheTask()
+    public void TryVariantsReturnTheBclOutcome()
     {
         var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            var tcs = new ControlledTaskCompletionSource();
-            tcs.SetResult();
-            Assert.True(tcs.Task.IsCompletedSuccessfully);
+            var source = new TaskCompletionSource<int>();
+            Assert.True(ControlledTaskCompletionSource.TrySetResult(source, 1));
+            Assert.False(ControlledTaskCompletionSource.TrySetResult(source, 2));
+            Assert.False(ControlledTaskCompletionSource.TrySetException(source, new InvalidOperationException()));
+            Assert.False(ControlledTaskCompletionSource.TrySetCanceled(source));
+            Assert.False(ControlledTaskCompletionSource.TrySetFromTask(source, Task.FromResult(3)));
+            Assert.Equal(1, source.Task.Result);
+            Assert.Throws<InvalidOperationException>(() => ControlledTaskCompletionSource.SetResult(source, 4));
+            Assert.Throws<ArgumentException>(
+                () => ControlledTaskCompletionSource.TrySetFromTask(new TaskCompletionSource(), new TaskCompletionSource().Task));
         });
     }
 
     [Fact]
-    public void SetExceptionFaultsTheTask()
+    public void CreationOptionsAreTheSourcesOwn()
     {
         var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            var tcs = new ControlledTaskCompletionSource<int>();
-            tcs.SetException(new InvalidOperationException("boom"));
+            var source = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            ControlledTaskCompletionSource.SetResult(source);
 
-            Assert.True(tcs.Task.IsFaulted);
-            Assert.IsType<InvalidOperationException>(tcs.Task.Exception!.InnerException);
+            Assert.True(source.Task.IsCompletedSuccessfully);
+            Assert.Equal(TaskCreationOptions.RunContinuationsAsynchronously, source.Task.CreationOptions);
         });
     }
 
     [Fact]
-    public void SetCanceledCancelsTheTask()
+    public void NullSourceThrowsTheRuntimeNullReferenceException()
     {
         var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            var tcs = new ControlledTaskCompletionSource<int>();
-            tcs.SetCanceled();
-            Assert.True(tcs.Task.IsCanceled);
+            Assert.Throws<NullReferenceException>(() => ControlledTaskCompletionSource.SetResult(null!));
+            Assert.Throws<NullReferenceException>(() => ControlledTaskCompletionSource.TrySetResult<int>(null!, 1));
         });
     }
 
+    // Finalizers and callbacks from uninstrumented code may complete a source outside any simulation: the shims pass
+    // through to the BCL member, and publish no race-detection edge without an executing operation.
+#pragma warning disable xUnit1051 // The overloads without a token are under test; nothing waits.
     [Fact]
-    public void TryVariantsReturnFalseOnSecondTransition()
-    {
-        var coordinator = new SimulationSchedulerTestHost();
-
-        TaskTestHarness.RunInSimulation(coordinator, () =>
-        {
-            var tcs = new ControlledTaskCompletionSource<int>();
-            Assert.True(tcs.TrySetResult(1));
-            Assert.False(tcs.TrySetResult(2));
-            Assert.False(tcs.TrySetException(new InvalidOperationException()));
-            Assert.False(tcs.TrySetCanceled());
-            Assert.Equal(1, tcs.Task.Result);
-        });
-    }
-
-    [Fact]
-    public void RunContinuationsAsynchronouslyIsNeutralizedInsideSimulation()
-    {
-        var coordinator = new SimulationSchedulerTestHost();
-
-        TaskTestHarness.RunInSimulation(coordinator, () =>
-        {
-            // Even when asked to run continuations asynchronously, completion must happen synchronously on
-            // the logical thread inside a simulation (the flag is dropped). If the flag leaked through, the
-            // task would be posted to a real scheduler and would not be observably complete right here.
-            var tcs = new ControlledTaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            tcs.SetResult();
-            Assert.True(tcs.Task.IsCompletedSuccessfully);
-        });
-    }
-
-    [Fact]
-    public void ConstructorOutsideSimulationRequiresActiveSimulation()
+    public async Task CompletionOutsideSimulationPassesThroughToTheBcl()
     {
         Assert.False(SimulationTaskRuntime.IsSimulationActive);
-        ControlledTaskCompletionSource<int>? source = null;
+        var token = new CancellationToken(canceled: true);
+        var fault = new InvalidOperationException("boom");
+        Exception[] faults = [fault];
 
-        Exception? exception = Record.Exception(
-            () => source = new ControlledTaskCompletionSource<int>(
-                TaskCreationOptions.RunContinuationsAsynchronously));
+        var source = new TaskCompletionSource();
+        ControlledTaskCompletionSource.SetResult(source);
+        Assert.True(source.Task.IsCompletedSuccessfully);
+        Assert.False(ControlledTaskCompletionSource.TrySetResult(source));
+        Assert.Throws<InvalidOperationException>(() => ControlledTaskCompletionSource.SetException(source, fault));
+        Assert.Throws<InvalidOperationException>(() => ControlledTaskCompletionSource.SetException(source, faults));
+        Assert.False(ControlledTaskCompletionSource.TrySetException(source, fault));
+        Assert.False(ControlledTaskCompletionSource.TrySetException(source, faults));
+        Assert.Throws<InvalidOperationException>(() => ControlledTaskCompletionSource.SetCanceled(source));
+        Assert.Throws<InvalidOperationException>(() => ControlledTaskCompletionSource.SetCanceled(source, token));
+        Assert.False(ControlledTaskCompletionSource.TrySetCanceled(source));
+        Assert.False(ControlledTaskCompletionSource.TrySetCanceled(source, token));
+        Assert.Throws<InvalidOperationException>(() => ControlledTaskCompletionSource.SetFromTask(source, Task.CompletedTask));
+        Assert.False(ControlledTaskCompletionSource.TrySetFromTask(source, Task.CompletedTask));
 
-        Assert.Null(source);
-        SimulationNotActiveExceptionAssert.Equal(
-            exception,
-            "System.Threading.Tasks.TaskCompletionSource..ctor");
+        var generic = new TaskCompletionSource<int>();
+        Assert.True(ControlledTaskCompletionSource.TrySetResult(generic, 1));
+        Assert.Equal(1, await generic.Task);
+        Assert.Throws<InvalidOperationException>(() => ControlledTaskCompletionSource.SetResult(generic, 2));
+        Assert.Throws<InvalidOperationException>(() => ControlledTaskCompletionSource.SetException(generic, fault));
+        Assert.Throws<InvalidOperationException>(() => ControlledTaskCompletionSource.SetException(generic, faults));
+        Assert.False(ControlledTaskCompletionSource.TrySetException(generic, fault));
+        Assert.False(ControlledTaskCompletionSource.TrySetException(generic, faults));
+        Assert.Throws<InvalidOperationException>(() => ControlledTaskCompletionSource.SetCanceled(generic));
+        Assert.Throws<InvalidOperationException>(() => ControlledTaskCompletionSource.SetCanceled(generic, token));
+        Assert.False(ControlledTaskCompletionSource.TrySetCanceled(generic));
+        Assert.False(ControlledTaskCompletionSource.TrySetCanceled(generic, token));
+        Assert.Throws<InvalidOperationException>(() => ControlledTaskCompletionSource.SetFromTask(generic, Task.FromResult(3)));
+        Assert.False(ControlledTaskCompletionSource.TrySetFromTask(generic, Task.FromResult(3)));
+
+        var faulted = new TaskCompletionSource<int>();
+        ControlledTaskCompletionSource.SetException(faulted, faults);
+        Assert.Same(fault, faulted.Task.Exception!.InnerException);
+        var canceled = new TaskCompletionSource();
+        Assert.True(ControlledTaskCompletionSource.TrySetCanceled(canceled, token));
+        Assert.True(canceled.Task.IsCanceled);
+        var copied = new TaskCompletionSource<int>();
+        ControlledTaskCompletionSource.SetFromTask(copied, Task.FromResult(7));
+        Assert.Equal(7, await copied.Task);
     }
+#pragma warning restore xUnit1051
 
-    [Fact]
-    public void AwaitedCompletionSourceResumesThroughTheCoordinator()
+    [Theory]
+    [InlineData(TaskCreationOptions.None)]
+    [InlineData(TaskCreationOptions.RunContinuationsAsynchronously)]
+    public void AwaitedCompletionResumesThroughTheCoordinatorAfterCompletion(TaskCreationOptions options)
     {
         var coordinator = new SimulationSchedulerTestHost();
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            var tcs = new ControlledTaskCompletionSource<int>();
-            var observed = 0;
-            var completed = false;
-
-            // Await the controlled TCS's task via a controlled awaiter; the continuation must be scheduled
-            // through the loop, not run inline, and must observe the result after completion.
+            var tcs = new TaskCompletionSource<int>(options);
+            var log = new List<string>();
             var awaiter = new ControlledTaskAwaiter<int>(tcs.Task);
-            awaiter.OnCompleted(() =>
+            awaiter.OnCompleted(() => log.Add("resumed " + awaiter.GetResult()));
+
+            coordinator.Scheduler.Schedule(() =>
             {
-                observed = awaiter.GetResult();
-                completed = true;
+                log.Add("before");
+                ControlledTaskCompletionSource.SetResult(tcs, 99);
+                log.Add("after");
             });
+            coordinator.Scheduler.DrainUntil(() => log.Count == 3, "test", TestContext.Current.CancellationToken);
 
-            Assert.False(completed);
-
-            coordinator.Scheduler.Schedule(() => tcs.SetResult(99));
-            coordinator.Scheduler.DrainUntil(() => completed, "test", TestContext.Current.CancellationToken);
-
-            Assert.Equal(99, observed);
+            Assert.Equal(["before", "after", "resumed 99"], log);
         });
     }
 }

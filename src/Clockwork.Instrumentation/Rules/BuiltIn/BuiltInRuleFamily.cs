@@ -29,9 +29,10 @@ public enum BuiltInRuleFamily
     Crypto,
 
     /// <summary>
-    /// Task combinators: the static <see cref="System.Threading.Tasks.Task.WhenAll(System.Threading.Tasks.Task[])"/>
-    /// and <c>WhenAny</c> family, redirected to controlled equivalents whose completion order is a
-    /// deterministic function of when the antecedents complete on the logical thread.
+    /// Task combinators: the static <see cref="System.Threading.Tasks.Task.WhenAll(System.Threading.Tasks.Task[])"/>,
+    /// <c>WhenAny</c>, and <c>WhenEach</c> families and <c>TaskExtensions.Unwrap</c>, redirected to controlled
+    /// equivalents whose completion order is a deterministic function of when the antecedents complete on the logical
+    /// thread.
     /// </summary>
     TaskCombinators,
 
@@ -44,10 +45,21 @@ public enum BuiltInRuleFamily
     TaskSynchronization,
 
     /// <summary>
-    /// Task continuations: <c>Task.ContinueWith</c>, redirected so the continuation is scheduled on the
-    /// controlled coordinator and runs on the logical thread after the antecedent.
+    /// Task continuations: every .NET 10 <c>Task.ContinueWith</c> and <c>Task&lt;TResult&gt;.ContinueWith</c>
+    /// overload, redirected so the BCL registers nothing on the antecedent: the coordinator observes the antecedent
+    /// complete and runs the genuine BCL continuation task on the logical thread.
     /// </summary>
     TaskContinuations,
+
+    /// <summary>
+    /// Task completion sources: calls to the completion members of the real
+    /// <see cref="System.Threading.Tasks.TaskCompletionSource"/> and
+    /// <see cref="System.Threading.Tasks.TaskCompletionSource{TResult}"/> (<c>SetResult</c>, <c>SetException</c>,
+    /// <c>SetCanceled</c>, <c>SetFromTask</c>, and their <c>TrySet*</c> forms), redirected to shims which complete the
+    /// source through the same member and publish the race-detection release edge an await acquires. The completion
+    /// source type, its options, and its task are unchanged.
+    /// </summary>
+    TaskCompletionSource,
 
     /// <summary>
     /// Virtual-time task APIs: every .NET 10 <c>Task.Delay</c> and <c>Task.WaitAsync</c> overload,
@@ -92,6 +104,15 @@ public enum BuiltInRuleFamily
     ValueTaskMachinery,
 
     /// <summary>
+    /// <see cref="System.Threading.Tasks.ValueTask"/> conversions: <c>AsTask</c> and <c>Preserve</c> on
+    /// <see cref="System.Threading.Tasks.ValueTask"/> and <see cref="System.Threading.Tasks.ValueTask{TResult}"/>,
+    /// redirected so a value task backed by a pending <see cref="System.Threading.Tasks.Sources.IValueTaskSource"/> is
+    /// polled through the coordinator instead of registering a completion callback the source may run on the thread
+    /// pool.
+    /// </summary>
+    ValueTaskConversions,
+
+    /// <summary>
     /// <see cref="System.Threading.Tasks.TaskFactory"/> / <see cref="System.Threading.Tasks.TaskFactory{TResult}"/>
     /// scheduling: <c>StartNew</c> offloads work onto a task scheduler (the thread pool by default).
     /// Classified <c>Controlled</c> - the shim queues the delegate body as a fresh controlled
@@ -100,6 +121,21 @@ public enum BuiltInRuleFamily
     /// non-<c>None</c> option are rejected.
     /// </summary>
     TaskFactory,
+
+    /// <summary>
+    /// <see cref="System.Threading.Tasks.TaskFactory"/> / <see cref="System.Threading.Tasks.TaskFactory{TResult}"/>
+    /// multi-task continuations: every .NET 10 <c>ContinueWhenAll</c> and <c>ContinueWhenAny</c> overload, redirected
+    /// so the BCL registers nothing on the antecedents: the coordinator observes them complete and runs the genuine BCL
+    /// continuation task on the logical thread.
+    /// </summary>
+    TaskFactoryContinuations,
+
+    /// <summary>
+    /// The asynchronous programming model bridge: every <c>TaskFactory.FromAsync</c> and
+    /// <c>TaskFactory&lt;TResult&gt;.FromAsync</c> overload, rejected at the call site, since the returned task completes
+    /// when an <see cref="System.IAsyncResult"/> does, outside Clockwork's control.
+    /// </summary>
+    TaskFactoryFromAsync,
 
     /// <summary>
     /// <see cref="System.Threading.Thread"/> surface: construction and the <c>Start</c>/<c>Join</c>

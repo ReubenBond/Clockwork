@@ -22,8 +22,14 @@ namespace Clockwork.Shims.System.Threading.Tasks;
 /// options that change scheduling or parent/continuation semantics and non-default task schedulers are
 /// rejected under simulation rather than silently ignored.
 /// </para>
+/// <para>
+/// <c>ContinueWhenAll</c> and <c>ContinueWhenAny</c> return a genuine BCL continuation of a private gate, which the
+/// coordinator completes once it observes the antecedents complete, as <see cref="ControlledTask"/>'s
+/// <c>ContinueWith</c> does, so the BCL registers nothing on the antecedents. <c>FromAsync</c> is rejected at the call
+/// site, since an <see cref="IAsyncResult"/> completes outside Clockwork's control.
+/// </para>
 /// </summary>
-public static class ControlledTaskFactory
+public static partial class ControlledTaskFactory
 {
     /// <summary>Controlled <c>TaskFactory.StartNew(Action)</c>.</summary>
     /// <param name="factory">The receiving factory.</param>

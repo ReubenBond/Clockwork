@@ -1,4 +1,6 @@
 using System.Reflection;
+using System.Runtime.ExceptionServices;
+using Clockwork.Runtime.Scheduling;
 
 namespace Clockwork.Conformance.Tests;
 
@@ -33,6 +35,9 @@ internal sealed class SimulationHost : IDisposable
             _nodes[address] = _cluster.AddNode(address);
         }
     }
+
+    /// <summary>Gets the scheduler which runs the cluster's controlled operations.</summary>
+    public SimulationScheduler Scheduler => _cluster.Scheduler;
 
     /// <summary>Invokes the probe method as work on the default node.</summary>
     public object? Invoke(MethodInfo method, params object?[] args) => InvokeOnNode(_defaultAddress, method, args);
@@ -110,6 +115,27 @@ internal sealed class SimulationHost : IDisposable
 
         return result;
     }
+
+    /// <summary>
+    /// Runs the probe as the root task of <see cref="SimulationCluster.RunToCompletion{T}(Func{Task{T}}, CancellationToken, int)"/>,
+    /// where <see cref="TaskScheduler.Current"/> is the cluster's <see cref="SimulationTaskScheduler"/> until the
+    /// probe's first await, and returns its result.
+    /// </summary>
+    public T RunToCompletion<T>(MethodInfo method, params object?[] args) =>
+        _cluster.RunToCompletion(
+            () =>
+            {
+                try
+                {
+                    return (Task<T>)method.Invoke(null, args.Length == 0 ? null : args)!;
+                }
+                catch (TargetInvocationException ex) when (ex.InnerException is not null)
+                {
+                    ExceptionDispatchInfo.Throw(ex.InnerException);
+                    throw;
+                }
+            },
+            TestContext.Current.CancellationToken);
 
     public void Dispose() => _cluster.DisposeAsync().AsTask().GetAwaiter().GetResult();
 }

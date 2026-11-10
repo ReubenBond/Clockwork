@@ -170,13 +170,13 @@ public sealed class RaceDetectionTests
     [Fact]
     public void ControlledTaskCompletionCreatesHappensBeforeEdge()
     {
-        ControlledTaskCompletionSource? completion = null;
+        TaskCompletionSource? completion = null;
         using var scheduler = SchedulerTestHarness.NewScheduler();
         scheduler.Schedule("producer", () =>
         {
-            completion = new ControlledTaskCompletionSource();
+            completion = new TaskCompletionSource();
             RaceInstrumentation.WriteStatic("Fx.State::Value", "producer", 1, null, -1);
-            completion.SetResult();
+            ControlledTaskCompletionSource.SetResult(completion);
         });
         scheduler.Drain(TestContext.Current.CancellationToken);
         scheduler.Schedule("consumer", () =>
@@ -192,13 +192,13 @@ public sealed class RaceDetectionTests
     [Fact]
     public void ControlledTaskAwaitConsumesCompletionHappensBeforeEdge()
     {
-        ControlledTaskCompletionSource? completion = null;
+        TaskCompletionSource? completion = null;
         using var scheduler = SchedulerTestHarness.NewScheduler();
         scheduler.Schedule("producer", () =>
         {
-            completion = new ControlledTaskCompletionSource();
+            completion = new TaskCompletionSource();
             RaceInstrumentation.WriteStatic("Fx.State::Value", "producer", 1, null, -1);
-            completion.SetResult();
+            ControlledTaskCompletionSource.SetResult(completion);
         });
         scheduler.Drain(TestContext.Current.CancellationToken);
         scheduler.Schedule("consumer", () =>
@@ -214,16 +214,16 @@ public sealed class RaceDetectionTests
     [Fact]
     public void ControlledTaskProxyPropagatesAntecedentHappensBeforeEdges()
     {
-        ControlledTaskCompletionSource? first = null;
-        ControlledTaskCompletionSource? second = null;
+        TaskCompletionSource? first = null;
+        TaskCompletionSource? second = null;
         using var scheduler = SchedulerTestHarness.NewScheduler();
         scheduler.Schedule("producer", () =>
         {
-            first = new ControlledTaskCompletionSource();
-            second = new ControlledTaskCompletionSource();
+            first = new TaskCompletionSource();
+            second = new TaskCompletionSource();
             RaceInstrumentation.WriteStatic("Fx.State::Value", "producer", 1, null, -1);
-            first.SetResult();
-            second.SetResult();
+            ControlledTaskCompletionSource.SetResult(first);
+            ControlledTaskCompletionSource.SetResult(second);
         });
         scheduler.Drain(TestContext.Current.CancellationToken);
         scheduler.Schedule("consumer", () =>

@@ -82,6 +82,37 @@ public static class SimulationTaskRuntime
     }
 
     /// <summary>
+    /// Schedules <paramref name="work"/> as a controlled operation once <paramref name="isReady"/> holds; the work runs
+    /// on the logical thread without the caller's user execution context.
+    /// </summary>
+    /// <remarks>
+    /// The coordinator calls the predicate on the thread driving the scheduler, once per scheduling step until it first
+    /// returns <see langword="true"/>, and never again after that. It may update its own observation state (which
+    /// antecedents it has observed complete, say), since antecedents only ever become complete, but must not otherwise
+    /// change simulation state. It runs every step, so its cost should be O(pending antecedents).
+    /// </remarks>
+    /// <param name="isReady">The readiness predicate.</param>
+    /// <param name="work">The work to run once ready.</param>
+    /// <param name="apiName">The controlled API, for diagnostics.</param>
+    internal static void ScheduleWhenReady(Func<bool> isReady, Action work, string apiName)
+    {
+        var (scheduler, node) = RequireScheduler(apiName);
+        ArgumentNullException.ThrowIfNull(isReady);
+        ArgumentNullException.ThrowIfNull(work);
+        SimulationExecutionSnapshot snapshot = SimulationRuntimeDispatch.RequireActiveSimulation(apiName);
+        var predecessor = new object();
+        RaceSynchronization.Signal(predecessor);
+        _ = scheduler.ScheduleWhenReady(
+            node,
+            isReady,
+            () =>
+            {
+                RaceSynchronization.Wait(predecessor);
+                RunScheduledWork(snapshot, null, work);
+            });
+    }
+
+    /// <summary>
     /// Schedules <paramref name="work"/> as a new, immediately-runnable unit of controlled work on the
     /// ambient coordinator's ready queue. This is the shared primitive behind every controlled concurrency surface that
     /// spawns a fresh logical operation - <c>Task.Run</c>, <c>TaskFactory.StartNew</c>,

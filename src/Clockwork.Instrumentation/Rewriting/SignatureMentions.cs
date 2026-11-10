@@ -45,6 +45,21 @@ internal static class SignatureMentions
         return found;
     }
 
+    /// <summary>
+    /// Returns the names in <paramref name="typeNames"/> that <paramref name="type"/> mentions, including through
+    /// generic arguments, element types, and modifiers, in first-mention order.
+    /// </summary>
+    public static IReadOnlyList<string> Find(TypeReference type, IReadOnlySet<string> typeNames)
+    {
+        var found = new List<string>();
+        if (typeNames.Count > 0)
+        {
+            Collect(type, typeNames, found);
+        }
+
+        return found;
+    }
+
     private static void Collect(TypeReference? type, IReadOnlySet<string> typeNames, List<string> found)
     {
         switch (type)

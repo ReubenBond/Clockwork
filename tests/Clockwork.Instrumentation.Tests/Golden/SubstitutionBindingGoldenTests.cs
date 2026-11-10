@@ -51,7 +51,7 @@ public sealed class SubstitutionBindingGoldenTests
         { "GenericType", "Box<int>.Take(marker)", "Fx.Box`1::Take" },
     };
 
-    public static TheoryData<string, string, string?, string, string> BoundaryImplementations => new()
+    public static TheoryData<string, string, string?, string, string, string?> BoundaryImplementations => new()
     {
         {
             "ExcludedImplementer",
@@ -66,7 +66,8 @@ public sealed class SubstitutionBindingGoldenTests
             "Fx.Handler::Handle",
             "implements 'Fx.IHandler::Handle(ClockworkFixtures.Shims.ModernMarker) : System.String' as " +
                 "'Handle(ClockworkFixtures.Api.LegacyMarker) : System.String' after rewriting, because 'Fx.Handler' is excluded " +
-                "from rewriting, so it keeps the original signature while 'Fx.IHandler' is rewritten"
+                "from rewriting, so it keeps the original signature while 'Fx.IHandler' is rewritten",
+            null
         },
         {
             "ExcludedExplicitImplementer",
@@ -79,7 +80,8 @@ public sealed class SubstitutionBindingGoldenTests
             """,
             null,
             "Fx.Handler::Fx.IHandler.Handle",
-            "because 'Fx.Handler' is excluded from rewriting, so it keeps the original signature while 'Fx.IHandler' is rewritten"
+            "because 'Fx.Handler' is excluded from rewriting, so it keeps the original signature while 'Fx.IHandler' is rewritten",
+            null
         },
         {
             "ExcludedInterface",
@@ -93,7 +95,8 @@ public sealed class SubstitutionBindingGoldenTests
             "Fx.Handler::Handle",
             "implements 'Fx.IHandler::Handle(ClockworkFixtures.Api.LegacyMarker) : System.String' as " +
                 "'Handle(ClockworkFixtures.Shims.ModernMarker) : System.String' after rewriting, because 'Fx.IHandler' is " +
-                "excluded from rewriting, so it keeps the original signature while 'Fx.Handler' is rewritten"
+                "excluded from rewriting, so it keeps the original signature while 'Fx.Handler' is rewritten",
+            null
         },
         {
             "ExcludedInterfaceExplicitImplementer",
@@ -105,7 +108,8 @@ public sealed class SubstitutionBindingGoldenTests
             """,
             "Fx.IHandler",
             "Fx.Handler::Fx.IHandler.Handle",
-            "because 'Fx.IHandler' is excluded from rewriting, so it keeps the original signature while 'Fx.Handler' is rewritten"
+            "because 'Fx.IHandler' is excluded from rewriting, so it keeps the original signature while 'Fx.Handler' is rewritten",
+            null
         },
         {
             "ExcludedOverride",
@@ -120,7 +124,8 @@ public sealed class SubstitutionBindingGoldenTests
             "Fx.Handler::Handle",
             "overrides 'Fx.HandlerBase::Handle(ClockworkFixtures.Shims.ModernMarker) : System.String' as " +
                 "'Handle(ClockworkFixtures.Api.LegacyMarker) : System.String' after rewriting, because 'Fx.Handler' is excluded " +
-                "from rewriting, so it keeps the original signature while 'Fx.HandlerBase' is rewritten"
+                "from rewriting, so it keeps the original signature while 'Fx.HandlerBase' is rewritten",
+            null
         },
         {
             "ExcludedBase",
@@ -134,22 +139,83 @@ public sealed class SubstitutionBindingGoldenTests
             "Fx.Handler::Handle",
             "overrides 'Fx.HandlerBase::Handle(ClockworkFixtures.Api.LegacyMarker) : System.String' as " +
                 "'Handle(ClockworkFixtures.Shims.ModernMarker) : System.String' after rewriting, because 'Fx.HandlerBase' is " +
-                "excluded from rewriting, so it keeps the original signature while 'Fx.Handler' is rewritten"
+                "excluded from rewriting, so it keeps the original signature while 'Fx.Handler' is rewritten",
+            null
         },
         {
-            // The rewrite substitutes the method's signature but not the type's interface list.
-            "SubstitutedTypeArgument",
+            // The excluded base keeps CompareTo(LegacyMarker), while the rewritten type re-implementing the interface
+            // names it with the substitute.
+            "ExcludedBaseOfAReimplementer",
             """
-            public sealed class Ordered : IComparable<LegacyMarker>
+            [Clockwork.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
+            public class OrderedBase : IComparable<LegacyMarker>
             {
                 public int CompareTo(LegacyMarker other) => 0;
             }
+
+            public sealed class Ordered : OrderedBase, IComparable<LegacyMarker>
+            {
+            }
             """,
             null,
-            "Fx.Ordered::CompareTo",
-            "implements 'System.IComparable`1::CompareTo(ClockworkFixtures.Api.LegacyMarker) : System.Int32' as " +
-                "'CompareTo(ClockworkFixtures.Shims.ModernMarker) : System.Int32' after rewriting, because the rewrite does not " +
-                "substitute the type arguments of 'System.IComparable`1<ClockworkFixtures.Api.LegacyMarker>'"
+            "Fx.OrderedBase::CompareTo",
+            "implements 'System.IComparable`1::CompareTo(ClockworkFixtures.Shims.ModernMarker) : System.Int32' as " +
+                "'CompareTo(ClockworkFixtures.Api.LegacyMarker) : System.Int32' after rewriting, because 'Fx.OrderedBase' is " +
+                "excluded from rewriting, so it keeps the original signature while 'Fx.Ordered' is rewritten and names " +
+                "'System.IComparable`1<ClockworkFixtures.Shims.ModernMarker>'",
+            "substitutes 'System.IComparable`1<ClockworkFixtures.Api.LegacyMarker>' in 'Fx.Ordered', but the interface of " +
+                "'Fx.OrderedBase' keeps it, because 'Fx.OrderedBase' is excluded from rewriting, so 'Fx.Ordered' would use " +
+                "'Fx.OrderedBase' through a base type, interface, or constraint it does not have"
+        },
+        {
+            // The excluded intermediate base keeps naming its base with the substituted type argument.
+            "ExcludedIntermediateBase",
+            """
+            public abstract class Slot<T>
+            {
+                public abstract string Put(T value);
+            }
+
+            [Clockwork.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
+            public abstract class MarkerSlot : Slot<LegacyMarker>
+            {
+            }
+
+            public sealed class Slotted : MarkerSlot
+            {
+                public override string Put(LegacyMarker value) => value.ToString();
+            }
+            """,
+            null,
+            "Fx.Slotted::Put",
+            "overrides 'Fx.Slot`1::Put(ClockworkFixtures.Api.LegacyMarker) : System.String' as " +
+                "'Put(ClockworkFixtures.Shims.ModernMarker) : System.String' after rewriting, because 'Fx.MarkerSlot' is " +
+                "excluded from rewriting, so it names 'Fx.Slot`1<ClockworkFixtures.Api.LegacyMarker>' with the original type " +
+                "arguments while 'Fx.Slotted' is rewritten",
+            "substitutes 'Fx.Slot`1<ClockworkFixtures.Api.LegacyMarker>' in 'Fx.Slotted', but the base type of 'Fx.MarkerSlot' " +
+                "keeps it, because 'Fx.MarkerSlot' is excluded from rewriting, so 'Fx.Slotted' would use 'Fx.MarkerSlot' " +
+                "through a base type, interface, or constraint it does not have"
+        },
+        {
+            // The explicit implementation's declaration is retargeted onto the interface's substituted signature, which
+            // the excluded interface does not declare.
+            "ExcludedGenericInterfaceExplicitImplementer",
+            """
+            public interface IBox<T>
+            {
+                string Take(LegacyMarker marker, T value);
+            }
+
+            public sealed class Boxed : IBox<int>
+            {
+                string IBox<int>.Take(LegacyMarker marker, int value) => marker + " " + value;
+            }
+            """,
+            "Fx.IBox`1",
+            "Fx.IBox`1<System.Int32>::Take(ClockworkFixtures.Api.LegacyMarker,T)",
+            "which maps to 'System.String Fx.IBox`1<System.Int32>::Take(ClockworkFixtures.Shims.ModernMarker,T)', but its " +
+                "declaring type 'Fx.IBox`1' is excluded from rewriting and keeps the original signature",
+            null
         },
     };
 
@@ -181,6 +247,193 @@ public sealed class SubstitutionBindingGoldenTests
         RewriteDiagnostic error = AssertUnbound(result, unbound);
         Assert.Equal("Fx.Caller.Call", error.Method);
     }
+
+    public static TheoryData<string, string, string, string, string> RewrittenUsesOfKeptShapes => new()
+    {
+        {
+            // The rewritten code adds a ModernMarker to what is a List<LegacyMarker>.
+            "ExcludedBaseType",
+            "",
+            """
+            List<LegacyMarker> markers = new Old();
+            markers.Add(new LegacyMarker());
+            return markers.Count + " " + markers[0];
+            """,
+            "Fx.Caller.Run",
+            "substitutes 'System.Collections.Generic.List`1<ClockworkFixtures.Api.LegacyMarker>' in 'Fx.Caller', but the base " +
+                "type of 'Fx.Old' keeps it, because 'Fx.Old' is excluded from rewriting, so 'Fx.Caller' would use 'Fx.Old'"
+        },
+        {
+            "InheritedFromAnExcludedType",
+            "",
+            """
+            List<LegacyMarker> markers = new Older();
+            markers.Add(new LegacyMarker());
+            return markers.Count + " " + markers[0];
+            """,
+            "Fx.Caller.Run",
+            "substitutes 'System.Collections.Generic.List`1<ClockworkFixtures.Api.LegacyMarker>' in 'Fx.Caller', but the base " +
+                "type of 'Fx.Old' (inherited by 'Fx.Older') keeps it, because 'Fx.Old' is excluded from rewriting, so " +
+                "'Fx.Caller' would use 'Fx.Older'"
+        },
+        {
+            // A rewritten type deriving from the excluded one inherits its base type as declared.
+            "RewrittenDerivedType",
+            """
+            public sealed class Newer : Old
+            {
+            }
+            """,
+            """
+            List<LegacyMarker> markers = new Newer();
+            markers.Add(new LegacyMarker());
+            return markers.Count + " " + markers[0];
+            """,
+            "Fx.Newer",
+            "substitutes 'System.Collections.Generic.List`1<ClockworkFixtures.Api.LegacyMarker>' in 'Fx.Newer', but the base " +
+                "type of 'Fx.Old' keeps it, because 'Fx.Old' is excluded from rewriting, so 'Fx.Newer' would use 'Fx.Old'"
+        },
+        {
+            // An assembly the closure does not rewrite keeps its types' shapes.
+            "UnrewrittenAssembly",
+            "",
+            """
+            List<LegacyMarker> markers = new MarkerList();
+            markers.Add(new LegacyMarker());
+            return markers.Count + " " + markers[0];
+            """,
+            "Fx.Caller.Run",
+            "substitutes 'System.Collections.Generic.List`1<ClockworkFixtures.Api.LegacyMarker>' in 'Fx.Caller', but the base " +
+                "type of 'ClockworkFixtures.Api.MarkerList' keeps it, because 'ClockworkFixtures.Api.MarkerList' is declared in " +
+                "'ClockworkFixtures.Api', which is not rewritten in this closure, so 'Fx.Caller' would use " +
+                "'ClockworkFixtures.Api.MarkerList'"
+        },
+        {
+            // The rewritten code calls IEnumerable<ModernMarker>.GetEnumerator on a type implementing only
+            // IEnumerable<LegacyMarker>.
+            "ExcludedInterface",
+            """
+            [Clockwork.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
+            public sealed class OldBag : IEnumerable<LegacyMarker>
+            {
+                public IEnumerator<LegacyMarker> GetEnumerator()
+                {
+                    yield return new LegacyMarker();
+                }
+
+                System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+            }
+            """,
+            """
+            IEnumerable<LegacyMarker> markers = new OldBag();
+            foreach (LegacyMarker marker in markers)
+            {
+                return marker.ToString();
+            }
+
+            return "none";
+            """,
+            "Fx.Caller.Run",
+            "substitutes 'System.Collections.Generic.IEnumerable`1<ClockworkFixtures.Api.LegacyMarker>' in 'Fx.Caller', but " +
+                "the interface of 'Fx.OldBag' keeps it, because 'Fx.OldBag' is excluded from rewriting, so 'Fx.Caller' would " +
+                "use 'Fx.OldBag'"
+        },
+        {
+            // The rewritten code instantiates T with List<ModernMarker>, which satisfies only the substituted constraint.
+            "ExcludedTypeConstraint",
+            """
+            [Clockwork.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
+            public sealed class Holder<T>
+                where T : IEnumerable<LegacyMarker>
+            {
+                public string Describe() => typeof(T).Name;
+            }
+            """,
+            """
+            return new Holder<List<LegacyMarker>>().Describe();
+            """,
+            "Fx.Caller.Run",
+            "substitutes 'System.Collections.Generic.IEnumerable`1<ClockworkFixtures.Api.LegacyMarker>' in 'Fx.Caller', but " +
+                "the constraint on 'T' of 'Fx.Holder`1' keeps it, because 'Fx.Holder`1' is excluded from rewriting, so " +
+                "'Fx.Caller' would use 'Fx.Holder`1'"
+        },
+        {
+            "ExcludedMethodConstraint",
+            """
+            [Clockwork.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
+            public static class Shelf
+            {
+                public static string Stock<T>(T items)
+                    where T : IEnumerable<LegacyMarker> => typeof(T).Name;
+            }
+            """,
+            """
+            return Shelf.Stock(new List<LegacyMarker>());
+            """,
+            "Fx.Caller.Run",
+            "substitutes 'System.Collections.Generic.IEnumerable`1<ClockworkFixtures.Api.LegacyMarker>' in 'Fx.Caller', but " +
+                "the constraint on 'T' of 'System.String Fx.Shelf::Stock(T)' keeps it, because 'Fx.Shelf' is excluded from " +
+                "rewriting, so 'Fx.Caller' would use 'System.String Fx.Shelf::Stock(T)'"
+        },
+    };
+
+    public static TheoryData<string, string, string, string> ExcludedUsesOfReshapedTypes => new()
+    {
+        {
+            // The excluded code calls List<LegacyMarker>.Add on a type whose base type is now List<ModernMarker>.
+            "BaseType",
+            """
+            public static int Use()
+            {
+                var markers = new Markers();
+                markers.Add(new LegacyMarker());
+                return markers.Count;
+            }
+            """,
+            "Fx.Legacy.Use",
+            "substitutes 'System.Collections.Generic.List`1<ClockworkFixtures.Api.LegacyMarker>' in the base type of " +
+                "'Fx.Markers', but 'Fx.Legacy' is excluded from rewriting and still uses 'Fx.Markers' as declared"
+        },
+        {
+            "InheritedBaseType",
+            """
+            public static int Use() => new DerivedMarkers().Count;
+            """,
+            "Fx.Legacy.Use",
+            "substitutes 'System.Collections.Generic.List`1<ClockworkFixtures.Api.LegacyMarker>' in the base type of " +
+                "'Fx.Markers' (inherited by 'Fx.DerivedMarkers'), but 'Fx.Legacy' is excluded from rewriting and still uses " +
+                "'Fx.DerivedMarkers' as declared"
+        },
+        {
+            "Interface",
+            """
+            public static IEnumerable<LegacyMarker> Use(IMarkers markers) => markers;
+            """,
+            "Fx.Legacy.Use",
+            "substitutes 'System.Collections.Generic.IEnumerable`1<ClockworkFixtures.Api.LegacyMarker>' in the interface of " +
+                "'Fx.IMarkers', but 'Fx.Legacy' is excluded from rewriting and still uses 'Fx.IMarkers' as declared"
+        },
+        {
+            // List<LegacyMarker> satisfies only the original constraint.
+            "TypeConstraint",
+            """
+            public static object Use() => new Holder<List<LegacyMarker>>();
+            """,
+            "Fx.Legacy.Use",
+            "substitutes 'System.Collections.Generic.IEnumerable`1<ClockworkFixtures.Api.LegacyMarker>' in the constraint on " +
+                "'T' of 'Fx.Holder`1', but 'Fx.Legacy' is excluded from rewriting and still uses 'Fx.Holder`1' as declared"
+        },
+        {
+            "MethodConstraint",
+            """
+            public static int Use() => Shelf.Stock(new List<LegacyMarker>());
+            """,
+            "Fx.Legacy.Use",
+            "substitutes 'System.Collections.Generic.IEnumerable`1<ClockworkFixtures.Api.LegacyMarker>' in the constraint on " +
+                "'T' of 'System.Int32 Fx.Shelf::Stock(T)', but 'Fx.Legacy' is excluded from rewriting and still uses " +
+                "'System.Int32 Fx.Shelf::Stock(T)' as declared"
+        },
+    };
 
     [Theory]
     [MemberData(nameof(ExcludedCallers))]
@@ -219,6 +472,190 @@ public sealed class SubstitutionBindingGoldenTests
         RewriteDiagnostic error = AssertUnbound(result, unbound);
         Assert.Equal("Fx.Legacy.Call", error.Method);
         Assert.Contains("'Fx.Legacy' is excluded from rewriting", error.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [MemberData(nameof(ExcludedUsesOfReshapedTypes))]
+    public void ExcludedUseOfAReshapedTypeFailsTheRewrite(string name, string use, string method, string reason)
+    {
+        // The rewrite substitutes the base types, interfaces, and constraints of the types and methods it rewrites, but
+        // excluded code keeps the original ones and could use the type through a base type or interface it no longer has.
+        using var context = RewriteTestContext.Create();
+        string fixturePath = context.CompileFixture($"Fx.ExcludedReshape{name}", $$"""
+            using System.Collections.Generic;
+            using ClockworkFixtures.Api;
+
+            {{DoNotRewriteAttributeSource}}
+
+            namespace Fx
+            {
+                public class Markers : List<LegacyMarker>
+                {
+                }
+
+                public sealed class DerivedMarkers : Markers
+                {
+                }
+
+                public interface IMarkers : IEnumerable<LegacyMarker>
+                {
+                }
+
+                public sealed class Holder<T>
+                    where T : IEnumerable<LegacyMarker>
+                {
+                }
+
+                public static class Shelf
+                {
+                    public static int Stock<T>(T items)
+                        where T : IEnumerable<LegacyMarker> => 1;
+                }
+
+                [Clockwork.Instrumentation.Attributes.DoNotRewrite("Runs before the simulation starts.")]
+                public static class Legacy
+                {
+                    {{use}}
+                }
+            }
+            """);
+
+        RewriteResult result = context.Rewrite(fixturePath, MarkerRuleSet(), MarkerOptions(context));
+
+        RewriteDiagnostic error = AssertUnbound(result, reason);
+        Assert.Equal(method, error.Method);
+    }
+
+    [Fact]
+    public void ExcludedTypeDerivingFromAReshapedTypeFailsTheRewrite()
+    {
+        using var context = RewriteTestContext.Create();
+        string fixturePath = context.CompileFixture("Fx.ExcludedReshapeDerived", $$"""
+            using System.Collections.Generic;
+            using ClockworkFixtures.Api;
+
+            {{DoNotRewriteAttributeSource}}
+
+            namespace Fx
+            {
+                public class Markers : List<LegacyMarker>
+                {
+                }
+
+                [Clockwork.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
+                public sealed class LegacyMarkers : Markers
+                {
+                    public LegacyMarker First() => this[0];
+                }
+            }
+            """);
+
+        RewriteResult result = context.Rewrite(fixturePath, MarkerRuleSet(), MarkerOptions(context));
+
+        // The excluded type's own members use its base type's original members; it is reported once.
+        RewriteDiagnostic error = AssertUnbound(
+            result,
+            "substitutes 'System.Collections.Generic.List`1<ClockworkFixtures.Api.LegacyMarker>' in the base type of " +
+                "'Fx.Markers', but 'Fx.LegacyMarkers' is excluded from rewriting and still uses 'Fx.Markers' as declared, " +
+                "through a base type, interface, or constraint it no longer has");
+        Assert.Equal("Fx.LegacyMarkers", error.Method);
+    }
+
+    [Fact]
+    public void TypesWhoseShapesMentionNoSubstitutedTypeCrossTheBoundary()
+    {
+        // A type whose shape mentions no substituted type is the same on both sides of the boundary, whichever side
+        // declares it.
+        using var context = RewriteTestContext.Create();
+        string fixturePath = context.CompileFixture("Fx.ExcludedUnreshaped", $$"""
+            using System.Collections.Generic;
+            using ClockworkFixtures.Api;
+
+            {{DoNotRewriteAttributeSource}}
+
+            namespace Fx
+            {
+                public class Markers : List<LegacyMarker>
+                {
+                }
+
+                public class Names : List<string>
+                {
+                }
+
+                [Clockwork.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
+                public class Labels : List<string>
+                {
+                }
+
+                [Clockwork.Instrumentation.Attributes.DoNotRewrite("Runs before the simulation starts.")]
+                public static class Legacy
+                {
+                    public static int Use()
+                    {
+                        var names = new Names();
+                        names.Add("name");
+                        return names.Count;
+                    }
+                }
+
+                public static class Caller
+                {
+                    public static int Run()
+                    {
+                        var labels = new Labels();
+                        labels.Add("label");
+                        return new Markers().Count + Legacy.Use() + labels.Count;
+                    }
+                }
+            }
+            """);
+
+        context.Rewrite(fixturePath, MarkerRuleSet(), MarkerOptions(context)).EnsureSuccess();
+    }
+
+    [Theory]
+    [MemberData(nameof(RewrittenUsesOfKeptShapes))]
+    public void RewrittenUseOfATypeKeepingASubstitutedShapeFailsTheRewrite(string name, string types, string run, string method, string reason)
+    {
+        // Rewritten code sees a base type, interface, or constraint composed from the substituted type as composed from
+        // its substitute, while a type the rewrite does not change keeps the original.
+        using var context = RewriteTestContext.Create();
+        string fixturePath = context.CompileFixture($"Fx.KeptShape{name}", $$"""
+            using System.Collections.Generic;
+            using ClockworkFixtures.Api;
+
+            {{DoNotRewriteAttributeSource}}
+
+            namespace Fx
+            {
+                [Clockwork.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
+                public class Old : List<LegacyMarker>
+                {
+                }
+
+                [Clockwork.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
+                public class Older : Old
+                {
+                }
+
+                {{types}}
+
+                public static class Caller
+                {
+                    public static string Run()
+                    {
+                        {{run}}
+                    }
+                }
+            }
+            """);
+
+        RewriteResult result = context.Rewrite(fixturePath, MarkerRuleSet(), MarkerOptions(context));
+
+        RewriteDiagnostic error = AssertUnbound(result, reason);
+        Assert.Equal(method, error.Method);
+        Assert.EndsWith(" through a base type, interface, or constraint it does not have.", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -429,7 +866,8 @@ public sealed class SubstitutionBindingGoldenTests
         string types,
         string? excluded,
         string member,
-        string reason)
+        string reason,
+        string? kept)
     {
         // The runtime matches an implementation or override to its member by signature when it loads the type, so a
         // signature rewritten on one side only would throw TypeLoadException.
@@ -458,8 +896,21 @@ public sealed class SubstitutionBindingGoldenTests
 
         RewriteResult result = context.Rewrite(fixturePath, MarkerRuleSet(), MarkerOptions(context, excluded));
 
-        RewriteDiagnostic error = AssertUnbound(result, member);
-        Assert.Contains(reason, error.Message, StringComparison.Ordinal);
+        if (kept is null)
+        {
+            RewriteDiagnostic error = AssertUnbound(result, member);
+            Assert.Contains(reason, error.Message, StringComparison.Ordinal);
+            return;
+        }
+
+        // A rewritten type deriving from an excluded base which keeps a part composed from the substituted type also
+        // fails as a use of that base.
+        Assert.False(result.Succeeded);
+        Assert.Equal(2, result.Errors.Count());
+        Assert.All(result.Errors, error => Assert.Equal(RewriteDiagnosticIds.UnresolvedReplacement, error.Id));
+        Assert.Contains(result.Errors, error => error.Message.Contains(member, StringComparison.Ordinal)
+            && error.Message.Contains(reason, StringComparison.Ordinal));
+        Assert.Contains(result.Errors, error => error.Message.Contains(kept, StringComparison.Ordinal));
     }
 
     [Fact]
@@ -506,6 +957,21 @@ public sealed class SubstitutionBindingGoldenTests
                     public override string Handle(LegacyMarker marker) => "overrode " + marker;
                 }
 
+                public sealed class Ordered : IComparable<LegacyMarker>
+                {
+                    public int CompareTo(LegacyMarker other) => 7;
+                }
+
+                public abstract class Slot<T>
+                {
+                    public abstract string Put(T value);
+                }
+
+                public sealed class MarkerSlot : Slot<LegacyMarker>
+                {
+                    public override string Put(LegacyMarker value) => "put " + value;
+                }
+
                 public static class Caller
                 {
                     public static string Run()
@@ -515,8 +981,10 @@ public sealed class SubstitutionBindingGoldenTests
                         IHandler explicitHandler = new ExplicitHandler();
                         IBox<int> box = new ExplicitHandler();
                         HandlerBase derived = new DerivedHandler();
+                        IComparable<LegacyMarker> ordered = new Ordered();
+                        Slot<LegacyMarker> slot = new MarkerSlot();
                         return handler.Handle(marker) + ", " + explicitHandler.Handle(marker) + ", " + box.Take(marker, 1) +
-                            ", " + derived.Handle(marker);
+                            ", " + derived.Handle(marker) + ", " + ordered.CompareTo(marker) + ", " + slot.Put(marker);
                     }
                 }
             }
@@ -530,13 +998,55 @@ public sealed class SubstitutionBindingGoldenTests
             string rewrittenPath = Path.Combine(context.Directory, "Fx.Implementations.rewritten.dll");
             Type caller = loadContext.LoadFromAssemblyPath(rewrittenPath).GetType("Fx.Caller", throwOnError: true)!;
             Assert.Equal(
-                "handled modern, explicitly handled modern, took modern 1, overrode modern",
+                "handled modern, explicitly handled modern, took modern 1, overrode modern, 7, put modern",
                 caller.GetMethod("Run")!.Invoke(null, null));
         }
         finally
         {
             loadContext.Unload();
         }
+    }
+
+    [Fact]
+    public void ExplicitImplementationOfAMemberTheSubstituteLacksFailsTheRewrite()
+    {
+        // An explicit implementation names the member it implements, so it is retargeted onto the substitute's member,
+        // which must exist for the type to load.
+        using var context = RewriteTestContext.Create();
+        string fixturePath = context.CompileFixture("Fx.ProbeImplementation", """
+            using ClockworkFixtures.Api;
+
+            namespace Fx
+            {
+                public sealed class Probe : IProbe
+                {
+                    int IProbe.Probe() => 1;
+                }
+            }
+            """);
+        var rules = new RewriteRuleSet(
+            "clockwork.fixtures.binding",
+            "1.0",
+            [
+                RewriteRule.SubstituteType(
+                    "substitute-probe",
+                    "ClockworkFixtures.Api.IProbe",
+                    RewriteReplacement.Type(FixtureSources.ShimAssemblyName, "ClockworkFixtures.Shims.IModernProbe")),
+            ]);
+
+        RewriteResult result = context.Rewrite(fixturePath, rules, MarkerOptions(context));
+
+        Assert.False(result.Succeeded, "The rewrite succeeded: " + string.Join(" | ", result.Diagnostics));
+        Assert.False(result.WasWritten);
+        RewriteDiagnostic error = Assert.Single(result.Errors);
+        Assert.Equal(RewriteDiagnosticIds.UnresolvedReplacement, error.Id);
+        Assert.Equal("Fx.Probe.ClockworkFixtures.Api.IProbe.Probe", error.Method);
+        Assert.Contains("'substitute-probe'", error.Message, StringComparison.Ordinal);
+        Assert.Contains("ClockworkFixtures.Api.IProbe::Probe()", error.Message, StringComparison.Ordinal);
+        Assert.Contains(
+            "has no matching member on the replacement type 'ClockworkFixtures.Shims.IModernProbe'",
+            error.Message,
+            StringComparison.Ordinal);
     }
 
     [Fact]
