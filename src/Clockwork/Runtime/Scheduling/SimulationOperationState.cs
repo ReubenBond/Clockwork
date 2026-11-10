@@ -20,8 +20,8 @@ namespace Clockwork.Runtime.Scheduling;
 ///   <item><description><see cref="Running"/> -&gt; <see cref="Paused"/> (voluntarily yielded the baton to wait).</description></item>
 ///   <item><description><see cref="Running"/> -&gt; <see cref="Runnable"/> (yielded the baton but immediately re-runnable).</description></item>
 ///   <item><description><see cref="Running"/> -&gt; <see cref="Completed"/> (body returned normally).</description></item>
-///   <item><description><see cref="Running"/> -&gt; <see cref="Faulted"/> (body threw a non-control exception).</description></item>
-///   <item><description><see cref="Running"/> -&gt; <see cref="Canceled"/> (terminated / observed cancellation).</description></item>
+///   <item><description><see cref="Running"/> -&gt; <see cref="Faulted"/> (an exception, including <see cref="OperationCanceledException"/>, escaped the body).</description></item>
+///   <item><description><see cref="Running"/> -&gt; <see cref="Canceled"/> (torn down).</description></item>
 ///   <item><description><see cref="Paused"/> -&gt; <see cref="Runnable"/> (resumed).</description></item>
 ///   <item><description><see cref="Paused"/> -&gt; <see cref="Canceled"/> (canceled / torn down while paused).</description></item>
 /// </list>
@@ -65,13 +65,19 @@ public enum SimulationOperationState
     Completed,
 
     /// <summary>
-    /// Terminal: the operation's body threw a non-control exception, captured in
-    /// <see cref="SimulationOperation.TerminalException"/>.
+    /// Terminal: an exception escaped the operation's body unhandled and is captured in
+    /// <see cref="SimulationOperation.TerminalException"/>. This includes an
+    /// <see cref="OperationCanceledException"/>: a body which lets one escape has no task to observe
+    /// it, like a .NET <c>Thread</c> body, thread-pool work item, timer callback, or
+    /// synchronization-context callback, where it crashes the process. Task-backed operations
+    /// (<c>Task.Run</c>, <c>TaskFactory.StartNew</c>, continuations, and async methods) capture their
+    /// delegate's exceptions in their task, so their operations complete.
     /// </summary>
     Faulted,
 
     /// <summary>
-    /// Terminal: the operation was canceled or torn down before completing normally.
+    /// Terminal: the operation was canceled through <see cref="SimulationScheduler.Cancel"/>, withdrawn
+    /// by the registration that scheduled it, or torn down before completing normally.
     /// </summary>
     Canceled,
 }

@@ -89,7 +89,7 @@ public sealed class ControlledThreadTests
     }
 
     [Fact]
-    public void JoinObservesFaultedThreadWithoutThrowingOrHanging()
+    public void BodyExceptionFaultsItsOperationAndJoinObservesTheTerminatedThread()
     {
         var coordinator = new SimulationSchedulerTestHost();
 
@@ -104,11 +104,15 @@ public sealed class ControlledThreadTests
 
             ControlledThread.Start(thread);
 
-            // Deviation from real threads (whose unhandled exception crashes the process): the fault is
-            // captured as the thread's completion, so Join observes deterministic termination instead of
-            // tearing down the host or hanging.
+            // As in .NET, the exception is unhandled: it faults the thread's controlled operation (a
+            // replayed run is Faulted). Join never surfaces a thread's exception; it observes the
+            // terminated thread without throwing or hanging.
             ControlledThread.Join(thread);
             Assert.True(reached);
+            Assert.True(ControlledThread.Join(thread, 0));
+            Assert.Contains(
+                coordinator.Scheduler.CaptureStatus(),
+                static status => status.State == Runtime.Scheduling.SimulationOperationState.Faulted);
         });
     }
 

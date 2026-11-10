@@ -23,7 +23,8 @@ namespace Clockwork.Shims.System.Threading;
 /// coordinator (exactly as <see cref="ControlledTask.Run(global::System.Action)"/> and
 /// <see cref="ControlledTaskFactory"/> do), so it runs deterministically on the single logical thread.
 /// <see cref="Join(Thread)"/> pumps the deterministic loop until that operation completes rather than
-/// blocking a physical thread.
+/// blocking a physical thread. An exception escaping the body, as in .NET, is unhandled: it faults the
+/// thread's controlled operation, while <c>Join</c> observes the terminated thread without throwing.
 /// </para>
 /// <para>
 /// This is the cooperative analogue of Microsoft Coyote's controlled <c>Thread</c>
@@ -293,12 +294,14 @@ public static class ControlledThread
         {
             // The strand remains represented by the never-ready wait registered by Sleep.
         }
-        catch (Exception exception)
+        catch (Exception)
         {
-            // A real thread's unhandled exception terminates the process. Inside a simulation the fault is
-            // recorded as the thread's completion so Join observes termination deterministically instead of
-            // tearing down the host; the exception-hardening slice may escalate this to the drive loop.
-            registration.Completion.TrySetException(exception);
+            // A real thread's unhandled exception, including an OperationCanceledException, crashes the
+            // process. The thread has terminated, so Join observes termination without the exception
+            // (Join never surfaces a thread's exception), and the exception then escapes the body to
+            // fault its controlled operation, which a replay classifies as Faulted.
+            registration.Completion.TrySetResult();
+            throw;
         }
     }
 

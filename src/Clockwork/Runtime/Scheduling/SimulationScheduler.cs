@@ -2730,12 +2730,13 @@ public sealed class SimulationScheduler : IDisposable
             // Teardown/cancellation initiated the unwind; the scheduler already owns the Canceled
             // transition and joins this thread directly. Do not touch the handback signal.
         }
-        catch (OperationCanceledException oce)
-        {
-            HandOffTerminal(operation, SimulationOperationState.Canceled, oce);
-        }
         catch (Exception ex)
         {
+            // Any exception escaping the body is unhandled, including OperationCanceledException:
+            // a body reaching here has no task to capture it, as with a .NET Thread body, thread-pool
+            // item, timer callback, or synchronization-context callback, where it crashes the process.
+            // Task-backed shims (Task.Run, TaskFactory.StartNew, continuations, async methods)
+            // capture their delegate's exceptions into the task, so their operations complete.
             HandOffTerminal(operation, SimulationOperationState.Faulted, ex);
         }
     }

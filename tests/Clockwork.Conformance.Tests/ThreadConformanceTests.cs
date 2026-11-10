@@ -72,7 +72,8 @@ public sealed class ThreadConformanceTests : IDisposable
                 return Task.FromResult(count);
             }
 
-            // A faulting thread body terminates deterministically; Join neither throws nor hangs.
+            // A faulting thread body is an unhandled exception that faults its controlled operation;
+            // Join observes the terminated thread and neither throws nor hangs.
             public static Task<bool> FaultingThreadJoins()
             {
                 bool reached = false;
