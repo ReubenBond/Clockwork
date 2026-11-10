@@ -17,7 +17,7 @@ internal sealed class ReplacementResolver : IDisposable
 
     public ReplacementResolver(IEnumerable<string> shimAssemblyPaths, IEnumerable<string> searchDirectories)
     {
-        var resolver = new DefaultAssemblyResolver();
+        var resolver = new GuardedAssemblyResolver();
         foreach (string dir in searchDirectories)
         {
             if (!string.IsNullOrEmpty(dir))
@@ -42,6 +42,7 @@ internal sealed class ReplacementResolver : IDisposable
             AssemblyDefinition definition = AssemblyDefinition.ReadAssembly(path, new ReaderParameters
             {
                 AssemblyResolver = resolver,
+                MetadataResolver = resolver.Guard,
                 ReadSymbols = false,
                 InMemory = true,
             });

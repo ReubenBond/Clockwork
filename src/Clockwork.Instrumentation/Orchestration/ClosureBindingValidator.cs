@@ -63,15 +63,7 @@ internal static class ClosureBindingValidator
                 && !frameworkClassifier.IsFrameworkAssembly(Path.GetFileNameWithoutExtension(asset.RelativePath))),
         ];
 
-        using var resolver = new DefaultAssemblyResolver();
-        foreach (string directory in candidates
-            .Select(asset => Path.GetDirectoryName(StagedPath(stagingDirectory, asset))!)
-            .Prepend(stagingDirectory)
-            .Distinct(StringComparer.OrdinalIgnoreCase))
-        {
-            resolver.AddSearchDirectory(directory);
-        }
-
+        using var resolver = new StagedClosureAssemblyResolver(stagingDirectory, frameworkClassifier);
         var reported = new HashSet<string>(StringComparer.Ordinal);
         foreach (ClosureAsset asset in candidates)
         {
@@ -81,9 +73,7 @@ internal static class ClosureBindingValidator
                 continue;
             }
 
-            using ModuleDefinition module = ModuleDefinition.ReadModule(
-                stagedPath,
-                new ReaderParameters { AssemblyResolver = resolver, ReadSymbols = false, InMemory = true });
+            using ModuleDefinition module = ModuleDefinition.ReadModule(stagedPath, resolver.CreateReaderParameters());
             string consumer = module.Assembly?.Name.Name ?? Path.GetFileNameWithoutExtension(stagedPath);
             foreach (MemberReference member in module.GetMemberReferences())
             {
@@ -135,6 +125,15 @@ internal static class ClosureBindingValidator
                     }
                 }
             }
+        }
+
+        // A resolution that met a cycle of type forwarders failed, so whatever depended on it was not checked; the
+        // runtime would not load the type either.
+        foreach (string cycle in resolver.Guard.Cycles)
+        {
+            diagnostics.Add(RewriteDiagnostic.Error(
+                RewriteDiagnosticIds.UnresolvedReference,
+                $"{cycle}, so the staged closure cannot be checked against the type."));
         }
 
         return diagnostics;
@@ -203,7 +202,7 @@ internal static class ClosureBindingValidator
             }
             catch (AssemblyResolutionException exception)
             {
-                return $"could not be resolved against the staged closure: {exception.Message}";
+                return $"could not be resolved against the staged closure: {exception.InnerException?.Message ?? exception.Message}";
             }
 
             string declaringType = member.DeclaringType.GetElementType().FullName;

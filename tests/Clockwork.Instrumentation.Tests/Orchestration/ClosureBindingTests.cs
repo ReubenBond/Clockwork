@@ -325,6 +325,66 @@ public sealed class ClosureBindingTests : IDisposable
         Assert.Contains("'Fx.App' was already rewritten", error.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void FrameworkFacadesOfAnotherTargetFrameworkDoNotShadowTheRuntime()
+    {
+        // Another target framework's build in a subdirectory carries framework facades, here of the core library that
+        // the fixtures reference, forwarding System.Object to each other. The runtime does not probe the subdirectory,
+        // so neither does the check of the staged closure.
+        BuildClosure(AppSource);
+        string nested = Directory.CreateDirectory(Path.Combine(_source, "net472")).FullName;
+        FixtureCompiler.Compile(
+            "Fx.Other",
+            "namespace Fx.Other { public static class Other { public static int Value => 1; } }",
+            nested,
+            FixtureSymbols.None,
+            optimize: false);
+        TypeForwarders.Write(nested, "System.Private.CoreLib", "System.Object", "netstandard");
+        TypeForwarders.Write(nested, "netstandard", "System.Object", "System.Private.CoreLib");
+
+        Run(new InstrumentationConfiguration { ExcludePatterns = ["Fx.Other.dll"] }).EnsureSuccess();
+
+        var loadContext = new DirectoryLoadContext(_staging);
+        try
+        {
+            Assembly app = loadContext.LoadFromAssemblyPath(Path.Combine(_staging, "Fx.App.dll"));
+            Assert.Equal("took modern", app.GetType("Fx.App.Caller", throwOnError: true)!.GetMethod("Run")!.Invoke(null, null));
+        }
+        finally
+        {
+            loadContext.Unload();
+        }
+    }
+
+    [Fact]
+    public void ForwarderCycleInTheClosureFailsTheRunWithADiagnostic()
+    {
+        // A copied type's base type is forwarded round a cycle, which the runtime would not load either.
+        BuildClosure(AppSource);
+        string cyclic = FixtureCompiler.Compile(
+            "Fx.CycA", "namespace Fx.Cyc { public abstract class Base { } }", _source, FixtureSymbols.None, optimize: false);
+        FixtureCompiler.Compile(
+            "Fx.Derived",
+            "namespace Fx.Derived { public sealed class Derived : Fx.Cyc.Base { } }",
+            _source,
+            FixtureSymbols.None,
+            optimize: false,
+            additionalReferencePaths: [cyclic]);
+        TypeForwarders.Write(_source, "Fx.CycA", "Fx.Cyc.Base", "Fx.CycB");
+        TypeForwarders.Write(_source, "Fx.CycB", "Fx.Cyc.Base", "Fx.CycA");
+
+        InstrumentationResult result = Run(
+            new InstrumentationConfiguration { ExcludePatterns = ["Fx.Derived.dll", "Fx.CycA.dll", "Fx.CycB.dll"] });
+
+        Assert.False(result.Succeeded);
+        RewriteDiagnostic error = Assert.Single(result.Errors);
+        Assert.Equal(RewriteDiagnosticIds.UnresolvedReference, error.Id);
+        Assert.Equal(
+            "The type forwarders for 'Fx.Cyc.Base' form a cycle: Fx.CycA -> Fx.CycB -> Fx.CycA, so the staged closure " +
+                "cannot be checked against the type.",
+            error.Message);
+    }
+
     public void Dispose()
     {
         try

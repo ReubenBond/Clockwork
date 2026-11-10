@@ -129,6 +129,15 @@ public static class RewriteEngine
         }
 
         diagnostics.AddRange(session.GetDiagnostics());
+
+        // A resolution that met a cycle of type forwarders failed, so whatever depended on it was not checked.
+        foreach (string cycle in context.ForwarderCycles)
+        {
+            diagnostics.Add(RewriteDiagnostic.Error(
+                RewriteDiagnosticIds.UnresolvedReference,
+                $"{cycle}, so '{context.Name}' cannot be checked against the type."));
+        }
+
         ImmutableArray<ManifestTransformation> transformations = session.GetTransformations();
 
         var unresolved = new SortedSet<string>(optionalUnresolved, StringComparer.Ordinal);

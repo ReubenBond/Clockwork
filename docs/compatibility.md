@@ -205,9 +205,13 @@ exclude the containing assembly from instrumentation.
   reused in a closure that rewrites different assemblies fails (`CWR0008`). Once the closure is staged, the
   runner resolves every reference into a rewritten assembly that mentions a substituted or substitute type,
   from a copied assembly or an excluded type, checks every implementation and override across assemblies the
-  same way, and fails the run (`CWR0001`) if one no longer binds. Read-back validation resolves every
-  such reference whose declaring assembly the closure does not change (this assembly, the framework, a
-  replacement assembly, or an excluded one) and reports one that does not bind (`CWR0009`).
+  same way, and fails the run (`CWR0001`) if one no longer binds. It resolves the staged closure as the
+  runtime binds it: a framework assembly is the runtime's own copy, and any other assembly is the one in the
+  staging directory, whose subdirectories (another target framework's build, say) are not searched. A cycle
+  of type forwarders met while resolving fails the rewrite or the run (`CWR0003`) rather than overflowing the
+  stack. Read-back validation resolves every such reference whose declaring assembly the closure does not
+  change (this assembly, the framework, a replacement assembly, or an excluded one) and reports one that
+  does not bind (`CWR0009`).
 
 **Engine boundary:** load-time `AssemblyLoadContext` hooks, profiler/native detours, mixed-mode
 rewriting, Authenticode re-signing, application hosting, and transport interception are not

@@ -20,7 +20,7 @@ internal static class RewriteValidator
     {
         var diagnostics = new List<RewriteDiagnostic>();
 
-        using var resolver = new DefaultAssemblyResolver();
+        using var resolver = new GuardedAssemblyResolver();
         string? directory = Path.GetDirectoryName(Path.GetFullPath(assemblyPath));
         if (!string.IsNullOrEmpty(directory))
         {
@@ -40,6 +40,7 @@ internal static class RewriteValidator
             using AssemblyDefinition definition = AssemblyDefinition.ReadAssembly(assemblyPath, new ReaderParameters
             {
                 AssemblyResolver = resolver,
+                MetadataResolver = resolver.Guard,
                 ReadSymbols = false,
                 InMemory = true,
             });
@@ -102,7 +103,7 @@ internal static class RewriteValidator
             catch (AssemblyResolutionException exception)
             {
                 failure = $"Member reference '{member.FullName}' could not be resolved to check that it binds after " +
-                    $"rewriting: {exception.Message}";
+                    $"rewriting: {exception.InnerException?.Message ?? exception.Message}";
             }
 
             if (failure is not null)
