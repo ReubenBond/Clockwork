@@ -505,7 +505,10 @@ still run a continuation outside the coordinator are:
   `Task.Run`, `TaskFactory.StartNew`, a controlled timer's `DisposeAsync`, and the controlled combinators and
   continuations). A task completed by
   uninstrumented code, including a channel's internal operations, publishes none, so the detector does not order
-  accesses through it.
+  accesses through it. Nor does `CancellationTokenSource.Cancel` publish one: a `ContinueWith`, `ContinueWhenAll`, or
+  `ContinueWhenAny` canceled through its token before its antecedents complete is completed by the canceller, so a
+  write before `Cancel` and a read after awaiting the canceled continuation may be reported as a race that is not
+  one, until `Cancel` publishes a release edge.
 
 **Remaining deviations from the BCL.** The coordinator observes completions between scheduling steps, so
 `WhenAny`, the non-generic `WhenAll`, `WhenEach`, and `ContinueWhenAny` order antecedents completed within one step
