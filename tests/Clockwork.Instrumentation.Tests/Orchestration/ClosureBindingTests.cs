@@ -195,6 +195,60 @@ public sealed class ClosureBindingTests : IDisposable
             }
             """;
 
+    private const string DoNotRewriteAttributeSource = """
+        namespace Clockwork.Instrumentation.Attributes
+        {
+            [System.AttributeUsage(System.AttributeTargets.Class)]
+            public sealed class DoNotRewriteAttribute(string reason) : System.Attribute
+            {
+                public string Reason { get; } = reason;
+            }
+        }
+        """;
+
+    // Fx.Lib's Markers derives from List<LegacyMarker>; [LIB] marks it [DoNotRewrite] in the kept-shape cases.
+    private const string KeptShapeLibTemplate = $$"""
+        using System.Collections.Generic;
+        using ClockworkFixtures.Api;
+
+        {{DoNotRewriteAttributeSource}}
+
+        namespace Fx.Lib
+        {
+            [LIB]
+            public class Markers : List<LegacyMarker>
+            {
+            }
+        }
+        """;
+
+    // Fx.App's rewritten Counter uses MoreMarkers, which [APP] marks [DoNotRewrite], as a List<LegacyMarker>.
+    private const string KeptShapeAppTemplate = $$"""
+        using System.Collections.Generic;
+        using ClockworkFixtures.Api;
+        using Fx.Lib;
+
+        {{DoNotRewriteAttributeSource}}
+
+        namespace Fx.App
+        {
+            [APP]
+            public class MoreMarkers : Markers
+            {
+            }
+
+            public static class Counter
+            {
+                public static string Count()
+                {
+                    List<LegacyMarker> markers = new MoreMarkers();
+                    markers.Add(new LegacyMarker());
+                    return markers.Count + " " + markers[0];
+                }
+            }
+        }
+        """;
+
     private readonly string _root = TestArtifacts.CreateUnique("cwr-closure-binding");
     private readonly string _source;
     private readonly string _staging;
@@ -422,6 +476,93 @@ public sealed class ClosureBindingTests : IDisposable
     }
 
     [Fact]
+    public void RewrittenConsumerOfARewrittenSiblingsListRuns()
+    {
+        BuildClosure(KeptShapeApp(doNotRewrite: false), KeptShapeLib(doNotRewrite: false));
+
+        Run().EnsureSuccess();
+
+        var loadContext = new DirectoryLoadContext(_staging);
+        try
+        {
+            Assembly app = loadContext.LoadFromAssemblyPath(Path.Combine(_staging, "Fx.App.dll"));
+            MethodInfo count = app.GetType("Fx.App.Counter", throwOnError: true)!.GetMethod("Count")!;
+
+            // Every type on the path names List<ModernMarker>.
+            Assert.Equal("1 modern", count.Invoke(null, null));
+        }
+        finally
+        {
+            loadContext.Unload();
+        }
+    }
+
+    [Fact]
+    public void RewrittenConsumerOfACopiedSiblingKeepingASubstitutedBaseTypeFailsTheRewrite()
+    {
+        BuildClosure(KeptShapeApp(doNotRewrite: false), KeptShapeLib(doNotRewrite: false));
+
+        InstrumentationResult result = Run(new InstrumentationConfiguration { ExcludePatterns = ["Fx.Lib.dll"] });
+
+        // The copied sibling's Markers keeps List<LegacyMarker>, which the rewritten MoreMarkers would inherit.
+        Assert.False(result.Succeeded);
+        RewriteDiagnostic error = Assert.Single(result.Errors);
+        Assert.Equal(RewriteDiagnosticIds.UnresolvedReplacement, error.Id);
+        Assert.Equal("Fx.App.MoreMarkers", error.Method);
+        Assert.Equal(
+            "Member-aware substitution rule 'substitute-marker' substitutes " +
+                "'System.Collections.Generic.List`1<ClockworkFixtures.Api.LegacyMarker>' in 'Fx.App.MoreMarkers', but the base " +
+                "type of 'Fx.Lib.Markers' keeps it, because 'Fx.Lib.Markers' is declared in 'Fx.Lib', which is not rewritten " +
+                "in this closure, so 'Fx.App.MoreMarkers' would use 'Fx.Lib.Markers' through a base type, interface, or " +
+                "constraint it does not have.",
+            error.Message);
+    }
+
+    [Fact]
+    public void RewrittenConsumerOfADoNotRewriteSiblingKeepingASubstitutedBaseTypeFailsTheRun()
+    {
+        BuildClosure(KeptShapeApp(doNotRewrite: false), KeptShapeLib(doNotRewrite: true));
+
+        InstrumentationResult result = Run();
+
+        // The rewrite of Fx.App cannot know that Fx.Lib excludes Markers; the staged closure shows it.
+        Assert.False(result.Succeeded);
+        RewriteDiagnostic error = Assert.Single(result.Errors);
+        Assert.Equal(RewriteDiagnosticIds.UnresolvedReplacement, error.Id);
+        Assert.Equal("Fx.App.dll", error.Method);
+        Assert.Equal(
+            "Member-aware substitution rule 'substitute-marker' substitutes " +
+                "'System.Collections.Generic.List`1<ClockworkFixtures.Api.LegacyMarker>' in 'Fx.App.MoreMarkers' of 'Fx.App', " +
+                "but the base type of 'Fx.Lib.Markers' keeps it, because 'Fx.Lib.Markers' is excluded from rewriting in " +
+                "'Fx.Lib', so 'Fx.App.MoreMarkers' would use 'Fx.Lib.Markers' through a base type, interface, or constraint " +
+                "it does not have.",
+            error.Message);
+        Assert.Contains(result.Assemblies, assembly => assembly.RelativePath == "Fx.Lib.dll" && assembly.WasRewritten);
+        Assert.Contains(result.Assemblies, assembly => assembly.RelativePath == "Fx.App.dll" && assembly.WasRewritten);
+    }
+
+    [Fact]
+    public void RewrittenUserOfAnExcludedTypeInheritingASiblingsSubstitutedBaseTypeFailsTheRun()
+    {
+        BuildClosure(KeptShapeApp(doNotRewrite: true), KeptShapeLib(doNotRewrite: true));
+
+        InstrumentationResult result = Run();
+
+        // MoreMarkers is excluded in Fx.App and inherits the List<LegacyMarker> Fx.Lib's excluded Markers keeps.
+        Assert.False(result.Succeeded);
+        RewriteDiagnostic error = Assert.Single(result.Errors);
+        Assert.Equal(RewriteDiagnosticIds.UnresolvedReplacement, error.Id);
+        Assert.Equal("Fx.App.dll", error.Method);
+        Assert.Equal(
+            "Member-aware substitution rule 'substitute-marker' substitutes " +
+                "'System.Collections.Generic.List`1<ClockworkFixtures.Api.LegacyMarker>' in 'Fx.App.Counter' of 'Fx.App', but " +
+                "the base type of 'Fx.Lib.Markers' (inherited by 'Fx.App.MoreMarkers') keeps it, because 'Fx.Lib.Markers' is " +
+                "excluded from rewriting in 'Fx.Lib', so 'Fx.App.Counter' would use 'Fx.App.MoreMarkers' through a base type, " +
+                "interface, or constraint it does not have.",
+            error.Message);
+    }
+
+    [Fact]
     public void PreRewrittenAssemblyIsRefusedInAClosureThatRewritesDifferentAssemblies()
     {
         BuildClosure(AppSource);
@@ -529,6 +670,18 @@ public sealed class ClosureBindingTests : IDisposable
         ReshapeAppTemplate.Replace(
             "[ATTRIBUTE]",
             doNotRewrite ? "[Clockwork.Instrumentation.Attributes.DoNotRewrite(\"Runs before the simulation starts.\")]" : string.Empty,
+            StringComparison.Ordinal);
+
+    private static string KeptShapeLib(bool doNotRewrite) =>
+        KeptShapeLibTemplate.Replace(
+            "[LIB]",
+            doNotRewrite ? "[Clockwork.Instrumentation.Attributes.DoNotRewrite(\"Shared with code outside the simulation.\")]" : string.Empty,
+            StringComparison.Ordinal);
+
+    private static string KeptShapeApp(bool doNotRewrite) =>
+        KeptShapeAppTemplate.Replace(
+            "[APP]",
+            doNotRewrite ? "[Clockwork.Instrumentation.Attributes.DoNotRewrite(\"Shared with code outside the simulation.\")]" : string.Empty,
             StringComparison.Ordinal);
 
     private static void AssertReshapeErrors(InstrumentationResult result, string method, params string[] reasons)

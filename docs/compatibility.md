@@ -197,7 +197,7 @@ exclude the containing assembly from instrumentation.
   (`CWR0006`). Rewritten code cannot cross the boundary with a substituted type: a reference into an excluded
   type whose signature mentions one, or an implementation or override across it whose signature does, fails
   (`CWR0001`), as below; nor can excluded code use a rewritten type whose base type, interfaces, or
-  constraints the rewrite substitutes;
+  constraints the rewrite substitutes, nor rewritten code an excluded type that keeps such a part;
 - strict resolution — a targeted member whose replacement cannot be resolved is a hard
   failure (`CWR0001`); a targeted call is never silently skipped. A member reference whose signature a
   type substitution rewrites, but whose declaring type it keeps, binds only where that type is rewritten
@@ -217,20 +217,22 @@ exclude the containing assembly from instrumentation.
   excluded type that mentions a type or method of its module so reshaped, or a type deriving from one, fails
   (`CWR0001`): it could use the type through a base type or interface it no longer has (adding an element of
   the original type to what is now a list of the substitute throws `ArrayTypeMismatchException`), or
-  instantiate it with a type that satisfies only the original constraint. Any mention counts, because IL does
-  not spell out a conversion to a base type or interface. The converse is not checked: rewritten code that
-  uses an excluded type, or a type of an assembly the closure does not rewrite, through a base type or
-  interface composed from a substituted type (an excluded `Old : List<Barrier>` assigned to a
-  `List<Barrier>`) treats it as the substitute's composition, which it is not, so keep such a type out of
-  rewritten code. The closure runner tells the engine which assemblies it
+  instantiate it with a type that satisfies only the original constraint. Conversely, rewritten code sees
+  such a part as composed from the substitute, so rewritten code that mentions a type which keeps a base type,
+  interface, or constraint composed from a substituted type (an excluded type, a type of an assembly the
+  closure does not rewrite, or a type deriving from one, such as an excluded `Old : List<Barrier>` that
+  rewritten code would use as a `List<ControlledBarrier>`), or a generic method of such a type that keeps
+  such a constraint, fails (`CWR0001`) too. Any mention counts, because IL does not spell out a conversion
+  to a base type or interface. The closure runner tells the engine which assemblies it
   rewrites; a direct engine caller that does not is taken to rewrite none, so every such reference into
   another assembly fails closed. The set is part of the options fingerprint, so an already-rewritten input
   reused in a closure that rewrites different assemblies fails (`CWR0008`). Once the closure is staged, the
   runner resolves every reference into a rewritten assembly that mentions a substituted or substitute type,
   from a copied assembly or an excluded type, checks every implementation and override across assemblies the
-  same way, and fails the run (`CWR0001`) if one no longer binds, or if a copied assembly or an excluded type
+  same way, and fails the run (`CWR0001`) if one no longer binds, if a copied assembly or an excluded type
   mentions a reshaped type or method of a rewritten assembly, including a type of its own assembly deriving
-  from one. It resolves the staged closure as the
+  from one, or if rewritten code mentions a type that another rewritten assembly excludes, or that derives
+  from one, which keeps a part composed from a substituted type. It resolves the staged closure as the
   runtime binds it: a framework assembly is the runtime's own copy, and any other assembly is the one in the
   staging directory, whose subdirectories (another target framework's build, say) are not searched. A cycle
   of type forwarders met while resolving fails the rewrite or the run (`CWR0003`) rather than overflowing the

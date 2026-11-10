@@ -4,13 +4,13 @@ using Mono.Cecil.Cil;
 namespace Clockwork.Instrumentation.Rewriting;
 
 /// <summary>
-/// Finds the types and methods whose shape a type substitution rewrites - a base type, an interface, or a generic
-/// parameter constraint composed from a substituted type, such as <c>List&lt;Barrier&gt;</c> - and where code that
-/// keeps the original shapes mentions them. Such code, a type excluded from rewriting or an assembly the closure
-/// copies, may use a reshaped type through the base type or interface it had, a conversion IL does not spell out, or
-/// instantiate a reshaped generic parameter with a type that satisfies only the original constraint. The runtime would
-/// then fail to bind the member or the instantiation, or invoke a member of the original base type on an object of the
-/// rewritten one, so any mention counts.
+/// Finds the types and methods whose shape - a base type, an interface, or a generic parameter constraint - is composed
+/// from a substituted type, such as <c>List&lt;Barrier&gt;</c>, and where code on the other side of the rewrite
+/// boundary mentions them. The rewrite substitutes such a part in the types it rewrites, while a type excluded from
+/// rewriting, or of an assembly the closure does not rewrite, keeps the original. Code on one side may use a type of the
+/// other through the base type or interface it sees, a conversion IL does not spell out, or instantiate a generic
+/// parameter with a type that satisfies only the constraint it sees. The runtime would then fail to bind the member or
+/// the instantiation, or invoke a member of one base type on an object of the other, so any mention counts.
 /// </summary>
 internal static class TypeReshapes
 {
@@ -45,11 +45,11 @@ internal static class TypeReshapes
 
     /// <summary>
     /// Returns each mention, in <paramref name="type"/>'s declaration, fields, method signatures, and method bodies,
-    /// of a type or method that is reshaped.
+    /// of a type or method whose shape the other side of the boundary does not share.
     /// </summary>
-    /// <param name="type">A type that keeps the original shapes.</param>
-    /// <param name="reshapeOf">The reshape of a type that is not a type specification, or null.</param>
-    /// <param name="methodReshapeOf">The reshape of a referenced method, or null.</param>
+    /// <param name="type">A type on one side of the boundary.</param>
+    /// <param name="reshapeOf">The unshared shape of a type that is not a type specification, or null.</param>
+    /// <param name="methodReshapeOf">The unshared constraints of a referenced method, or null.</param>
     public static IReadOnlyList<ReshapedReference> FindReferences(
         TypeDefinition type,
         Func<TypeReference, TypeReshape?> reshapeOf,
@@ -233,21 +233,25 @@ internal static class TypeReshapes
     }
 }
 
-/// <summary>A part of a type's or method's shape that a type substitution rewrites.</summary>
-/// <param name="Owner">The full name of the type or method whose shape the rewrite changes.</param>
+/// <summary>
+/// A part of a type's or method's shape composed from a substituted type: one the rewrite substitutes, or one a type
+/// it does not rewrite keeps.
+/// </summary>
+/// <param name="Owner">The full name of the type or method whose shape names the substituted type.</param>
 /// <param name="Kind">The part: <c>base type</c>, <c>interface</c>, or <c>constraint on 'T'</c>.</param>
 /// <param name="Part">The type the part names.</param>
-internal sealed record TypeReshape(string Owner, string Kind, TypeReference Part)
+/// <param name="Cause">For a part the rewrite does not substitute, why: <see cref="Owner"/> is not rewritten.</param>
+internal sealed record TypeReshape(string Owner, string Kind, TypeReference Part, string? Cause = null)
 {
     /// <summary>
-    /// Names the reshaped part, and, when <paramref name="mentioned"/> is a type deriving from <see cref="Owner"/>, the
-    /// type that inherits it.
+    /// Names the part, and, when <paramref name="mentioned"/> is a type deriving from <see cref="Owner"/>, the type that
+    /// inherits it.
     /// </summary>
     public string Describe(string mentioned) =>
         $"the {Kind} of '{Owner}'" + (mentioned == Owner ? string.Empty : $" (inherited by '{mentioned}')");
 }
 
-/// <summary>A mention of a reshaped type or method by code that keeps the original shapes.</summary>
+/// <summary>A mention of a type or method whose shape one side of the rewrite boundary does not share.</summary>
 /// <param name="Mentioned">The full name of the mentioned type or method.</param>
 /// <param name="Reshape">How the rewrite reshapes it.</param>
 /// <param name="Containing">The type or method whose declaration or body mentions it.</param>
