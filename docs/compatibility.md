@@ -184,9 +184,12 @@ exclude the containing assembly from instrumentation.
   such a type: async and iterator state machines, lambda and local-function closures, and an async
   lambda's state machine in its closure), transitively, so the type and its helpers stay consistent and
   its code runs with BCL behaviour, uncontrolled. An explicitly declared nested type keeps its own
-  annotation. Each excluded type is recorded in the manifest (`CWR0006`). Rewritten code cannot cross the
-  boundary with a substituted type: a reference into an excluded type whose signature mentions one, or an
-  implementation or override across it whose signature does, fails (`CWR0001`), as below;
+  annotation. Because its lambdas and local functions are excluded with it, a callback an excluded type hands
+  to simulated code runs uncontrolled too: its body uses real time, real timers, and the thread pool, so
+  excluding a type removes its callbacks from the simulation. Each excluded type is recorded in the manifest
+  (`CWR0006`). Rewritten code cannot cross the boundary with a substituted type: a reference into an excluded
+  type whose signature mentions one, or an implementation or override across it whose signature does, fails
+  (`CWR0001`), as below;
 - strict resolution — a targeted member whose replacement cannot be resolved is a hard
   failure (`CWR0001`); a targeted call is never silently skipped. A member reference whose signature a
   type substitution rewrites, but whose declaring type it keeps, binds only where that type is rewritten
