@@ -105,6 +105,9 @@ public static class RewriteEngine
 
         RewritePass[] passes =
         [
+            .. RuntimeAsyncDetectionPass.Applies(matcher)
+                ? new RewritePass[] { new RuntimeAsyncDetectionPass(session) }
+                : [],
             new CallSiteRewritingPass(session),
             new TypeReferenceRewritingPass(session),
             new MemberSubstitutionRewritingPass(session),

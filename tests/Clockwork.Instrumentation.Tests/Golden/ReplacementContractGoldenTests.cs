@@ -276,14 +276,14 @@ public sealed class ReplacementContractGoldenTests
                 nameof(BuiltInRuleFamily.TaskCombinators),
                 nameof(BuiltInRuleFamily.TaskSynchronization),
             ],
-            TargetRuntime = new Version(10, 0),
+            TargetRuntime = BuiltInRuleSets.TargetRuntime,
         };
         RewriteRuleSet rules = RuleSetMerge.LoadAndMerge(configuration).RuleSet;
         var options = new RewriteOptions
         {
             ReplacementAssemblyPaths = [runtimePath],
             ReferenceSearchDirectories = [context.Directory, Path.GetDirectoryName(runtimePath)!],
-            TargetRuntime = new Version(10, 0),
+            TargetRuntime = BuiltInRuleSets.TargetRuntime,
         };
 
         RewriteResult result = context.Rewrite(fixturePath, rules, options);

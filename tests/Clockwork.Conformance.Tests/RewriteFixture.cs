@@ -11,7 +11,7 @@ using Microsoft.CodeAnalysis.Emit;
 namespace Clockwork.Conformance.Tests;
 
 /// <summary>
-/// Compiles ordinary C# source whose direct calls target the real .NET&#160;10 BCL APIs, rewrites it
+/// Compiles ordinary C# source whose direct calls target the real .NET&#160;11 BCL APIs, rewrites it
 /// in-process with a versioned built-in rule set, and loads the rewritten assembly. Rewritten code is
 /// simulation-only, while separately loaded uninstrumented probes continue to use the real BCL.
 /// </summary>
@@ -74,6 +74,21 @@ internal sealed class RewriteFixture : IDisposable
             BuiltInRuleSets.BuildControlledTasks(families ?? BuiltInRuleSets.AllFamilies),
             optimize);
 
+    /// <summary>
+    /// Compiles with runtime async and rewrites with the controlled-task rule set, returning the compiled assembly's
+    /// path and the rewrite's outcome without loading either.
+    /// </summary>
+    public (string SourceDll, RewriteResult Result) RewriteRuntimeAsync(string assemblyName, string source, bool optimize)
+    {
+        string sourceDll = Compile(assemblyName, source, optimize, runtimeAsync: true);
+        RewriteResult result = RewriteEngine.Rewrite(new RewriteRequest(
+            sourceDll,
+            Path.Combine(StagingDir, assemblyName + ".dll"),
+            BuiltInRuleSets.BuildControlledTasks(BuiltInRuleSets.AllFamilies),
+            CreateOptions()));
+        return (sourceDll, result);
+    }
+
     private StagedProbe StageWith(
         string assemblyName,
         string typeName,
@@ -84,16 +99,7 @@ internal sealed class RewriteFixture : IDisposable
         string sourceDll = Compile(assemblyName, source, optimize);
         string stagedDll = Path.Combine(StagingDir, assemblyName + ".dll");
 
-        string runtimeDll = typeof(ControlledDateTime).Assembly.Location;
-        var options = new RewriteOptions
-        {
-            HardenExceptionHandlers = true,
-            DetectUncontrolledTasks = true,
-            ReplacementAssemblyPaths = [runtimeDll],
-            ReferenceSearchDirectories = [AppContext.BaseDirectory],
-            TargetRuntime = new Version(10, 0),
-        };
-
+        RewriteOptions options = CreateOptions();
         RewriteResult result = RewriteEngine.Rewrite(new RewriteRequest(sourceDll, stagedDll, ruleSet, options));
         if (!result.Succeeded)
         {
@@ -108,10 +114,24 @@ internal sealed class RewriteFixture : IDisposable
         return new StagedProbe(type, result, sourceDll, stagedDll, ruleSet, options);
     }
 
-    private string Compile(string assemblyName, string source, bool optimize = true)
+    private static RewriteOptions CreateOptions() => new()
     {
-        SyntaxTree tree = CSharpSyntaxTree.ParseText(
-            source, new CSharpParseOptions(LanguageVersion.Latest), path: assemblyName + ".cs", encoding: Encoding.UTF8);
+        HardenExceptionHandlers = true,
+        DetectUncontrolledTasks = true,
+        ReplacementAssemblyPaths = [typeof(ControlledDateTime).Assembly.Location],
+        ReferenceSearchDirectories = [AppContext.BaseDirectory],
+        TargetRuntime = BuiltInRuleSets.TargetRuntime,
+    };
+
+    private string Compile(string assemblyName, string source, bool optimize = true, bool runtimeAsync = false)
+    {
+        var parseOptions = new CSharpParseOptions(LanguageVersion.Latest);
+        if (runtimeAsync)
+        {
+            parseOptions = parseOptions.WithFeatures([new("runtime-async", "on")]);
+        }
+
+        SyntaxTree tree = CSharpSyntaxTree.ParseText(source, parseOptions, path: assemblyName + ".cs", encoding: Encoding.UTF8);
         var options = new CSharpCompilationOptions(
             OutputKind.DynamicallyLinkedLibrary,
             optimizationLevel: optimize ? OptimizationLevel.Release : OptimizationLevel.Debug,

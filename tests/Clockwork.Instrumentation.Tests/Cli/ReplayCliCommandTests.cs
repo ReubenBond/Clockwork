@@ -45,8 +45,8 @@ public sealed class ReplayCliCommandTests : IDisposable
         Assert.Empty(runError);
         Assert.Empty(replayError);
         Assert.Empty(traceError);
-        Assert.Equal("Completed", JsonDocument.Parse(runOutput).RootElement.GetProperty("outcome").GetString());
-        Assert.True(JsonDocument.Parse(replayOutput).RootElement.GetProperty("reproduced").GetBoolean());
+        Assert.Equal("Completed", JsonElement.Parse(runOutput).GetProperty("outcome").GetString());
+        Assert.True(JsonElement.Parse(replayOutput).GetProperty("reproduced").GetBoolean());
         Assert.Contains("Clockwork replay clockwork.replay/v2", traceOutput, StringComparison.Ordinal);
     }
 
@@ -152,7 +152,7 @@ public sealed class ReplayCliCommandTests : IDisposable
 
         Assert.Equal(ExitCode.ExecutionFailure, code);
         Assert.Empty(error);
-        Assert.Equal(1, JsonDocument.Parse(output).RootElement.GetProperty("failures").GetInt32());
+        Assert.Equal(1, JsonElement.Parse(output).GetProperty("failures").GetInt32());
         string retained = Assert.Single(Directory.GetFiles(outputDirectory, "*.cwr.json"));
         Assert.Equal(ReplayTerminationKind.RaceDetected, ReplayArtifactSerializer.Read(retained).Outcome.Kind);
     }
@@ -170,7 +170,7 @@ public sealed class ReplayCliCommandTests : IDisposable
             "--time-limit", TimeSpan.FromTicks(1).ToString("c", System.Globalization.CultureInfo.InvariantCulture),
             "--json");
 
-        JsonElement result = JsonDocument.Parse(output).RootElement;
+        JsonElement result = JsonElement.Parse(output);
         Assert.Equal(ExitCode.Success, code);
         Assert.Empty(error);
         Assert.Equal("TimeLimit", result.GetProperty("termination").GetString());
@@ -196,7 +196,7 @@ public sealed class ReplayCliCommandTests : IDisposable
         ReplayArtifact minimized = ReplayArtifactSerializer.Read(minimizedPath);
         Assert.Equal(ExitCode.Success, code);
         Assert.Empty(error);
-        Assert.True(JsonDocument.Parse(output).RootElement.GetProperty("verified").GetBoolean());
+        Assert.True(JsonElement.Parse(output).GetProperty("verified").GetBoolean());
         Assert.True(minimized.Decisions.Count < original.Decisions.Count);
         Assert.Equal(original.Outcome.FailureIdentity, minimized.Outcome.FailureIdentity);
     }

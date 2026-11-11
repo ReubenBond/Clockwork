@@ -3,14 +3,14 @@
   <!--
     Clockwork.Instrumentation.Build - targets.
 
-    Loads the ClockworkInstrumentTask from tasks/net10.0 and runs it out-of-place after Build,
-    but only when ClockworkInstrumentationEnabled=true. Requires the .NET 10 SDK: the task
-    assembly and its Mono.Cecil-based engine target net10.0 and cannot be loaded by .NET
+    Loads the ClockworkInstrumentTask from tasks/net11.0 and runs it out-of-place after Build,
+    but only when ClockworkInstrumentationEnabled=true. Requires the .NET 11 SDK: the task
+    assembly and its Mono.Cecil-based engine target net11.0 and cannot be loaded by .NET
     Framework MSBuild (Visual Studio's classic msbuild.exe). Use `dotnet build`/`dotnet msbuild`.
   -->
 
   <PropertyGroup>
-    <ClockworkInstrumentationTaskAssembly Condition="'$(ClockworkInstrumentationTaskAssembly)' == ''">$(MSBuildThisFileDirectory)..\tasks\net10.0\Clockwork.Instrumentation.Build.dll</ClockworkInstrumentationTaskAssembly>
+    <ClockworkInstrumentationTaskAssembly Condition="'$(ClockworkInstrumentationTaskAssembly)' == ''">$(MSBuildThisFileDirectory)..\tasks\net11.0\Clockwork.Instrumentation.Build.dll</ClockworkInstrumentationTaskAssembly>
   </PropertyGroup>
 
   <UsingTask TaskName="Clockwork.Instrumentation.Build.ClockworkInstrumentTask"
@@ -28,6 +28,10 @@
     <ClockworkSourceDirectory Condition="'$(ClockworkSourceDirectory)' == '' and '$(ClockworkInstrumentedTestProject)' == 'true' and '$(TargetFramework)' != ''">$(ClockworkUninstrumentedTestDirectoryFullPath)</ClockworkSourceDirectory>
     <ClockworkSourceDirectory Condition="'$(ClockworkSourceDirectory)' == ''">$(TargetDir)</ClockworkSourceDirectory>
     <ClockworkEntryAssemblyName Condition="'$(ClockworkEntryAssemblyName)' == ''">$(TargetName)</ClockworkEntryAssemblyName>
+
+    <!-- Rules are evaluated against the runtime the project targets, so a rule classified against another runtime's
+         surface fails the rewrite (CWR0010) instead of instrumenting against the wrong one. -->
+    <ClockworkTargetRuntime Condition="'$(ClockworkTargetRuntime)' == '' and '$(TargetFrameworkIdentifier)' == '.NETCoreApp'">$(TargetFrameworkVersion.TrimStart('v'))</ClockworkTargetRuntime>
 
     <!--
       Out-of-place staging and manifest defaults. These are defined here (not in the .props file)

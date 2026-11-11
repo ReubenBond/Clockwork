@@ -114,8 +114,6 @@ internal sealed class BuiltInProcessFixture : IDisposable
         string clockworkBuild = ClockworkAssemblyPath();
         string clockwork = CopyAssembly(clockworkBuild, source);
         string runtime = CopyAssembly(typeof(ControlledTask).Assembly.Location, source);
-        CopyPackageAssembly("microsoft.extensions.logging.abstractions", source);
-        CopyPackageAssembly("microsoft.extensions.dependencyinjection.abstractions", source);
 
         string dependency = FixtureCompiler.Compile(
             DependencyAssemblyName,
@@ -144,7 +142,7 @@ internal sealed class BuiltInProcessFixture : IDisposable
             Configuration = new InstrumentationConfiguration
             {
                 IncludePatterns = [AppAssemblyName + ".dll", DependencyAssemblyName + ".dll"],
-                TargetRuntime = new Version(10, 0),
+                TargetRuntime = BuiltInRuleSets.TargetRuntime,
             },
             RuleSet = BuiltInRuleSets.BuildControlledTasks(BuiltInRuleSets.AllFamilies),
         });
@@ -177,16 +175,6 @@ internal sealed class BuiltInProcessFixture : IDisposable
         return destination;
     }
 
-    private static void CopyPackageAssembly(string packageId, string destinationDirectory)
-    {
-        string packages = Environment.GetEnvironmentVariable("NUGET_PACKAGES")
-            ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages");
-        string packageDirectory = Path.Combine(packages, packageId);
-        string assembly = Directory.GetFiles(packageDirectory, "*.dll", SearchOption.AllDirectories)
-            .First(path => path.Contains($"{Path.DirectorySeparatorChar}net10.0{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase));
-        CopyAssembly(assembly, destinationDirectory);
-    }
-
     private static string ClockworkAssemblyPath()
     {
         var baseDirectory = new DirectoryInfo(AppContext.BaseDirectory);
@@ -202,6 +190,6 @@ internal sealed class BuiltInProcessFixture : IDisposable
             throw new InvalidOperationException("Could not locate Clockwork.slnx.");
         }
 
-        return Path.Combine(current.FullName, "src", "Clockwork", "bin", configuration, "net10.0", "Clockwork.dll");
+        return Path.Combine(current.FullName, "src", "Clockwork", "bin", configuration, "net11.0", "Clockwork.dll");
     }
 }

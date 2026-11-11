@@ -95,6 +95,7 @@ public static class RuleInventoryDocument
         Line();
         Line($"Rule set id: `{id}`");
         Line($"Version: `{version}`");
+        Line($"Supported runtime: `{BuiltInRuleSets.TargetRuntime}`");
         Line($"Shim assembly: `{BuiltInRuleSets.ShimAssemblyName}`");
         Line();
 
@@ -141,7 +142,8 @@ public static class RuleInventoryDocument
         BuiltInRuleFamily.Random =>
             "`Random.Shared` and unseeded `new Random()` become per-node deterministic streams isolated from " +
             "the scheduler/network/Buggify seed domains; explicitly seeded `new Random(int)` preserves the " +
-            "caller's seed exactly. Stable seed derivation uses `SimulationStableHash`.",
+            "caller's seed exactly. Stable seed derivation uses `SimulationStableHash`. Every instance member, " +
+            "including the generic `NextInteger<T>` and `NextBinaryFloat<T>`, draws from the instance's stream.",
         BuiltInRuleFamily.Crypto =>
             "Static random APIs are redirected to `ControlledRandomNumberGenerator` and draw from a " +
             "deterministic, per-node non-cryptographic stream. Uninstrumented production binaries retain " +
@@ -167,7 +169,7 @@ public static class RuleInventoryDocument
             "until each `MoveNextAsync` and the final `DisposeAsync` complete, with the BCL's token, early-exit " +
             "disposal, and exception semantics.",
         BuiltInRuleFamily.TaskContinuations =>
-            "All 40 .NET 10 `Task.ContinueWith` and `Task<T>.ContinueWith` overloads (with and without state, a " +
+            "All 40 .NET 11 `Task.ContinueWith` and `Task<T>.ContinueWith` overloads (with and without state, a " +
             "`CancellationToken`, `TaskContinuationOptions`, and a `TaskScheduler`) redirect. The result is a genuine " +
             "BCL continuation task of a private gate, so its status, options, state, cancellation (including " +
             "`LazyCancellation`), `NotOn*`/`OnlyOn*` filtering, and exceptions are the BCL's. The coordinator observes " +
@@ -195,8 +197,10 @@ public static class RuleInventoryDocument
             "awaiters, generic and non-generic) are substituted onto Clockwork's controlled equivalents by " +
             "the member-aware pass, and `Task.Yield()` redirects to the controlled yield. Every awaited " +
             "continuation is scheduled through the simulation coordinator instead of the thread pool, and " +
-            "`ConfigureAwait(false)` stays controlled. The runtime-async `AsyncHelpers.Await` intrinsics taking a " +
-            "configured task awaitable resume through the runtime's own continuation machinery, so they are rejected.",
+            "`ConfigureAwait(false)` stays controlled. A method compiled with runtime async has no state machine and " +
+            "resumes through the runtime's own continuation machinery, so rewriting one fails with `CWR0013`; the " +
+            "runtime-async `AsyncHelpers.Await` intrinsics taking a configured task awaitable and the " +
+            "`AsyncHelpers.HandleAsyncEntryPoint` entry-point helpers are rejected.",
         BuiltInRuleFamily.ValueTaskMachinery =>
             "The compiler-generated builder and awaiter types of an `async ValueTask`/`async ValueTask<T>` " +
             "state machine (`AsyncValueTaskMethodBuilder`, `ValueTaskAwaiter`, `ConfiguredValueTaskAwaitable` " +
@@ -218,13 +222,13 @@ public static class RuleInventoryDocument
             "the completed source once through the BCL's own conversion. Any other value task is converted by the " +
             "BCL itself, synchronously.",
         BuiltInRuleFamily.TaskFactory =>
-            "All 24 .NET 10 `TaskFactory.StartNew` and `TaskFactory<T>.StartNew` overloads are classified, " +
+            "All 24 .NET 11 `TaskFactory.StartNew` and `TaskFactory<T>.StartNew` overloads are classified, " +
             "including state-carrying delegates and the full cancellation/options/scheduler forms. Each " +
             "redirects to a controlled equivalent that schedules the delegate as a fresh logical strand while " +
             "preserving state, cancellation, and results. Non-default schedulers and creation options whose " +
             "semantics cannot be preserved are rejected precisely.",
         BuiltInRuleFamily.TaskFactoryContinuations =>
-            "All 48 .NET 10 `TaskFactory` and `TaskFactory<T>` `ContinueWhenAll` and `ContinueWhenAny` overloads " +
+            "All 48 .NET 11 `TaskFactory` and `TaskFactory<T>` `ContinueWhenAll` and `ContinueWhenAny` overloads " +
             "redirect. The result is a genuine BCL continuation task of a private gate, with the BCL's argument " +
             "validation, creation options, state (the continuation delegate), and cancellation, including a task canceled " +
             "at creation for a canceled token. The coordinator observes the antecedents complete and a controlled operation " +
@@ -271,26 +275,30 @@ public static class RuleInventoryDocument
             "break/stop overloads cannot be modelled deterministically yet and are rejected with a precise " +
             "diagnostic.",
         BuiltInRuleFamily.Monitor =>
-            "The complete .NET 10 `Monitor` surface is classified: synchronization and C# `lock (object)` " +
+            "The complete .NET 11 `Monitor` surface is classified: synchronization and C# `lock (object)` " +
             "lowering are controlled with deterministic virtual-time deadlines, while the process-wide " +
             "`LockContentionCount` metric is rejected because it has no per-simulation meaning.",
         BuiltInRuleFamily.Lock =>
             "The .NET 9+ `System.Threading.Lock` type and nested `Scope` are substituted onto controlled " +
             "equivalents, covering the dedicated C# lock lowering in Debug and Release builds.",
         BuiltInRuleFamily.Semaphore =>
-            "The .NET 10 `SemaphoreSlim` constructors, counts, waits, releases, and disposal are controlled; " +
+            "The .NET 11 `SemaphoreSlim` constructors, counts, waits, releases, and disposal are controlled; " +
             "`AvailableWaitHandle` returns a controlled manual-reset bridge whose signal tracks whether the " +
             "permit count is positive and which composes with the controlled wait-handle surface.",
         BuiltInRuleFamily.UncontrolledInvocation =>
-            "Process control and abrupt-termination APIs (`Process.Start`/`Start` instance/`Kill`/`WaitForExit`/" +
-            "`WaitForExitAsync`, `Environment.Exit`/`FailFast`) cannot be modelled inside a single simulated " +
-            "process at all. A throwing guard is injected before each call site so a rewritten assembly can " +
-            "never launch, kill, wait on, or terminate a real OS process; unlike the controlled shims the " +
+            "Process control and abrupt-termination APIs (`Process.Start`/`Run`/`RunAsync`/`RunAndCaptureText`/" +
+            "`RunAndCaptureTextAsync`/`StartAndForget`, the `Start` instance/`Kill`/`Signal` members, the " +
+            "`WaitForExit`/`WaitForExitAsync`/`WaitForExitStatus`/`TryWaitForExitStatus`/`WaitForExitStatusAsync` " +
+            "waits, the `ReadAllBytes`/`ReadAllText`/`ReadAllLines` reads (and their async forms) that wait for the " +
+            "process to close its output, and `Environment.Exit`/`FailFast`) cannot be modelled inside a single " +
+            "simulated process at all. A throwing guard is injected before each call site so a rewritten assembly can " +
+            "never launch, signal, wait on, or terminate a real OS process; unlike the controlled shims the " +
             "rejection is unconditional (it fires whether or not a simulation is active).",
         BuiltInRuleFamily.Interlocked =>
-            "The full .NET 10 `Interlocked` surface - `Increment`/`Decrement`/`Add`/`And`/`Or` (`int`/`long`/" +
-            "`uint`/`ulong`), `Exchange`/`CompareExchange` (every primitive, native-int, floating-point, " +
-            "reference, and generic reference overload), `Read` (`long`/`ulong`), and the memory barriers - " +
+            "The full .NET 11 `Interlocked` surface - `Increment`/`Decrement`/`Add` (`int`/`long`/`uint`/`ulong`), " +
+            "`And`/`Or` (`int`/`long`/`uint`/`ulong` and the generic integer or enum overload), `Exchange`/" +
+            "`CompareExchange` (every primitive, native-int, floating-point, reference, and generic overload), " +
+            "`Read` (`long`/`ulong`), and the memory barriers - " +
             "redirects each call site to a shim with the identical `ref`-first signature. Clockwork's " +
             "cooperative single-logical-thread scheduler makes every read-modify-write an indivisible step " +
             "(never split, never interleaved mid-operation), so the shim delegates to the real primitive and " +
@@ -298,7 +306,7 @@ public static class RuleInventoryDocument
             "simulation. The exploration policy injects no mid-operation scheduling point; the single " +
             "delegation site is the race-exploration access-tracking attachment point.",
         BuiltInRuleFamily.Volatile =>
-            "The full .NET 10 `Volatile` surface - `Read`/`Write` (every primitive, native-int, " +
+            "The full .NET 11 `Volatile` surface - `Read`/`Write` (every primitive, native-int, " +
             "floating-point, and generic reference overload) and the `ReadBarrier`/`WriteBarrier` fences - " +
             "redirects each call site to a shim with the identical `ref`-first signature. Under the " +
             "cooperative single-logical-thread scheduler a volatile access is an indivisible step, so the " +
@@ -335,12 +343,12 @@ public static class RuleInventoryDocument
             "native-handle accessors (`Handle`, `SafeWaitHandle`) cannot be modelled in a single simulated " +
             "process and are rejected with a precise diagnostic.",
         BuiltInRuleFamily.ReaderWriterLockSlim =>
-            "Every public .NET 10 `ReaderWriterLockSlim` constructor, property, enter/try-enter/exit overload, " +
+            "Every public .NET 11 `ReaderWriterLockSlim` constructor, property, enter/try-enter/exit overload, " +
             "and `Dispose` member redirects to receiver-first controlled shims. The real BCL instance is only " +
             "an identity key; logical-strand ownership, recursion, wait queues, and deadlines are modelled " +
             "without blocking a physical thread.",
         BuiltInRuleFamily.ManualResetEventSlim =>
-            "Every public .NET 10 `ManualResetEventSlim` constructor, property, set/reset/wait overload, and " +
+            "Every public .NET 11 `ManualResetEventSlim` constructor, property, set/reset/wait overload, and " +
             "`Dispose` redirects to receiver-first controlled shims. Signal state, waiters, cancellation, " +
             "deadlines, and the exposed wait-handle bridge are modelled in side state.",
         BuiltInRuleFamily.Mutex =>

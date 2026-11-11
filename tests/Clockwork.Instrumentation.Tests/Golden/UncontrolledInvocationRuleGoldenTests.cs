@@ -22,7 +22,9 @@ public sealed class UncontrolledInvocationRuleGoldenTests
 {
     private const string Fixture = """
         using System;
+        using System.Collections.Generic;
         using System.Diagnostics;
+        using System.Runtime.InteropServices;
         using System.Threading;
         using System.Threading.Tasks;
 
@@ -39,6 +41,26 @@ public sealed class UncontrolledInvocationRuleGoldenTests
                 public static bool WaitMs(Process p) => p.WaitForExit(100);
                 public static void WaitAll(Process p) => p.WaitForExit();
                 public static Task WaitAsync(Process p, CancellationToken ct) => p.WaitForExitAsync(ct);
+                public static ProcessExitStatus Run() => Process.Run("app.exe");
+                public static ProcessExitStatus RunInfo(ProcessStartInfo psi) => Process.Run(psi);
+                public static Task<ProcessExitStatus> RunAsync() => Process.RunAsync("app.exe");
+                public static Task<ProcessExitStatus> RunInfoAsync(ProcessStartInfo psi) => Process.RunAsync(psi);
+                public static ProcessTextOutput Capture() => Process.RunAndCaptureText("app.exe");
+                public static ProcessTextOutput CaptureInfo(ProcessStartInfo psi) => Process.RunAndCaptureText(psi);
+                public static Task<ProcessTextOutput> CaptureAsync() => Process.RunAndCaptureTextAsync("app.exe");
+                public static Task<ProcessTextOutput> CaptureInfoAsync(ProcessStartInfo psi) => Process.RunAndCaptureTextAsync(psi);
+                public static int Forget() => Process.StartAndForget("app.exe");
+                public static int ForgetInfo(ProcessStartInfo psi) => Process.StartAndForget(psi);
+                public static bool Signal(Process p) => p.Signal(PosixSignal.SIGTERM);
+                public static ProcessExitStatus WaitStatus(Process p) => p.WaitForExitStatus();
+                public static bool TryWaitStatus(Process p) => p.TryWaitForExitStatus(TimeSpan.Zero, out _);
+                public static Task<ProcessExitStatus> WaitStatusAsync(Process p) => p.WaitForExitStatusAsync();
+                public static (byte[], byte[]) Bytes(Process p) => p.ReadAllBytes();
+                public static Task<(byte[], byte[])> BytesAsync(Process p) => p.ReadAllBytesAsync();
+                public static (string, string) Text(Process p) => p.ReadAllText();
+                public static Task<(string, string)> TextAsync(Process p) => p.ReadAllTextAsync();
+                public static IEnumerable<ProcessOutputLine> Lines(Process p) => p.ReadAllLines();
+                public static IAsyncEnumerable<ProcessOutputLine> LinesAsync(Process p) => p.ReadAllLinesAsync();
                 public static void Exit() => Environment.Exit(1);
                 public static void FailFast() => Environment.FailFast("boom");
                 public static void FailFastEx(Exception ex) => Environment.FailFast("boom", ex);
@@ -79,7 +101,10 @@ public sealed class UncontrolledInvocationRuleGoldenTests
         foreach (var method in new[]
         {
             "StartFile", "StartInfo", "StartArgs", "StartInstance", "Kill", "KillTree",
-            "WaitMs", "WaitAll", "WaitAsync", "Exit", "FailFast", "FailFastEx",
+            "WaitMs", "WaitAll", "WaitAsync", "Run", "RunInfo", "RunAsync", "RunInfoAsync",
+            "Capture", "CaptureInfo", "CaptureAsync", "CaptureInfoAsync", "Forget", "ForgetInfo",
+            "Signal", "WaitStatus", "TryWaitStatus", "WaitStatusAsync", "Bytes", "BytesAsync",
+            "Text", "TextAsync", "Lines", "LinesAsync", "Exit", "FailFast", "FailFastEx",
         })
         {
             MethodDefinition definition = CecilInspect.GetMethod(module, "Fx.ProcessUser", method);

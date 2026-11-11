@@ -4,7 +4,7 @@ namespace Clockwork.Shims.System;
 
 /// <summary>
 /// <para>
-/// The deterministic replacements for <see cref="Guid.NewGuid"/> and the .NET 10
+/// The deterministic replacements for <see cref="Guid.NewGuid"/> and the .NET 11
 /// <see cref="Guid.CreateVersion7()"/> overloads. Instrumented code has its direct calls redirected
 /// here; each method requires an active simulation with a complete runtime.
 /// </para>

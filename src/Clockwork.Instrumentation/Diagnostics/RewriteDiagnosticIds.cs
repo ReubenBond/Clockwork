@@ -40,6 +40,12 @@ public static class RewriteDiagnosticIds
     /// <summary>A resolved replacement method is incompatible with the target invocation's IL stack contract.</summary>
     public const string ReplacementContractMismatch = "CWR0012";
 
+    /// <summary>
+    /// A method compiled with runtime async (<c>MethodImplOptions.Async</c>) suspends and resumes through the runtime's
+    /// own continuation machinery, which a rule set that controls the async state machine cannot control.
+    /// </summary>
+    public const string RuntimeAsyncMethod = "CWR0013";
+
     /// <summary>A ReadyToRun input's native image was stripped, producing IL-only staged output.</summary>
     public const string ReadyToRunStripped = "CWR0101";
 

@@ -3,7 +3,7 @@ using System.Threading.Tasks;
 
 namespace Clockwork.Conformance.Tests;
 
-/// <summary>End-to-end rewrite and runtime coverage for every .NET 10 <c>Task.Delay</c> overload.</summary>
+/// <summary>End-to-end rewrite and runtime coverage for every .NET 11 <c>Task.Delay</c> overload.</summary>
 public sealed class TaskDelayConformanceTests : IDisposable
 {
     private static readonly DateTimeOffset Start = new(2024, 1, 1, 0, 0, 0, TimeSpan.Zero);

@@ -8,7 +8,7 @@ using Mono.Cecil.Cil;
 namespace Clockwork.Instrumentation.Tests.Golden;
 
 /// <summary>
-/// Golden tests for the redirects which keep Clockwork from registering BCL continuations: every .NET 10
+/// Golden tests for the redirects which keep Clockwork from registering BCL continuations: every .NET 11
 /// <c>Task</c>/<c>Task&lt;TResult&gt;</c> <c>ContinueWith</c> overload, the <c>ValueTask</c> conversions, and the
 /// <c>TaskCompletionSource</c> completion members. Each call site in the fixture is retargeted onto its shim, every
 /// rule of the three families applies, and every rewritten member reference binds. The completion sources themselves
