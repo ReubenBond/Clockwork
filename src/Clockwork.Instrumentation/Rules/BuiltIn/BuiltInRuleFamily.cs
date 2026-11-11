@@ -19,7 +19,10 @@ public enum BuiltInRuleFamily
     /// <summary>Identity: <see cref="System.Guid"/> factory methods (<c>NewGuid</c>, <c>CreateVersion7</c>).</summary>
     Identity,
 
-    /// <summary>General-purpose pseudo-randomness: <see cref="System.Random"/> shared instance and constructors.</summary>
+    /// <summary>
+    /// General-purpose pseudo-randomness: the <see cref="System.Random"/> shared instance and constructors, whose
+    /// deterministic instances every instance member draws from.
+    /// </summary>
     Random,
 
     /// <summary>
@@ -45,7 +48,7 @@ public enum BuiltInRuleFamily
     TaskSynchronization,
 
     /// <summary>
-    /// Task continuations: every .NET 10 <c>Task.ContinueWith</c> and <c>Task&lt;TResult&gt;.ContinueWith</c>
+    /// Task continuations: every .NET 11 <c>Task.ContinueWith</c> and <c>Task&lt;TResult&gt;.ContinueWith</c>
     /// overload, redirected so the BCL registers nothing on the antecedent: the coordinator observes the antecedent
     /// complete and runs the genuine BCL continuation task on the logical thread.
     /// </summary>
@@ -62,7 +65,7 @@ public enum BuiltInRuleFamily
     TaskCompletionSource,
 
     /// <summary>
-    /// Virtual-time task APIs: every .NET 10 <c>Task.Delay</c> and <c>Task.WaitAsync</c> overload,
+    /// Virtual-time task APIs: every .NET 11 <c>Task.Delay</c> and <c>Task.WaitAsync</c> overload,
     /// including cancellation and <see cref="System.TimeProvider"/> forms.
     /// </summary>
     TaskTime,
@@ -84,8 +87,10 @@ public enum BuiltInRuleFamily
     /// <c>ConfiguredTaskAwaitable</c>/<c>YieldAwaitable</c> and their awaiters, generic and non-generic)
     /// onto Clockwork's controlled equivalents, plus the <c>Task.Yield()</c> redirect. Applied by the
     /// member-aware substitution pass so every awaited continuation is scheduled through the simulation
-    /// coordinator instead of the thread pool, while <c>ConfigureAwait(false)</c> stays controlled. The runtime-async
-    /// <c>AsyncHelpers.Await</c> intrinsics taking a configured task awaitable are rejected.
+    /// coordinator instead of the thread pool, while <c>ConfigureAwait(false)</c> stays controlled. A method compiled
+    /// with runtime async has no state machine, so rewriting one fails with <c>CWR0013</c>; the runtime-async
+    /// <c>AsyncHelpers.Await</c> intrinsics taking a configured task awaitable and the
+    /// <c>AsyncHelpers.HandleAsyncEntryPoint</c> entry-point helpers are rejected.
     /// </summary>
     AsyncMachinery,
 
@@ -117,14 +122,14 @@ public enum BuiltInRuleFamily
     /// scheduling: <c>StartNew</c> offloads work onto a task scheduler (the thread pool by default).
     /// Classified <c>Controlled</c> - the shim queues the delegate body as a fresh controlled
     /// operation on the coordinator (honouring state, cancellation, and results) instead of escaping onto
-    /// a physical thread. The complete .NET 10 overload set is classified; custom schedulers and every
+    /// a physical thread. The complete .NET 11 overload set is classified; custom schedulers and every
     /// non-<c>None</c> option are rejected.
     /// </summary>
     TaskFactory,
 
     /// <summary>
     /// <see cref="System.Threading.Tasks.TaskFactory"/> / <see cref="System.Threading.Tasks.TaskFactory{TResult}"/>
-    /// multi-task continuations: every .NET 10 <c>ContinueWhenAll</c> and <c>ContinueWhenAny</c> overload, redirected
+    /// multi-task continuations: every .NET 11 <c>ContinueWhenAll</c> and <c>ContinueWhenAny</c> overload, redirected
     /// so the BCL registers nothing on the antecedents: the coordinator observes them complete and runs the genuine BCL
     /// continuation task on the logical thread.
     /// </summary>
@@ -192,15 +197,17 @@ public enum BuiltInRuleFamily
 
     /// <summary>
     /// Process control and abrupt-termination surfaces that cannot be modelled by the deterministic
-    /// scheduler: the static <see cref="System.Diagnostics.Process"/> <c>Start</c> family (spawning an
-    /// uncontrolled OS process), the <see cref="System.Diagnostics.Process"/> instance <c>Kill</c> /
-    /// <c>WaitForExit</c> / <c>WaitForExitAsync</c> members (killing or blocking on an uncontrolled
-    /// process), and <see cref="System.Environment"/> <c>Exit</c> / <c>FailFast</c> (tearing the host
-    /// process down out from under the simulation). Classified <c>Rejected</c>: the rewritten call site
-    /// throws a precise uncontrolled-invocation diagnostic that names the exact API and IL offset, so a
-    /// rewritten assembly can never escape the deterministic model by launching, killing, waiting on, or
-    /// terminating a real process. This mirrors Coyote's uncontrolled-invocation pass, which rewrites
-    /// such call sites to throw rather than run.
+    /// scheduler: the static <see cref="System.Diagnostics.Process"/> <c>Start</c>, <c>Run</c>, <c>RunAsync</c>,
+    /// <c>RunAndCaptureText</c>, <c>RunAndCaptureTextAsync</c>, and <c>StartAndForget</c> families (spawning an
+    /// uncontrolled OS process), the <see cref="System.Diagnostics.Process"/> instance <c>Kill</c> / <c>Signal</c>
+    /// members and the <c>WaitForExit</c> / <c>WaitForExitAsync</c> / <c>WaitForExitStatus</c> /
+    /// <c>TryWaitForExitStatus</c> / <c>WaitForExitStatusAsync</c> waits and <c>ReadAllBytes</c> / <c>ReadAllText</c> /
+    /// <c>ReadAllLines</c> reads and their async forms (signalling or blocking on an uncontrolled process), and
+    /// <see cref="System.Environment"/> <c>Exit</c> / <c>FailFast</c> (tearing the host process down out from under
+    /// the simulation). Classified <c>Rejected</c>: the rewritten call site throws a precise uncontrolled-invocation
+    /// diagnostic that names the exact API and IL offset, so a rewritten assembly can never escape the deterministic
+    /// model by launching, signalling, waiting on, or terminating a real process. This mirrors Coyote's
+    /// uncontrolled-invocation pass, which rewrites such call sites to throw rather than run.
     /// </summary>
     UncontrolledInvocation,
 
@@ -248,10 +255,10 @@ public enum BuiltInRuleFamily
     Semaphore,
 
     /// <summary>
-    /// <see cref="System.Threading.Interlocked"/> atomic surface: the full .NET 10 overload set of
+    /// <see cref="System.Threading.Interlocked"/> atomic surface: the full .NET 11 overload set of
     /// <c>Increment</c>/<c>Decrement</c>/<c>Add</c>/<c>And</c>/<c>Or</c>/<c>Exchange</c>/
     /// <c>CompareExchange</c> (every primitive, native-int, floating-point, reference, and generic
-    /// reference overload), <c>Read</c>, and the memory barriers. Classified <c>Controlled</c>:
+    /// overload), <c>Read</c>, and the memory barriers. Classified <c>Controlled</c>:
     /// each call site is redirected to a shim with the identical <c>ref</c>-first signature. Clockwork's
     /// cooperative single-logical-thread scheduler makes every interlocked read-modify-write an indivisible
     /// step - it is never split and never interleaved mid-operation - so the shim delegates to the real
@@ -263,7 +270,7 @@ public enum BuiltInRuleFamily
     Interlocked,
 
     /// <summary>
-    /// <see cref="System.Threading.Volatile"/> acquire/release surface: the full .NET 10 overload set of
+    /// <see cref="System.Threading.Volatile"/> acquire/release surface: the full .NET 11 overload set of
     /// <c>Read</c>/<c>Write</c> (every primitive, native-int, floating-point, and generic reference
     /// overload) plus <c>ReadBarrier</c>/<c>WriteBarrier</c>. Classified <c>Controlled</c>: each
     /// call site is redirected to a shim with the identical <c>ref</c>-first signature that delegates to the

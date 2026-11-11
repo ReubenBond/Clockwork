@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>The Clockwork command-line tool for deterministic IL instrumentation, explicit scenario recording, exact replay, bounded schedule exploration, trace minimization, and diagnostics. Requires the .NET 10 runtime.</Description>
+    <Description>The Clockwork command-line tool for deterministic IL instrumentation, explicit scenario recording, exact replay, bounded schedule exploration, trace minimization, and diagnostics. Requires the .NET 11 runtime.</Description>
     <RootNamespace>Clockwork.Tool</RootNamespace>
     <OutputType>Exe</OutputType>
     <AssemblyName>dotnet-clockwork</AssemblyName>

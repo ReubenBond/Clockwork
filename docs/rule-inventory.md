@@ -9,6 +9,7 @@ This is the exact, exhaustive surface the built-in rule sets redirect. Every oth
 
 Rule set id: `clockwork.bcl.deterministic`
 Version: `3.0.0`
+Supported runtime: `11.0`
 Shim assembly: `Clockwork`
 
 ## Clock family
@@ -39,7 +40,7 @@ Policy: **Controlled**. GUIDs draw deterministic bytes while preserving RFC 4122
 
 ## Random family
 
-Policy: **Controlled**. `Random.Shared` and unseeded `new Random()` become per-node deterministic streams isolated from the scheduler/network/Buggify seed domains; explicitly seeded `new Random(int)` preserves the caller's seed exactly. Stable seed derivation uses `SimulationStableHash`.
+Policy: **Controlled**. `Random.Shared` and unseeded `new Random()` become per-node deterministic streams isolated from the scheduler/network/Buggify seed domains; explicitly seeded `new Random(int)` preserves the caller's seed exactly. Stable seed derivation uses `SimulationStableHash`. Every instance member, including the generic `NextInteger<T>` and `NextBinaryFloat<T>`, draws from the instance's stream.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -70,6 +71,7 @@ Policy: **Controlled**. Static random APIs are redirected to `ControlledRandomNu
 
 Rule set id: `clockwork.tasks.controlled`
 Version: `3.0.0`
+Supported runtime: `11.0`
 Shim assembly: `Clockwork`
 
 ## TaskCombinators family
@@ -115,7 +117,7 @@ Policy: **Controlled**. Blocking `Task.Wait()`, `Task.WaitAll`, and `Task.WaitAn
 
 ## TaskContinuations family
 
-Policy: **Controlled**. All 40 .NET 10 `Task.ContinueWith` and `Task<T>.ContinueWith` overloads (with and without state, a `CancellationToken`, `TaskContinuationOptions`, and a `TaskScheduler`) redirect. The result is a genuine BCL continuation task of a private gate, so its status, options, state, cancellation (including `LazyCancellation`), `NotOn*`/`OnlyOn*` filtering, and exceptions are the BCL's. The coordinator observes the antecedent complete and a controlled operation completes the gate, running the continuation inline on the logical thread (`ExecuteSynchronously` is a hint). The overloads without a scheduler use `TaskScheduler.Default`; an explicit `TaskScheduler.Default` or the simulation's own `SimulationTaskScheduler` is accepted. `LongRunning`, `AttachedToParent`, and any other scheduler cannot be preserved and are rejected.
+Policy: **Controlled**. All 40 .NET 11 `Task.ContinueWith` and `Task<T>.ContinueWith` overloads (with and without state, a `CancellationToken`, `TaskContinuationOptions`, and a `TaskScheduler`) redirect. The result is a genuine BCL continuation task of a private gate, so its status, options, state, cancellation (including `LazyCancellation`), `NotOn*`/`OnlyOn*` filtering, and exceptions are the BCL's. The coordinator observes the antecedent complete and a controlled operation completes the gate, running the continuation inline on the logical thread (`ExecuteSynchronously` is a hint). The overloads without a scheduler use `TaskScheduler.Default`; an explicit `TaskScheduler.Default` or the simulation's own `SimulationTaskScheduler` is accepted. `LongRunning`, `AttachedToParent`, and any other scheduler cannot be preserved and are rejected.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -231,7 +233,7 @@ Policy: **Controlled**. `Task.Run` (all `Action`/`Func<TResult>`/`Func<Task>`/`F
 
 ## AsyncMachinery family
 
-Policy: **Controlled**. The compiler-generated builder and awaiter types of an `async` state machine (`AsyncTaskMethodBuilder`, `TaskAwaiter`, `ConfiguredTaskAwaitable`/`YieldAwaitable` and their awaiters, generic and non-generic) are substituted onto Clockwork's controlled equivalents by the member-aware pass, and `Task.Yield()` redirects to the controlled yield. Every awaited continuation is scheduled through the simulation coordinator instead of the thread pool, and `ConfigureAwait(false)` stays controlled. The runtime-async `AsyncHelpers.Await` intrinsics taking a configured task awaitable resume through the runtime's own continuation machinery, so they are rejected.
+Policy: **Controlled**. The compiler-generated builder and awaiter types of an `async` state machine (`AsyncTaskMethodBuilder`, `TaskAwaiter`, `ConfiguredTaskAwaitable`/`YieldAwaitable` and their awaiters, generic and non-generic) are substituted onto Clockwork's controlled equivalents by the member-aware pass, and `Task.Yield()` redirects to the controlled yield. Every awaited continuation is scheduled through the simulation coordinator instead of the thread pool, and `ConfigureAwait(false)` stays controlled. A method compiled with runtime async has no state machine and resumes through the runtime's own continuation machinery, so rewriting one fails with `CWR0013`; the runtime-async `AsyncHelpers.Await` intrinsics taking a configured task awaitable and the `AsyncHelpers.HandleAsyncEntryPoint` entry-point helpers are rejected.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -248,6 +250,8 @@ Policy: **Controlled**. The compiler-generated builder and awaiter types of an `
 | `clockwork.tasks.yield.call` | `System.Threading.Tasks.Task::Yield()` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledTask::Yield()` | Controlled |
 | `clockwork.tasks.asynchelpers.await.configured` | `System.Runtime.CompilerServices.AsyncHelpers::Await(System.Runtime.CompilerServices.ConfiguredTaskAwaitable)` | `Clockwork!Clockwork.Shims.System.Runtime.CompilerServices.ControlledAsyncHelpers::Await(Clockwork.Shims.System.Runtime.CompilerServices.ControlledConfiguredTaskAwaitable)` | Rejected |
 | `clockwork.tasks.asynchelpers.await.configured.generic` | `System.Runtime.CompilerServices.AsyncHelpers::Await(System.Runtime.CompilerServices.ConfiguredTaskAwaitable`1<!!0>)` | `Clockwork!Clockwork.Shims.System.Runtime.CompilerServices.ControlledAsyncHelpers::Await(Clockwork.Shims.System.Runtime.CompilerServices.ControlledConfiguredTaskAwaitable`1<T>)` | Rejected |
+| `clockwork.tasks.asynchelpers.handleasyncentrypoint` | `System.Runtime.CompilerServices.AsyncHelpers::HandleAsyncEntryPoint(System.Threading.Tasks.Task)` | `Clockwork!Clockwork.Shims.System.Runtime.CompilerServices.ControlledAsyncHelpers::HandleAsyncEntryPoint(System.Threading.Tasks.Task)` | Rejected |
+| `clockwork.tasks.asynchelpers.handleasyncentrypoint.int32` | `System.Runtime.CompilerServices.AsyncHelpers::HandleAsyncEntryPoint(System.Threading.Tasks.Task`1<System.Int32>)` | `Clockwork!Clockwork.Shims.System.Runtime.CompilerServices.ControlledAsyncHelpers::HandleAsyncEntryPoint(System.Threading.Tasks.Task`1<System.Int32>)` | Rejected |
 
 ## ValueTaskMachinery family
 
@@ -285,7 +289,7 @@ Policy: **Controlled**. `ValueTask.AsTask`, `ValueTask<T>.AsTask`, `ValueTask.Pr
 
 ## TaskFactory family
 
-Policy: **Controlled**. All 24 .NET 10 `TaskFactory.StartNew` and `TaskFactory<T>.StartNew` overloads are classified, including state-carrying delegates and the full cancellation/options/scheduler forms. Each redirects to a controlled equivalent that schedules the delegate as a fresh logical strand while preserving state, cancellation, and results. Non-default schedulers and creation options whose semantics cannot be preserved are rejected precisely.
+Policy: **Controlled**. All 24 .NET 11 `TaskFactory.StartNew` and `TaskFactory<T>.StartNew` overloads are classified, including state-carrying delegates and the full cancellation/options/scheduler forms. Each redirects to a controlled equivalent that schedules the delegate as a fresh logical strand while preserving state, cancellation, and results. Non-default schedulers and creation options whose semantics cannot be preserved are rejected precisely.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -316,7 +320,7 @@ Policy: **Controlled**. All 24 .NET 10 `TaskFactory.StartNew` and `TaskFactory<T
 
 ## TaskFactoryContinuations family
 
-Policy: **Controlled**. All 48 .NET 10 `TaskFactory` and `TaskFactory<T>` `ContinueWhenAll` and `ContinueWhenAny` overloads redirect. The result is a genuine BCL continuation task of a private gate, with the BCL's argument validation, creation options, state (the continuation delegate), and cancellation, including a task canceled at creation for a canceled token. The coordinator observes the antecedents complete and a controlled operation completes the gate, running the continuation inline on the logical thread with a defensive copy of the antecedents, or with the first antecedent, in argument order, among those observed complete. The overloads without a scheduler use the factory's or `TaskScheduler.Default`; `LongRunning`, `AttachedToParent`, and schedulers other than `TaskScheduler.Default` and the simulation's own are rejected, as for `ContinueWith`.
+Policy: **Controlled**. All 48 .NET 11 `TaskFactory` and `TaskFactory<T>` `ContinueWhenAll` and `ContinueWhenAny` overloads redirect. The result is a genuine BCL continuation task of a private gate, with the BCL's argument validation, creation options, state (the continuation delegate), and cancellation, including a task canceled at creation for a canceled token. The coordinator observes the antecedents complete and a controlled operation completes the gate, running the continuation inline on the logical thread with a defensive copy of the antecedents, or with the first antecedent, in argument order, among those observed complete. The overloads without a scheduler use the factory's or `TaskScheduler.Default`; `LongRunning`, `AttachedToParent`, and schedulers other than `TaskScheduler.Default` and the simulation's own are rejected, as for `ContinueWith`.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -478,7 +482,7 @@ Policy: **Controlled**. `Parallel.Invoke`, `Parallel.For` (`int`/`long`, with an
 
 ## Monitor family
 
-Policy: **Controlled**. The complete .NET 10 `Monitor` surface is classified: synchronization and C# `lock (object)` lowering are controlled with deterministic virtual-time deadlines, while the process-wide `LockContentionCount` metric is rejected because it has no per-simulation meaning.
+Policy: **Controlled**. The complete .NET 11 `Monitor` surface is classified: synchronization and C# `lock (object)` lowering are controlled with deterministic virtual-time deadlines, while the process-wide `LockContentionCount` metric is rejected because it has no per-simulation meaning.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -512,7 +516,7 @@ Policy: **Controlled**. The .NET 9+ `System.Threading.Lock` type and nested `Sco
 
 ## Semaphore family
 
-Policy: **Controlled**. The .NET 10 `SemaphoreSlim` constructors, counts, waits, releases, and disposal are controlled; `AvailableWaitHandle` returns a controlled manual-reset bridge whose signal tracks whether the permit count is positive and which composes with the controlled wait-handle surface.
+Policy: **Controlled**. The .NET 11 `SemaphoreSlim` constructors, counts, waits, releases, and disposal are controlled; `AvailableWaitHandle` returns a controlled manual-reset bridge whose signal tracks whether the permit count is positive and which composes with the controlled wait-handle surface.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -538,7 +542,7 @@ Policy: **Controlled**. The .NET 10 `SemaphoreSlim` constructors, counts, waits,
 
 ## Interlocked family
 
-Policy: **Controlled**. The full .NET 10 `Interlocked` surface - `Increment`/`Decrement`/`Add`/`And`/`Or` (`int`/`long`/`uint`/`ulong`), `Exchange`/`CompareExchange` (every primitive, native-int, floating-point, reference, and generic reference overload), `Read` (`long`/`ulong`), and the memory barriers - redirects each call site to a shim with the identical `ref`-first signature. Clockwork's cooperative single-logical-thread scheduler makes every read-modify-write an indivisible step (never split, never interleaved mid-operation), so the shim delegates to the real primitive and preserves exact atomic return, overflow, and reference-write semantics under the active simulation. The exploration policy injects no mid-operation scheduling point; the single delegation site is the race-exploration access-tracking attachment point.
+Policy: **Controlled**. The full .NET 11 `Interlocked` surface - `Increment`/`Decrement`/`Add` (`int`/`long`/`uint`/`ulong`), `And`/`Or` (`int`/`long`/`uint`/`ulong` and the generic integer or enum overload), `Exchange`/`CompareExchange` (every primitive, native-int, floating-point, reference, and generic overload), `Read` (`long`/`ulong`), and the memory barriers - redirects each call site to a shim with the identical `ref`-first signature. Clockwork's cooperative single-logical-thread scheduler makes every read-modify-write an indivisible step (never split, never interleaved mid-operation), so the shim delegates to the real primitive and preserves exact atomic return, overflow, and reference-write semantics under the active simulation. The exploration policy injects no mid-operation scheduling point; the single delegation site is the race-exploration access-tracking attachment point.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -558,10 +562,12 @@ Policy: **Controlled**. The full .NET 10 `Interlocked` surface - `Increment`/`De
 | `clockwork.interlocked.and.uint32` | `System.Threading.Interlocked::And(System.UInt32&,System.UInt32)` | `Clockwork!Clockwork.Shims.System.Threading.ControlledInterlocked::And(System.UInt32&,System.UInt32)` | Controlled |
 | `clockwork.interlocked.and.int64` | `System.Threading.Interlocked::And(System.Int64&,System.Int64)` | `Clockwork!Clockwork.Shims.System.Threading.ControlledInterlocked::And(System.Int64&,System.Int64)` | Controlled |
 | `clockwork.interlocked.and.uint64` | `System.Threading.Interlocked::And(System.UInt64&,System.UInt64)` | `Clockwork!Clockwork.Shims.System.Threading.ControlledInterlocked::And(System.UInt64&,System.UInt64)` | Controlled |
+| `clockwork.interlocked.and.generic` | `System.Threading.Interlocked::And(!!0&,!!0)` | `Clockwork!Clockwork.Shims.System.Threading.ControlledInterlocked::And(T&,T)` | Controlled |
 | `clockwork.interlocked.or.int32` | `System.Threading.Interlocked::Or(System.Int32&,System.Int32)` | `Clockwork!Clockwork.Shims.System.Threading.ControlledInterlocked::Or(System.Int32&,System.Int32)` | Controlled |
 | `clockwork.interlocked.or.uint32` | `System.Threading.Interlocked::Or(System.UInt32&,System.UInt32)` | `Clockwork!Clockwork.Shims.System.Threading.ControlledInterlocked::Or(System.UInt32&,System.UInt32)` | Controlled |
 | `clockwork.interlocked.or.int64` | `System.Threading.Interlocked::Or(System.Int64&,System.Int64)` | `Clockwork!Clockwork.Shims.System.Threading.ControlledInterlocked::Or(System.Int64&,System.Int64)` | Controlled |
 | `clockwork.interlocked.or.uint64` | `System.Threading.Interlocked::Or(System.UInt64&,System.UInt64)` | `Clockwork!Clockwork.Shims.System.Threading.ControlledInterlocked::Or(System.UInt64&,System.UInt64)` | Controlled |
+| `clockwork.interlocked.or.generic` | `System.Threading.Interlocked::Or(!!0&,!!0)` | `Clockwork!Clockwork.Shims.System.Threading.ControlledInterlocked::Or(T&,T)` | Controlled |
 | `clockwork.interlocked.exchange.int32` | `System.Threading.Interlocked::Exchange(System.Int32&,System.Int32)` | `Clockwork!Clockwork.Shims.System.Threading.ControlledInterlocked::Exchange(System.Int32&,System.Int32)` | Controlled |
 | `clockwork.interlocked.exchange.int64` | `System.Threading.Interlocked::Exchange(System.Int64&,System.Int64)` | `Clockwork!Clockwork.Shims.System.Threading.ControlledInterlocked::Exchange(System.Int64&,System.Int64)` | Controlled |
 | `clockwork.interlocked.exchange.object` | `System.Threading.Interlocked::Exchange(System.Object&,System.Object)` | `Clockwork!Clockwork.Shims.System.Threading.ControlledInterlocked::Exchange(System.Object&,System.Object)` | Controlled |
@@ -597,7 +603,7 @@ Policy: **Controlled**. The full .NET 10 `Interlocked` surface - `Increment`/`De
 
 ## Volatile family
 
-Policy: **Controlled**. The full .NET 10 `Volatile` surface - `Read`/`Write` (every primitive, native-int, floating-point, and generic reference overload) and the `ReadBarrier`/`WriteBarrier` fences - redirects each call site to a shim with the identical `ref`-first signature. Under the cooperative single-logical-thread scheduler a volatile access is an indivisible step, so the shim delegates to the real primitive and preserves the exact value read/written together with the acquire (read) / release (write) fence intent. The single delegation site is the race-exploration access-tracking attachment point.
+Policy: **Controlled**. The full .NET 11 `Volatile` surface - `Read`/`Write` (every primitive, native-int, floating-point, and generic reference overload) and the `ReadBarrier`/`WriteBarrier` fences - redirects each call site to a shim with the identical `ref`-first signature. Under the cooperative single-logical-thread scheduler a volatile access is an indivisible step, so the shim delegates to the real primitive and preserves the exact value read/written together with the acquire (read) / release (write) fence intent. The single delegation site is the race-exploration access-tracking attachment point.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -686,7 +692,7 @@ Policy: **Controlled**. The controlled event / wait-handle surface - `AutoResetE
 
 ## ReaderWriterLockSlim family
 
-Policy: **Controlled**. Every public .NET 10 `ReaderWriterLockSlim` constructor, property, enter/try-enter/exit overload, and `Dispose` member redirects to receiver-first controlled shims. The real BCL instance is only an identity key; logical-strand ownership, recursion, wait queues, and deadlines are modelled without blocking a physical thread.
+Policy: **Controlled**. Every public .NET 11 `ReaderWriterLockSlim` constructor, property, enter/try-enter/exit overload, and `Dispose` member redirects to receiver-first controlled shims. The real BCL instance is only an identity key; logical-strand ownership, recursion, wait queues, and deadlines are modelled without blocking a physical thread.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -719,7 +725,7 @@ Policy: **Controlled**. Every public .NET 10 `ReaderWriterLockSlim` constructor,
 
 ## ManualResetEventSlim family
 
-Policy: **Controlled**. Every public .NET 10 `ManualResetEventSlim` constructor, property, set/reset/wait overload, and `Dispose` redirects to receiver-first controlled shims. Signal state, waiters, cancellation, deadlines, and the exposed wait-handle bridge are modelled in side state.
+Policy: **Controlled**. Every public .NET 11 `ManualResetEventSlim` constructor, property, set/reset/wait overload, and `Dispose` redirects to receiver-first controlled shims. Signal state, waiters, cancellation, deadlines, and the exposed wait-handle bridge are modelled in side state.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -834,7 +840,7 @@ Policy: **Controlled**. `CountdownEvent` is wholly substituted with `ControlledC
 
 ## UncontrolledInvocation family
 
-Policy: **Rejected**. Process control and abrupt-termination APIs (`Process.Start`/`Start` instance/`Kill`/`WaitForExit`/`WaitForExitAsync`, `Environment.Exit`/`FailFast`) cannot be modelled inside a single simulated process at all. A throwing guard is injected before each call site so a rewritten assembly can never launch, kill, wait on, or terminate a real OS process; unlike the controlled shims the rejection is unconditional (it fires whether or not a simulation is active).
+Policy: **Rejected**. Process control and abrupt-termination APIs (`Process.Start`/`Run`/`RunAsync`/`RunAndCaptureText`/`RunAndCaptureTextAsync`/`StartAndForget`, the `Start` instance/`Kill`/`Signal` members, the `WaitForExit`/`WaitForExitAsync`/`WaitForExitStatus`/`TryWaitForExitStatus`/`WaitForExitStatusAsync` waits, the `ReadAllBytes`/`ReadAllText`/`ReadAllLines` reads (and their async forms) that wait for the process to close its output, and `Environment.Exit`/`FailFast`) cannot be modelled inside a single simulated process at all. A throwing guard is injected before each call site so a rewritten assembly can never launch, signal, wait on, or terminate a real OS process; unlike the controlled shims the rejection is unconditional (it fires whether or not a simulation is active).
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -851,6 +857,26 @@ Policy: **Rejected**. Process control and abrupt-termination APIs (`Process.Star
 | `clockwork.process.waitforexit.milliseconds` | `System.Diagnostics.Process::WaitForExit(System.Int32)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
 | `clockwork.process.waitforexit.timespan` | `System.Diagnostics.Process::WaitForExit(System.TimeSpan)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
 | `clockwork.process.waitforexitasync` | `System.Diagnostics.Process::WaitForExitAsync(System.Threading.CancellationToken)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.run.startinfo` | `System.Diagnostics.Process::Run(System.Diagnostics.ProcessStartInfo,System.Nullable`1<System.TimeSpan>)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.run.filename` | `System.Diagnostics.Process::Run(System.String,System.Collections.Generic.IEnumerable`1<System.String>,System.Boolean,System.Nullable`1<System.TimeSpan>)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.runasync.startinfo` | `System.Diagnostics.Process::RunAsync(System.Diagnostics.ProcessStartInfo,System.Threading.CancellationToken)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.runasync.filename` | `System.Diagnostics.Process::RunAsync(System.String,System.Collections.Generic.IEnumerable`1<System.String>,System.Boolean,System.Threading.CancellationToken)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.runandcapturetext.startinfo` | `System.Diagnostics.Process::RunAndCaptureText(System.Diagnostics.ProcessStartInfo,System.Nullable`1<System.TimeSpan>)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.runandcapturetext.filename` | `System.Diagnostics.Process::RunAndCaptureText(System.String,System.Collections.Generic.IEnumerable`1<System.String>,System.Nullable`1<System.TimeSpan>)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.runandcapturetextasync.startinfo` | `System.Diagnostics.Process::RunAndCaptureTextAsync(System.Diagnostics.ProcessStartInfo,System.Threading.CancellationToken)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.runandcapturetextasync.filename` | `System.Diagnostics.Process::RunAndCaptureTextAsync(System.String,System.Collections.Generic.IEnumerable`1<System.String>,System.Threading.CancellationToken)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.startandforget.startinfo` | `System.Diagnostics.Process::StartAndForget(System.Diagnostics.ProcessStartInfo)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.startandforget.filename` | `System.Diagnostics.Process::StartAndForget(System.String,System.Collections.Generic.IEnumerable`1<System.String>)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.signal` | `System.Diagnostics.Process::Signal(System.Runtime.InteropServices.PosixSignal)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.waitforexitstatus` | `System.Diagnostics.Process::WaitForExitStatus()` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.trywaitforexitstatus` | `System.Diagnostics.Process::TryWaitForExitStatus(System.TimeSpan,System.Diagnostics.ProcessExitStatus&)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.waitforexitstatusasync` | `System.Diagnostics.Process::WaitForExitStatusAsync(System.Threading.CancellationToken)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.readallbytes` | `System.Diagnostics.Process::ReadAllBytes(System.Nullable`1<System.TimeSpan>)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.readallbytesasync` | `System.Diagnostics.Process::ReadAllBytesAsync(System.Threading.CancellationToken)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.readalltext` | `System.Diagnostics.Process::ReadAllText(System.Nullable`1<System.TimeSpan>)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.readalltextasync` | `System.Diagnostics.Process::ReadAllTextAsync(System.Threading.CancellationToken)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.readalllines` | `System.Diagnostics.Process::ReadAllLines(System.Nullable`1<System.TimeSpan>)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.readalllinesasync` | `System.Diagnostics.Process::ReadAllLinesAsync(System.Threading.CancellationToken)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
 | `clockwork.environment.exit` | `System.Environment::Exit(System.Int32)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
 | `clockwork.environment.failfast.message` | `System.Environment::FailFast(System.String)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
 | `clockwork.environment.failfast.exception` | `System.Environment::FailFast(System.String,System.Exception)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |

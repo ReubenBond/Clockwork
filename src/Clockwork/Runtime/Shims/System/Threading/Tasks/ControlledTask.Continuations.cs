@@ -11,7 +11,7 @@ namespace Clockwork.Shims.System.Threading.Tasks;
 /// <summary>
 /// <para>
 /// Controlled <see cref="Task.ContinueWith(Action{Task})"/> and <see cref="Task{TResult}.ContinueWith(Action{Task{TResult}})"/>:
-/// every .NET 10 overload of both types, with and without state, a cancellation token, continuation options, and a
+/// every .NET 11 overload of both types, with and without state, a cancellation token, continuation options, and a
 /// scheduler. The returned task is a genuine BCL continuation task, so its status, <see cref="Task.CreationOptions"/>,
 /// <see cref="Task.AsyncState"/>, cancellation (including <see cref="TaskContinuationOptions.LazyCancellation"/>),
 /// <c>NotOn*</c>/<c>OnlyOn*</c> filtering, and exception handling are the BCL's own. It continues a private gate

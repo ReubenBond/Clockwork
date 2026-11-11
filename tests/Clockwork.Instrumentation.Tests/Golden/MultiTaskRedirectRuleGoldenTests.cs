@@ -9,7 +9,7 @@ using Mono.Cecil.Cil;
 namespace Clockwork.Instrumentation.Tests.Golden;
 
 /// <summary>
-/// Golden tests for the multi-task surfaces: every .NET 10 <c>Task.WhenEach</c> overload and every <c>TaskFactory</c> and
+/// Golden tests for the multi-task surfaces: every .NET 11 <c>Task.WhenEach</c> overload and every <c>TaskFactory</c> and
 /// <c>TaskFactory&lt;TResult&gt;</c> <c>ContinueWhenAll</c>/<c>ContinueWhenAny</c> overload redirect onto their shims, with
 /// the type arguments bound declaring-type-first, and every <c>FromAsync</c> call site is preceded by the rejection.
 /// Every rule of the three surfaces applies, and every rewritten member reference binds.

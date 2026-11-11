@@ -100,6 +100,15 @@ public sealed class ResolutionGoldenTests
             expectedRuleId: "redirect-net11");
     }
 
+    [Theory]
+    [InlineData("11.0", true)]
+    [InlineData("11.0.2", true)]
+    [InlineData("11.0.2.1", true)]
+    [InlineData("11.1", false)]
+    [InlineData("10.0.9", false)]
+    public void RangeBoundedAtOneRuntimeIncludesItsServicingVersions(string targetRuntime, bool included) =>
+        Assert.Equal(included, new RuntimeVersionRange(new Version(11, 0), new Version(11, 0)).Includes(Version.Parse(targetRuntime)));
+
     private static void AssertRuntimeRuleSelected(
         IReadOnlyList<RewriteRule> rules,
         int targetRuntime,

@@ -12,7 +12,7 @@ surface is classified here as one of:
 | ✅ **Controlled** | Clockwork rewrites the call site to a controlled shim. The exact rule id is cited; the full signature list is in [`rule-inventory.md`](rule-inventory.md). |
 | ⛔ **Rejected (tested)** | Clockwork deliberately rejects the call at the rewritten site with a precise diagnostic, because the semantics cannot be modelled faithfully by the cooperative scheduler yet. A test asserts the rejection. |
 | 🏛 **Controlled by architecture** | No dedicated rule is needed: Clockwork controls the *awaiter*, not the `Task` type, so the surface is already controlled whenever the produced task is awaited or waited on. |
-| n/a | Not applicable on .NET 10 / not a concurrency-scheduling surface. |
+| n/a | Not applicable on .NET 11 / not a concurrency-scheduling surface. |
 
 The single largest **architectural difference**: Coyote substitutes the `Task`/`Task<T>` *types*
 wholesale, so it must also wrap `TaskCompletionSource`, `TaskExtensions`, `ValueTask`, etc. to keep
@@ -56,7 +56,7 @@ source/IL metadata, and manifest records.
 
 Unlike Coyote's wrapper subclasses for generic collections, Clockwork spills and restores the receiver
 and arguments around the original direct call. The runtime collection type, return value, exceptions,
-and .NET 10 member semantics therefore remain those of the BCL. Normal `Controlled` mode runs no such
+and .NET 11 member semantics therefore remain those of the BCL. Normal `Controlled` mode runs no such
 pass and does not change collection types.
 
 The detector uses vector-clock happens-before plus controlled locksets rather than physical-thread
@@ -71,7 +71,7 @@ Coyote's controlled `Thread` exposes exactly `Create` (×4), `Start` (×2), `Sle
 `Yield`, and `Join` (×3). Clockwork mirrors all of them and, going further, **explicitly rejects**
 the OS-specific surface Coyote simply leaves as an uncontrolled real call.
 
-| Coyote surface | .NET 10 signature | Clockwork status | Rule / reason |
+| Coyote surface | .NET 11 signature | Clockwork status | Rule / reason |
 | --- | --- | --- | --- |
 | `Create(ThreadStart)` | `new Thread(ThreadStart)` | ✅ Controlled | `clockwork.thread.ctor.threadstart` |
 | `Create(ThreadStart, maxStackSize)` | `new Thread(ThreadStart, int)` | ✅ Controlled | `clockwork.thread.ctor.threadstart.stacksize` |
@@ -114,7 +114,7 @@ async machinery, `Yield`, and `Run`.
 | `Task<T>.ContinueWith` (all 20 overloads) | ✅ Controlled | `clockwork.tasks.continuewith.generic.*` |
 | `Task.Yield()` | ✅ Controlled | `clockwork.tasks.yield.call` (AsyncMachinery) |
 | `async` builder + awaiter types (`AsyncTaskMethodBuilder`, `TaskAwaiter`, `ConfiguredTaskAwaitable`, `YieldAwaitable`, generic + non-generic) | ✅ Controlled | AsyncMachinery family (type substitution) |
-| `Task.Delay` (all 6 .NET 10 overloads: `int`/`TimeSpan`, cancellation, and `TimeProvider`) | ✅ Controlled | `clockwork.tasks.delay.*` — virtual deadlines, no wall clock |
+| `Task.Delay` (all 6 .NET 11 overloads: `int`/`TimeSpan`, cancellation, and `TimeProvider`) | ✅ Controlled | `clockwork.tasks.delay.*` — virtual deadlines, no wall clock |
 | `Task.WaitAsync` / `Task<T>.WaitAsync` (all 5 overloads on each type) | ✅ Controlled | `clockwork.tasks[.generic].waitasync.*` — result/fault/cancel propagation with virtual timeout |
 | `Task.FromResult` / `FromException` / `FromCanceled` / `CompletedTask` | 🏛 Controlled by architecture | already-completed tasks need no scheduling; awaiting one routes through the controlled awaiter |
 
@@ -133,7 +133,7 @@ async machinery, `Yield`, and `Run`.
 ## `System.Threading.Tasks.TaskFactory` / `TaskFactory<TResult>`
 
 Coyote wraps the full `StartNew` overload set plus the read-only property getters. Clockwork
-classifies and rewrites the same 24 .NET 10 `StartNew` signatures.
+classifies and rewrites the same 24 .NET 11 `StartNew` signatures.
 
 | Coyote surface | Clockwork status | Rule |
 | --- | --- | --- |
@@ -171,7 +171,7 @@ source through the same member and publishes the race-detection release edge.
 
 ## `System.Threading.Tasks.TaskExtensions`
 
-| Coyote surface | .NET 10 signature | Clockwork status | Notes |
+| Coyote surface | .NET 11 signature | Clockwork status | Notes |
 | --- | --- | --- | --- |
 | `Unwrap(this Task<Task>)` | `Task Unwrap(this Task<Task>)` | ✅ Controlled | `clockwork.tasks.unwrap`; the proxy is completed through the coordinator, registering nothing on the outer or inner task |
 | `Unwrap<TResult>(this Task<Task<TResult>>)` | ditto | ✅ Controlled | `clockwork.tasks.unwrap.generic` |
@@ -208,7 +208,7 @@ Coyote has **no** controlled `ThreadPool` type (thread-pool work is expected to 
 controlled `Task`/`TaskFactory` types). Clockwork models `ThreadPool` directly so applications that
 queue raw work items are deterministic.
 
-| .NET 10 signature | Clockwork status | Rule / reason |
+| .NET 11 signature | Clockwork status | Rule / reason |
 | --- | --- | --- |
 | `QueueUserWorkItem(WaitCallback)` | ✅ Controlled (flows `ExecutionContext`) | `clockwork.threadpool.queue.waitcallback` |
 | `QueueUserWorkItem(WaitCallback, object)` | ✅ Controlled (flows `ExecutionContext`) | `clockwork.threadpool.queue.waitcallback.state` |
@@ -230,12 +230,12 @@ not — matching the BCL contract exactly, and covered by conformance tests.
 ## `System.Threading.Monitor` — Coyote `…Types.Threading.Monitor`
 
 Coyote's controlled `Monitor` mirrors the synchronization surface (`Enter`, `Exit`, `IsEntered`,
-`TryEnter`, `Wait`, `Pulse`, `PulseAll`) on its scheduler. Clockwork classifies the **entire** .NET 10
+`TryEnter`, `Wait`, `Pulse`, `PulseAll`) on its scheduler. Clockwork classifies the **entire** .NET 11
 declared surface on the cooperative logical-thread kernel. Because the C# `lock (object)` statement lowers to
 `Monitor.Enter(obj, ref bool)` + `finally Monitor.Exit(obj)`, redirecting these members controls **every**
 `lock` automatically — no separate lock rule is needed (verified for both Debug and Release lowering).
 
-| .NET 10 signature | Clockwork status | Rule / reason |
+| .NET 11 signature | Clockwork status | Rule / reason |
 | --- | --- | --- |
 | `Monitor.Enter(object)` | ✅ Controlled | `clockwork.monitor.enter` |
 | `Monitor.Enter(object, ref bool)` | ✅ Controlled | `clockwork.monitor.enter.locktaken` (the `lock` lowering target) |
@@ -280,7 +280,7 @@ parameter typed as `Lock` or `Lock.Scope`, and the C# `lock (Lock)` lowering
 (`Lock.Scope scope = obj.EnterScope(); try { … } finally { scope.Dispose(); }`) are redirected wholesale
 onto the controlled monitor kernel (verified for both Debug and Release lowering).
 
-| .NET 10 surface | Clockwork status | Rule / reason |
+| .NET 11 surface | Clockwork status | Rule / reason |
 | --- | --- | --- |
 | `System.Threading.Lock` (type) | ✅ Controlled | `clockwork.lock.type` (type substitution → `ControlledLock`) |
 | `System.Threading.Lock.Scope` (nested ref struct) | ✅ Controlled | `clockwork.lock.scope.type` (type substitution → `ControlledLock.Scope`) |
@@ -299,7 +299,7 @@ waiter set on the cooperative logical thread. `SemaphoreSlim` is `sealed`, so th
 a real `SemaphoreSlim` instance whose count/waiter state lives in a weak-keyed side table; the two
 constructors redirect to `Create` factories and every instance member is a receiver-first shim.
 
-| .NET 10 signature | Clockwork status | Rule / reason |
+| .NET 11 signature | Clockwork status | Rule / reason |
 | --- | --- | --- |
 | `new SemaphoreSlim(int)` | ✅ Controlled | `clockwork.semaphoreslim.ctor.initial` |
 | `new SemaphoreSlim(int, int)` | ✅ Controlled | `clockwork.semaphoreslim.ctor.initial.max` |
@@ -340,7 +340,7 @@ wins over the timeout (the scheduler's first-winner), no wall-clock time is used
 ## `System.Threading.Interlocked` — Coyote `…Types.Threading.Interlocked`
 
 Coyote controls the interlocked surface so that under its scheduler each atomic read-modify-write is
-observed as an indivisible operation. Clockwork mirrors the **full .NET 10 `Interlocked` surface** by
+observed as an indivisible operation. Clockwork mirrors the **full .NET 11 `Interlocked` surface** by
 redirecting every call site to a shim with the identical `ref`-first signature. Because Clockwork runs on
 a **single cooperative logical thread** the operation can never be interleaved mid-flight, so each shim
 delegates straight to the real primitive — preserving exact atomic return, overflow, and reference-write
@@ -348,36 +348,37 @@ semantics under the active simulation. The **documented exploration policy** inj
 mid-operation scheduling point (unlike Coyote, whose real preemptible threads require one); an atomic
 operation is never split. The single delegation site is the race-exploration access-tracking attachment point.
 
-| .NET 10 member | Posture | Rule id |
+| .NET 11 member | Posture | Rule id |
 | --- | --- | --- |
 | `Increment(ref int/long/uint/ulong)` | ✅ Controlled | `clockwork.interlocked.increment.*` |
 | `Decrement(ref int/long/uint/ulong)` | ✅ Controlled | `clockwork.interlocked.decrement.*` |
 | `Add(ref int/long/uint/ulong, …)` | ✅ Controlled | `clockwork.interlocked.add.*` |
-| `And(ref int/uint/long/ulong, …)` | ✅ Controlled | `clockwork.interlocked.and.*` |
-| `Or(ref int/uint/long/ulong, …)` | ✅ Controlled | `clockwork.interlocked.or.*` |
-| `Exchange(ref T, …)` — int, long, object, sbyte, short, byte, ushort, uint, ulong, float, double, IntPtr, UIntPtr, generic `<T> where T : class?` | ✅ Controlled | `clockwork.interlocked.exchange.*` |
-| `CompareExchange(ref T, …, …)` — same 13 primitive/native/float/reference overloads + generic `<T> where T : class?` | ✅ Controlled | `clockwork.interlocked.compareexchange.*` |
+| `And(ref int/uint/long/ulong, …)`, generic `And<T>(ref T, T) where T : struct` | ✅ Controlled | `clockwork.interlocked.and.*` |
+| `Or(ref int/uint/long/ulong, …)`, generic `Or<T>(ref T, T) where T : struct` | ✅ Controlled | `clockwork.interlocked.or.*` |
+| `Exchange(ref T, …)` — int, long, object, sbyte, short, byte, ushort, uint, ulong, float, double, IntPtr, UIntPtr, unconstrained generic `<T>` | ✅ Controlled | `clockwork.interlocked.exchange.*` |
+| `CompareExchange(ref T, …, …)` — same 13 primitive/native/float/reference overloads + unconstrained generic `<T>` | ✅ Controlled | `clockwork.interlocked.compareexchange.*` |
 | `Read(ref long/ulong)` | ✅ Controlled | `clockwork.interlocked.read.*` |
 | `MemoryBarrier()`, `MemoryBarrierProcessWide()` | ✅ Controlled | `clockwork.interlocked.memorybarrier`, `…processwide` |
 
 **Semantics:** every overload returns exactly what the BCL returns (the incremented/decremented value,
 the sum, the *original* value for `And`/`Or`/`Exchange`/`CompareExchange`) and writes the same result to
-the referenced location; `CompareExchange` swaps only when the comparand matches; the generic reference
-overloads operate by identity. No overflow checking is added or removed. Enumerated against the .NET 10
-reference assemblies; no applicable `Interlocked` overload is left uncontrolled.
+the referenced location; `CompareExchange` swaps only when the comparand matches; the generic overloads
+operate on references by identity and on primitives and enums by value. No overflow checking is added or
+removed. Enumerated against the .NET 11 reference assemblies; no applicable `Interlocked` overload is left
+uncontrolled.
 
 ---
 
 ## `System.Threading.Volatile` — Coyote `…Types.Threading.Volatile`
 
 Coyote controls the volatile surface so a read/write and its fence are observed atomically under its
-scheduler. Clockwork mirrors the **full .NET 10 `Volatile` surface** by redirecting every call site to a
+scheduler. Clockwork mirrors the **full .NET 11 `Volatile` surface** by redirecting every call site to a
 shim with the identical `ref`-first signature. On the single cooperative logical thread a volatile access
 is an indivisible step, so each shim delegates to the real primitive — preserving the exact value together
 with the acquire (read) / release (write) fence intent. The single delegation site is the
 race-exploration access-tracking attachment point.
 
-| .NET 10 member | Posture | Rule id |
+| .NET 11 member | Posture | Rule id |
 | --- | --- | --- |
 | `Read(ref bool/sbyte/byte/short/ushort/int/uint/long/ulong/IntPtr/UIntPtr/float/double)` | ✅ Controlled | `clockwork.volatile.read.*` |
 | `Read<T>(ref T) where T : class?` | ✅ Controlled | `clockwork.volatile.read.generic` |
@@ -387,7 +388,7 @@ race-exploration access-tracking attachment point.
 
 **Semantics:** `Read` returns exactly the value at the location; `Write` stores exactly the supplied
 value; the generic overloads publish/acquire a reference by identity; the barriers are controlled
-acquire/release fences. Enumerated against the .NET 10 reference assemblies (13 primitive/native/float
+acquire/release fences. Enumerated against the .NET 11 reference assemblies (13 primitive/native/float
 `Read` + 1 generic, the matching 14 `Write`, and both barriers); no applicable `Volatile` overload is
 left uncontrolled.
 
@@ -405,7 +406,7 @@ the deterministic loop until its predicate holds (a never-satisfiable predicate 
 deadlock diagnostic). The finite `SpinUntil` overloads use a first-winner virtual-time deadline.
 Invoking the substituted type without an active simulation fails before spinning.
 
-| .NET 10 member | Posture | Rule id |
+| .NET 11 member | Posture | Rule id |
 | --- | --- | --- |
 | `SpinWait` type (value type) | ✅ Controlled (type substitution) | `clockwork.spinwait.type` |
 | `Count` { get; } | ✅ Controlled | via `clockwork.spinwait.type` |
@@ -418,7 +419,7 @@ Invoking the substituted type without an active simulation fails before spinning
 **Semantics:** `Count` and `NextSpinWillYield` mirror the BCL's observable spin progress (the yield
 threshold matches the documented value); `Reset` clears the count; `SpinOnce` never busy-spins; the
 `SpinUntil` predicate is evaluated on the logical thread and the loop is pumped deterministically until it
-holds or a virtual deadline elapses. Enumerated against the .NET 10 reference assemblies (2 properties, 4
+holds or a virtual deadline elapses. Enumerated against the .NET 11 reference assemblies (2 properties, 4
 instance methods, 3 static `SpinUntil` overloads); no applicable `SpinWait` member is left uncontrolled.
 
 ---
@@ -441,7 +442,7 @@ Coyote controls the same event surface on its cooperative scheduler; adapted fro
 Invoking these instrumented entry points without an active simulation fails before touching a real
 BCL primitive.
 
-| .NET 10 member | Posture | Rule id |
+| .NET 11 member | Posture | Rule id |
 | --- | --- | --- |
 | `new AutoResetEvent(bool)` | ✅ Controlled | `clockwork.autoresetevent.ctor` |
 | `new ManualResetEvent(bool)` | ✅ Controlled | `clockwork.manualresetevent.ctor` |
@@ -477,7 +478,7 @@ BCL primitive.
 | `EventWaitHandle.OpenExisting(string)` / `(string, NamedWaitHandleOptions)` | ⛔ Rejected (tested) | `clockwork.eventwaithandle.openexisting[.options]` — cross-process |
 | `EventWaitHandle.TryOpenExisting(string, out)` / `(string, NamedWaitHandleOptions, out)` | ⛔ Rejected (tested) | `clockwork.eventwaithandle.tryopenexisting[.options]` — cross-process |
 
-**Semantics:** enumerated against the .NET 10 reference assemblies. The static multi-handle operations
+**Semantics:** enumerated against the .NET 11 reference assemblies. The static multi-handle operations
 `WaitHandle.WaitAny` (returns the lowest-index signalled handle), `WaitAll` (waits until every handle is
 simultaneously signalled, then consumes them atomically so an auto-reset handle is never partially
 consumed), and `SignalAndWait` (atomically signals the first handle then waits on the second) register
@@ -539,7 +540,7 @@ are rejected precisely.
   OS-specific members Coyote leaves uncontrolled.
 - **Coyote `Task` static / async machinery:** all six `Task.Delay` overloads and all ten
   `Task.WaitAsync`/`Task<T>.WaitAsync` overloads use controlled virtual deadlines.
-- **Coyote `TaskFactory`:** all 24 .NET 10 `StartNew` signatures classified and rewritten; default
+- **Coyote `TaskFactory`:** all 24 .NET 11 `StartNew` signatures classified and rewritten; default
   scheduler forms controlled, unsupported scheduler/option combinations rejected. Beyond Coyote, all 48
   `ContinueWhenAll`/`ContinueWhenAny` overloads are controlled and every `FromAsync` overload is rejected.
 - **Coyote `TaskCompletionSource` / `TaskExtensions` / `ValueTask`:** the real completion sources are kept and their
@@ -550,7 +551,7 @@ are rejected precisely.
 - **`ThreadPool`:** modelled by Clockwork **beyond Coyote**; the registered-wait APIs
   (`RegisterWaitForSingleObject`/`UnsafeRegisterWaitForSingleObject`, all four timeout overloads) are
   controlled as passive event-driven waits and `UnsafeQueueNativeOverlapped` is rejected.
-- **Coyote `Monitor`:** all 18 .NET 10 declared members classified: 17 synchronization methods
+- **Coyote `Monitor`:** all 18 .NET 11 declared members classified: 17 synchronization methods
   controlled and process-wide `LockContentionCount` rejected; C# `lock (object)` is controlled in
   both Debug and Release lowering.
 - **`System.Threading.Lock`:** controlled by type substitution **beyond Coyote**, covering the
@@ -558,10 +559,10 @@ are rejected precisely.
 - **Coyote `SemaphoreSlim`:** every constructor, `CurrentCount`, sync `Wait`, async `WaitAsync`,
   `Release`, and `Dispose` controlled; `AvailableWaitHandle` bridged to a controlled manual-reset
   wait handle tracking count > 0.
-- **Coyote `Interlocked`:** full .NET 10 surface controlled — every `Increment`/`Decrement`/
+- **Coyote `Interlocked`:** full .NET 11 surface controlled — every `Increment`/`Decrement`/
   `Add`/`And`/`Or`/`Exchange`/`CompareExchange`/`Read` overload plus the memory barriers, each delegating
   to the real primitive since a cooperative logical thread makes the read-modify-write indivisible.
-- **Coyote `Volatile`:** full .NET 10 surface controlled — every `Read`/`Write` overload plus
+- **Coyote `Volatile`:** full .NET 11 surface controlled — every `Read`/`Write` overload plus
   the `ReadBarrier`/`WriteBarrier` fences, delegating to the real primitive with acquire/release intent
   preserved.
 - **Coyote `SpinWait`:** the `SpinWait` value type controlled by type substitution — `Count`,

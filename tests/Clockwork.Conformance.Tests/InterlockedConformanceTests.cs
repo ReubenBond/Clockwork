@@ -99,6 +99,17 @@ public sealed class InterlockedConformanceTests : IDisposable
                 return Task.FromResult(ok);
             }
 
+            // The generic overloads operate on an enum as on its underlying integer.
+            public static Task<bool> GenericValueOverloads()
+            {
+                Bits bits = Bits.A | Bits.B;
+                bool ok = Interlocked.And(ref bits, Bits.B) == (Bits.A | Bits.B) && bits == Bits.B;
+                ok &= Interlocked.Or(ref bits, Bits.C) == Bits.B && bits == (Bits.B | Bits.C);
+                ok &= Interlocked.Exchange(ref bits, Bits.A) == (Bits.B | Bits.C) && bits == Bits.A;
+                ok &= Interlocked.CompareExchange(ref bits, Bits.C, Bits.A) == Bits.A && bits == Bits.C;
+                return Task.FromResult(ok);
+            }
+
             // Read returns the current 64-bit value.
             public static Task<bool> ReadReturnsCurrent()
             {
@@ -108,7 +119,11 @@ public sealed class InterlockedConformanceTests : IDisposable
                 ok &= Interlocked.Read(ref u) == 456ul;
                 return Task.FromResult(ok);
             }
-        } }
+        }
+
+        [Flags]
+        public enum Bits { A = 1, B = 2, C = 4 }
+        }
         """;
 
     private readonly RewriteFixture _fixture = new();
@@ -172,6 +187,21 @@ public sealed class InterlockedConformanceTests : IDisposable
         using var host = new SimulationHost(Start);
         var task = (Task<bool>)host.Invoke(Method("GenericReferenceOverloads"))!;
         Assert.True(Result<bool>(task));
+    }
+
+    [Fact]
+    public void GenericValueOverloadsAreControlled()
+    {
+        using var host = new SimulationHost(Start);
+        var task = (Task<bool>)host.Invoke(Method("GenericValueOverloads"))!;
+        Assert.True(Result<bool>(task));
+        string[] members = ["and", "or", "exchange", "compareexchange"];
+        foreach (string member in members)
+        {
+            Assert.Contains(
+                _probe.Value.Result.Manifest.Transformations,
+                transformation => transformation.RuleId == $"clockwork.interlocked.{member}.generic");
+        }
     }
 
     [Fact]

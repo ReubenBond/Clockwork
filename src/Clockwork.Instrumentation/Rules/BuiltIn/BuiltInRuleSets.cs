@@ -66,7 +66,7 @@ public static class BuiltInRuleSets
     private const string TimeProviderShim = "Clockwork.Shims.System.ControlledTimeProvider";
     private const string CancellationTokenSourceShim = "Clockwork.Shims.System.Threading.ControlledCancellationTokenSource";
 
-    // Cecil full names for the exact overload parameters (from the net10 reference assemblies).
+    // Cecil full names for the exact overload parameters (from the net11 reference assemblies).
     private const string Int32 = "System.Int32";
     private const string Int64 = "System.Int64";
     private const string String = "System.String";
@@ -266,15 +266,19 @@ public static class BuiltInRuleSets
 
     // Cecil full names for the uncontrolled-invocation surface: process control and
     // abrupt host termination. These cannot be modelled by the deterministic scheduler, so every rewritten
-    // call site is rejected (throws a diagnostic naming the exact API). Process.Start is static and returns
-    // Process/Boolean; the instance Kill/WaitForExit members and Environment.Exit/FailFast are void or
-    // value-returning - InjectRejection handles every shape uniformly by prepending a throwing call.
+    // call site is rejected (throws a diagnostic naming the exact API). Process.Start/Run/StartAndForget are
+    // static and return Process/Boolean/exit statuses/process ids; the instance Kill/Signal/wait/read members
+    // and Environment.Exit/FailFast are void or value-returning - InjectRejection handles every shape
+    // uniformly by prepending a throwing call.
     private const string ProcessType = "System.Diagnostics.Process";
     private const string EnvironmentType = "System.Environment";
     private const string ProcessStartInfoType = "System.Diagnostics.ProcessStartInfo";
     private const string SecureStringType = "System.Security.SecureString";
     private const string IEnumerableOfStringType = "System.Collections.Generic.IEnumerable`1<System.String>";
     private const string TimeSpanType = "System.TimeSpan";
+    private const string NullableTimeSpanType = "System.Nullable`1<System.TimeSpan>";
+    private const string ProcessExitStatusRef = "System.Diagnostics.ProcessExitStatus&";
+    private const string PosixSignalType = "System.Runtime.InteropServices.PosixSignal";
     private const string CancellationTokenType = "System.Threading.CancellationToken";
     private const string ExceptionType = "System.Exception";
     private const string UncontrolledInvocationShim = "Clockwork.Runtime.UncontrolledInvocationGuard";
@@ -436,13 +440,21 @@ public static class BuiltInRuleSets
     private const string AsyncEnumerableTDecl = "System.Collections.Generic.IAsyncEnumerable`1<T>";
     private const string AsyncHelpersType = CompilerNs + "AsyncHelpers";
     private const string AsyncHelpersShim = ControlledNs + "ControlledAsyncHelpers";
+    private const string TaskOfInt32 = "System.Threading.Tasks.Task`1<System.Int32>";
     private const string BclConfiguredTArg = CompilerNs + "ConfiguredTaskAwaitable`1<!!0>";
     private const string BclConfiguredValueTArg = CompilerNs + "ConfiguredValueTaskAwaitable`1<!!0>";
     private const string ControlledConfiguredTDecl = ControlledNs + "ControlledConfiguredTaskAwaitable`1<T>";
     private const string ControlledConfiguredValueTDecl = ControlledNs + "ControlledConfiguredValueTaskAwaitable`1<T>";
 
-    private static readonly ImmutableArray<BuiltInRuleEntry> DeterministicBcl = BuildDeterministicBclEntries();
-    private static readonly ImmutableArray<BuiltInRuleEntry> ControlledTasks = BuildControlledTasksEntries();
+    /// <summary>
+    /// Gets the runtime whose reference assemblies every built-in rule is classified against. Each built-in rule
+    /// supports exactly this runtime, so instrumenting for another one fails with <c>CWR0010</c> until the rules are
+    /// re-derived for it.
+    /// </summary>
+    public static Version TargetRuntime { get; } = new(11, 0);
+
+    private static readonly ImmutableArray<BuiltInRuleEntry> DeterministicBcl = ForTargetRuntime(BuildDeterministicBclEntries());
+    private static readonly ImmutableArray<BuiltInRuleEntry> ControlledTasks = ForTargetRuntime(BuildControlledTasksEntries());
     private static readonly ImmutableHashSet<string> ControlledTaskRuleIds =
         ControlledTasks.Select(entry => entry.Rule.Id).ToImmutableHashSet(StringComparer.Ordinal);
 
@@ -744,6 +756,13 @@ public static class BuiltInRuleSets
         RejectedRule(builder, BuiltInRuleFamily.AsyncMachinery, "clockwork.tasks.asynchelpers.await.configured.generic",
             MemberSignature.Method(AsyncHelpersType, "Await", BclConfiguredTArg), Shim(AsyncHelpersShim, "Await", ControlledConfiguredTDecl));
 
+        // A runtime-async Main returns through AsyncHelpers.HandleAsyncEntryPoint, which blocks the calling thread until
+        // the entry task completes instead of letting the coordinator run its continuations.
+        RejectedRule(builder, BuiltInRuleFamily.AsyncMachinery, "clockwork.tasks.asynchelpers.handleasyncentrypoint",
+            MemberSignature.Method(AsyncHelpersType, "HandleAsyncEntryPoint", Task), Shim(AsyncHelpersShim, "HandleAsyncEntryPoint", Task));
+        RejectedRule(builder, BuiltInRuleFamily.AsyncMachinery, "clockwork.tasks.asynchelpers.handleasyncentrypoint.int32",
+            MemberSignature.Method(AsyncHelpersType, "HandleAsyncEntryPoint", TaskOfInt32), Shim(AsyncHelpersShim, "HandleAsyncEntryPoint", TaskOfInt32));
+
         // ---- ValueTask machinery: retarget the compiler-generated builder/awaiter types of an
         // async ValueTask / async ValueTask<T> state machine onto controlled equivalents. The awaiter
         // source calls (ValueTask.GetAwaiter / ValueTask.ConfigureAwait) are recognised by the
@@ -796,7 +815,7 @@ public static class BuiltInRuleSets
         // the coordinator (like Task.Run), honouring the factory's/call's cancellation token; the
         // AttachedToParent creation option is rejected at runtime. Task.Factory.StartNew(Func<TResult>)
         // is a generic method (`!!0`); TaskFactory`1's StartNew(Func<TResult>) is a non-generic method
-        // over the type parameter (`!0`). The inventory mirrors all 24 .NET 10 / Coyote StartNew signatures:
+        // over the type parameter (`!0`). The inventory mirrors all 24 .NET 11 / Coyote StartNew signatures:
         // plain, CancellationToken, TaskCreationOptions, full scheduler, and state-carrying forms. ----
         TaskRule(builder, BuiltInRuleFamily.TaskFactory, "clockwork.tasks.factory.startnew.action",
             MemberSignature.Method(TaskFactoryType, "StartNew", Action),
@@ -1098,6 +1117,28 @@ public static class BuiltInRuleSets
         UncontrolledRejection(builder, "clockwork.process.waitforexit.milliseconds", ProcessType, "WaitForExit", Int32);
         UncontrolledRejection(builder, "clockwork.process.waitforexit.timespan", ProcessType, "WaitForExit", TimeSpanType);
         UncontrolledRejection(builder, "clockwork.process.waitforexitasync", ProcessType, "WaitForExitAsync", CancellationTokenType);
+        UncontrolledRejection(builder, "clockwork.process.run.startinfo", ProcessType, "Run", ProcessStartInfoType, NullableTimeSpanType);
+        UncontrolledRejection(builder, "clockwork.process.run.filename", ProcessType, "Run", String, IEnumerableOfStringType, Boolean, NullableTimeSpanType);
+        UncontrolledRejection(builder, "clockwork.process.runasync.startinfo", ProcessType, "RunAsync", ProcessStartInfoType, CancellationTokenType);
+        UncontrolledRejection(builder, "clockwork.process.runasync.filename", ProcessType, "RunAsync", String, IEnumerableOfStringType, Boolean, CancellationTokenType);
+        UncontrolledRejection(builder, "clockwork.process.runandcapturetext.startinfo", ProcessType, "RunAndCaptureText", ProcessStartInfoType, NullableTimeSpanType);
+        UncontrolledRejection(builder, "clockwork.process.runandcapturetext.filename", ProcessType, "RunAndCaptureText", String, IEnumerableOfStringType, NullableTimeSpanType);
+        UncontrolledRejection(builder, "clockwork.process.runandcapturetextasync.startinfo", ProcessType, "RunAndCaptureTextAsync", ProcessStartInfoType, CancellationTokenType);
+        UncontrolledRejection(builder, "clockwork.process.runandcapturetextasync.filename", ProcessType, "RunAndCaptureTextAsync", String, IEnumerableOfStringType, CancellationTokenType);
+        UncontrolledRejection(builder, "clockwork.process.startandforget.startinfo", ProcessType, "StartAndForget", ProcessStartInfoType);
+        UncontrolledRejection(builder, "clockwork.process.startandforget.filename", ProcessType, "StartAndForget", String, IEnumerableOfStringType);
+        UncontrolledRejection(builder, "clockwork.process.signal", ProcessType, "Signal", PosixSignalType);
+        UncontrolledRejection(builder, "clockwork.process.waitforexitstatus", ProcessType, "WaitForExitStatus");
+        UncontrolledRejection(builder, "clockwork.process.trywaitforexitstatus", ProcessType, "TryWaitForExitStatus", TimeSpanType, ProcessExitStatusRef);
+        UncontrolledRejection(builder, "clockwork.process.waitforexitstatusasync", ProcessType, "WaitForExitStatusAsync", CancellationTokenType);
+
+        // Reading a process's whole output blocks until the process closes its standard output and error.
+        UncontrolledRejection(builder, "clockwork.process.readallbytes", ProcessType, "ReadAllBytes", NullableTimeSpanType);
+        UncontrolledRejection(builder, "clockwork.process.readallbytesasync", ProcessType, "ReadAllBytesAsync", CancellationTokenType);
+        UncontrolledRejection(builder, "clockwork.process.readalltext", ProcessType, "ReadAllText", NullableTimeSpanType);
+        UncontrolledRejection(builder, "clockwork.process.readalltextasync", ProcessType, "ReadAllTextAsync", CancellationTokenType);
+        UncontrolledRejection(builder, "clockwork.process.readalllines", ProcessType, "ReadAllLines", NullableTimeSpanType);
+        UncontrolledRejection(builder, "clockwork.process.readalllinesasync", ProcessType, "ReadAllLinesAsync", CancellationTokenType);
         UncontrolledRejection(builder, "clockwork.environment.exit", EnvironmentType, "Exit", Int32);
         UncontrolledRejection(builder, "clockwork.environment.failfast.message", EnvironmentType, "FailFast", String);
         UncontrolledRejection(builder, "clockwork.environment.failfast.exception", EnvironmentType, "FailFast", String, ExceptionType);
@@ -1424,11 +1465,11 @@ public static class BuiltInRuleSets
             Shim(SynchronizationContextShim, "Wait", SynchronizationContextType, IntPtrArray, Boolean, Int32));
     }
 
-    // wait-handle and atomic control: the full .NET 10 System.Threading.Interlocked surface. Every call site is redirected to a
+    // wait-handle and atomic control: the full .NET 11 System.Threading.Interlocked surface. Every call site is redirected to a
     // shim carrying the identical ref-first signature. Under Clockwork's cooperative single-logical-thread
     // scheduler a read-modify-write is an indivisible step, so each shim delegates to the real primitive,
-    // preserving exact atomic return / overflow / reference-write semantics. The generic Exchange<T> /
-    // CompareExchange<T> overloads use the `!!0`/`!!0&` target -> `T`/`T&` replacement split.
+    // preserving exact atomic return / overflow / reference-write semantics. The generic And<T> / Or<T> /
+    // Exchange<T> / CompareExchange<T> overloads use the `!!0`/`!!0&` target -> `T`/`T&` replacement split.
     private static void BuildInterlockedEntries(ImmutableArray<BuiltInRuleEntry>.Builder builder)
     {
         void Rule(string id, string member, string[] target, string[] replacement) =>
@@ -1451,17 +1492,19 @@ public static class BuiltInRuleSets
         Rule("clockwork.interlocked.add.uint32", "Add", [UInt32Ref, UInt32], [UInt32Ref, UInt32]);
         Rule("clockwork.interlocked.add.uint64", "Add", [UInt64Ref, UInt64], [UInt64Ref, UInt64]);
 
-        // And / Or (int, uint, long, ulong).
+        // And / Or (int, uint, long, ulong, generic value type).
         Rule("clockwork.interlocked.and.int32", "And", [Int32Ref, Int32], [Int32Ref, Int32]);
         Rule("clockwork.interlocked.and.uint32", "And", [UInt32Ref, UInt32], [UInt32Ref, UInt32]);
         Rule("clockwork.interlocked.and.int64", "And", [Int64Ref, Int64], [Int64Ref, Int64]);
         Rule("clockwork.interlocked.and.uint64", "And", [UInt64Ref, UInt64], [UInt64Ref, UInt64]);
+        Rule("clockwork.interlocked.and.generic", "And", [GenericArg0Ref, GenericArg0], [GenericTRefDecl, GenericTDecl]);
         Rule("clockwork.interlocked.or.int32", "Or", [Int32Ref, Int32], [Int32Ref, Int32]);
         Rule("clockwork.interlocked.or.uint32", "Or", [UInt32Ref, UInt32], [UInt32Ref, UInt32]);
         Rule("clockwork.interlocked.or.int64", "Or", [Int64Ref, Int64], [Int64Ref, Int64]);
         Rule("clockwork.interlocked.or.uint64", "Or", [UInt64Ref, UInt64], [UInt64Ref, UInt64]);
+        Rule("clockwork.interlocked.or.generic", "Or", [GenericArg0Ref, GenericArg0], [GenericTRefDecl, GenericTDecl]);
 
-        // Exchange (every primitive, native-int, floating-point, reference, generic reference).
+        // Exchange (every primitive, native-int, floating-point, reference, and generic).
         Rule("clockwork.interlocked.exchange.int32", "Exchange", [Int32Ref, Int32], [Int32Ref, Int32]);
         Rule("clockwork.interlocked.exchange.int64", "Exchange", [Int64Ref, Int64], [Int64Ref, Int64]);
         Rule("clockwork.interlocked.exchange.object", "Exchange", [ObjectRef, ObjectType], [ObjectRef, ObjectType]);
@@ -1477,7 +1520,7 @@ public static class BuiltInRuleSets
         Rule("clockwork.interlocked.exchange.uintptr", "Exchange", [UIntPtrRef, UIntPtrType], [UIntPtrRef, UIntPtrType]);
         Rule("clockwork.interlocked.exchange.generic", "Exchange", [GenericArg0Ref, GenericArg0], [GenericTRefDecl, GenericTDecl]);
 
-        // CompareExchange (every primitive, native-int, floating-point, reference, generic reference).
+        // CompareExchange (every primitive, native-int, floating-point, reference, and generic).
         Rule("clockwork.interlocked.compareexchange.int32", "CompareExchange", [Int32Ref, Int32, Int32], [Int32Ref, Int32, Int32]);
         Rule("clockwork.interlocked.compareexchange.int64", "CompareExchange", [Int64Ref, Int64, Int64], [Int64Ref, Int64, Int64]);
         Rule("clockwork.interlocked.compareexchange.object", "CompareExchange", [ObjectRef, ObjectType, ObjectType], [ObjectRef, ObjectType, ObjectType]);
@@ -1500,7 +1543,7 @@ public static class BuiltInRuleSets
         Rule("clockwork.interlocked.memorybarrierprocesswide", "MemoryBarrierProcessWide", [], []);
     }
 
-    // wait-handle and atomic control: the full .NET 10 System.Threading.Volatile surface. Each Read/Write call site is redirected
+    // wait-handle and atomic control: the full .NET 11 System.Threading.Volatile surface. Each Read/Write call site is redirected
     // to a shim with the identical ref-first signature; the generic Read<T>/Write<T> overloads use the
     // `!!0`/`!!0&` target -> `T`/`T&` replacement split. Under the cooperative single-logical-thread
     // scheduler a volatile access is an indivisible step, so each shim delegates to the real primitive,
@@ -1956,6 +1999,12 @@ public static class BuiltInRuleSets
         builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Crypto, RewriteRule.RedirectCall(
             id, target, replacement)));
     }
+
+    private static ImmutableArray<BuiltInRuleEntry> ForTargetRuntime(ImmutableArray<BuiltInRuleEntry> entries) =>
+        [.. entries.Select(entry => entry with
+        {
+            Rule = entry.Rule with { SupportedRuntimes = new RuntimeVersionRange(TargetRuntime, TargetRuntime) },
+        })];
 
     // A collection expression always yields a non-default ImmutableArray - even when empty - so the
     // resolver treats the replacement as having an exact parameter constraint and picks the intended

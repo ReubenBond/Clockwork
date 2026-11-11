@@ -16,7 +16,7 @@ namespace Clockwork.Instrumentation.Tests.Rules;
 /// </summary>
 public sealed class BuiltInRuleSetCompletenessTests
 {
-    private static readonly Version TargetRuntime = new(10, 0);
+    private static readonly Version TargetRuntime = BuiltInRuleSets.TargetRuntime;
 
     private static readonly HashSet<string> AwaiterSourceReceivers = new(StringComparer.Ordinal)
     {
@@ -76,6 +76,52 @@ public sealed class BuiltInRuleSetCompletenessTests
         Assert.Contains("System.Runtime.CompilerServices.YieldAwaitable System.Threading.Tasks.Task::Yield()", handled);
         Assert.True(unhandled.Count == 0, "Unhandled members:" + Environment.NewLine + string.Join(Environment.NewLine, unhandled));
         Assert.Empty(FailClosed.Keys.Except(allowed, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void EveryRuleTargetIsAReferencePackMember()
+    {
+        string directory = ReferencePackDirectory();
+        using var resolver = new DefaultAssemblyResolver();
+        resolver.AddSearchDirectory(directory);
+        var modules = new List<ModuleDefinition>();
+        try
+        {
+            var types = new Dictionary<string, TypeDefinition>(StringComparer.Ordinal);
+            foreach (string path in Directory.GetFiles(directory, "*.dll"))
+            {
+                ModuleDefinition module = ModuleDefinition.ReadModule(path, new ReaderParameters { AssemblyResolver = resolver });
+                modules.Add(module);
+                foreach (TypeDefinition type in module.GetTypes().Where(IsVisible))
+                {
+                    types.TryAdd(type.FullName, type);
+                }
+            }
+
+            var missing = new List<string>();
+            foreach ((_, RewriteRule rule) in BuiltInRuleSets.DeterministicBclInventory.Concat(BuiltInRuleSets.ControlledTasksInventory))
+            {
+                MemberSignature target = rule.Target;
+                if (!types.TryGetValue(target.DeclaringTypeFullName, out TypeDefinition? type))
+                {
+                    missing.Add($"{rule.Id}: {target.DeclaringTypeFullName}");
+                }
+                else if (rule.Operation != RewriteOperationKind.SubstituteType
+                    && !type.Methods.Any(method => IsVisible(method)
+                        && method.Name == target.MemberName
+                        && (!target.HasParameterConstraint
+                            || target.ParameterTypeFullNames.SequenceEqual(method.Parameters.Select(parameter => CallSiteName(parameter.ParameterType))))))
+                {
+                    missing.Add($"{rule.Id}: {target.ToCanonicalString()}");
+                }
+            }
+
+            Assert.True(missing.Count == 0, "Rule targets missing from the reference pack:" + Environment.NewLine + string.Join(Environment.NewLine, missing));
+        }
+        finally
+        {
+            modules.ForEach(module => module.Dispose());
+        }
     }
 
     private static bool IsAwaiterSource(MethodDefinition method) =>

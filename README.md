@@ -24,7 +24,8 @@ Clockwork is a deterministic simulation testing framework for distributed system
 Consumers should attach node identity and other context using standard structured `ILogger` scopes or
 properties; Clockwork does not wrap loggers or prefix rendered messages.
 
-Clockwork targets .NET 10.
+Clockwork targets .NET 11 (`net11.0`) and builds with the .NET 11 SDK. The built-in rule sets are classified
+against the .NET 11 reference assemblies and support target runtime 11.0.
 
 ## Current capability contract
 
@@ -37,9 +38,9 @@ are in [`docs/compatibility.md`](docs/compatibility.md).
 | Simulation kernel | Virtual clock, seeded randomness, simulated network, cooperative scheduler lanes, node lifecycle, diagnostics, rendezvous primitives, and controlled scheduling. | Application hosting and transport models are consumer-owned; Clockwork ships no dedicated hosting or HTTP package. |
 | Build and CLI instrumentation | Opt-in, out-of-place Cecil rewriting through `Clockwork.Instrumentation.Build` and `Clockwork.Tool`; direct-call analyzers; deterministic manifests and content-verified incremental outputs. | ReadyToRun inputs are reduced to IL before rewriting; instrument before single-file bundling, trimming, or NativeAOT. Rewritten strong names and closure references are stripped automatically; Authenticode is not re-applied. |
 | Deterministic BCL rules | `clockwork.bcl.deterministic` controls the exact time, identity, and random signatures in the generated inventory. | APIs outside the inventory retain no determinism claim. |
-| Controlled concurrency | `clockwork.tasks.controlled` controls async builders/awaiters, task combinators (including `Task.WhenEach`), continuations (including `TaskFactory.ContinueWhenAll`/`ContinueWhenAny`), value-task conversions, and waits, `Task.Run`, all .NET 10 `TaskFactory`/`TaskFactory<T>.StartNew` overloads, `Thread`, `ThreadPool`, `Parallel`, `Monitor`, `System.Threading.Lock`, and `SemaphoreSlim`. Clockwork registers no BCL continuation on a task, so a completion source or value-task source which runs continuations asynchronously cannot escape to the thread pool. Debug and Release lowering are conformance-tested. | Blocking `ValueTask<T>.Result` reads, custom task schedulers, unsupported task-creation and continuation options, native-overlapped thread-pool work, `TaskFactory.FromAsync`, and OS-specific thread controls are rejected. Continuations registered by uninstrumented code remain outside the coordinator. |
-| Synchronization | Full .NET 10 `Interlocked` and `Volatile`; `SpinWait`; events and wait handles; registered waits; `ReaderWriterLockSlim`; `ManualResetEventSlim`; unnamed kernel `Mutex`/`Semaphore`; `SpinLock`; `ExecutionContext`; `SynchronizationContext`; `Barrier`; and `CountdownEvent`. | Named/cross-process primitives, open-existing APIs, raw handles, raw `SynchronizationContext.Wait`, and `WaitAll` arrays containing a `Mutex` are rejected. |
-| Virtual timers | `System.Threading.Timer`, `System.Timers.Timer`, `PeriodicTimer`, all .NET 10 `Task.Delay` and `Task.WaitAsync` overloads, timer-driven cancellation, and `TimeProvider.System`/`CreateTimer`. | Custom providers and non-null `System.Timers.Timer.SynchronizingObject`/designer integration are rejected. |
+| Controlled concurrency | `clockwork.tasks.controlled` controls async builders/awaiters, task combinators (including `Task.WhenEach`), continuations (including `TaskFactory.ContinueWhenAll`/`ContinueWhenAny`), value-task conversions, and waits, `Task.Run`, all .NET 11 `TaskFactory`/`TaskFactory<T>.StartNew` overloads, `Thread`, `ThreadPool`, `Parallel`, `Monitor`, `System.Threading.Lock`, and `SemaphoreSlim`. Clockwork registers no BCL continuation on a task, so a completion source or value-task source which runs continuations asynchronously cannot escape to the thread pool. Debug and Release lowering by the .NET 11 SDK's C# compiler are conformance-tested. | Blocking `ValueTask<T>.Result` reads, custom task schedulers, unsupported task-creation and continuation options, native-overlapped thread-pool work, `TaskFactory.FromAsync`, and OS-specific thread controls are rejected. Methods compiled with runtime async fail the rewrite (`CWR0013`). Continuations registered by uninstrumented code remain outside the coordinator. |
+| Synchronization | Full .NET 11 `Interlocked` and `Volatile`; `SpinWait`; events and wait handles; registered waits; `ReaderWriterLockSlim`; `ManualResetEventSlim`; unnamed kernel `Mutex`/`Semaphore`; `SpinLock`; `ExecutionContext`; `SynchronizationContext`; `Barrier`; and `CountdownEvent`. | Named/cross-process primitives, open-existing APIs, raw handles, raw `SynchronizationContext.Wait`, and `WaitAll` arrays containing a `Mutex` are rejected. |
+| Virtual timers | `System.Threading.Timer`, `System.Timers.Timer`, `PeriodicTimer`, all .NET 11 `Task.Delay` and `Task.WaitAsync` overloads, timer-driven cancellation, and `TimeProvider.System`/`CreateTimer`. | Custom providers and non-null `System.Timers.Timer.SynchronizingObject`/designer integration are rejected. |
 | Replay and race exploration | Canonical replay schema version 2, exact compatibility/divergence checks, bounded serial schedule exploration, failure minimization, and opt-in `RaceExploration` instrumentation with structured first-race reports. | Controlled mode adds no fine-grained memory/control-flow calls. Race tracking excludes unmanaged memory, multidimensional arrays, reflection/dynamic invocation, and interface-only collection calls as detailed in compatibility docs. |
 | Activation | Instrumented controlled entry points require an active simulation and registered runtime service; uninstrumented binaries retain ordinary BCL behavior. | There is no inactive pass-through from rewritten controlled calls to real BCL operations, except that completing a `TaskCompletionSource` outside a simulation (from a finalizer, say) calls the BCL member. |
 ## Build and test
@@ -427,7 +428,7 @@ simulation code must not touch a queue from more than one thread at once.
 
 See [docs/compatibility.md](docs/compatibility.md) for the supported deterministic
 instrumentation modes (cooperative, controlled, race exploration, optional deep
-instrumentation) and the platform/deployment contract (.NET 10, Windows/Linux/macOS,
+instrumentation) and the platform/deployment contract (.NET 11, Windows/Linux/macOS,
 JIT and ReadyToRun, plus limitations for single-file, trimming,
 NativeAOT, signed assemblies, and profiler conflicts).
 
@@ -533,9 +534,12 @@ interface implementation or override whose signature is rewritten on one side of
 the rewrite the same way instead of throwing `TypeLoadException` when the type loads, and so does such code
 mentioning a rewritten type whose base type, interfaces, or generic constraints the rewrite substitutes
 (`List<Barrier>` becomes `List<ControlledBarrier>`), which it could use through the original ones, and
-rewritten code mentioning such code's type that keeps the original ones. The
-runtime-async `AsyncHelpers.Await` intrinsics on configured awaitables, which would resume outside the
-coordinator, are rejected by name. The controlled awaiter hands each continuation to the simulation
+rewritten code mentioning such code's type that keeps the original ones. A method compiled with runtime
+async (`MethodImplOptions.Async`) has no state machine to retarget and resumes through the runtime's own
+continuation machinery, so rewriting one fails (`CWR0013`) with a message to compile it without runtime async.
+The runtime-async `AsyncHelpers.Await` intrinsics on configured awaitables, which would resume outside the
+coordinator, and the `AsyncHelpers.HandleAsyncEntryPoint` helpers, which block on an entry point's task, are
+rejected by name. The controlled awaiter hands each continuation to the simulation
 coordinator, so **`ConfigureAwait(false)` stays controlled** inside a simulation (for both `Task`
 and `ValueTask`). `Task.ConfigureAwait(ConfigureAwaitOptions)` builds the same controlled awaitable and
 honours `SuppressThrowing` and `ForceYielding` exactly as the BCL awaiter does. A synchronous
@@ -572,7 +576,7 @@ an active Clockwork simulation. Continuations and waits route through the coordi
 complete ambient runtime, so they cannot fall back to the thread pool. There is no inactive
 pass-through, except for the `TaskCompletionSource` completion members: a finalizer or a callback from
 uninstrumented code may complete a source outside any simulation, so there they call the BCL member and
-record no race-detection edge. `Task.Run`, every .NET 10 `TaskFactory.StartNew` state/options/scheduler form, `Thread`,
+record no race-detection edge. `Task.Run`, every .NET 11 `TaskFactory.StartNew` state/options/scheduler form, `Thread`,
 `ThreadPool`, and `Parallel` are controlled.
 
 **Modern synchronization.** The same opt-in rule set now controls
@@ -590,7 +594,7 @@ Activation is unchanged: enable the built-ins through the MSBuild package/proper
 packages; the exact selected signatures and policies are generated in the
 [rule inventory](docs/rule-inventory.md).
 
-The controlled rule set also substitutes the three public timer types, redirects every .NET 10
+The controlled rule set also substitutes the three public timer types, redirects every .NET 11
 `Task.Delay`/`Task.WaitAsync` overload, controls timer-driven cancellation, and bridges
 `TimeProvider.System`/`CreateTimer`. Periodic ticks coalesce, timer callbacks flow the BCL user
 `ExecutionContext` where applicable, and all finite deadlines appear as pending virtual-time work.

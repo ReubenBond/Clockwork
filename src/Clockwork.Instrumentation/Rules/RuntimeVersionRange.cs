@@ -3,7 +3,8 @@ namespace Clockwork.Instrumentation.Rules;
 /// <summary>
 /// An inclusive range of target-runtime versions a <see cref="RewriteRule"/> supports. A rule only
 /// applies when the engine's configured target-runtime version falls within the range. Either bound
-/// may be open (<see langword="null"/>). The default <see cref="All"/> matches every version.
+/// may be open (<see langword="null"/>). The default <see cref="All"/> matches every version. An upper
+/// bound includes every version it is a prefix of, so a maximum of <c>11.0</c> includes <c>11.0.2</c>.
 /// </summary>
 /// <param name="Minimum">The inclusive lower bound, or <see langword="null"/> for no lower bound.</param>
 /// <param name="Maximum">The inclusive upper bound, or <see langword="null"/> for no upper bound.</param>
@@ -34,7 +35,7 @@ public readonly record struct RuntimeVersionRange(Version? Minimum, Version? Max
             return false;
         }
 
-        if (Maximum is not null && version > Maximum)
+        if (Maximum is not null && Prefix(version, Maximum) > Maximum)
         {
             return false;
         }
@@ -53,4 +54,12 @@ public readonly record struct RuntimeVersionRange(Version? Minimum, Version? Max
 
     /// <inheritdoc/>
     public override string ToString() => ToCanonicalString();
+
+    // The components of a version that a bound with fewer components specifies.
+    private static Version Prefix(Version version, Version bound) => bound switch
+    {
+        { Build: < 0 } => new Version(version.Major, version.Minor),
+        { Revision: < 0 } when version.Build >= 0 => new Version(version.Major, version.Minor, version.Build),
+        _ => version,
+    };
 }

@@ -4,7 +4,7 @@
 //   Copyright (c) Microsoft Corporation.
 //   Licensed under the MIT License.
 //
-// Clockwork preserves the concrete .NET 10 collection types and injects receiver-first access calls
+// Clockwork preserves the concrete .NET 11 collection types and injects receiver-first access calls
 // at direct concrete member invocations instead of substituting wrapper subclasses.
 
 using Clockwork.Instrumentation.Manifest;

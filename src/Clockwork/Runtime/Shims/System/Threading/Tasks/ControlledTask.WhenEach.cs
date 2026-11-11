@@ -8,7 +8,7 @@ namespace Clockwork.Shims.System.Threading.Tasks;
 
 /// <summary>
 /// <para>
-/// Controlled <c>Task.WhenEach</c>, every .NET 10 overload. The BCL registers a completion action on each task when
+/// Controlled <c>Task.WhenEach</c>, every .NET 11 overload. The BCL registers a completion action on each task when
 /// <c>WhenEach</c> is called and yields the tasks in the order those actions run, through an async iterator which
 /// awaits a <see cref="ManualResetValueTaskSourceCore{TResult}"/> that runs its continuations asynchronously, on the
 /// thread pool. Here the coordinator observes the tasks complete from the call on, as the other controlled combinators

@@ -45,7 +45,7 @@ public sealed class RuleInventoryDocumentTests
     }
 
     [Fact]
-    public void TaskDelayRulesClassifyEveryNet10Overload()
+    public void TaskDelayRulesClassifyEveryNet11Overload()
     {
         string[] frameworkOverloads = typeof(Task)
             .GetMethods()
@@ -67,7 +67,7 @@ public sealed class RuleInventoryDocumentTests
     }
 
     [Fact]
-    public void TaskWaitAsyncRulesClassifyEveryNet10Overload()
+    public void TaskWaitAsyncRulesClassifyEveryNet11Overload()
     {
         int frameworkOverloads =
             typeof(Task).GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
@@ -107,7 +107,7 @@ public sealed class RuleInventoryDocumentTests
     }
 
     [Fact]
-    public void TaskFactoryRulesClassifyEveryNet10StartNewOverload()
+    public void TaskFactoryRulesClassifyEveryNet11StartNewOverload()
     {
         int frameworkOverloadCount =
             typeof(TaskFactory).GetMethods().Count(method => method.Name == nameof(TaskFactory.StartNew)) +
@@ -124,7 +124,7 @@ public sealed class RuleInventoryDocumentTests
     }
 
     [Fact]
-    public void ContinueWithRulesClassifyEveryNet10Overload()
+    public void ContinueWithRulesClassifyEveryNet11Overload()
     {
         const BindingFlags Declared = BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly;
         int frameworkOverloads =
@@ -146,7 +146,7 @@ public sealed class RuleInventoryDocumentTests
     }
 
     [Fact]
-    public void CompletionSourceRulesClassifyEveryNet10CompletionMember()
+    public void CompletionSourceRulesClassifyEveryNet11CompletionMember()
     {
         const BindingFlags Declared = BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly;
         string[] Completions(Type type) =>
@@ -198,7 +198,7 @@ public sealed class RuleInventoryDocumentTests
     }
 
     [Fact]
-    public void WhenEachRulesClassifyEveryNet10Overload()
+    public void WhenEachRulesClassifyEveryNet11Overload()
     {
         string[] framework =
         [
@@ -221,7 +221,7 @@ public sealed class RuleInventoryDocumentTests
     }
 
     [Fact]
-    public void MultiTaskContinuationRulesClassifyEveryNet10Overload()
+    public void MultiTaskContinuationRulesClassifyEveryNet11Overload()
     {
         const BindingFlags Declared = BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly;
         string[] Shapes(Type factory) =>
@@ -296,7 +296,7 @@ public sealed class RuleInventoryDocumentTests
     }
 
     [Fact]
-    public void MonitorRulesClassifyEveryNet10Method()
+    public void MonitorRulesClassifyEveryNet11Method()
     {
         string[] framework = typeof(Monitor)
             .GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)
@@ -313,8 +313,28 @@ public sealed class RuleInventoryDocumentTests
         Assert.Equal(framework, classified);
     }
 
+    [Theory]
+    [InlineData(typeof(Interlocked), BuiltInRuleFamily.Interlocked)]
+    [InlineData(typeof(Volatile), BuiltInRuleFamily.Volatile)]
+    public void AtomicRulesClassifyEveryNet11Method(Type type, BuiltInRuleFamily family)
+    {
+        string[] framework = type
+            .GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)
+            .Select(method => method.Name + "(" + string.Join(",", method.GetParameters().Select(parameter => CallSiteName(parameter.ParameterType))) + ")")
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        string[] classified = BuiltInRuleSets.ControlledTasksInventory
+            .Where(entry => entry.Family == family)
+            .Select(entry => entry.Rule.Target.MemberName + "(" +
+                string.Join(",", entry.Rule.Target.ParameterTypeFullNames) + ")")
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(framework, classified);
+    }
+
     [Fact]
-    public void SemaphoreSlimRulesClassifyEveryNet10DeclaredMember()
+    public void SemaphoreSlimRulesClassifyEveryNet11DeclaredMember()
     {
         int frameworkMemberCount =
             typeof(SemaphoreSlim).GetConstructors(BindingFlags.Public | BindingFlags.Instance).Length +
@@ -330,7 +350,7 @@ public sealed class RuleInventoryDocumentTests
     }
 
     [Fact]
-    public void ModernSynchronizationReceiverFirstRulesClassifyEveryNet10DeclaredMember()
+    public void ModernSynchronizationReceiverFirstRulesClassifyEveryNet11DeclaredMember()
     {
         AssertFamilyMatchesPublicMembers(typeof(ReaderWriterLockSlim), BuiltInRuleFamily.ReaderWriterLockSlim, includeConstructors: true);
         AssertFamilyMatchesPublicMembers(typeof(ManualResetEventSlim), BuiltInRuleFamily.ManualResetEventSlim, includeConstructors: true);
@@ -380,6 +400,13 @@ public sealed class RuleInventoryDocumentTests
 
     private static string MethodShape(MethodBase method) =>
         method.Name + "(" + string.Join(",", method.GetParameters().Select(parameter => parameter.ParameterType.FullName)) + ")";
+
+    // The name a call site gives a parameter type, which is what rule targets match: a method's generic parameter is
+    // positional (!!0).
+    private static string CallSiteName(Type type) =>
+        type.IsByRef ? CallSiteName(type.GetElementType()!) + "&"
+        : type.IsGenericMethodParameter ? "!!" + type.GenericParameterPosition
+        : type.FullName!;
 
     private static string InventoryPath()
     {

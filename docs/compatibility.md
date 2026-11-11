@@ -307,9 +307,13 @@ by `dotnet test --no-build` uses it without runner-specific dispatch hooks. Prod
 outputs and non-opted-in test projects remain ordinary IL. Instrumentation must be selected per
 project, never using a solution-wide `ClockworkInstrumentationEnabled` global property.
 
-**Task package requires the .NET 10 SDK.** The task and its Cecil-based engine target
-`net10.0` and load only under `dotnet build` / `dotnet msbuild`; .NET Framework MSBuild
-(classic `msbuild.exe`) cannot host them. The `Clockwork.Tool` CLI exposes `rewrite`
+**Task package requires the .NET 11 SDK.** The task and its Cecil-based engine target
+`net11.0` and load only under `dotnet build` / `dotnet msbuild`; .NET Framework MSBuild
+(classic `msbuild.exe`) cannot host them. The targets evaluate rules against the project's target
+runtime (`ClockworkTargetRuntime`, by default the `TargetFrameworkVersion` of a .NET project), so a
+project targeting a runtime outside a rule's `supportedRuntimes` fails the rewrite (`CWR0010`) at each call
+site the rule matches. The built-in rules support exactly 11.0, which includes its servicing versions.
+The `Clockwork.Tool` CLI exposes `rewrite`
 (with `--dry-run`) and `inspect` (text or `--json`), with nonzero exit codes classified
 by failure kind. The tool also exposes explicit `IReplayScenario` harness commands for
 `run`/`replay`/`explore`/`minimize`/`trace show`; it never discovers a process or scenario type
@@ -415,9 +419,14 @@ and `WithCancellation` extensions that produce them. As in the BCL, the configur
 parameter, and each `MoveNextAsync`/`DisposeAsync` value task is configured with the requested
 `continueOnCapturedContext`, which the controlled awaitable treats as `ValueTask.ConfigureAwait(bool)` does. The controlled awaiter hands
 every continuation to the simulation coordinator rather than the awaited task's completion
-callback, which is exactly why **`ConfigureAwait(false)` stays controlled**. The runtime-async
+callback, which is exactly why **`ConfigureAwait(false)` stays controlled**. A method compiled with runtime
+async (`MethodImplOptions.Async`) has no state machine whose builder and awaiters could be substituted, and
+the runtime resumes it through its own continuation machinery, so rewriting one with a rule set that
+substitutes the async method builders fails with `CWR0013` naming the method; compile it without runtime
+async (remove the `runtime-async=on` compiler feature). The runtime-async
 `AsyncHelpers.Await` intrinsics that take a configured task or value-task awaitable resume their caller
-through the runtime's own continuation machinery instead, so they are rejected by name
+through the runtime's own continuation machinery instead, and the `AsyncHelpers.HandleAsyncEntryPoint`
+helpers block the calling thread on a runtime-async entry point's task, so they are rejected by name
 (`SimulationApiException`); compile such methods without runtime async.
 `Task.ConfigureAwait(ConfigureAwaitOptions)` and `Task<T>.ConfigureAwait(ConfigureAwaitOptions)` build
 the same controlled awaitables: `SuppressThrowing` completes the await normally for a faulted or
@@ -597,11 +606,14 @@ and `Parallel.Invoke`/`For`/`ForEach`.
   site with a diagnostic that names the exact API. The registered-wait APIs
   (`RegisterWaitForSingleObject`/`UnsafeRegisterWaitForSingleObject`) are **controlled**
   (see below) — they depend on controlled wait handles, which now exist.
-- **Uncontrolled process/termination APIs are rejected *unconditionally*.** `Process.Start`/`Kill`/
-  `WaitForExit`/`WaitForExitAsync` and `Environment.Exit`/`FailFast` throw whether or not a
-  simulation is active (a rewritten assembly must never launch, kill, or tear down a real OS
-  process). This unconditional guard is distinct from the simulation-only Controlled invariant,
-  because there is no faithful in-simulation model of spawning or killing a process.
+- **Uncontrolled process/termination APIs are rejected *unconditionally*.** `Process.Start`/`Run`/
+  `RunAsync`/`RunAndCaptureText`/`RunAndCaptureTextAsync`/`StartAndForget`/`Kill`/`Signal`, the
+  `WaitForExit`/`WaitForExitAsync`/`WaitForExitStatus`/`TryWaitForExitStatus`/`WaitForExitStatusAsync` waits,
+  the `ReadAllBytes`/`ReadAllText`/`ReadAllLines` reads and their async forms, and
+  `Environment.Exit`/`FailFast` throw whether or not a simulation is active (a rewritten assembly must
+  never launch, signal, wait on, or tear down a real OS process). This unconditional guard is distinct
+  from the simulation-only Controlled invariant, because there is no faithful in-simulation model of
+  spawning or killing a process.
 - **Cross-assembly uncontrolled-task detection is diagnosis, not wrapping.** With
   `DetectUncontrolledTasks` enabled, a call into an uncontrolled dependency assembly that returns a
   `Task`/`Task<T>`/`ValueTask`/`ValueTask<T>` or a custom awaitable is flagged with the `CWR0200`
@@ -737,7 +749,7 @@ ownership is logical-strand rather than physical-thread ownership.
 
 ### Virtual timer and deadline contract
 
-The controlled rule set classifies the exact .NET 10 timer surface:
+The controlled rule set classifies the exact .NET 11 timer surface:
 
 - `System.Threading.Timer`: constructors `(TimerCallback)`, and
   `(TimerCallback, object?, int|long|uint|TimeSpan, int|long|uint|TimeSpan)`; all four matching
@@ -770,7 +782,13 @@ cancels all remaining registrations without invoking user callbacks.
 
 ### Supported today
 
-- **.NET 10** is the only targeted runtime (`net10.0`, see `Directory.Build.props`).
+- **.NET 11** is the only targeted runtime (`net11.0`, see `Directory.Build.props`), built with the
+  .NET 11 SDK pinned in `global.json`. The built-in rule sets are classified against the .NET 11
+  reference assemblies and declare `supportedRuntimes` 11.0. .NET 11's shared framework includes the
+  `Microsoft.Extensions` abstractions (`Logging.Abstractions`, `DependencyInjection.Abstractions`,
+  `Options`, `Primitives`, and the other `*.Abstractions` assemblies), and NuGet prunes their packages
+  from a `net11.0` project's dependencies, so they load from the shared framework and are not rewritten:
+  `BackgroundService.StartAsync`, for example, starts `ExecuteAsync` through the real `Task.Run`.
 - **Windows, Linux, and macOS** are all supported for the existing kernel; it has no
   platform-specific dependencies (no P/Invoke, no OS-specific I/O).
 - **JIT execution** (the default `dotnet run`/`dotnet test` path) is fully supported.
@@ -784,7 +802,7 @@ cancels all remaining registrations without invoking user callbacks.
   and `TaskCompletionSource` completion surface enumerated in [`rule-inventory.md`](rule-inventory.md),
   routing `async`/`await` and synchronous waits through the simulation coordinator. No controlled surface
   registers a BCL continuation on a task. The inventory
-  also controls `Task.Run`, all 24 .NET 10 `TaskFactory`/`TaskFactory<T>.StartNew` signatures, `Thread`, `ThreadPool`
+  also controls `Task.Run`, all 24 .NET 11 `TaskFactory`/`TaskFactory<T>.StartNew` signatures, `Thread`, `ThreadPool`
   (`QueueUserWorkItem`/`UnsafeQueueUserWorkItem`), and `Parallel` under control (see the Coyote
   parity matrix, [`coyote-parity.md`](coyote-parity.md)). Control is claimed **only** for those
   exact signatures, including virtual timers, all `Task.Delay`/`Task.WaitAsync` overloads, and

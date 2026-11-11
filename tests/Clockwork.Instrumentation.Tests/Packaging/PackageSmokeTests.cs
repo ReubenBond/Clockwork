@@ -493,7 +493,7 @@ public sealed class PackageSmokeTests
                 File.WriteAllText(Path.Combine(rootDir, "global.json"), """
                     {
                       "sdk": {
-                        "version": "10.0.100",
+                        "version": "11.0.100",
                         "rollForward": "latestFeature"
                       },
                       "test": {
@@ -524,7 +524,7 @@ public sealed class PackageSmokeTests
             File.WriteAllText(Path.Combine(libDir, "SmokeApi.csproj"), """
                 <Project Sdk="Microsoft.NET.Sdk">
                   <PropertyGroup>
-                    <TargetFramework>net10.0</TargetFramework>
+                    <TargetFramework>net11.0</TargetFramework>
                     <Nullable>enable</Nullable>
                     <ImplicitUsings>enable</ImplicitUsings>
                     <AssemblyName>SmokeApi</AssemblyName>
@@ -544,7 +544,7 @@ public sealed class PackageSmokeTests
             File.WriteAllText(Path.Combine(subjectDir, "SmokeSubject.csproj"), """
                 <Project Sdk="Microsoft.NET.Sdk">
                   <PropertyGroup>
-                    <TargetFramework>net10.0</TargetFramework>
+                    <TargetFramework>net11.0</TargetFramework>
                     <Nullable>enable</Nullable>
                     <ImplicitUsings>enable</ImplicitUsings>
                     <AssemblyName>SmokeSubject</AssemblyName>
@@ -646,7 +646,7 @@ public sealed class PackageSmokeTests
                 <Project Sdk="Microsoft.NET.Sdk">
                   <PropertyGroup>
                     <OutputType>Exe</OutputType>
-                    <TargetFramework>net10.0</TargetFramework>
+                    <TargetFramework>net11.0</TargetFramework>
                     <Nullable>enable</Nullable>
                     <ImplicitUsings>enable</ImplicitUsings>
                     <AssemblyName>SmokeApp</AssemblyName>
@@ -764,9 +764,9 @@ public sealed class PackageSmokeTests
     /// <summary>A scaffolded consumer project that references the packed build package.</summary>
     private sealed class ConsumerProject
     {
-        private const string OutputRelative = "bin/Release/net10.0";
-        private const string StagingRelative = "obj/Release/net10.0/clockwork/instrumented";
-        private const string ManifestRelative = "obj/Release/net10.0/clockwork/clockwork.manifest.json";
+        private const string OutputRelative = "bin/Release/net11.0";
+        private const string StagingRelative = "obj/Release/net11.0/clockwork/instrumented";
+        private const string ManifestRelative = "obj/Release/net11.0/clockwork/clockwork.manifest.json";
         private readonly string _packagesDirectory;
         private readonly InstrumentationMode _mode;
 
@@ -785,7 +785,7 @@ public sealed class PackageSmokeTests
         public string OutputAppPath => Path.Combine(ProjectDirectory, OutputRelative, "SmokeApp.dll");
 
         public string UninstrumentedAppPath =>
-            Path.Combine(ProjectDirectory, "obj/Release/net10.0/clockwork/source", "SmokeApp.dll");
+            Path.Combine(ProjectDirectory, "obj/Release/net11.0/clockwork/source", "SmokeApp.dll");
 
         public string StagingDirectory => Path.Combine(ProjectDirectory, StagingRelative);
 
@@ -797,7 +797,7 @@ public sealed class PackageSmokeTests
 
         public string SuccessPath => Path.Combine(
             ProjectDirectory,
-            $"obj/Release/net10.0/clockwork/clockwork.{_mode}.success");
+            $"obj/Release/net11.0/clockwork/clockwork.{_mode}.success");
 
         public static string SideEffectPath(string appPath) =>
             Path.Combine(Path.GetDirectoryName(appPath)!, "side-effect.txt");

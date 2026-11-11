@@ -105,7 +105,7 @@ must be updated in the same change with:
   `ConditionalWeakTable`. Because the approach — not literal source — was adapted, these files
   do not carry a Coyote copyright header; this entry records the design lineage. The per-member
   parity ledger (every Coyote `Monitor`/`SemaphoreSlim` entry classified controlled, rejected
-  with a tested reason, or non-applicable on .NET 10) is enumerated in
+  with a tested reason, or non-applicable on .NET 11) is enumerated in
   [docs/coyote-parity.md](docs/coyote-parity.md); the exact controlled/rejected signature list
   is in [docs/rule-inventory.md](docs/rule-inventory.md).
 
@@ -124,7 +124,7 @@ must be updated in the same change with:
   `ConditionalWeakTable` side state and virtual-time deadlines rather than Coyote's scheduler-backed
   wrappers, so they carry no Coyote copyright header; this entry records the design lineage. The
   per-member parity ledger (every Coyote event/`WaitHandle`/`Interlocked`/`Volatile`/`SpinWait` entry
-  classified controlled, rejected with a tested reason, or non-applicable on .NET 10) is enumerated in
+  classified controlled, rejected with a tested reason, or non-applicable on .NET 11) is enumerated in
   [docs/coyote-parity.md](docs/coyote-parity.md); the exact controlled/rejected signature list is in
   [docs/rule-inventory.md](docs/rule-inventory.md).
 

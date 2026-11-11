@@ -118,6 +118,13 @@ public static class ControlledInterlocked
     /// <returns>The original value stored at <paramref name="location"/>.</returns>
     public static ulong And(ref ulong location, ulong value) => (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Interlocked.And"), Interlocked.And(ref location, value)).Item2;
 
+    /// <summary>Controlled generic <see cref="Interlocked.And{T}(ref T, T)"/>.</summary>
+    /// <typeparam name="T">The integer or enum type of the location.</typeparam>
+    /// <param name="location">The value to combine with a bitwise AND.</param>
+    /// <param name="value">The mask.</param>
+    /// <returns>The original value stored at <paramref name="location"/>.</returns>
+    public static T And<T>(ref T location, T value) where T : struct => (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Interlocked.And"), Interlocked.And(ref location, value)).Item2;
+
     /// <summary>Controlled <see cref="Interlocked.Or(ref int, int)"/>.</summary>
     /// <param name="location">The value to combine with a bitwise OR.</param>
     /// <param name="value">The mask.</param>
@@ -141,6 +148,13 @@ public static class ControlledInterlocked
     /// <param name="value">The mask.</param>
     /// <returns>The original value stored at <paramref name="location"/>.</returns>
     public static ulong Or(ref ulong location, ulong value) => (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Interlocked.Or"), Interlocked.Or(ref location, value)).Item2;
+
+    /// <summary>Controlled generic <see cref="Interlocked.Or{T}(ref T, T)"/>.</summary>
+    /// <typeparam name="T">The integer or enum type of the location.</typeparam>
+    /// <param name="location">The value to combine with a bitwise OR.</param>
+    /// <param name="value">The mask.</param>
+    /// <returns>The original value stored at <paramref name="location"/>.</returns>
+    public static T Or<T>(ref T location, T value) where T : struct => (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Interlocked.Or"), Interlocked.Or(ref location, value)).Item2;
 
     /// <summary>Controlled <see cref="Interlocked.Exchange(ref int, int)"/>.</summary>
     /// <param name="location">The location whose value is set to <paramref name="value"/>.</param>
@@ -221,11 +235,11 @@ public static class ControlledInterlocked
     public static UIntPtr Exchange(ref UIntPtr location, UIntPtr value) => (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Interlocked.Exchange"), Interlocked.Exchange(ref location, value)).Item2;
 
     /// <summary>Controlled generic <see cref="Interlocked.Exchange{T}(ref T, T)"/>.</summary>
-    /// <typeparam name="T">The reference type of the location.</typeparam>
+    /// <typeparam name="T">The reference, primitive, or enum type of the location.</typeparam>
     /// <param name="location">The location whose value is set to <paramref name="value"/>.</param>
     /// <param name="value">The value to store.</param>
     /// <returns>The original value.</returns>
-    public static T Exchange<T>(ref T location, T value) where T : class? => (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Interlocked.Exchange"), Interlocked.Exchange(ref location, value)).Item2;
+    public static T Exchange<T>(ref T location, T value) => (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Interlocked.Exchange"), Interlocked.Exchange(ref location, value)).Item2;
 
     /// <summary>Controlled <see cref="Interlocked.CompareExchange(ref int, int, int)"/>.</summary>
     /// <param name="location">The destination compared against <paramref name="comparand"/>.</param>
@@ -319,12 +333,12 @@ public static class ControlledInterlocked
     public static UIntPtr CompareExchange(ref UIntPtr location, UIntPtr value, UIntPtr comparand) => (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Interlocked.CompareExchange"), Interlocked.CompareExchange(ref location, value, comparand)).Item2;
 
     /// <summary>Controlled generic <see cref="Interlocked.CompareExchange{T}(ref T, T, T)"/>.</summary>
-    /// <typeparam name="T">The reference type of the location.</typeparam>
+    /// <typeparam name="T">The reference, primitive, or enum type of the location.</typeparam>
     /// <param name="location">The destination compared against <paramref name="comparand"/>.</param>
     /// <param name="value">The value stored when the comparison succeeds.</param>
     /// <param name="comparand">The value compared against <paramref name="location"/>.</param>
     /// <returns>The original value.</returns>
-    public static T CompareExchange<T>(ref T location, T value, T comparand) where T : class? => (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Interlocked.CompareExchange"), Interlocked.CompareExchange(ref location, value, comparand)).Item2;
+    public static T CompareExchange<T>(ref T location, T value, T comparand) => (SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Interlocked.CompareExchange"), Interlocked.CompareExchange(ref location, value, comparand)).Item2;
 
     /// <summary>Controlled 64-bit signed <c>Interlocked.Read</c>.</summary>
     /// <param name="location">The 64-bit value to read atomically.</param>
