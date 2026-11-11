@@ -142,7 +142,7 @@ internal sealed class BuiltInProcessFixture : IDisposable
             Configuration = new InstrumentationConfiguration
             {
                 IncludePatterns = [AppAssemblyName + ".dll", DependencyAssemblyName + ".dll"],
-                TargetRuntime = BuiltInRuleSets.TargetRuntime,
+                TargetRuntime = BuiltInRuleSets.SupportedRuntime,
             },
             RuleSet = BuiltInRuleSets.BuildControlledTasks(BuiltInRuleSets.AllFamilies),
         });

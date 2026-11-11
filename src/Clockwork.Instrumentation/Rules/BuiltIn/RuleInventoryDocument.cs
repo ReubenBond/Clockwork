@@ -95,7 +95,7 @@ public static class RuleInventoryDocument
         Line();
         Line($"Rule set id: `{id}`");
         Line($"Version: `{version}`");
-        Line($"Supported runtime: `{BuiltInRuleSets.TargetRuntime}`");
+        Line($"Supported runtime: `{BuiltInRuleSets.SupportedRuntime}`");
         Line($"Shim assembly: `{BuiltInRuleSets.ShimAssemblyName}`");
         Line();
 
@@ -197,10 +197,11 @@ public static class RuleInventoryDocument
             "awaiters, generic and non-generic) are substituted onto Clockwork's controlled equivalents by " +
             "the member-aware pass, and `Task.Yield()` redirects to the controlled yield. Every awaited " +
             "continuation is scheduled through the simulation coordinator instead of the thread pool, and " +
-            "`ConfigureAwait(false)` stays controlled. A method compiled with runtime async has no state machine and " +
-            "resumes through the runtime's own continuation machinery, so rewriting one fails with `CWR0013`; the " +
-            "runtime-async `AsyncHelpers.Await` intrinsics taking a configured task awaitable and the " +
-            "`AsyncHelpers.HandleAsyncEntryPoint` entry-point helpers are rejected.",
+            "`ConfigureAwait(false)` stays controlled. `AsyncHelpers.HandleAsyncEntryPoint`, through which an async " +
+            "`Main` returns, waits for its task through the controlled awaiter. A method compiled with runtime async has " +
+            "no state machine and resumes through the runtime's own continuation machinery, so rewriting one fails " +
+            "with `CWR0013`; the runtime-async `AsyncHelpers.Await` intrinsics taking a configured task awaitable are " +
+            "rejected.",
         BuiltInRuleFamily.ValueTaskMachinery =>
             "The compiler-generated builder and awaiter types of an `async ValueTask`/`async ValueTask<T>` " +
             "state machine (`AsyncValueTaskMethodBuilder`, `ValueTaskAwaiter`, `ConfiguredValueTaskAwaitable` " +
@@ -290,7 +291,9 @@ public static class RuleInventoryDocument
             "`RunAndCaptureTextAsync`/`StartAndForget`, the `Start` instance/`Kill`/`Signal` members, the " +
             "`WaitForExit`/`WaitForExitAsync`/`WaitForExitStatus`/`TryWaitForExitStatus`/`WaitForExitStatusAsync` " +
             "waits, the `ReadAllBytes`/`ReadAllText`/`ReadAllLines` reads (and their async forms) that wait for the " +
-            "process to close its output, and `Environment.Exit`/`FailFast`) cannot be modelled inside a single " +
+            "process to close its output, the `SafeProcessHandle` `Start`/`Signal`/`Resume`/`Kill` and wait members, the " +
+            "`WindowsProcessStartArguments`/`UnixProcessStartArguments` `Start` launchers, and `Environment.Exit`/" +
+            "`FailFast`) cannot be modelled inside a single " +
             "simulated process at all. A throwing guard is injected before each call site so a rewritten assembly can " +
             "never launch, signal, wait on, or terminate a real OS process; unlike the controlled shims the " +
             "rejection is unconditional (it fires whether or not a simulation is active).",

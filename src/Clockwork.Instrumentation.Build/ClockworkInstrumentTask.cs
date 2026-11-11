@@ -52,7 +52,10 @@ public sealed class ClockworkInstrumentTask : MSBuildTask
     /// <summary>Gets or sets the instrumentation mode (<c>Controlled</c> or <c>RaceExploration</c>).</summary>
     public string InstrumentationMode { get; set; } = nameof(Configuration.InstrumentationMode.Controlled);
 
-    /// <summary>Gets or sets the target runtime version rules are evaluated against, or empty to disable filtering.</summary>
+    /// <summary>
+    /// Gets or sets the target runtime version rules are evaluated against when the configuration file names none,
+    /// or empty to disable filtering.
+    /// </summary>
     public string? TargetRuntime { get; set; }
 
     /// <summary>Gets or sets the entry assembly's simple name or file name, or empty to auto-detect it.</summary>
@@ -159,8 +162,10 @@ public sealed class ClockworkInstrumentTask : MSBuildTask
             : new InstrumentationConfiguration
             {
                 Mode = ParseEnum<InstrumentationMode>(InstrumentationMode, nameof(InstrumentationMode)),
-                TargetRuntime = ParseVersion(TargetRuntime),
             };
+
+        // A configuration file's targetRuntime wins; otherwise rules are evaluated against the project's runtime.
+        configuration = configuration with { TargetRuntime = configuration.TargetRuntime ?? ParseVersion(TargetRuntime) };
 
         System.Collections.Immutable.ImmutableArray<string> taskIncludes = ToPatternArray(IncludePatterns);
         if (!taskIncludes.IsDefaultOrEmpty)

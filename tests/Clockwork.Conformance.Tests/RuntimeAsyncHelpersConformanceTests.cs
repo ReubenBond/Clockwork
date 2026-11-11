@@ -1,5 +1,7 @@
+using System.Reflection;
 using Clockwork.Instrumentation.Diagnostics;
 using Clockwork.Instrumentation.Rewriting;
+using Clockwork.Instrumentation.Rules.BuiltIn;
 using Clockwork.Runtime;
 using Mono.Cecil;
 
@@ -7,23 +9,30 @@ namespace Clockwork.Conformance.Tests;
 
 /// <summary>
 /// A method compiled with runtime async suspends and resumes through the runtime's own continuation machinery, which
-/// bypasses the simulation coordinator, so rewriting one fails with <c>CWR0013</c>. The runtime-async
-/// <c>AsyncHelpers.Await</c> intrinsics that take a configured awaitable resume their caller through that machinery, and
-/// <c>AsyncHelpers.HandleAsyncEntryPoint</c> blocks the calling thread on a runtime-async entry point's task. Rewritten
-/// code reaches them only through the rejecting shims, which throw a <see cref="SimulationApiException"/> naming the
-/// overload instead.
+/// bypasses the simulation coordinator, so rewriting one with a rule set that controls async methods fails with
+/// <c>CWR0013</c>. The runtime-async <c>AsyncHelpers.Await</c> intrinsics that take a configured awaitable resume their
+/// caller through that machinery, so rewritten code reaches them only through rejecting shims, which throw a
+/// <see cref="SimulationApiException"/> naming the overload. <c>AsyncHelpers.HandleAsyncEntryPoint</c>, through which an
+/// async <c>Main</c> returns, waits for its task through the controlled awaiter.
 /// </summary>
 public sealed class RuntimeAsyncHelpersConformanceTests : IDisposable
 {
     private static readonly DateTimeOffset Start = new(2024, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
-    // MethodImplAttributes.Async, which Mono.Cecil's MethodImplAttributes does not name.
-    private const MethodImplAttributes RuntimeAsync = (MethodImplAttributes)0x2000;
+    private const Mono.Cecil.MethodImplAttributes RuntimeAsync =
+        (Mono.Cecil.MethodImplAttributes)System.Reflection.MethodImplAttributes.Async;
 
     private const string RuntimeAsyncSource = """
+        using System;
         using System.Threading.Tasks;
         namespace Conf { public static class RuntimeAsyncMethods {
             public static async Task<int> IncrementAsync(Task<int> value) => await value + 1;
+            public static Func<Task<int>, Task<int>> Lambda() => async value => await value + 2;
+            public static Task<int> LocalFunction(Task<int> value)
+            {
+                return AddAsync(value);
+                static async Task<int> AddAsync(Task<int> value) => await value + 3;
+            }
         } }
         """;
 
@@ -36,8 +45,8 @@ public sealed class RuntimeAsyncHelpersConformanceTests : IDisposable
             public static int AwaitTaskOfT() => AsyncHelpers.Await(Task.FromResult(1).ConfigureAwait(false));
             public static void AwaitValueTask() => AsyncHelpers.Await(default(ValueTask).ConfigureAwait(false));
             public static int AwaitValueTaskOfT() => AsyncHelpers.Await(new ValueTask<int>(1).ConfigureAwait(false));
-            public static void HandleEntryPoint() => AsyncHelpers.HandleAsyncEntryPoint(Task.CompletedTask);
-            public static int HandleEntryPointOfInt32() => AsyncHelpers.HandleAsyncEntryPoint(Task.FromResult(1));
+            public static object HandleEntryPoint(Task<int> task) { AsyncHelpers.HandleAsyncEntryPoint((Task)task); return "returned"; }
+            public static object HandleEntryPointOfInt32(Task<int> task) => AsyncHelpers.HandleAsyncEntryPoint(task);
         } }
         """;
 
@@ -55,13 +64,19 @@ public sealed class RuntimeAsyncHelpersConformanceTests : IDisposable
         { "AwaitTaskOfT", "System.Runtime.CompilerServices.AsyncHelpers.Await<T>(System.Runtime.CompilerServices.ConfiguredTaskAwaitable<T>)" },
         { "AwaitValueTask", "System.Runtime.CompilerServices.AsyncHelpers.Await(System.Runtime.CompilerServices.ConfiguredValueTaskAwaitable)" },
         { "AwaitValueTaskOfT", "System.Runtime.CompilerServices.AsyncHelpers.Await<T>(System.Runtime.CompilerServices.ConfiguredValueTaskAwaitable<T>)" },
-        { "HandleEntryPoint", "System.Runtime.CompilerServices.AsyncHelpers.HandleAsyncEntryPoint(System.Threading.Tasks.Task)" },
-        { "HandleEntryPointOfInt32", "System.Runtime.CompilerServices.AsyncHelpers.HandleAsyncEntryPoint(System.Threading.Tasks.Task<int>)" },
+    };
+
+    public static TheoryData<bool, BuiltInRuleFamily> AsyncMethodFamilies => new()
+    {
+        { false, BuiltInRuleFamily.AsyncMachinery },
+        { true, BuiltInRuleFamily.AsyncMachinery },
+        { false, BuiltInRuleFamily.ValueTaskMachinery },
+        { true, BuiltInRuleFamily.ValueTaskMachinery },
     };
 
     [Theory]
     [MemberData(nameof(Overloads))]
-    public void RuntimeAsyncHelperIsRejectedByName(string probe, string apiName)
+    public void ConfiguredAwaitIntrinsicIsRejectedByName(string probe, string apiName)
     {
         using var host = new SimulationHost(Start);
 
@@ -72,25 +87,60 @@ public sealed class RuntimeAsyncHelpersConformanceTests : IDisposable
         Assert.Contains("compile the method without runtime async", exception.Message, StringComparison.Ordinal);
     }
 
+    [Theory(Timeout = 30_000)]
+    [InlineData("HandleEntryPoint", "returned")]
+    [InlineData("HandleEntryPointOfInt32", 41)]
+    public async Task EntryPointWaitPumpsTheSimulationUntilTheTaskCompletes(string probe, object expected)
+    {
+        MethodInfo method = _probe.Value.Method(probe);
+
+        // A blocking wait would hang this thread forever, so it runs off the test thread and the theory's timeout
+        // reports the hang.
+        object? result = await Task.Run(
+            () =>
+            {
+                using var host = new SimulationHost(Start);
+                var entryTask = new TaskCompletionSource<int>();
+                return host.InvokeWithWork(method, [entryTask.Task], () => entryTask.SetResult(41));
+            },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(expected, result);
+    }
+
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void RuntimeAsyncMethodFailsTheRewrite(bool optimize)
+    [MemberData(nameof(AsyncMethodFamilies))]
+    public void RuntimeAsyncMethodFailsTheRewrite(bool optimize, BuiltInRuleFamily family)
     {
         (string sourceDll, RewriteResult result) = _fixture.RewriteRuntimeAsync(
-            optimize ? "Conf.RuntimeAsyncRel" : "Conf.RuntimeAsyncDbg", RuntimeAsyncSource, optimize);
+            $"Conf.RuntimeAsync{family}{(optimize ? "Rel" : "Dbg")}", RuntimeAsyncSource, optimize, [family]);
 
-        using (ModuleDefinition module = ModuleDefinition.ReadModule(sourceDll))
-        {
-            MethodDefinition method = module.GetType("Conf.RuntimeAsyncMethods").Methods.Single(method => method.Name == "IncrementAsync");
-            Assert.True((method.ImplAttributes & RuntimeAsync) != 0, "The compiler did not emit a runtime-async method.");
-        }
+        int runtimeAsyncMethods = RuntimeAsyncMethodCount(sourceDll);
+        RewriteDiagnostic[] diagnostics =
+            [.. result.Manifest.Diagnostics.Where(diagnostic => diagnostic.Id == RewriteDiagnosticIds.RuntimeAsyncMethod)];
 
+        // The method, the lambda, and the local function.
+        Assert.Equal(3, runtimeAsyncMethods);
         Assert.False(result.Succeeded);
-        RewriteDiagnostic diagnostic = Assert.Single(
-            result.Manifest.Diagnostics, diagnostic => diagnostic.Id == RewriteDiagnosticIds.RuntimeAsyncMethod);
-        Assert.Equal("Conf.RuntimeAsyncMethods.IncrementAsync", diagnostic.Method);
-        Assert.Contains("remove the 'runtime-async=on' compiler feature", diagnostic.Message, StringComparison.Ordinal);
+        Assert.Equal(runtimeAsyncMethods, diagnostics.Length);
+        RewriteDiagnostic method = Assert.Single(diagnostics, diagnostic => diagnostic.Method == "Conf.RuntimeAsyncMethods.IncrementAsync");
+        Assert.Contains("remove the 'runtime-async=on' compiler feature", method.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RuntimeAsyncMethodRewritesWhenTheRuleSetLeavesAsyncMethodsUncontrolled()
+    {
+        (_, RewriteResult result) = _fixture.RewriteRuntimeAsync(
+            "Conf.RuntimeAsyncTaskTime", RuntimeAsyncSource, optimize: true, [BuiltInRuleFamily.TaskTime]);
+
+        Assert.True(result.Succeeded);
+        Assert.DoesNotContain(result.Manifest.Diagnostics, diagnostic => diagnostic.Id == RewriteDiagnosticIds.RuntimeAsyncMethod);
+    }
+
+    private static int RuntimeAsyncMethodCount(string assemblyPath)
+    {
+        using ModuleDefinition module = ModuleDefinition.ReadModule(assemblyPath);
+        return module.GetTypes().SelectMany(type => type.Methods).Count(method => (method.ImplAttributes & RuntimeAsync) != 0);
     }
 
     public void Dispose() => _fixture.Dispose();

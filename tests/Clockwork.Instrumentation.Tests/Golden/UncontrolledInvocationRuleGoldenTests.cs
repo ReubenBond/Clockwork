@@ -27,6 +27,7 @@ public sealed class UncontrolledInvocationRuleGoldenTests
         using System.Runtime.InteropServices;
         using System.Threading;
         using System.Threading.Tasks;
+        using Microsoft.Win32.SafeHandles;
 
         namespace Fx
         {
@@ -61,6 +62,17 @@ public sealed class UncontrolledInvocationRuleGoldenTests
                 public static Task<(string, string)> TextAsync(Process p) => p.ReadAllTextAsync();
                 public static IEnumerable<ProcessOutputLine> Lines(Process p) => p.ReadAllLines();
                 public static IAsyncEnumerable<ProcessOutputLine> LinesAsync(Process p) => p.ReadAllLinesAsync();
+                public static SafeProcessHandle HandleStart(ProcessStartInfo psi) => SafeProcessHandle.Start(psi);
+                public static bool HandleSignal(SafeProcessHandle h) => h.Signal(PosixSignal.SIGTERM);
+                public static void HandleResume(SafeProcessHandle h) => h.Resume();
+                public static void HandleKill(SafeProcessHandle h) => h.Kill();
+                public static ProcessExitStatus HandleWait(SafeProcessHandle h) => h.WaitForExit();
+                public static bool HandleTryWait(SafeProcessHandle h) => h.TryWaitForExit(TimeSpan.Zero, out _);
+                public static Task<ProcessExitStatus> HandleWaitAsync(SafeProcessHandle h) => h.WaitForExitAsync();
+                public static ProcessExitStatus HandleWaitOrKill(SafeProcessHandle h) => h.WaitForExitOrKillOnTimeout(TimeSpan.Zero);
+                public static Task<ProcessExitStatus> HandleWaitOrKillAsync(SafeProcessHandle h, CancellationToken ct) => h.WaitForExitOrKillOnCancellationAsync(ct);
+                public static Process WindowsStart(ProcessStartInfo psi) => WindowsProcessStartArguments.Start(psi, _ => IntPtr.Zero);
+                public static Process UnixStart(ProcessStartInfo psi) => UnixProcessStartArguments.Start(psi, _ => 0);
                 public static void Exit() => Environment.Exit(1);
                 public static void FailFast() => Environment.FailFast("boom");
                 public static void FailFastEx(Exception ex) => Environment.FailFast("boom", ex);
@@ -104,7 +116,9 @@ public sealed class UncontrolledInvocationRuleGoldenTests
             "WaitMs", "WaitAll", "WaitAsync", "Run", "RunInfo", "RunAsync", "RunInfoAsync",
             "Capture", "CaptureInfo", "CaptureAsync", "CaptureInfoAsync", "Forget", "ForgetInfo",
             "Signal", "WaitStatus", "TryWaitStatus", "WaitStatusAsync", "Bytes", "BytesAsync",
-            "Text", "TextAsync", "Lines", "LinesAsync", "Exit", "FailFast", "FailFastEx",
+            "Text", "TextAsync", "Lines", "LinesAsync", "HandleStart", "HandleSignal", "HandleResume", "HandleKill",
+            "HandleWait", "HandleTryWait", "HandleWaitAsync", "HandleWaitOrKill", "HandleWaitOrKillAsync",
+            "WindowsStart", "UnixStart", "Exit", "FailFast", "FailFastEx",
         })
         {
             MethodDefinition definition = CecilInspect.GetMethod(module, "Fx.ProcessUser", method);

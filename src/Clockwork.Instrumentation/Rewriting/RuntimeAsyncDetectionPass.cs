@@ -13,8 +13,7 @@ namespace Clockwork.Instrumentation.Rewriting;
 /// </summary>
 internal sealed class RuntimeAsyncDetectionPass : RewritePass
 {
-    // MethodImplAttributes.Async, which Mono.Cecil's MethodImplAttributes does not name.
-    private const MethodImplAttributes Async = (MethodImplAttributes)0x2000;
+    private const MethodImplAttributes Async = (MethodImplAttributes)global::System.Reflection.MethodImplAttributes.Async;
 
     private static readonly HashSet<string> AsyncMethodBuilderTypes = new(StringComparer.Ordinal)
     {
@@ -42,10 +41,11 @@ internal sealed class RuntimeAsyncDetectionPass : RewritePass
             string name = CecilNames.FullyQualifiedMethodName(method);
             Session.AddDiagnostic(RewriteDiagnostic.Error(
                 RewriteDiagnosticIds.RuntimeAsyncMethod,
-                $"Method '{name}' is compiled with runtime async (MethodImplOptions.Async), so the runtime resumes it " +
-                "through its own continuation machinery, which bypasses the simulation coordinator. Compile it without " +
-                "runtime async (remove the 'runtime-async=on' compiler feature) so the C# compiler emits an async state " +
-                "machine, which Clockwork controls.",
+                $"Method '{name}' in '{Module!.Assembly?.Name.Name ?? Module.Name}' is compiled with runtime async (MethodImplOptions.Async), " +
+                "so the runtime resumes it through its own continuation machinery, which bypasses the simulation " +
+                "coordinator. Compile it without runtime async (remove the 'runtime-async=on' compiler feature) so the C# " +
+                "compiler emits an async state machine, which Clockwork controls, or exclude its assembly from rewriting " +
+                "to leave it uncontrolled.",
                 name));
         }
     }

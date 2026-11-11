@@ -78,13 +78,17 @@ internal sealed class RewriteFixture : IDisposable
     /// Compiles with runtime async and rewrites with the controlled-task rule set, returning the compiled assembly's
     /// path and the rewrite's outcome without loading either.
     /// </summary>
-    public (string SourceDll, RewriteResult Result) RewriteRuntimeAsync(string assemblyName, string source, bool optimize)
+    public (string SourceDll, RewriteResult Result) RewriteRuntimeAsync(
+        string assemblyName,
+        string source,
+        bool optimize,
+        IEnumerable<BuiltInRuleFamily> families)
     {
         string sourceDll = Compile(assemblyName, source, optimize, runtimeAsync: true);
         RewriteResult result = RewriteEngine.Rewrite(new RewriteRequest(
             sourceDll,
             Path.Combine(StagingDir, assemblyName + ".dll"),
-            BuiltInRuleSets.BuildControlledTasks(BuiltInRuleSets.AllFamilies),
+            BuiltInRuleSets.BuildControlledTasks(families),
             CreateOptions()));
         return (sourceDll, result);
     }
@@ -120,7 +124,7 @@ internal sealed class RewriteFixture : IDisposable
         DetectUncontrolledTasks = true,
         ReplacementAssemblyPaths = [typeof(ControlledDateTime).Assembly.Location],
         ReferenceSearchDirectories = [AppContext.BaseDirectory],
-        TargetRuntime = BuiltInRuleSets.TargetRuntime,
+        TargetRuntime = BuiltInRuleSets.SupportedRuntime,
     };
 
     private string Compile(string assemblyName, string source, bool optimize = true, bool runtimeAsync = false)

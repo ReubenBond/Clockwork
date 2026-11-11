@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using System.IO.Compression;
 using System.Xml.Linq;
 using Clockwork.Instrumentation.Configuration;
+using Clockwork.Instrumentation.Diagnostics;
 using Clockwork.Instrumentation.Rules;
 using Clockwork.Instrumentation.Rules.BuiltIn;
 using Clockwork.Instrumentation.Tests.Infrastructure;
@@ -76,6 +77,23 @@ public sealed class PackageSmokeTests
         Assert.Contains(typeof(SimulationNotActiveException).FullName!, staged.StandardError, StringComparison.Ordinal);
         Assert.Contains(SimulationNotActiveException.DiagnosticMessage, staged.StandardError, StringComparison.Ordinal);
         Assert.False(File.Exists(ConsumerProject.SideEffectPath(consumer.StagedAppPath)));
+    }
+
+    [Fact]
+    public void BuildPackageFailsBuiltInRulesForAnotherTargetRuntime()
+    {
+        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        ConsumerProject consumer = Artifacts.Value.ScaffoldConsumer(
+            "BuiltInOtherRuntimeApp",
+            instrumentationEnabled: true,
+            useBuiltInRules: true,
+            useConfigurationFile: true);
+
+        // The configuration file names no targetRuntime, so the rules are evaluated against the project's.
+        AppRunResult build = consumer.Build("-p:ClockworkTargetRuntime=12.0");
+
+        Assert.NotEqual(0, build.ExitCode);
+        Assert.Contains(RewriteDiagnosticIds.RuntimeOutOfRange, build.StandardOutput, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -846,9 +864,9 @@ public sealed class PackageSmokeTests
             File.WriteAllText(projectPath, project);
         }
 
-        public AppRunResult Build() => ProcessAppRunner.Execute(
+        public AppRunResult Build(params string[] arguments) => ProcessAppRunner.Execute(
             "dotnet",
-            ["build", "SmokeApp.csproj", "-c", "Release", "--nologo"],
+            ["build", "SmokeApp.csproj", "-c", "Release", "--nologo", .. arguments],
             ProjectDirectory,
             new Dictionary<string, string>
             {
