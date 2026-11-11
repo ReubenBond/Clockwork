@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using Clockwork.Runtime.Shims;
@@ -73,9 +72,10 @@ public sealed partial class ControlledShimOrganizationTests
         return arityMarker < 0 ? typeName : typeName[..arityMarker];
     }
 
-    private static string FindRepositoryRoot([CallerFilePath] string sourceFile = "")
+    // CI builds map source paths (ContinuousIntegrationBuild), so the repository is found from the test binaries.
+    private static string FindRepositoryRoot()
     {
-        for (DirectoryInfo? directory = new(Path.GetDirectoryName(sourceFile)!);
+        for (DirectoryInfo? directory = new(AppContext.BaseDirectory);
              directory is not null;
              directory = directory.Parent)
         {

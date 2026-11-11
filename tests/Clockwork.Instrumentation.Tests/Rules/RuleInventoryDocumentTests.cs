@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using Clockwork.Instrumentation.Rules;
@@ -408,13 +407,16 @@ public sealed class RuleInventoryDocumentTests
         : type.IsGenericMethodParameter ? "!!" + type.GenericParameterPosition
         : type.FullName!;
 
+    // CI builds map source paths (ContinuousIntegrationBuild), so the repository is found from the test binaries.
     private static string InventoryPath()
     {
-        string dir = Path.GetDirectoryName(ThisFile())!;
-        // tests/Clockwork.Instrumentation.Tests/Rules -> repo root is three levels up.
-        string repoRoot = Path.GetFullPath(Path.Combine(dir, "..", "..", ".."));
-        return Path.Combine(repoRoot, "docs", "rule-inventory.md");
-    }
+        DirectoryInfo? directory = new(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "Clockwork.slnx")))
+        {
+            directory = directory.Parent;
+        }
 
-    private static string ThisFile([CallerFilePath] string path = "") => path;
+        Assert.NotNull(directory);
+        return Path.Combine(directory.FullName, "docs", "rule-inventory.md");
+    }
 }
