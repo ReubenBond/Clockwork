@@ -538,8 +538,8 @@ rewritten code mentioning such code's type that keeps the original ones. A metho
 async (`MethodImplOptions.Async`) has no state machine to retarget and resumes through the runtime's own
 continuation machinery, so rewriting one fails (`CWR0013`) with a message to compile it without runtime async.
 The runtime-async `AsyncHelpers.Await` intrinsics on configured awaitables, which would resume outside the
-coordinator, and the `AsyncHelpers.HandleAsyncEntryPoint` helpers, which block on an entry point's task, are
-rejected by name. The controlled awaiter hands each continuation to the simulation
+coordinator, are rejected by name, and `AsyncHelpers.HandleAsyncEntryPoint`, through which an async `Main`
+returns, waits through the controlled awaiter. The controlled awaiter hands each continuation to the simulation
 coordinator, so **`ConfigureAwait(false)` stays controlled** inside a simulation (for both `Task`
 and `ValueTask`). `Task.ConfigureAwait(ConfigureAwaitOptions)` builds the same controlled awaitable and
 honours `SuppressThrowing` and `ForceYielding` exactly as the BCL awaiter does. A synchronous

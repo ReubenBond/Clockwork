@@ -279,6 +279,11 @@ public static class BuiltInRuleSets
     private const string NullableTimeSpanType = "System.Nullable`1<System.TimeSpan>";
     private const string ProcessExitStatusRef = "System.Diagnostics.ProcessExitStatus&";
     private const string PosixSignalType = "System.Runtime.InteropServices.PosixSignal";
+    private const string SafeProcessHandleType = "Microsoft.Win32.SafeHandles.SafeProcessHandle";
+    private const string WindowsProcessStartArgumentsType = "System.Runtime.InteropServices.WindowsProcessStartArguments";
+    private const string UnixProcessStartArgumentsType = "System.Runtime.InteropServices.UnixProcessStartArguments";
+    private const string WindowsProcessStarter = "System.Func`2<System.Runtime.InteropServices.WindowsProcessStartArguments,System.IntPtr>";
+    private const string UnixProcessStarter = "System.Func`2<System.Runtime.InteropServices.UnixProcessStartArguments,System.Int32>";
     private const string CancellationTokenType = "System.Threading.CancellationToken";
     private const string ExceptionType = "System.Exception";
     private const string UncontrolledInvocationShim = "Clockwork.Runtime.UncontrolledInvocationGuard";
@@ -447,14 +452,14 @@ public static class BuiltInRuleSets
     private const string ControlledConfiguredValueTDecl = ControlledNs + "ControlledConfiguredValueTaskAwaitable`1<T>";
 
     /// <summary>
-    /// Gets the runtime whose reference assemblies every built-in rule is classified against. Each built-in rule
+    /// Gets the target runtime whose reference assemblies every built-in rule is classified against. Each built-in rule
     /// supports exactly this runtime, so instrumenting for another one fails with <c>CWR0010</c> until the rules are
     /// re-derived for it.
     /// </summary>
-    public static Version TargetRuntime { get; } = new(11, 0);
+    public static Version SupportedRuntime => new(11, 0);
 
-    private static readonly ImmutableArray<BuiltInRuleEntry> DeterministicBcl = ForTargetRuntime(BuildDeterministicBclEntries());
-    private static readonly ImmutableArray<BuiltInRuleEntry> ControlledTasks = ForTargetRuntime(BuildControlledTasksEntries());
+    private static readonly ImmutableArray<BuiltInRuleEntry> DeterministicBcl = ForSupportedRuntime(BuildDeterministicBclEntries());
+    private static readonly ImmutableArray<BuiltInRuleEntry> ControlledTasks = ForSupportedRuntime(BuildControlledTasksEntries());
     private static readonly ImmutableHashSet<string> ControlledTaskRuleIds =
         ControlledTasks.Select(entry => entry.Rule.Id).ToImmutableHashSet(StringComparer.Ordinal);
 
@@ -756,11 +761,11 @@ public static class BuiltInRuleSets
         RejectedRule(builder, BuiltInRuleFamily.AsyncMachinery, "clockwork.tasks.asynchelpers.await.configured.generic",
             MemberSignature.Method(AsyncHelpersType, "Await", BclConfiguredTArg), Shim(AsyncHelpersShim, "Await", ControlledConfiguredTDecl));
 
-        // A runtime-async Main returns through AsyncHelpers.HandleAsyncEntryPoint, which blocks the calling thread until
-        // the entry task completes instead of letting the coordinator run its continuations.
-        RejectedRule(builder, BuiltInRuleFamily.AsyncMachinery, "clockwork.tasks.asynchelpers.handleasyncentrypoint",
+        // An async Main returns through AsyncHelpers.HandleAsyncEntryPoint, which waits for its task with
+        // task.GetAwaiter().GetResult(); the shim waits through the controlled awaiter, which pumps the coordinator.
+        TaskRule(builder, BuiltInRuleFamily.AsyncMachinery, "clockwork.tasks.asynchelpers.handleasyncentrypoint",
             MemberSignature.Method(AsyncHelpersType, "HandleAsyncEntryPoint", Task), Shim(AsyncHelpersShim, "HandleAsyncEntryPoint", Task));
-        RejectedRule(builder, BuiltInRuleFamily.AsyncMachinery, "clockwork.tasks.asynchelpers.handleasyncentrypoint.int32",
+        TaskRule(builder, BuiltInRuleFamily.AsyncMachinery, "clockwork.tasks.asynchelpers.handleasyncentrypoint.int32",
             MemberSignature.Method(AsyncHelpersType, "HandleAsyncEntryPoint", TaskOfInt32), Shim(AsyncHelpersShim, "HandleAsyncEntryPoint", TaskOfInt32));
 
         // ---- ValueTask machinery: retarget the compiler-generated builder/awaiter types of an
@@ -1139,6 +1144,19 @@ public static class BuiltInRuleSets
         UncontrolledRejection(builder, "clockwork.process.readalltextasync", ProcessType, "ReadAllTextAsync", CancellationTokenType);
         UncontrolledRejection(builder, "clockwork.process.readalllines", ProcessType, "ReadAllLines", NullableTimeSpanType);
         UncontrolledRejection(builder, "clockwork.process.readalllinesasync", ProcessType, "ReadAllLinesAsync", CancellationTokenType);
+
+        // A process handle starts, signals, resumes, kills, and waits on a process as Process does.
+        UncontrolledRejection(builder, "clockwork.safeprocesshandle.start", SafeProcessHandleType, "Start", ProcessStartInfoType);
+        UncontrolledRejection(builder, "clockwork.safeprocesshandle.signal", SafeProcessHandleType, "Signal", PosixSignalType);
+        UncontrolledRejection(builder, "clockwork.safeprocesshandle.resume", SafeProcessHandleType, "Resume");
+        UncontrolledRejection(builder, "clockwork.safeprocesshandle.kill", SafeProcessHandleType, "Kill");
+        UncontrolledRejection(builder, "clockwork.safeprocesshandle.waitforexit", SafeProcessHandleType, "WaitForExit");
+        UncontrolledRejection(builder, "clockwork.safeprocesshandle.trywaitforexit", SafeProcessHandleType, "TryWaitForExit", TimeSpanType, ProcessExitStatusRef);
+        UncontrolledRejection(builder, "clockwork.safeprocesshandle.waitforexitasync", SafeProcessHandleType, "WaitForExitAsync", CancellationTokenType);
+        UncontrolledRejection(builder, "clockwork.safeprocesshandle.waitforexitorkillontimeout", SafeProcessHandleType, "WaitForExitOrKillOnTimeout", TimeSpanType);
+        UncontrolledRejection(builder, "clockwork.safeprocesshandle.waitforexitorkilloncancellationasync", SafeProcessHandleType, "WaitForExitOrKillOnCancellationAsync", CancellationTokenType);
+        UncontrolledRejection(builder, "clockwork.windowsprocessstartarguments.start", WindowsProcessStartArgumentsType, "Start", ProcessStartInfoType, WindowsProcessStarter);
+        UncontrolledRejection(builder, "clockwork.unixprocessstartarguments.start", UnixProcessStartArgumentsType, "Start", ProcessStartInfoType, UnixProcessStarter);
         UncontrolledRejection(builder, "clockwork.environment.exit", EnvironmentType, "Exit", Int32);
         UncontrolledRejection(builder, "clockwork.environment.failfast.message", EnvironmentType, "FailFast", String);
         UncontrolledRejection(builder, "clockwork.environment.failfast.exception", EnvironmentType, "FailFast", String, ExceptionType);
@@ -2000,10 +2018,10 @@ public static class BuiltInRuleSets
             id, target, replacement)));
     }
 
-    private static ImmutableArray<BuiltInRuleEntry> ForTargetRuntime(ImmutableArray<BuiltInRuleEntry> entries) =>
+    private static ImmutableArray<BuiltInRuleEntry> ForSupportedRuntime(ImmutableArray<BuiltInRuleEntry> entries) =>
         [.. entries.Select(entry => entry with
         {
-            Rule = entry.Rule with { SupportedRuntimes = new RuntimeVersionRange(TargetRuntime, TargetRuntime) },
+            Rule = entry.Rule with { SupportedRuntimes = new RuntimeVersionRange(SupportedRuntime, SupportedRuntime) },
         })];
 
     // A collection expression always yields a non-default ImmutableArray - even when empty - so the

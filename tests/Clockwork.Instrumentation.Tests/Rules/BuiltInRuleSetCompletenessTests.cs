@@ -16,7 +16,7 @@ namespace Clockwork.Instrumentation.Tests.Rules;
 /// </summary>
 public sealed class BuiltInRuleSetCompletenessTests
 {
-    private static readonly Version TargetRuntime = BuiltInRuleSets.TargetRuntime;
+    private static readonly Version TargetRuntime = BuiltInRuleSets.SupportedRuntime;
 
     private static readonly HashSet<string> AwaiterSourceReceivers = new(StringComparer.Ordinal)
     {

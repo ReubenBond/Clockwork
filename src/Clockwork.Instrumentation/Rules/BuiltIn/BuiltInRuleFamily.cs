@@ -87,10 +87,11 @@ public enum BuiltInRuleFamily
     /// <c>ConfiguredTaskAwaitable</c>/<c>YieldAwaitable</c> and their awaiters, generic and non-generic)
     /// onto Clockwork's controlled equivalents, plus the <c>Task.Yield()</c> redirect. Applied by the
     /// member-aware substitution pass so every awaited continuation is scheduled through the simulation
-    /// coordinator instead of the thread pool, while <c>ConfigureAwait(false)</c> stays controlled. A method compiled
-    /// with runtime async has no state machine, so rewriting one fails with <c>CWR0013</c>; the runtime-async
-    /// <c>AsyncHelpers.Await</c> intrinsics taking a configured task awaitable and the
-    /// <c>AsyncHelpers.HandleAsyncEntryPoint</c> entry-point helpers are rejected.
+    /// coordinator instead of the thread pool, while <c>ConfigureAwait(false)</c> stays controlled.
+    /// <c>AsyncHelpers.HandleAsyncEntryPoint</c>, through which an async <c>Main</c> returns, waits through the
+    /// controlled awaiter. A method compiled with runtime async has no state machine, so rewriting one fails with
+    /// <c>CWR0013</c>; the runtime-async <c>AsyncHelpers.Await</c> intrinsics taking a configured task awaitable are
+    /// rejected.
     /// </summary>
     AsyncMachinery,
 
@@ -202,7 +203,10 @@ public enum BuiltInRuleFamily
     /// uncontrolled OS process), the <see cref="System.Diagnostics.Process"/> instance <c>Kill</c> / <c>Signal</c>
     /// members and the <c>WaitForExit</c> / <c>WaitForExitAsync</c> / <c>WaitForExitStatus</c> /
     /// <c>TryWaitForExitStatus</c> / <c>WaitForExitStatusAsync</c> waits and <c>ReadAllBytes</c> / <c>ReadAllText</c> /
-    /// <c>ReadAllLines</c> reads and their async forms (signalling or blocking on an uncontrolled process), and
+    /// <c>ReadAllLines</c> reads and their async forms (signalling or blocking on an uncontrolled process), the
+    /// <see cref="Microsoft.Win32.SafeHandles.SafeProcessHandle"/> <c>Start</c>, <c>Signal</c>, <c>Resume</c>,
+    /// <c>Kill</c>, and wait members and the <c>WindowsProcessStartArguments</c> / <c>UnixProcessStartArguments</c>
+    /// <c>Start</c> launchers, and
     /// <see cref="System.Environment"/> <c>Exit</c> / <c>FailFast</c> (tearing the host process down out from under
     /// the simulation). Classified <c>Rejected</c>: the rewritten call site throws a precise uncontrolled-invocation
     /// diagnostic that names the exact API and IL offset, so a rewritten assembly can never escape the deterministic

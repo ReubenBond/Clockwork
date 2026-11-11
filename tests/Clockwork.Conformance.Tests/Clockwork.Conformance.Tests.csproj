@@ -17,6 +17,11 @@
     <Reference Include="Microsoft.CodeAnalysis.CSharp" HintPath="$(RoslynTargetsPath)\bincore\Microsoft.CodeAnalysis.CSharp.dll" />
   </ItemGroup>
 
+  <Target Name="RequireSdkCompiler" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(RoslynTargetsPath)\bincore\Microsoft.CodeAnalysis.CSharp.dll')"
+           Text="The conformance fixtures compile with the SDK's C# compiler, which was not found under '$(RoslynTargetsPath)\bincore'." />
+  </Target>
+
   <ItemGroup>
     <Using Include="Xunit" />
   </ItemGroup>

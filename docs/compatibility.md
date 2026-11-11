@@ -309,10 +309,10 @@ project, never using a solution-wide `ClockworkInstrumentationEnabled` global pr
 
 **Task package requires the .NET 11 SDK.** The task and its Cecil-based engine target
 `net11.0` and load only under `dotnet build` / `dotnet msbuild`; .NET Framework MSBuild
-(classic `msbuild.exe`) cannot host them. The targets evaluate rules against the project's target
-runtime (`ClockworkTargetRuntime`, by default the `TargetFrameworkVersion` of a .NET project), so a
-project targeting a runtime outside a rule's `supportedRuntimes` fails the rewrite (`CWR0010`) at each call
-site the rule matches. The built-in rules support exactly 11.0, which includes its servicing versions.
+(classic `msbuild.exe`) cannot host them. Rules are evaluated against a target runtime: the configuration
+file's `targetRuntime`, or else `ClockworkTargetRuntime`, which defaults to the project's target framework
+version (`11.0` for `net11.0`). A project targeting a runtime outside a rule's `supportedRuntimes` fails the
+rewrite (`CWR0010`) at each call site the rule matches. The built-in rules support target runtime `11.0`.
 The `Clockwork.Tool` CLI exposes `rewrite`
 (with `--dry-run`) and `inspect` (text or `--json`), with nonzero exit codes classified
 by failure kind. The tool also exposes explicit `IReplayScenario` harness commands for
@@ -422,12 +422,13 @@ every continuation to the simulation coordinator rather than the awaited task's 
 callback, which is exactly why **`ConfigureAwait(false)` stays controlled**. A method compiled with runtime
 async (`MethodImplOptions.Async`) has no state machine whose builder and awaiters could be substituted, and
 the runtime resumes it through its own continuation machinery, so rewriting one with a rule set that
-substitutes the async method builders fails with `CWR0013` naming the method; compile it without runtime
-async (remove the `runtime-async=on` compiler feature). The runtime-async
+substitutes the async method builders fails with `CWR0013` naming the method and its assembly; compile it
+without runtime async (remove the `runtime-async=on` compiler feature), or exclude an assembly that cannot be
+recompiled from rewriting, which leaves it uncontrolled. The runtime-async
 `AsyncHelpers.Await` intrinsics that take a configured task or value-task awaitable resume their caller
-through the runtime's own continuation machinery instead, and the `AsyncHelpers.HandleAsyncEntryPoint`
-helpers block the calling thread on a runtime-async entry point's task, so they are rejected by name
-(`SimulationApiException`); compile such methods without runtime async.
+through the runtime's own continuation machinery instead, so they are rejected by name
+(`SimulationApiException`); compile such methods without runtime async. `AsyncHelpers.HandleAsyncEntryPoint`,
+through which an async `Main` returns (`task.GetAwaiter().GetResult()`), waits through the controlled awaiter.
 `Task.ConfigureAwait(ConfigureAwaitOptions)` and `Task<T>.ConfigureAwait(ConfigureAwaitOptions)` build
 the same controlled awaitables: `SuppressThrowing` completes the await normally for a faulted or
 canceled `Task`, `ForceYielding` always yields through the coordinator, and invalid options (including
@@ -609,7 +610,9 @@ and `Parallel.Invoke`/`For`/`ForEach`.
 - **Uncontrolled process/termination APIs are rejected *unconditionally*.** `Process.Start`/`Run`/
   `RunAsync`/`RunAndCaptureText`/`RunAndCaptureTextAsync`/`StartAndForget`/`Kill`/`Signal`, the
   `WaitForExit`/`WaitForExitAsync`/`WaitForExitStatus`/`TryWaitForExitStatus`/`WaitForExitStatusAsync` waits,
-  the `ReadAllBytes`/`ReadAllText`/`ReadAllLines` reads and their async forms, and
+  the `ReadAllBytes`/`ReadAllText`/`ReadAllLines` reads and their async forms, the `SafeProcessHandle`
+  `Start`/`Signal`/`Resume`/`Kill` and wait members, the `WindowsProcessStartArguments`/
+  `UnixProcessStartArguments` `Start` launchers, and
   `Environment.Exit`/`FailFast` throw whether or not a simulation is active (a rewritten assembly must
   never launch, signal, wait on, or tear down a real OS process). This unconditional guard is distinct
   from the simulation-only Controlled invariant, because there is no faithful in-simulation model of
