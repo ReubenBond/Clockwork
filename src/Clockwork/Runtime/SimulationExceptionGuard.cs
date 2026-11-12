@@ -1,4 +1,5 @@
 using System.Runtime.ExceptionServices;
+using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Scheduling;
 using Clockwork.Runtime.Shims;
 
@@ -23,13 +24,18 @@ public static class SimulationExceptionGuard
 {
     /// <summary>
     /// Re-throws <paramref name="exception"/> if it is the scheduler's internal control-flow signal;
-    /// otherwise does nothing so the user handler runs normally.
+    /// otherwise does nothing so the user handler runs normally. It requires an active simulation, on
+    /// any thread: it reads no simulation state, so escaped work's own handlers run as written while
+    /// the controlled API which escaped reports the violation.
     /// </summary>
     /// <param name="exception">The exception the user handler is about to observe.</param>
     public static void ThrowIfControlSignal(object? exception)
     {
-        SimulationRuntimeDispatch.RequireActiveSimulation(
-            "Clockwork.Runtime.SimulationExceptionGuard.ThrowIfControlSignal");
+        if (!SimulationExecutionContext.IsActive)
+        {
+            throw new SimulationNotActiveException("Clockwork.Runtime.SimulationExceptionGuard.ThrowIfControlSignal");
+        }
+
         if (exception is SimulationOperationAbortSignal signal)
         {
             // Re-throw preserving the original stack trace so the signal keeps unwinding past the user

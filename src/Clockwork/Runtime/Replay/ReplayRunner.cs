@@ -492,38 +492,29 @@ public static class ReplayRunner
             entry = startEntry();
             while (steps < maxSteps && entry is not { IsCompleted: true })
             {
-                bool ran = scheduler.RunStepCapturingCallbackFailure(
-                    cancellationToken,
-                    out Exception? callbackFailure);
+                bool ran = scheduler.RunStepCapturingFailure(cancellationToken, out Exception? failure);
                 if (ran)
                 {
                     steps++;
                 }
 
-                // Work which escaped the simulation onto a real thread ran outside the recorded schedule, so the
-                // run cannot be replayed: it ends as aborted, with the violation as its failure.
-                if (callbackFailure is SimulationThreadAffinityException)
+                if (failure is SimulationThreadAffinityException)
+                {
+                    return Aborted(failure);
+                }
+
+                if (failure is not null)
                 {
                     return new DriveResult(
                         steps,
                         BoundExceeded: false,
-                        callbackFailure,
-                        IsAborted: true,
+                        Exception: null,
+                        IsAborted: false,
                         entry);
                 }
 
                 if (ran)
                 {
-                    if (callbackFailure is not null)
-                    {
-                        return new DriveResult(
-                            steps,
-                            BoundExceeded: false,
-                            Exception: null,
-                            IsAborted: false,
-                            entry);
-                    }
-
                     if (scheduler.FirstRace is not null || listener.FirstFailure is not null)
                     {
                         break;
@@ -544,6 +535,11 @@ public static class ReplayRunner
                 }
             }
 
+            if (scheduler.TakeThreadAffinityViolation() is { } violation)
+            {
+                return Aborted(violation.SourceException);
+            }
+
             bool workRemains = entry is null
                 ? scheduler.PendingOperationCount > 0
                 : !entry.IsCompleted;
@@ -558,13 +554,13 @@ public static class ReplayRunner
             exception is not SimulationDecisionReplayMismatchException &&
             exception is not ReplayOutcomeMismatchException)
         {
-            return new DriveResult(
-                steps,
-                BoundExceeded: false,
-                exception,
-                IsAborted: true,
-                entry);
+            return Aborted(exception);
         }
+
+        // Work which escaped the simulation onto a real thread ran outside the recorded schedule, so a thread-affinity
+        // violation aborts the run, as an exception from the runner does.
+        DriveResult Aborted(Exception exception) =>
+            new(steps, BoundExceeded: false, exception, IsAborted: true, entry);
     }
 
     private static ReplayArtifact CreateArtifact(

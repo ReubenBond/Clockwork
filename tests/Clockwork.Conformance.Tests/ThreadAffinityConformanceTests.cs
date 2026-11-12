@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 using Clockwork.Instrumentation.Rules;
 using Clockwork.Instrumentation.Rules.BuiltIn;
 using Clockwork.Runtime.Policy;
@@ -48,35 +49,43 @@ public sealed class ThreadAffinityConformanceTests : IDisposable
     private readonly RewriteFixture _fixture = new();
 
     /// <summary>
-    /// Every target of the built-in controlled rules - each redirected method and each public member of a substituted
-    /// type - is invoked with default arguments on a thread which carries the simulation's ambient context and must
-    /// reject it before reading those arguments. The entry points come from the shipped rule inventories, so a new rule
-    /// is covered when it is added.
+    /// Every target of the built-in controlled rules - each redirected method, and each public member and virtual
+    /// override of a substituted type - is invoked with default arguments on a thread which carries the simulation's
+    /// ambient context, and must reject it, naming the rule's API, before reading those arguments. The entry points come
+    /// from the shipped rule inventories, so a new rule is covered when it is added.
     /// </summary>
     [Fact]
     public async Task EveryControlledEntryPointRejectsAThreadOutsideTheSimulation()
     {
-        MethodBase[] entryPoints = ControlledEntryPoints();
-        Assert.NotEmpty(entryPoints);
+        EntryPoint[] entryPoints = ControlledEntryPoints();
         var cluster = new SimulationCluster(seed: 1, Start);
         ExecutionContext ambient = CaptureSimulationContext(cluster);
-        var failures = new List<string>();
 
-        RunOnEscapedThread(ambient, () =>
-        {
-            foreach (MethodBase entryPoint in entryPoints)
-            {
-                Exception? exception = Record.Exception(() => InvokeWithDefaultArguments(entryPoint));
-                if (exception is not SimulationThreadAffinityException { ApiName.Length: > 0 })
-                {
-                    failures.Add($"{entryPoint.DeclaringType}::{entryPoint}: {exception?.GetType().Name ?? "returned"}");
-                }
-            }
-        });
+        List<string> failures = InvokeEach(ambient, entryPoints, static (entryPoint, exception) =>
+            exception is SimulationThreadAffinityException affinity && entryPoint.Names(affinity.ApiName));
 
         Assert.True(failures.Count == 0, string.Join(Environment.NewLine, failures));
-        Assert.Throws<SimulationThreadAffinityException>(() => cluster.RunUntilIdle(TestContext.Current.CancellationToken));
+        var surfaced = Assert.Throws<SimulationThreadAffinityException>(
+            () => cluster.RunUntilIdle(TestContext.Current.CancellationToken));
+        Assert.True(entryPoints[0].Names(surfaced.ApiName), surfaced.ApiName);
         await cluster.DisposeAsync();
+    }
+
+    /// <summary>
+    /// Outside any simulation, the same entry points reject the call before reading their arguments, except the
+    /// <c>TaskCompletionSource</c> completions, which pass through to the BCL member and fail on the null source.
+    /// </summary>
+    [Fact]
+    public void EveryControlledEntryPointRejectsACallOutsideASimulation()
+    {
+        EntryPoint[] entryPoints = ControlledEntryPoints();
+
+        List<string> failures = InvokeEach(ambient: null, entryPoints, static (entryPoint, exception) =>
+            entryPoint.Method.DeclaringType == typeof(ControlledTaskCompletionSource)
+                ? exception is NullReferenceException
+                : exception is SimulationNotActiveException notActive && entryPoint.Names(notActive.ApiName));
+
+        Assert.True(failures.Count == 0, string.Join(Environment.NewLine, failures));
     }
 
     /// <summary>
@@ -120,14 +129,28 @@ public sealed class ThreadAffinityConformanceTests : IDisposable
         return captured ?? throw new InvalidOperationException("The simulation work did not capture its context.");
     }
 
-    private static void RunOnEscapedThread(ExecutionContext ambient, Action body)
+    // Invokes each entry point on a new thread, under the ambient context when one is given, and lists those whose
+    // exception the oracle rejects.
+    private static List<string> InvokeEach(
+        ExecutionContext? ambient,
+        EntryPoint[] entryPoints,
+        Func<EntryPoint, Exception?, bool> oracle)
     {
+        var failures = new List<string>();
+        EntryPoint? current = null;
         Exception? failure = null;
         var thread = new Thread(() =>
         {
             try
             {
-                ExecutionContext.Run(ambient, static state => ((Action)state!)(), body);
+                if (ambient is null)
+                {
+                    InvokeAll();
+                }
+                else
+                {
+                    ExecutionContext.Run(ambient, static state => ((Action)state!)(), (Action)InvokeAll);
+                }
             }
             catch (Exception exception)
             {
@@ -138,15 +161,30 @@ public sealed class ThreadAffinityConformanceTests : IDisposable
             IsBackground = true,
         };
         thread.Start();
-        Assert.True(thread.Join(EscapedWorkTimeout), "An entry point blocked the escaped thread.");
+        Assert.True(thread.Join(EscapedWorkTimeout), $"{Volatile.Read(ref current)} blocked its thread.");
         Assert.Null(failure);
+        return failures;
+
+        void InvokeAll()
+        {
+            foreach (EntryPoint entryPoint in entryPoints)
+            {
+                Volatile.Write(ref current, entryPoint);
+                Exception? exception = Record.Exception(() => InvokeWithDefaultArguments(entryPoint.Method));
+                if (!oracle(entryPoint, exception))
+                {
+                    failures.Add($"{entryPoint}: {exception?.GetType().Name ?? "returned"} {(exception as SimulationThreadAffinityException)?.ApiName ?? (exception as SimulationNotActiveException)?.ApiName}");
+                }
+            }
+        }
     }
 
-    private static MethodBase[] ControlledEntryPoints()
+    private static EntryPoint[] ControlledEntryPoints()
     {
         Module shims = typeof(SimulationRuntimeDispatch).Module;
         using ModuleDefinition module = ModuleDefinition.ReadModule(shims.Assembly.Location);
-        var entryPoints = new Dictionary<int, MethodBase>();
+        var entryPoints = new Dictionary<int, EntryPoint>();
+        var empty = new List<string>();
         foreach ((_, RewriteRule rule) in BuiltInRuleSets.DeterministicBclInventory.Concat(BuiltInRuleSets.ControlledTasksInventory))
         {
             // Rejected APIs throw wherever they run; injected scheduling points are not controlled APIs.
@@ -158,19 +196,26 @@ public sealed class ThreadAffinityConformanceTests : IDisposable
 
             TypeDefinition type = module.GetType(rule.Replacement.DeclaringTypeFullName)
                 ?? throw new InvalidOperationException($"Shim type '{rule.Replacement.DeclaringTypeFullName}' is missing.");
-            IEnumerable<MethodDefinition> targets = rule.Operation == RewriteOperationKind.SubstituteType
-                ? type.Methods.Where(static method => method.IsPublic)
-                : type.Methods.Where(method => method.IsStatic
+            MethodDefinition[] targets = rule.Operation == RewriteOperationKind.SubstituteType
+                ? [.. type.Methods.Where(static method => method.IsPublic || method.IsVirtual)]
+                : [.. type.Methods.Where(method => method.IsStatic
                     && method.IsPublic
                     && method.Name == rule.Replacement.MemberName
-                    && ParametersMatch(method, rule.Replacement.ParameterTypeFullNames));
+                    && ParametersMatch(method, rule.Replacement.ParameterTypeFullNames))];
+            if (targets.Length == 0)
+            {
+                empty.Add(rule.Id);
+            }
+
+            string api = rule.Target.DeclaringTypeFullName.Replace('/', '.');
             foreach (MethodDefinition target in targets)
             {
                 int token = target.MetadataToken.ToInt32();
-                entryPoints.TryAdd(token, Close(shims.ResolveMethod(token)!));
+                entryPoints.TryAdd(token, new EntryPoint(Close(shims.ResolveMethod(token)!), api));
             }
         }
 
+        Assert.True(empty.Count == 0, $"Rules without a shim target: {string.Join(", ", empty)}");
         return [.. entryPoints.Values];
     }
 
@@ -242,6 +287,13 @@ public sealed class ThreadAffinityConformanceTests : IDisposable
         foreach (ParameterInfo parameter in method.GetParameters())
         {
             Type type = parameter.ParameterType;
+            if (type == typeof(bool) && parameter.Name == "disposing")
+            {
+                // Dispose(false) is the finalizer's path, which runs outside any simulation.
+                il.Emit(OpCodes.Ldc_I4_1);
+                continue;
+            }
+
             EmitDefault(il, type.IsByRef ? type.GetElementType()! : type, type.IsByRef);
         }
 
@@ -273,6 +325,33 @@ public sealed class ThreadAffinityConformanceTests : IDisposable
         il.Emit(OpCodes.Ldloca, local);
         il.Emit(OpCodes.Initobj, type);
         il.Emit(byReference ? OpCodes.Ldloca : OpCodes.Ldloc, local);
+    }
+
+    // An entry point's API name begins with its rule's target type, without generic arity, except that an awaiter or
+    // awaitable is named after the API which produced it.
+    private sealed record EntryPoint(MethodBase Method, string TargetType)
+    {
+        private static readonly Dictionary<string, string> AwaitedApis = new(StringComparer.Ordinal)
+        {
+            ["System.Runtime.CompilerServices.TaskAwaiter"] = "System.Threading.Tasks.Task.GetAwaiter",
+            ["System.Runtime.CompilerServices.ConfiguredTaskAwaitable"] = "System.Threading.Tasks.Task.ConfigureAwait",
+            ["System.Runtime.CompilerServices.ConfiguredTaskAwaitable.ConfiguredTaskAwaiter"] = "System.Threading.Tasks.Task.ConfigureAwait",
+            ["System.Runtime.CompilerServices.YieldAwaitable"] = "System.Threading.Tasks.Task.Yield",
+            ["System.Runtime.CompilerServices.YieldAwaitable.YieldAwaiter"] = "System.Threading.Tasks.Task.Yield",
+            ["System.Runtime.CompilerServices.ValueTaskAwaiter"] = "System.Threading.Tasks.ValueTask.GetAwaiter",
+            ["System.Runtime.CompilerServices.ConfiguredValueTaskAwaitable"] = "System.Threading.Tasks.ValueTask.ConfigureAwait",
+            ["System.Runtime.CompilerServices.ConfiguredValueTaskAwaitable.ConfiguredValueTaskAwaiter"] = "System.Threading.Tasks.ValueTask.ConfigureAwait",
+        };
+
+        public bool Names(string apiName)
+        {
+            string target = WithoutArity(TargetType);
+            return WithoutArity(apiName).StartsWith(AwaitedApis.GetValueOrDefault(target, target), StringComparison.Ordinal);
+        }
+
+        public override string ToString() => $"{Method.DeclaringType}::{Method}";
+
+        private static string WithoutArity(string name) => Regex.Replace(name, "`[0-9]+", string.Empty);
     }
 
     private struct StateMachineStub : IAsyncStateMachine

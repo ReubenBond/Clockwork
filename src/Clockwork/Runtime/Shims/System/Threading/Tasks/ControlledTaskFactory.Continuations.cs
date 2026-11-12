@@ -21,7 +21,7 @@ public static partial class ControlledTaskFactory
 
     /// <summary>Controlled <c>TaskFactory.ContinueWhenAll(Task[], Action&lt;Task[]&gt;)</c>.</summary>
     public static Task ContinueWhenAll(TaskFactory factory, Task[] tasks, Action<Task[]> continuationAction) =>
-        ContinueWhenAll(Receiver(factory, ContinueWhenAllApi), tasks, continuationAction, factory.CancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
+        ContinueWhenAll(RequiredReceiver(factory, ContinueWhenAllApi), tasks, continuationAction, factory.CancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory.ContinueWhenAll(Task[], Action&lt;Task[]&gt;, CancellationToken)</c>.</summary>
     public static Task ContinueWhenAll(
@@ -29,7 +29,7 @@ public static partial class ControlledTaskFactory
         Task[] tasks,
         Action<Task[]> continuationAction,
         CancellationToken cancellationToken) =>
-        ContinueWhenAll(Receiver(factory, ContinueWhenAllApi), tasks, continuationAction, cancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
+        ContinueWhenAll(RequiredReceiver(factory, ContinueWhenAllApi), tasks, continuationAction, cancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory.ContinueWhenAll(Task[], Action&lt;Task[]&gt;, TaskContinuationOptions)</c>.</summary>
     public static Task ContinueWhenAll(
@@ -37,7 +37,7 @@ public static partial class ControlledTaskFactory
         Task[] tasks,
         Action<Task[]> continuationAction,
         TaskContinuationOptions continuationOptions) =>
-        ContinueWhenAll(Receiver(factory, ContinueWhenAllApi), tasks, continuationAction, factory.CancellationToken, continuationOptions, DefaultScheduler(factory));
+        ContinueWhenAll(RequiredReceiver(factory, ContinueWhenAllApi), tasks, continuationAction, factory.CancellationToken, continuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory.ContinueWhenAll(Task[], Action&lt;Task[]&gt;, CancellationToken, TaskContinuationOptions, TaskScheduler)</c>.</summary>
     public static Task ContinueWhenAll(
@@ -61,7 +61,7 @@ public static partial class ControlledTaskFactory
         TaskFactory factory,
         Task<TAntecedentResult>[] tasks,
         Action<Task<TAntecedentResult>[]> continuationAction) =>
-        ContinueWhenAll(Receiver(factory, ContinueWhenAllApi), tasks, continuationAction, factory.CancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
+        ContinueWhenAll(RequiredReceiver(factory, ContinueWhenAllApi), tasks, continuationAction, factory.CancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory.ContinueWhenAll&lt;TAntecedentResult&gt;(Task&lt;TAntecedentResult&gt;[], Action&lt;Task&lt;TAntecedentResult&gt;[]&gt;, CancellationToken)</c>.</summary>
     public static Task ContinueWhenAll<TAntecedentResult>(
@@ -69,7 +69,7 @@ public static partial class ControlledTaskFactory
         Task<TAntecedentResult>[] tasks,
         Action<Task<TAntecedentResult>[]> continuationAction,
         CancellationToken cancellationToken) =>
-        ContinueWhenAll(Receiver(factory, ContinueWhenAllApi), tasks, continuationAction, cancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
+        ContinueWhenAll(RequiredReceiver(factory, ContinueWhenAllApi), tasks, continuationAction, cancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory.ContinueWhenAll&lt;TAntecedentResult&gt;(Task&lt;TAntecedentResult&gt;[], Action&lt;Task&lt;TAntecedentResult&gt;[]&gt;, TaskContinuationOptions)</c>.</summary>
     public static Task ContinueWhenAll<TAntecedentResult>(
@@ -77,7 +77,7 @@ public static partial class ControlledTaskFactory
         Task<TAntecedentResult>[] tasks,
         Action<Task<TAntecedentResult>[]> continuationAction,
         TaskContinuationOptions continuationOptions) =>
-        ContinueWhenAll(Receiver(factory, ContinueWhenAllApi), tasks, continuationAction, factory.CancellationToken, continuationOptions, DefaultScheduler(factory));
+        ContinueWhenAll(RequiredReceiver(factory, ContinueWhenAllApi), tasks, continuationAction, factory.CancellationToken, continuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory.ContinueWhenAll&lt;TAntecedentResult&gt;(Task&lt;TAntecedentResult&gt;[], Action&lt;Task&lt;TAntecedentResult&gt;[]&gt;, CancellationToken, TaskContinuationOptions, TaskScheduler)</c>.</summary>
     public static Task ContinueWhenAll<TAntecedentResult>(
@@ -105,7 +105,7 @@ public static partial class ControlledTaskFactory
 
     /// <summary>Controlled <c>TaskFactory.ContinueWhenAll&lt;TResult&gt;(Task[], Func&lt;Task[], TResult&gt;)</c>.</summary>
     public static Task<TResult> ContinueWhenAll<TResult>(TaskFactory factory, Task[] tasks, Func<Task[], TResult> continuationFunction) =>
-        ContinueWhenAll(Receiver(factory, ContinueWhenAllApi), tasks, continuationFunction, factory.CancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
+        ContinueWhenAll(RequiredReceiver(factory, ContinueWhenAllApi), tasks, continuationFunction, factory.CancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory.ContinueWhenAll&lt;TResult&gt;(Task[], Func&lt;Task[], TResult&gt;, CancellationToken)</c>.</summary>
     public static Task<TResult> ContinueWhenAll<TResult>(
@@ -113,7 +113,7 @@ public static partial class ControlledTaskFactory
         Task[] tasks,
         Func<Task[], TResult> continuationFunction,
         CancellationToken cancellationToken) =>
-        ContinueWhenAll(Receiver(factory, ContinueWhenAllApi), tasks, continuationFunction, cancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
+        ContinueWhenAll(RequiredReceiver(factory, ContinueWhenAllApi), tasks, continuationFunction, cancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory.ContinueWhenAll&lt;TResult&gt;(Task[], Func&lt;Task[], TResult&gt;, TaskContinuationOptions)</c>.</summary>
     public static Task<TResult> ContinueWhenAll<TResult>(
@@ -121,7 +121,7 @@ public static partial class ControlledTaskFactory
         Task[] tasks,
         Func<Task[], TResult> continuationFunction,
         TaskContinuationOptions continuationOptions) =>
-        ContinueWhenAll(Receiver(factory, ContinueWhenAllApi), tasks, continuationFunction, factory.CancellationToken, continuationOptions, DefaultScheduler(factory));
+        ContinueWhenAll(RequiredReceiver(factory, ContinueWhenAllApi), tasks, continuationFunction, factory.CancellationToken, continuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory.ContinueWhenAll&lt;TResult&gt;(Task[], Func&lt;Task[], TResult&gt;, CancellationToken, TaskContinuationOptions, TaskScheduler)</c>.</summary>
     public static Task<TResult> ContinueWhenAll<TResult>(
@@ -144,7 +144,7 @@ public static partial class ControlledTaskFactory
         TaskFactory factory,
         Task<TAntecedentResult>[] tasks,
         Func<Task<TAntecedentResult>[], TResult> continuationFunction) =>
-        ContinueWhenAll(Receiver(factory, ContinueWhenAllApi), tasks, continuationFunction, factory.CancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
+        ContinueWhenAll(RequiredReceiver(factory, ContinueWhenAllApi), tasks, continuationFunction, factory.CancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory.ContinueWhenAll&lt;TAntecedentResult, TResult&gt;(Task&lt;TAntecedentResult&gt;[], Func&lt;Task&lt;TAntecedentResult&gt;[], TResult&gt;, CancellationToken)</c>.</summary>
     public static Task<TResult> ContinueWhenAll<TAntecedentResult, TResult>(
@@ -152,7 +152,7 @@ public static partial class ControlledTaskFactory
         Task<TAntecedentResult>[] tasks,
         Func<Task<TAntecedentResult>[], TResult> continuationFunction,
         CancellationToken cancellationToken) =>
-        ContinueWhenAll(Receiver(factory, ContinueWhenAllApi), tasks, continuationFunction, cancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
+        ContinueWhenAll(RequiredReceiver(factory, ContinueWhenAllApi), tasks, continuationFunction, cancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory.ContinueWhenAll&lt;TAntecedentResult, TResult&gt;(Task&lt;TAntecedentResult&gt;[], Func&lt;Task&lt;TAntecedentResult&gt;[], TResult&gt;, TaskContinuationOptions)</c>.</summary>
     public static Task<TResult> ContinueWhenAll<TAntecedentResult, TResult>(
@@ -160,7 +160,7 @@ public static partial class ControlledTaskFactory
         Task<TAntecedentResult>[] tasks,
         Func<Task<TAntecedentResult>[], TResult> continuationFunction,
         TaskContinuationOptions continuationOptions) =>
-        ContinueWhenAll(Receiver(factory, ContinueWhenAllApi), tasks, continuationFunction, factory.CancellationToken, continuationOptions, DefaultScheduler(factory));
+        ContinueWhenAll(RequiredReceiver(factory, ContinueWhenAllApi), tasks, continuationFunction, factory.CancellationToken, continuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory.ContinueWhenAll&lt;TAntecedentResult, TResult&gt;(Task&lt;TAntecedentResult&gt;[], Func&lt;Task&lt;TAntecedentResult&gt;[], TResult&gt;, CancellationToken, TaskContinuationOptions, TaskScheduler)</c>.</summary>
     public static Task<TResult> ContinueWhenAll<TAntecedentResult, TResult>(
@@ -188,7 +188,7 @@ public static partial class ControlledTaskFactory
 
     /// <summary>Controlled <c>TaskFactory.ContinueWhenAny(Task[], Action&lt;Task&gt;)</c>.</summary>
     public static Task ContinueWhenAny(TaskFactory factory, Task[] tasks, Action<Task> continuationAction) =>
-        ContinueWhenAny(Receiver(factory, ContinueWhenAnyApi), tasks, continuationAction, factory.CancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
+        ContinueWhenAny(RequiredReceiver(factory, ContinueWhenAnyApi), tasks, continuationAction, factory.CancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory.ContinueWhenAny(Task[], Action&lt;Task&gt;, CancellationToken)</c>.</summary>
     public static Task ContinueWhenAny(
@@ -196,7 +196,7 @@ public static partial class ControlledTaskFactory
         Task[] tasks,
         Action<Task> continuationAction,
         CancellationToken cancellationToken) =>
-        ContinueWhenAny(Receiver(factory, ContinueWhenAnyApi), tasks, continuationAction, cancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
+        ContinueWhenAny(RequiredReceiver(factory, ContinueWhenAnyApi), tasks, continuationAction, cancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory.ContinueWhenAny(Task[], Action&lt;Task&gt;, TaskContinuationOptions)</c>.</summary>
     public static Task ContinueWhenAny(
@@ -204,7 +204,7 @@ public static partial class ControlledTaskFactory
         Task[] tasks,
         Action<Task> continuationAction,
         TaskContinuationOptions continuationOptions) =>
-        ContinueWhenAny(Receiver(factory, ContinueWhenAnyApi), tasks, continuationAction, factory.CancellationToken, continuationOptions, DefaultScheduler(factory));
+        ContinueWhenAny(RequiredReceiver(factory, ContinueWhenAnyApi), tasks, continuationAction, factory.CancellationToken, continuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory.ContinueWhenAny(Task[], Action&lt;Task&gt;, CancellationToken, TaskContinuationOptions, TaskScheduler)</c>.</summary>
     public static Task ContinueWhenAny(
@@ -224,7 +224,7 @@ public static partial class ControlledTaskFactory
 
     /// <summary>Controlled <c>TaskFactory.ContinueWhenAny&lt;TResult&gt;(Task[], Func&lt;Task, TResult&gt;)</c>.</summary>
     public static Task<TResult> ContinueWhenAny<TResult>(TaskFactory factory, Task[] tasks, Func<Task, TResult> continuationFunction) =>
-        ContinueWhenAny(Receiver(factory, ContinueWhenAnyApi), tasks, continuationFunction, factory.CancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
+        ContinueWhenAny(RequiredReceiver(factory, ContinueWhenAnyApi), tasks, continuationFunction, factory.CancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory.ContinueWhenAny&lt;TResult&gt;(Task[], Func&lt;Task, TResult&gt;, CancellationToken)</c>.</summary>
     public static Task<TResult> ContinueWhenAny<TResult>(
@@ -232,7 +232,7 @@ public static partial class ControlledTaskFactory
         Task[] tasks,
         Func<Task, TResult> continuationFunction,
         CancellationToken cancellationToken) =>
-        ContinueWhenAny(Receiver(factory, ContinueWhenAnyApi), tasks, continuationFunction, cancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
+        ContinueWhenAny(RequiredReceiver(factory, ContinueWhenAnyApi), tasks, continuationFunction, cancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory.ContinueWhenAny&lt;TResult&gt;(Task[], Func&lt;Task, TResult&gt;, TaskContinuationOptions)</c>.</summary>
     public static Task<TResult> ContinueWhenAny<TResult>(
@@ -240,7 +240,7 @@ public static partial class ControlledTaskFactory
         Task[] tasks,
         Func<Task, TResult> continuationFunction,
         TaskContinuationOptions continuationOptions) =>
-        ContinueWhenAny(Receiver(factory, ContinueWhenAnyApi), tasks, continuationFunction, factory.CancellationToken, continuationOptions, DefaultScheduler(factory));
+        ContinueWhenAny(RequiredReceiver(factory, ContinueWhenAnyApi), tasks, continuationFunction, factory.CancellationToken, continuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory.ContinueWhenAny&lt;TResult&gt;(Task[], Func&lt;Task, TResult&gt;, CancellationToken, TaskContinuationOptions, TaskScheduler)</c>.</summary>
     public static Task<TResult> ContinueWhenAny<TResult>(
@@ -263,7 +263,7 @@ public static partial class ControlledTaskFactory
         TaskFactory factory,
         Task<TAntecedentResult>[] tasks,
         Func<Task<TAntecedentResult>, TResult> continuationFunction) =>
-        ContinueWhenAny(Receiver(factory, ContinueWhenAnyApi), tasks, continuationFunction, factory.CancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
+        ContinueWhenAny(RequiredReceiver(factory, ContinueWhenAnyApi), tasks, continuationFunction, factory.CancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory.ContinueWhenAny&lt;TAntecedentResult, TResult&gt;(Task&lt;TAntecedentResult&gt;[], Func&lt;Task&lt;TAntecedentResult&gt;, TResult&gt;, CancellationToken)</c>.</summary>
     public static Task<TResult> ContinueWhenAny<TAntecedentResult, TResult>(
@@ -271,7 +271,7 @@ public static partial class ControlledTaskFactory
         Task<TAntecedentResult>[] tasks,
         Func<Task<TAntecedentResult>, TResult> continuationFunction,
         CancellationToken cancellationToken) =>
-        ContinueWhenAny(Receiver(factory, ContinueWhenAnyApi), tasks, continuationFunction, cancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
+        ContinueWhenAny(RequiredReceiver(factory, ContinueWhenAnyApi), tasks, continuationFunction, cancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory.ContinueWhenAny&lt;TAntecedentResult, TResult&gt;(Task&lt;TAntecedentResult&gt;[], Func&lt;Task&lt;TAntecedentResult&gt;, TResult&gt;, TaskContinuationOptions)</c>.</summary>
     public static Task<TResult> ContinueWhenAny<TAntecedentResult, TResult>(
@@ -279,7 +279,7 @@ public static partial class ControlledTaskFactory
         Task<TAntecedentResult>[] tasks,
         Func<Task<TAntecedentResult>, TResult> continuationFunction,
         TaskContinuationOptions continuationOptions) =>
-        ContinueWhenAny(Receiver(factory, ContinueWhenAnyApi), tasks, continuationFunction, factory.CancellationToken, continuationOptions, DefaultScheduler(factory));
+        ContinueWhenAny(RequiredReceiver(factory, ContinueWhenAnyApi), tasks, continuationFunction, factory.CancellationToken, continuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory.ContinueWhenAny&lt;TAntecedentResult, TResult&gt;(Task&lt;TAntecedentResult&gt;[], Func&lt;Task&lt;TAntecedentResult&gt;, TResult&gt;, CancellationToken, TaskContinuationOptions, TaskScheduler)</c>.</summary>
     public static Task<TResult> ContinueWhenAny<TAntecedentResult, TResult>(
@@ -310,7 +310,7 @@ public static partial class ControlledTaskFactory
         TaskFactory factory,
         Task<TAntecedentResult>[] tasks,
         Action<Task<TAntecedentResult>> continuationAction) =>
-        ContinueWhenAny(Receiver(factory, ContinueWhenAnyApi), tasks, continuationAction, factory.CancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
+        ContinueWhenAny(RequiredReceiver(factory, ContinueWhenAnyApi), tasks, continuationAction, factory.CancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory.ContinueWhenAny&lt;TAntecedentResult&gt;(Task&lt;TAntecedentResult&gt;[], Action&lt;Task&lt;TAntecedentResult&gt;&gt;, CancellationToken)</c>.</summary>
     public static Task ContinueWhenAny<TAntecedentResult>(
@@ -318,7 +318,7 @@ public static partial class ControlledTaskFactory
         Task<TAntecedentResult>[] tasks,
         Action<Task<TAntecedentResult>> continuationAction,
         CancellationToken cancellationToken) =>
-        ContinueWhenAny(Receiver(factory, ContinueWhenAnyApi), tasks, continuationAction, cancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
+        ContinueWhenAny(RequiredReceiver(factory, ContinueWhenAnyApi), tasks, continuationAction, cancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory.ContinueWhenAny&lt;TAntecedentResult&gt;(Task&lt;TAntecedentResult&gt;[], Action&lt;Task&lt;TAntecedentResult&gt;&gt;, TaskContinuationOptions)</c>.</summary>
     public static Task ContinueWhenAny<TAntecedentResult>(
@@ -326,7 +326,7 @@ public static partial class ControlledTaskFactory
         Task<TAntecedentResult>[] tasks,
         Action<Task<TAntecedentResult>> continuationAction,
         TaskContinuationOptions continuationOptions) =>
-        ContinueWhenAny(Receiver(factory, ContinueWhenAnyApi), tasks, continuationAction, factory.CancellationToken, continuationOptions, DefaultScheduler(factory));
+        ContinueWhenAny(RequiredReceiver(factory, ContinueWhenAnyApi), tasks, continuationAction, factory.CancellationToken, continuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory.ContinueWhenAny&lt;TAntecedentResult&gt;(Task&lt;TAntecedentResult&gt;[], Action&lt;Task&lt;TAntecedentResult&gt;&gt;, CancellationToken, TaskContinuationOptions, TaskScheduler)</c>.</summary>
     public static Task ContinueWhenAny<TAntecedentResult>(
@@ -354,7 +354,7 @@ public static partial class ControlledTaskFactory
 
     /// <summary>Controlled <c>TaskFactory&lt;TResult&gt;.ContinueWhenAll(Task[], Func&lt;Task[], TResult&gt;)</c>.</summary>
     public static Task<TResult> ContinueWhenAll<TResult>(TaskFactory<TResult> factory, Task[] tasks, Func<Task[], TResult> continuationFunction) =>
-        ContinueWhenAll(Receiver(factory, GenericContinueWhenAllApi), tasks, continuationFunction, factory.CancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
+        ContinueWhenAll(RequiredReceiver(factory, GenericContinueWhenAllApi), tasks, continuationFunction, factory.CancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory&lt;TResult&gt;.ContinueWhenAll(Task[], Func&lt;Task[], TResult&gt;, CancellationToken)</c>.</summary>
     public static Task<TResult> ContinueWhenAll<TResult>(
@@ -362,7 +362,7 @@ public static partial class ControlledTaskFactory
         Task[] tasks,
         Func<Task[], TResult> continuationFunction,
         CancellationToken cancellationToken) =>
-        ContinueWhenAll(Receiver(factory, GenericContinueWhenAllApi), tasks, continuationFunction, cancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
+        ContinueWhenAll(RequiredReceiver(factory, GenericContinueWhenAllApi), tasks, continuationFunction, cancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory&lt;TResult&gt;.ContinueWhenAll(Task[], Func&lt;Task[], TResult&gt;, TaskContinuationOptions)</c>.</summary>
     public static Task<TResult> ContinueWhenAll<TResult>(
@@ -370,7 +370,7 @@ public static partial class ControlledTaskFactory
         Task[] tasks,
         Func<Task[], TResult> continuationFunction,
         TaskContinuationOptions continuationOptions) =>
-        ContinueWhenAll(Receiver(factory, GenericContinueWhenAllApi), tasks, continuationFunction, factory.CancellationToken, continuationOptions, DefaultScheduler(factory));
+        ContinueWhenAll(RequiredReceiver(factory, GenericContinueWhenAllApi), tasks, continuationFunction, factory.CancellationToken, continuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory&lt;TResult&gt;.ContinueWhenAll(Task[], Func&lt;Task[], TResult&gt;, CancellationToken, TaskContinuationOptions, TaskScheduler)</c>.</summary>
     public static Task<TResult> ContinueWhenAll<TResult>(
@@ -397,7 +397,7 @@ public static partial class ControlledTaskFactory
         TaskFactory<TResult> factory,
         Task<TAntecedentResult>[] tasks,
         Func<Task<TAntecedentResult>[], TResult> continuationFunction) =>
-        ContinueWhenAll(Receiver(factory, GenericContinueWhenAllApi), tasks, continuationFunction, factory.CancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
+        ContinueWhenAll(RequiredReceiver(factory, GenericContinueWhenAllApi), tasks, continuationFunction, factory.CancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory&lt;TResult&gt;.ContinueWhenAll&lt;TAntecedentResult&gt;(Task&lt;TAntecedentResult&gt;[], Func&lt;Task&lt;TAntecedentResult&gt;[], TResult&gt;, CancellationToken)</c>.</summary>
     public static Task<TResult> ContinueWhenAll<TResult, TAntecedentResult>(
@@ -405,7 +405,7 @@ public static partial class ControlledTaskFactory
         Task<TAntecedentResult>[] tasks,
         Func<Task<TAntecedentResult>[], TResult> continuationFunction,
         CancellationToken cancellationToken) =>
-        ContinueWhenAll(Receiver(factory, GenericContinueWhenAllApi), tasks, continuationFunction, cancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
+        ContinueWhenAll(RequiredReceiver(factory, GenericContinueWhenAllApi), tasks, continuationFunction, cancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory&lt;TResult&gt;.ContinueWhenAll&lt;TAntecedentResult&gt;(Task&lt;TAntecedentResult&gt;[], Func&lt;Task&lt;TAntecedentResult&gt;[], TResult&gt;, TaskContinuationOptions)</c>.</summary>
     public static Task<TResult> ContinueWhenAll<TResult, TAntecedentResult>(
@@ -413,7 +413,7 @@ public static partial class ControlledTaskFactory
         Task<TAntecedentResult>[] tasks,
         Func<Task<TAntecedentResult>[], TResult> continuationFunction,
         TaskContinuationOptions continuationOptions) =>
-        ContinueWhenAll(Receiver(factory, GenericContinueWhenAllApi), tasks, continuationFunction, factory.CancellationToken, continuationOptions, DefaultScheduler(factory));
+        ContinueWhenAll(RequiredReceiver(factory, GenericContinueWhenAllApi), tasks, continuationFunction, factory.CancellationToken, continuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory&lt;TResult&gt;.ContinueWhenAll&lt;TAntecedentResult&gt;(Task&lt;TAntecedentResult&gt;[], Func&lt;Task&lt;TAntecedentResult&gt;[], TResult&gt;, CancellationToken, TaskContinuationOptions, TaskScheduler)</c>.</summary>
     public static Task<TResult> ContinueWhenAll<TResult, TAntecedentResult>(
@@ -441,7 +441,7 @@ public static partial class ControlledTaskFactory
 
     /// <summary>Controlled <c>TaskFactory&lt;TResult&gt;.ContinueWhenAny(Task[], Func&lt;Task, TResult&gt;)</c>.</summary>
     public static Task<TResult> ContinueWhenAny<TResult>(TaskFactory<TResult> factory, Task[] tasks, Func<Task, TResult> continuationFunction) =>
-        ContinueWhenAny(Receiver(factory, GenericContinueWhenAnyApi), tasks, continuationFunction, factory.CancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
+        ContinueWhenAny(RequiredReceiver(factory, GenericContinueWhenAnyApi), tasks, continuationFunction, factory.CancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory&lt;TResult&gt;.ContinueWhenAny(Task[], Func&lt;Task, TResult&gt;, CancellationToken)</c>.</summary>
     public static Task<TResult> ContinueWhenAny<TResult>(
@@ -449,7 +449,7 @@ public static partial class ControlledTaskFactory
         Task[] tasks,
         Func<Task, TResult> continuationFunction,
         CancellationToken cancellationToken) =>
-        ContinueWhenAny(Receiver(factory, GenericContinueWhenAnyApi), tasks, continuationFunction, cancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
+        ContinueWhenAny(RequiredReceiver(factory, GenericContinueWhenAnyApi), tasks, continuationFunction, cancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory&lt;TResult&gt;.ContinueWhenAny(Task[], Func&lt;Task, TResult&gt;, TaskContinuationOptions)</c>.</summary>
     public static Task<TResult> ContinueWhenAny<TResult>(
@@ -457,7 +457,7 @@ public static partial class ControlledTaskFactory
         Task[] tasks,
         Func<Task, TResult> continuationFunction,
         TaskContinuationOptions continuationOptions) =>
-        ContinueWhenAny(Receiver(factory, GenericContinueWhenAnyApi), tasks, continuationFunction, factory.CancellationToken, continuationOptions, DefaultScheduler(factory));
+        ContinueWhenAny(RequiredReceiver(factory, GenericContinueWhenAnyApi), tasks, continuationFunction, factory.CancellationToken, continuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory&lt;TResult&gt;.ContinueWhenAny(Task[], Func&lt;Task, TResult&gt;, CancellationToken, TaskContinuationOptions, TaskScheduler)</c>.</summary>
     public static Task<TResult> ContinueWhenAny<TResult>(
@@ -484,7 +484,7 @@ public static partial class ControlledTaskFactory
         TaskFactory<TResult> factory,
         Task<TAntecedentResult>[] tasks,
         Func<Task<TAntecedentResult>, TResult> continuationFunction) =>
-        ContinueWhenAny(Receiver(factory, GenericContinueWhenAnyApi), tasks, continuationFunction, factory.CancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
+        ContinueWhenAny(RequiredReceiver(factory, GenericContinueWhenAnyApi), tasks, continuationFunction, factory.CancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory&lt;TResult&gt;.ContinueWhenAny&lt;TAntecedentResult&gt;(Task&lt;TAntecedentResult&gt;[], Func&lt;Task&lt;TAntecedentResult&gt;, TResult&gt;, CancellationToken)</c>.</summary>
     public static Task<TResult> ContinueWhenAny<TResult, TAntecedentResult>(
@@ -492,7 +492,7 @@ public static partial class ControlledTaskFactory
         Task<TAntecedentResult>[] tasks,
         Func<Task<TAntecedentResult>, TResult> continuationFunction,
         CancellationToken cancellationToken) =>
-        ContinueWhenAny(Receiver(factory, GenericContinueWhenAnyApi), tasks, continuationFunction, cancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
+        ContinueWhenAny(RequiredReceiver(factory, GenericContinueWhenAnyApi), tasks, continuationFunction, cancellationToken, factory.ContinuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory&lt;TResult&gt;.ContinueWhenAny&lt;TAntecedentResult&gt;(Task&lt;TAntecedentResult&gt;[], Func&lt;Task&lt;TAntecedentResult&gt;, TResult&gt;, TaskContinuationOptions)</c>.</summary>
     public static Task<TResult> ContinueWhenAny<TResult, TAntecedentResult>(
@@ -500,7 +500,7 @@ public static partial class ControlledTaskFactory
         Task<TAntecedentResult>[] tasks,
         Func<Task<TAntecedentResult>, TResult> continuationFunction,
         TaskContinuationOptions continuationOptions) =>
-        ContinueWhenAny(Receiver(factory, GenericContinueWhenAnyApi), tasks, continuationFunction, factory.CancellationToken, continuationOptions, DefaultScheduler(factory));
+        ContinueWhenAny(RequiredReceiver(factory, GenericContinueWhenAnyApi), tasks, continuationFunction, factory.CancellationToken, continuationOptions, DefaultScheduler(factory));
 
     /// <summary>Controlled <c>TaskFactory&lt;TResult&gt;.ContinueWhenAny&lt;TAntecedentResult&gt;(Task&lt;TAntecedentResult&gt;[], Func&lt;Task&lt;TAntecedentResult&gt;, TResult&gt;, CancellationToken, TaskContinuationOptions, TaskScheduler)</c>.</summary>
     public static Task<TResult> ContinueWhenAny<TResult, TAntecedentResult>(
@@ -791,8 +791,9 @@ public static partial class ControlledTaskFactory
         _ = factory.GetType();
     }
 
-    // The overloads which take the factory's defaults read them only after the call passes RequireReceiver.
-    private static TFactory Receiver<TFactory>(TFactory factory, string apiName)
+    // The overloads which take the factory's defaults pass the receiver through this first: C# evaluates arguments left to
+    // right, so the call is checked before the later arguments read the factory.
+    private static TFactory RequiredReceiver<TFactory>(TFactory factory, string apiName)
         where TFactory : class
     {
         RequireReceiver(factory, apiName);

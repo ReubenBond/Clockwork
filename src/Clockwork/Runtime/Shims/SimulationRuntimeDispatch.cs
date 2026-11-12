@@ -1,6 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
-using System.Runtime.ExceptionServices;
 using Clockwork.Runtime.Execution;
 
 namespace Clockwork.Runtime.Shims;
@@ -42,6 +41,21 @@ public static class SimulationRuntimeDispatch
     }
 
     /// <summary>
+    /// Requires the simulation's logical thread when a simulation's ambient context is present, for a controlled API
+    /// which also runs outside any simulation.
+    /// </summary>
+    /// <param name="api">The controlled API's declaring type.</param>
+    /// <param name="member">The controlled API's member name.</param>
+    internal static void RequireSimulationThreadIfActive(string api, string member)
+    {
+        SimulationExecutionContext.TryGetCurrentRuntime(out SimulationRuntimeIdentity? runtime);
+        if (runtime is { Scheduler.IsSimulationThread: false })
+        {
+            ThrowThreadAffinityViolation(runtime, $"{api}.{member}");
+        }
+    }
+
+    /// <summary>
     /// Rejects a controlled API called with <paramref name="runtime"/>'s ambient context off its logical thread. The
     /// scheduler records the violation so the thread driving it surfaces the failure even when the escaped work swallows
     /// the exception thrown here.
@@ -50,13 +64,9 @@ public static class SimulationRuntimeDispatch
     /// <param name="apiName">The fully-qualified name of the controlled API.</param>
     [DoesNotReturn]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    internal static void ThrowThreadAffinityViolation(SimulationRuntimeIdentity runtime, string apiName)
+    private static void ThrowThreadAffinityViolation(SimulationRuntimeIdentity runtime, string apiName)
     {
-        // The driving thread rethrows its own instance, captured with this thread's stack: one exception object must not
-        // be thrown on two threads at once.
-        var surfaced = new SimulationThreadAffinityException(apiName, runtime);
-        ExceptionDispatchInfo.SetCurrentStackTrace(surfaced);
-        runtime.Scheduler.ReportThreadAffinityViolation(surfaced);
+        runtime.Scheduler.ReportThreadAffinityViolation(apiName);
         throw new SimulationThreadAffinityException(apiName, runtime);
     }
 }

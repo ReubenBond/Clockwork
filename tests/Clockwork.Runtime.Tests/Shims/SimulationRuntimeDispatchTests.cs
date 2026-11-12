@@ -39,25 +39,69 @@ public sealed class SimulationRuntimeDispatchTests
     }
 
     [Fact]
-    public void ControlScopeMakesItsThreadTheSimulationThread()
+    public void ControlledApiUnderAnotherSimulationsOperationIsRejectedAndSurfacedByItsOwnDriver()
+    {
+        using var ambient = new SimulationSchedulerTestHost(seed: 3);
+        using var host = new SimulationSchedulerTestHost(seed: 4);
+        Exception? rejection = null;
+        host.Scheduler.Schedule(
+            "foreign",
+            () =>
+            {
+                using (SimulationExecutionContext.EnterRuntime(ambient.Scheduler.Runtime))
+                {
+                    rejection = Record.Exception(() => SimulationRuntimeDispatch.RequireActiveSimulation("test.api"));
+                }
+            });
+
+        host.Scheduler.Drain(TestContext.Current.CancellationToken);
+
+        Assert.Same(ambient.Scheduler.Runtime, Assert.IsType<SimulationThreadAffinityException>(rejection).Runtime);
+        Assert.Equal(
+            "test.api",
+            Assert.Throws<SimulationThreadAffinityException>(
+                () => ambient.Scheduler.RunStep(TestContext.Current.CancellationToken)).ApiName);
+    }
+
+    [Fact]
+    public void OneThreadAtATimeHoldsTheControlScope()
     {
         using var coordinator = new SimulationSchedulerTestHost();
         SimulationScheduler scheduler = coordinator.Scheduler;
+        SimulationRuntimeIdentity runtime = scheduler.Runtime;
 
-        (bool Inside, bool After) observed = TaskTestHarness.RunInSimulation(coordinator, () => RunOnNewThread(() =>
+        using (scheduler.EnterControlScope())
         {
-            bool inside;
             using (scheduler.EnterControlScope())
             {
-                inside = scheduler.IsSimulationThread
-                    && SimulationRuntimeDispatch.RequireActiveSimulation("test.api").Runtime == scheduler.Runtime;
+                Assert.True(scheduler.IsSimulationThread);
             }
 
-            return (inside, scheduler.IsSimulationThread);
-        }));
+            // The nested scope leaves control with the outermost one.
+            Assert.True(scheduler.IsSimulationThread);
+            Exception? contender = RunOnNewThread(() => Record.Exception(scheduler.EnterControlScope));
+            Assert.Contains(
+                $"managed thread {Environment.CurrentManagedThreadId} controls it",
+                Assert.IsType<SimulationSchedulerException>(contender).Message,
+                StringComparison.Ordinal);
+        }
 
-        Assert.True(observed.Inside);
-        Assert.False(observed.After);
+        Assert.False(scheduler.IsSimulationThread);
+        (bool Inside, Exception? After) handedOff = RunOnNewThread(() =>
+        {
+            using (SimulationExecutionContext.EnterRuntime(runtime))
+            {
+                bool inside;
+                using (scheduler.EnterControlScope())
+                {
+                    inside = SimulationRuntimeDispatch.RequireActiveSimulation("test.api").Runtime == runtime;
+                }
+
+                return (inside, Record.Exception(() => SimulationRuntimeDispatch.RequireActiveSimulation("test.api")));
+            }
+        });
+        Assert.True(handedOff.Inside);
+        Assert.IsType<SimulationThreadAffinityException>(handedOff.After);
     }
 
     private static T RunOnNewThread<T>(Func<T> body)
@@ -65,7 +109,7 @@ public sealed class SimulationRuntimeDispatchTests
         T result = default!;
         var thread = new Thread(() => result = body()) { IsBackground = true };
         thread.Start();
-        thread.Join();
+        Assert.True(thread.Join(TimeSpan.FromSeconds(30)), "The new thread did not finish.");
         return result;
     }
 

@@ -158,7 +158,7 @@ public sealed class ControlledTaskCompletionSourceTests
                 IsBackground = true,
             };
             thread.Start();
-            thread.Join();
+            Assert.True(thread.Join(TimeSpan.FromSeconds(30)), "The completing thread did not finish.");
         });
 
         Assert.Equal(

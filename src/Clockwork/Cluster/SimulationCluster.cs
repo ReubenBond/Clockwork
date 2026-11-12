@@ -23,6 +23,7 @@ public sealed partial class SimulationCluster : IAsyncDisposable
     private readonly Dictionary<string, SimulationNodeContext> _attachments = new(StringComparer.Ordinal);
     private readonly SimulationTimeProvider _timeProvider;
     private readonly CancellationTokenSource _teardownCts;
+    private readonly CancellationToken _callerCancellation;
     private readonly SimulationDriveLoop _driveLoop;
     private readonly int _simulationThreadId;
     private List<Exception>? _disposalFailures;
@@ -38,7 +39,10 @@ public sealed partial class SimulationCluster : IAsyncDisposable
     /// Optional local time zone the deterministic <c>DateTime.Now</c>/<c>Today</c> shims observe.
     /// Defaults to <see cref="TimeZoneInfo.Utc"/> so local and UTC time coincide deterministically.
     /// </param>
-    /// <param name="cancellationToken">Optional cancellation token to link with the cluster teardown.</param>
+    /// <param name="cancellationToken">
+    /// Optional cancellation token which tears the cluster down: once it is cancelled, the cluster's next drive step
+    /// cancels <see cref="TeardownCancellationToken"/>.
+    /// </param>
     public SimulationCluster(
         int seed,
         DateTimeOffset? startDateTime = null,
@@ -55,7 +59,8 @@ public sealed partial class SimulationCluster : IAsyncDisposable
         ISimulationOperationListener? operationListener,
         CancellationToken cancellationToken)
     {
-        _teardownCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _teardownCts = new CancellationTokenSource();
+        _callerCancellation = cancellationToken;
         _simulationThreadId = Environment.CurrentManagedThreadId;
         TeardownCancellationToken = _teardownCts.Token;
         Seed = seed;
@@ -94,7 +99,7 @@ public sealed partial class SimulationCluster : IAsyncDisposable
             AdvanceVirtualTime,
             CapturePendingWorkSummary,
             () => Scheduler.PendingOperationCount > 0,
-            TeardownCancellationToken);
+            IsTeardownRequested);
         Network = new SimulationNetwork(
             () => Nodes,
             new SimulationRandom(SeedAuthority.GetDomainSeed(SimulationSeedDomain.Network)));
@@ -142,7 +147,9 @@ public sealed partial class SimulationCluster : IAsyncDisposable
     public ISimulationRuntimeEnvironment RuntimeEnvironment => RuntimeIdentity.Environment;
 
     /// <summary>
-    /// Gets a cancellation token used to signal when the simulation is being torn down.
+    /// Gets a cancellation token used to signal when the simulation is being torn down. The cluster cancels it on the
+    /// simulation's logical thread - from a drive step once the token passed to the constructor is cancelled, or when
+    /// the cluster is disposed - so callbacks registered on it from simulation work may call controlled APIs.
     /// </summary>
     public CancellationToken TeardownCancellationToken { get; }
 
@@ -359,15 +366,16 @@ public sealed partial class SimulationCluster : IAsyncDisposable
     {
         using var control = Scheduler.EnterControlScope();
         using var _ = Guard.Enter();
+        ObserveCallerCancellation();
         if (_disposalFailures is not { } failures)
         {
             return Scheduler.RunStepForPump(cancellationToken);
         }
 
-        bool result = Scheduler.RunStepCapturingCallbackFailure(cancellationToken, out Exception? callbackFailure);
-        if (callbackFailure is not null)
+        bool result = Scheduler.RunStepCapturingFailure(cancellationToken, out Exception? failure);
+        if (failure is not null)
         {
-            AddDisposalFailure(failures, callbackFailure);
+            AddDisposalFailure(failures, failure);
         }
 
         return result;
@@ -727,6 +735,26 @@ public sealed partial class SimulationCluster : IAsyncDisposable
     }
 
     /// <summary>
+    /// Cancels <see cref="TeardownCancellationToken"/> once the caller's token is cancelled. The caller's token may be
+    /// cancelled on any thread, while the callbacks registered on the teardown token belong to the system under test,
+    /// so the drive loop cancels it on the simulation's logical thread - before each step, and where it checks for
+    /// teardown - instead of linking the two tokens.
+    /// </summary>
+    private void ObserveCallerCancellation()
+    {
+        if (_callerCancellation.IsCancellationRequested && !_teardownCts.IsCancellationRequested)
+        {
+            SafeCancel(_teardownCts);
+        }
+    }
+
+    private bool IsTeardownRequested()
+    {
+        ObserveCallerCancellation();
+        return _teardownCts.IsCancellationRequested;
+    }
+
+    /// <summary>
     /// Safely cancels a CancellationTokenSource, catching and optionally logging any exceptions.
     /// </summary>
     private static void SafeCancel(CancellationTokenSource cts, ILogger? logger = null)
@@ -757,6 +785,9 @@ public sealed partial class SimulationCluster : IAsyncDisposable
             return ValueTask.CompletedTask;
         }
 
+        // Disposal cancels the teardown token, whose callbacks the system under test registered from simulation work,
+        // and drives the remaining work, so it runs on the simulation's logical thread.
+        using IDisposable control = Scheduler.EnterControlScope();
         ThrowIfAttachmentInProgress();
         _disposed = true;
         List<Exception> failures = [];
@@ -770,13 +801,7 @@ public sealed partial class SimulationCluster : IAsyncDisposable
             }
         }
 
-        // Cancellation runs the callbacks registered on the teardown token inline. The system under test registered
-        // them from simulation work, so they carry the simulation's ambient context and run on its logical thread.
-        using (Scheduler.EnterControlScope())
-        {
-            SafeCancel(_teardownCts);
-        }
-
+        SafeCancel(_teardownCts);
         DrainAttachmentWorkToQuiescence(cleanupContexts, failures);
 
         RunDisposalToCompletion(
@@ -790,6 +815,12 @@ public sealed partial class SimulationCluster : IAsyncDisposable
         catch (Exception exception)
         {
             AddDisposalFailure(failures, exception);
+        }
+
+        // Escaped work which reached a controlled API after the last disposal step still fails the run.
+        if (Scheduler.TakeThreadAffinityViolation() is { } violation)
+        {
+            AddDisposalFailure(failures, violation.SourceException);
         }
 
         try

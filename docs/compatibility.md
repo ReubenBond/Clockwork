@@ -37,32 +37,40 @@ and timer-driven cancellation use the shared virtual-time deadline scheduler.
 #### Thread affinity
 
 A simulation's logical thread is, at any moment, the thread running one of its scheduler's operations
-or the thread driving its scheduler inside `SimulationScheduler.EnterControlScope()`
+or the one thread holding `SimulationScheduler.EnterControlScope()`
 (`SimulationScheduler.IsSimulationThread`). The cluster's drive methods (`RunUntil`, `RunUntilIdle`,
-`RunFor`, `RunToCompletion`), its disposal, and `ReplayRunner` enter that scope on the calling thread.
-Every controlled entry point called with a simulation's ambient context requires that thread, and on any
-other thread throws `SimulationThreadAffinityException` naming the API, the thread, and the runtime and
-seed, before it does anything else.
+`RunFor`, `RunToCompletion`), its disposal, and `ReplayRunner` hold that scope on the calling thread. A
+second thread entering it while it is held throws `SimulationSchedulerException`. Every controlled entry
+point called with a simulation's ambient context requires the logical thread, and on any other thread
+throws `SimulationThreadAffinityException` naming the API, the thread, and the runtime and seed, before
+it does anything else. The exception-hardening guard injected into `catch` blocks and filters reads no
+simulation state and runs on any thread, so escaped work's own handlers run as written.
 
 The ambient context flows with the `ExecutionContext`, so work which uninstrumented code moves onto a
 real thread carries it there: the real `Task.Run` with which `BackgroundService.StartAsync` starts a
 rewritten `ExecuteAsync` (see the [.NET 11 note](#supported-today)), a timer, thread-pool item, or
 continuation queued by an uninstrumented library, or a `CancellationToken.Register` callback which a
 thread outside the simulation runs by cancelling the token. That work races the coordinator, so it
-fails at its first controlled call. The scheduler also records the first violation and rethrows it, with
-the escaped thread's stack, from its next step on the driving thread, whether or not an operation runs:
-the run fails even when the escaped work swallows the exception, as a faulted `ExecuteTask` does. Cluster
-disposal collects it among its failures, and `ReplayRunner` ends the run as `Aborted`, since the escaped
-work ran outside the recorded schedule.
+fails at its first controlled call. Start it from instrumented code instead, so it runs as a controlled
+operation; for a hosted service, implement `IHostedService` in the system under test rather than
+deriving from the shared framework's `BackgroundService`.
 
-Two kinds of call are not escaped work. A `TaskCompletionSource` completion with no ambient context
-(from a finalizer, say) passes through to the BCL. Host code which runs simulation callbacks inline
-while no step is in progress - cancelling a token which the system under test registered callbacks on,
-between drives - runs them on the logical thread by entering `EnterControlScope()` first; the cluster
-does so when its disposal cancels `TeardownCancellationToken`. A token cancelled on a thread outside the
-simulation, such as a test framework's timeout token passed into the system under test, runs those
-callbacks off the logical thread: pass the system under test a token which the scenario owns and
-cancels from simulation work instead.
+The scheduler records the first violation, with the escaped thread's stack, and rethrows it from its
+next step on the driving thread whether or not an operation runs, so the run fails even when the escaped
+work swallows the exception, as a faulted `ExecuteTask` does. Cluster disposal collects a violation not
+yet rethrown among its failures, and `ReplayRunner` ends the run as `Aborted`, since the escaped work ran
+outside the recorded schedule. Detection follows the escaped work's own timing: a violation which
+happens after disposal reaches only the escaped thread, and an exception which escapes a real timer or
+thread-pool callback ends the process, as in .NET.
+
+Two kinds of call legitimately run off an operation thread. A `TaskCompletionSource` completion with
+no ambient context (from a finalizer, say) passes through to the BCL. Host code which runs simulation
+callbacks inline while no step is in progress - cancelling a token which the system under test
+registered callbacks on, between drives - runs them on the logical thread inside `EnterControlScope()`.
+The cluster cancels `TeardownCancellationToken` that way, at disposal or from the drive step after the
+token passed to its constructor is cancelled, wherever that token is cancelled. Pass the system under
+test a token which the scenario owns and cancels from simulation work, rather than a token another
+thread cancels, such as a test framework's timeout token.
 
 #### Scheduling and resource model
 
