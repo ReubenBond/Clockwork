@@ -24,8 +24,9 @@ Clockwork is a deterministic simulation testing framework for distributed system
 Consumers should attach node identity and other context using standard structured `ILogger` scopes or
 properties; Clockwork does not wrap loggers or prefix rendered messages.
 
-Clockwork targets .NET 11 (`net11.0`) and builds with the .NET 11 SDK. The built-in rule sets are classified
-against the .NET 11 reference assemblies and support target runtime 11.0.
+Clockwork targets .NET 11 (`net11.0`) and builds with the .NET 11 SDK's 11.0.1xx feature band. `global.json`
+rolls forward to the newest installed 11.0.1xx patch (`latestPatch`), and CI installs that patch from the same
+file. The built-in rule sets are classified against the .NET 11 reference assemblies and support target runtime 11.0.
 
 ## Current capability contract
 

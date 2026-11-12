@@ -15,9 +15,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 11.0.x
+          # Installs the newest SDK patch that global.json's latestPatch policy admits.
+          global-json-file: global.json
       - name: Configure test artifacts
         # Redirect transient process-test artifacts (staged closures, manifests, packed feeds) to a
         # known path so the failure-retention step below can surface them for debugging. The runner
@@ -78,9 +79,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 11.0.x
+          # Installs the newest SDK patch that global.json's latestPatch policy admits.
+          global-json-file: global.json
       - name: Build
         run: dotnet build Clockwork.slnx --configuration Release
       - name: Test kernel

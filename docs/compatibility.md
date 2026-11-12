@@ -786,7 +786,12 @@ cancels all remaining registrations without invoking user callbacks.
 ### Supported today
 
 - **.NET 11** is the only targeted runtime (`net11.0`, see `Directory.Build.props`), built with the
-  .NET 11 SDK pinned in `global.json`. The built-in rule sets are classified against the .NET 11
+  .NET 11 SDK's 11.0.1xx feature band. `global.json` rolls forward to the newest installed patch of that band
+  (`latestPatch`), and CI's `setup-dotnet` reads the same file, so servicing fixes arrive without a commit.
+  A new feature band (11.0.2xx) is a deliberate `global.json` bump: a band can ship a new C# compiler, and the
+  conformance suite, which compiles its fixtures with the SDK's own compiler under Debug and Release, proves
+  Clockwork still controls that compiler's async lowering. Consumers that compile code Clockwork rewrites
+  should build with a band Clockwork has proven. The built-in rule sets are classified against the .NET 11
   reference assemblies and declare `supportedRuntimes` 11.0. .NET 11's shared framework includes the
   `Microsoft.Extensions` abstractions (`Logging.Abstractions`, `DependencyInjection.Abstractions`,
   `Options`, `Primitives`, and the other `*.Abstractions` assemblies), and NuGet prunes their packages
