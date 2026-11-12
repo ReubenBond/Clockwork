@@ -14,7 +14,7 @@ namespace Clockwork.Instrumentation.Tests.Rules;
 /// therefore be redirected to a shim, be an awaiter source the member-aware pass rebuilds, or be listed below with the
 /// reason it is left to fail closed.
 /// </summary>
-[Collection(ReferencePackTests.Name)]
+[Collection(ReferencePackGroup.Name)]
 public sealed class BuiltInRuleSetCompletenessTests
 {
     private static readonly Version TargetRuntime = BuiltInRuleSets.SupportedRuntime;
@@ -43,7 +43,7 @@ public sealed class BuiltInRuleSetCompletenessTests
             foreach (MemberReference member in ReferencePack.VisibleMembers(type).Cast<MemberReference>()
                 .Where(member => SignatureMentions.Find(member, substituted).Count > 0))
             {
-                if (member is MethodDefinition method && (BuiltInRuleClassifier.IsAwaiterSource(method) || IsRedirected(ruleSet, method)))
+                if (member is MethodDefinition method && (BuiltInRuleClassifier.Shared.IsAwaiterSource(method) || IsRedirected(ruleSet, method)))
                 {
                     handled.Add(member.FullName);
                 }
@@ -76,10 +76,7 @@ public sealed class BuiltInRuleSetCompletenessTests
                 missing.Add($"{rule.Id}: {target.DeclaringTypeFullName}");
             }
             else if (rule.Operation != RewriteOperationKind.SubstituteType
-                && !type.Methods.Any(method => ReferencePack.IsVisible(method)
-                    && method.Name == target.MemberName
-                    && (!target.HasParameterConstraint
-                        || target.ParameterTypeFullNames.SequenceEqual(method.Parameters.Select(parameter => ReferencePack.CallSiteName(parameter.ParameterType))))))
+                && !type.Methods.Any(method => ReferencePack.IsVisible(method) && TargetMatches(target, method)))
             {
                 missing.Add($"{rule.Id}: {target.ToCanonicalString()}");
             }
@@ -94,7 +91,10 @@ public sealed class BuiltInRuleSetCompletenessTests
             (method.IsConstructor ? rule.Operation == RewriteOperationKind.RedirectNewObj : rule.Operation == RewriteOperationKind.RedirectCall)
             && rule.SupportedRuntimes.Includes(TargetRuntime)
             && rule.Target.DeclaringTypeFullName == method.DeclaringType.FullName
-            && rule.Target.MemberName == method.Name
-            && (!rule.Target.HasParameterConstraint
-                || rule.Target.ParameterTypeFullNames.SequenceEqual(method.Parameters.Select(parameter => ReferencePack.CallSiteName(parameter.ParameterType)))));
+            && TargetMatches(rule.Target, method));
+
+    private static bool TargetMatches(MemberSignature target, MethodDefinition method) =>
+        method.Name == target.MemberName
+        && (!target.HasParameterConstraint
+            || target.ParameterTypeFullNames.SequenceEqual(method.Parameters.Select(parameter => ReferencePack.CallSiteName(parameter.ParameterType))));
 }

@@ -90,7 +90,7 @@ the OS-specific surface Coyote simply leaves as an uncontrolled real call.
 | *(not modelled by Coyote)* | `Thread.Interrupt()` | ⛔ Rejected (tested) | `clockwork.thread.interrupt` — OS thread interruption cannot be modelled |
 | *(not modelled by Coyote)* | `Thread.SetApartmentState(ApartmentState)` | ⛔ Rejected (tested) | `clockwork.thread.setapartmentstate` — COM apartments are an OS concept |
 | *(not modelled by Coyote)* | `Thread.TrySetApartmentState(ApartmentState)` | ⛔ Rejected (tested) | `clockwork.thread.trysetapartmentstate` |
-| *(not modelled by Coyote)* | `Thread.set_ApartmentState(ApartmentState)` (obsolete property) | ⛔ Rejected (tested) | `clockwork.thread.set_apartmentstate` — sets the apartment state as `SetApartmentState` does |
+| *(not modelled by Coyote)* | `Thread.set_ApartmentState(ApartmentState)` (obsolete property) | ⛔ Rejected (tested) | `clockwork.thread.set_apartmentstate` — tries to set the apartment state, as `TrySetApartmentState` does |
 
 **Deviation:** `Join`/`Sleep` are *virtual* waits (yield through the deterministic loop, no real
 time) — identical in spirit to Coyote's `DelayCurrentOperation`/`PauseUntilThreadCompletes`.

@@ -149,7 +149,7 @@ public enum BuiltInRuleFamily
     /// whose body is scheduled as a fresh controlled operation on the coordinator instead of running on a
     /// physical OS thread, and <c>Join</c> pumps the deterministic loop; the static <c>Sleep</c>,
     /// <c>Yield</c>, and <c>SpinWait</c> hints yield cooperatively without blocking or using real time.
-    /// The OS-specific surface (<c>Priority</c>, apartment state, including the obsolete <c>ApartmentState</c> setter,
+    /// The OS-specific surface (<c>Priority</c>, apartment state including the obsolete <c>ApartmentState</c> setter, and
     /// <c>Interrupt</c>) is classified
     /// <c>Rejected</c>: it cannot be modelled faithfully by the cooperative scheduler, so the rewritten
     /// call site fails precisely under simulation.
@@ -205,7 +205,8 @@ public enum BuiltInRuleFamily
     /// members and the <c>WaitForExit</c> / <c>WaitForExitAsync</c> / <c>WaitForExitStatus</c> /
     /// <c>TryWaitForExitStatus</c> / <c>WaitForExitStatusAsync</c> waits and <c>ReadAllBytes</c> / <c>ReadAllText</c> /
     /// <c>ReadAllLines</c> reads and their async forms (signalling or blocking on an uncontrolled process), the
-    /// <c>WaitForInputIdle</c> waits, <c>CloseMainWindow</c>, the <c>EnableRaisingEvents</c> setter and the
+    /// <c>WaitForInputIdle</c> waits, the <c>Responding</c> getter (which messages the process's main window and waits for
+    /// a reply), <c>CloseMainWindow</c>, the <c>EnableRaisingEvents</c> setter and the
     /// <c>BeginOutputReadLine</c> / <c>BeginErrorReadLine</c> reads (which raise events on threads of the BCL's choosing as
     /// the process exits or writes), the priority, processor-affinity, and working-set setters of a
     /// <see cref="System.Diagnostics.Process"/> and the scheduling setters of a <see cref="System.Diagnostics.ProcessThread"/>,

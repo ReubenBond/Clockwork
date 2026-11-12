@@ -144,7 +144,7 @@ public sealed class ControlledThreadRuleGoldenTests
         Assert.True(CecilInspect.CallsAnyContaining(interrupt, "ControlledThread::Interrupt"));
 
         MethodDefinition apartment = CecilInspect.GetMethod(module, "Fx.ThreadUser", "Apartment");
-        Assert.True(CecilInspect.CallsAnyContaining(apartment, "ControlledThread::SetApartmentState"));
+        Assert.True(CecilInspect.CallsAnyContaining(apartment, "ControlledThread::SetApartmentStateProperty"));
         Assert.False(CecilInspect.CallsAnyContaining(apartment, "Threading.Thread::set_ApartmentState"));
 
         ImmutableArray<ManifestTransformation> transformations = result.Manifest.Transformations;

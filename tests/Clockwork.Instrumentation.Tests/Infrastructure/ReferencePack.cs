@@ -7,7 +7,7 @@ namespace Clockwork.Instrumentation.Tests.Infrastructure;
 /// <summary>
 /// The reference assemblies of the shared framework this project compiles against, read once per test run, with the
 /// helpers that name their members the way a call site and a rule target do. Cecil reads metadata lazily and is not
-/// thread-safe, so every test class that reads <see cref="Shared"/> belongs to <see cref="ReferencePackTests"/>.
+/// thread-safe, so every test class that reads <see cref="Shared"/> belongs to <see cref="ReferencePackGroup"/>.
 /// </summary>
 internal sealed class ReferencePack
 {
@@ -16,22 +16,22 @@ internal sealed class ReferencePack
     private ReferencePack(string directory)
     {
         Directory = directory;
-        Resolver = new DefaultAssemblyResolver();
-        Resolver.AddSearchDirectory(directory);
+        var resolver = new DefaultAssemblyResolver();
+        resolver.AddSearchDirectory(directory);
 
-        var modules = ImmutableArray.CreateBuilder<ModuleDefinition>();
+        var fileNames = ImmutableArray.CreateBuilder<string>();
         var types = new Dictionary<string, TypeDefinition>(StringComparer.Ordinal);
         foreach (string path in System.IO.Directory.GetFiles(directory, "*.dll").Order(StringComparer.Ordinal))
         {
-            ModuleDefinition module = ModuleDefinition.ReadModule(path, new ReaderParameters { AssemblyResolver = Resolver, InMemory = true });
-            modules.Add(module);
+            ModuleDefinition module = ModuleDefinition.ReadModule(path, new ReaderParameters { AssemblyResolver = resolver, InMemory = true });
+            fileNames.Add(Path.GetFileName(path));
             foreach (TypeDefinition type in module.GetTypes().Where(IsVisible))
             {
                 types.TryAdd(type.FullName, type);
             }
         }
 
-        Modules = modules.ToImmutable();
+        AssemblyFileNames = fileNames.ToImmutable();
         Types = types;
     }
 
@@ -41,17 +41,11 @@ internal sealed class ReferencePack
     /// <summary>Gets the directory of the reference assemblies.</summary>
     public string Directory { get; }
 
-    /// <summary>Gets the resolver that resolves references between the reference assemblies.</summary>
-    public DefaultAssemblyResolver Resolver { get; }
-
-    /// <summary>Gets every reference assembly's module, ordered by file name.</summary>
-    public ImmutableArray<ModuleDefinition> Modules { get; }
+    /// <summary>Gets the file names of the reference assemblies, in ordinal order.</summary>
+    public ImmutableArray<string> AssemblyFileNames { get; }
 
     /// <summary>Gets the public and protected types, keyed by Cecil full name.</summary>
     public IReadOnlyDictionary<string, TypeDefinition> Types { get; }
-
-    /// <summary>Gets the file names of the reference assemblies, in ordinal order.</summary>
-    public IEnumerable<string> AssemblyFileNames => Modules.Select(module => Path.GetFileName(module.FileName));
 
     /// <summary>Gets the public and protected methods and fields <paramref name="type"/> declares.</summary>
     public static IEnumerable<IMemberDefinition> VisibleMembers(TypeDefinition type) =>
@@ -67,8 +61,12 @@ internal sealed class ReferencePack
             method.Name
             + (method.HasGenericParameters ? "``" + method.GenericParameters.Count : string.Empty)
             + "(" + string.Join(",", method.Parameters.Select(parameter => CallSiteName(parameter.ParameterType))) + ")",
-        _ => member.Name,
+        FieldDefinition field => field.Name,
+        _ => throw new ArgumentException($"'{member.FullName}' is neither a method nor a field.", nameof(member)),
     };
+
+    /// <summary>Names a member qualified by its declaring type: <c>DeclaringType::MemberKey</c>.</summary>
+    public static string QualifiedKey(IMemberDefinition member) => member.DeclaringType.FullName + "::" + MemberKey(member);
 
     /// <summary>
     /// Returns the full name a call site's member reference gives <paramref name="type"/>, which is what rule targets
@@ -76,10 +74,25 @@ internal sealed class ReferencePack
     /// </summary>
     public static string CallSiteName(TypeReference type) => CallSiteType(type).FullName;
 
-    /// <summary>Returns a reference to <paramref name="method"/> shaped as a call site names it.</summary>
+    /// <summary>
+    /// Returns a reference to <paramref name="method"/> shaped as a call site names it: a generic declaring type is
+    /// instantiated over its own positional parameters, and parameter types name generic parameters positionally.
+    /// </summary>
     public static MethodReference CallSite(MethodDefinition method)
     {
-        var reference = new MethodReference(method.Name, method.ReturnType, method.DeclaringType) { HasThis = method.HasThis };
+        TypeReference declaringType = method.DeclaringType;
+        if (declaringType.HasGenericParameters)
+        {
+            var instance = new GenericInstanceType(declaringType);
+            foreach (GenericParameter parameter in declaringType.GenericParameters)
+            {
+                instance.GenericArguments.Add(CallSiteType(parameter));
+            }
+
+            declaringType = instance;
+        }
+
+        var reference = new MethodReference(method.Name, method.ReturnType, declaringType) { HasThis = method.HasThis };
         foreach (ParameterDefinition parameter in method.Parameters)
         {
             reference.Parameters.Add(new ParameterDefinition(CallSiteType(parameter.ParameterType)));
@@ -104,13 +117,16 @@ internal sealed class ReferencePack
             case GenericParameter parameter:
                 return new GenericParameter((parameter.Type == GenericParameterType.Method ? "!!" : "!") + parameter.Position, parameter.Owner);
             case GenericInstanceType generic:
-                var instance = new GenericInstanceType(generic.ElementType);
-                foreach (TypeReference argument in generic.GenericArguments)
                 {
-                    instance.GenericArguments.Add(CallSiteType(argument));
+                    var instance = new GenericInstanceType(generic.ElementType);
+                    foreach (TypeReference argument in generic.GenericArguments)
+                    {
+                        instance.GenericArguments.Add(CallSiteType(argument));
+                    }
+
+                    return instance;
                 }
 
-                return instance;
             case ByReferenceType byReference:
                 return new ByReferenceType(CallSiteType(byReference.ElementType));
             case PointerType pointer:
@@ -139,7 +155,7 @@ internal sealed class ReferencePack
 
 /// <summary>Runs the test classes that read <see cref="ReferencePack.Shared"/> one at a time.</summary>
 [CollectionDefinition(Name)]
-public sealed class ReferencePackTests
+public sealed class ReferencePackGroup
 {
     /// <summary>The collection name.</summary>
     public const string Name = "Reference pack";

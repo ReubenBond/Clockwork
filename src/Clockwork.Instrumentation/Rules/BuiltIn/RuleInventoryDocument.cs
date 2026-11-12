@@ -68,12 +68,14 @@ public static class RuleInventoryDocument
 
         RenderUnrewrittenMembers(sb);
 
-        Line("## Documented holes (not rewritten in these rule sets)");
+        Line("# Documented holes (not rewritten in these rule sets)");
         Line();
         Line("These nondeterministic or entropy-drawing surfaces are intentionally **not** covered and");
         Line("remain real BCL calls even under simulation:");
         Line();
-        Line("- Every member listed above with the `CultureOrTimeZone`, `HostState`, `RealClock`, `ProcessWideId`, `CurrentThread`, `IdentityHandle`, `Blocks`, or `Schedules` reason.");
+        string[] holeReasons = [.. Enum.GetValues<UnrewrittenReason>().Where(IsDocumentedHole).Select(reason => Code(reason.ToString()))];
+        Line($"- Every member listed above with the {string.Join(", ", holeReasons[..^1])}, or {holeReasons[^1]} reason.");
+        Line("- A delegate created from a member, such as `Func<bool> responds = process.CloseMainWindow`, calls the BCL member: the rules rewrite `call`, `callvirt`, and `newobj` sites, and a delegate is created with `ldftn` or `ldvirtftn`.");
         Line("- Blocking `ValueTask<T>.Result` reads: the accessor is not rewritten, so it would block the logical thread on an incomplete value task. `await`, or `GetAwaiter().GetResult()` through the controlled awaiter (which pumps until the value task completes), is the supported controlled path.");
         Line("- Continuations registered by uninstrumented code (an assembly excluded from rewriting, or the framework itself) follow the BCL's dispatch, so a source which runs its continuations asynchronously runs them on the thread pool.");
         Line("- Named/cross-process synchronization (named `EventWaitHandle`/`Mutex`/`Semaphore` and their `OpenExisting`/`TryOpenExisting` APIs): a single-process simulation cannot model kernel-object sharing, so these are rejected.");
@@ -95,10 +97,10 @@ public static class RuleInventoryDocument
 
         Line($"# {title}");
         Line();
-        Line($"Rule set id: `{id}`");
-        Line($"Version: `{version}`");
-        Line($"Supported runtime: `{BuiltInRuleSets.SupportedRuntime}`");
-        Line($"Shim assembly: `{BuiltInRuleSets.ShimAssemblyName}`");
+        Line($"Rule set id: {Code(id)}");
+        Line($"Version: {Code(version)}");
+        Line($"Supported runtime: {Code(BuiltInRuleSets.SupportedRuntime.ToString())}");
+        Line($"Shim assembly: {Code(BuiltInRuleSets.ShimAssemblyName)}");
         Line();
 
         foreach (BuiltInRuleFamily family in BuiltInRuleSets.AllFamilies)
@@ -121,7 +123,7 @@ public static class RuleInventoryDocument
                 string target = rule.Operation == RewriteOperationKind.RedirectNewObj
                     ? "new " + rule.Target.DeclaringTypeFullName + ParamSuffix(rule.Target.ParameterTypeFullNames)
                     : Display(rule.Target);
-                Line($"| `{rule.Id}` | `{target}` | `{Display(rule.Replacement)}` | {rule.Policy} |");
+                Line($"| {Code(rule.Id)} | {Code(target)} | {Code(Display(rule.Replacement))} | {rule.Policy} |");
             }
 
             Line();
@@ -142,31 +144,46 @@ public static class RuleInventoryDocument
             "above, or is listed below with the reason a call to it stays a BCL call. A type is targeted when a rule " +
             "names or substitutes it, or when a member's signature mentions a class, struct, or interface of " +
             "`System.Diagnostics.Process.dll`. A test classifies each targeted type against the reference assemblies of " +
-            "the supported runtime, so a member a new runtime adds fails that test until it is classified, and another " +
-            "test fails when the reference pack gains or loses an assembly.");
+            "the supported runtime, so a member a new runtime adds fails that test until it is classified. Snapshots of " +
+            "the reference pack's assemblies and of the public types in the namespaces of the targeted types fail when a " +
+            "runtime adds or removes one.");
         Line();
-        Line("| Reason | Behavior |");
-        Line("| --- | --- |");
+        Line("| Reason | Behavior | Documented hole |");
+        Line("| --- | --- | --- |");
         foreach (UnrewrittenReason reason in Enum.GetValues<UnrewrittenReason>())
         {
-            Line($"| `{reason}` | {DescribeReason(reason)} |");
+            Line($"| {Code(reason.ToString())} | {DescribeReason(reason)} | {(IsDocumentedHole(reason) ? "Yes" : "No")} |");
         }
 
         Line();
-        foreach (IGrouping<string, UnrewrittenMember> type in UnrewrittenMembers.All
+        foreach (IGrouping<string, UnrewrittenMember> typeMembers in UnrewrittenMembers.All
             .GroupBy(member => member.DeclaringTypeFullName)
             .OrderBy(group => group.Key, StringComparer.Ordinal))
         {
-            Line($"## `{type.Key}`");
+            Line($"## {Code(typeMembers.Key)}");
             Line();
-            foreach (IGrouping<UnrewrittenReason, UnrewrittenMember> reason in type.GroupBy(member => member.Reason).OrderBy(group => group.Key))
+            foreach (IGrouping<UnrewrittenReason, UnrewrittenMember> reasonMembers in typeMembers
+                .GroupBy(member => member.Reason)
+                .OrderBy(group => group.Key))
             {
-                Line($"- `{reason.Key}`: " + string.Join(", ", reason.Select(member => "`" + member.Member + "`")));
+                Line($"- {Code(reasonMembers.Key.ToString())}: " + string.Join(", ", reasonMembers.Select(member => Code(member.MemberKey))));
             }
 
             Line();
         }
     }
+
+    // A documented hole is a member whose BCL behavior can differ between runs or hosts, or escape the coordinator.
+    private static bool IsDocumentedHole(UnrewrittenReason reason) => reason switch
+    {
+        UnrewrittenReason.Value or UnrewrittenReason.Dispatch or UnrewrittenReason.Fence or UnrewrittenReason.RuntimeAsync
+            or UnrewrittenReason.AlwaysThrows or UnrewrittenReason.SubstitutedTypeProtected => false,
+        UnrewrittenReason.CultureOrTimeZone or UnrewrittenReason.HostState or UnrewrittenReason.Process
+            or UnrewrittenReason.RealClock or UnrewrittenReason.ProcessWideId or UnrewrittenReason.CurrentThread
+            or UnrewrittenReason.IdentityHandle or UnrewrittenReason.ConstructorCall or UnrewrittenReason.Blocks
+            or UnrewrittenReason.Schedules => true,
+        _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, null),
+    };
 
     private static string DescribeReason(UnrewrittenReason reason) => reason switch
     {
@@ -176,17 +193,18 @@ public static class RuleInventoryDocument
             "Uses or sets the current culture, or converts local time with the host's time zone, so its result follows " +
             "the host's configuration.",
         UnrewrittenReason.HostState =>
-            "Reads or changes state of the host process or machine (environment variables, paths, identity, and " +
-            "processor, memory, and thread-pool statistics), so a simulation observes the host's values.",
+            "Reads or changes state of the host process or machine (environment variables, paths, identity, privileges, " +
+            "and processor, memory, and thread-pool statistics), so a simulation observes the host's values.",
         UnrewrittenReason.Process =>
-            "Looks up, configures, reads, or releases an OS process or its handle. The members that start, signal, wait " +
-            "on, reschedule, or terminate a process are rejected (`UncontrolledInvocation` family).",
+            "Looks up, configures, reads, or releases an OS process or its handle, so a simulation observes the live " +
+            "process. The members that start, signal, wait on, reschedule, or terminate a process are rejected " +
+            "(`UncontrolledInvocation` family).",
         UnrewrittenReason.Dispatch =>
             "Runs on the receiver. `new Random()`, `Random.Shared`, `RandomNumberGenerator.Create`, and " +
             "`TimeProvider.System` return instances that draw from the simulation's seeded streams and virtual clock.",
         UnrewrittenReason.RealClock =>
-            "Reads the host's monotonic clock: a documented hole. `Stopwatch.GetTimestamp()` and " +
-            "`Stopwatch.GetElapsedTime(long)` are controlled.",
+            "Reads the host's monotonic clock. `Stopwatch.GetTimestamp()` and `Stopwatch.GetElapsedTime(long)` are " +
+            "controlled.",
         UnrewrittenReason.ProcessWideId =>
             "Returns an identifier drawn from a process-wide counter, so its value depends on the tasks and threads the " +
             "process created before.",
@@ -196,16 +214,20 @@ public static class RuleInventoryDocument
             "`ExecutionContext` as in the BCL.",
         UnrewrittenReason.IdentityHandle =>
             "Reads the BCL `Thread` object that a controlled thread keeps as its identity. That object never runs, so a " +
-            "controlled thread reports itself unstarted: a documented hole.",
+            "controlled thread reports itself unstarted.",
+        UnrewrittenReason.ConstructorCall =>
+            "A rule rewrites `new` of the type, but a constructor `call` to this one (a derived type's constructor " +
+            "chaining to it, or a value type constructed in place) runs the BCL constructor, so the instance keeps BCL " +
+            "state, such as an unseeded generator, a real timer, or a named kernel object.",
         UnrewrittenReason.Fence =>
             "Performs one memory access or fence, which the cooperative scheduler runs as an indivisible step. Race " +
             "exploration does not track it.",
         UnrewrittenReason.Blocks =>
-            "Blocks the calling physical thread as in the BCL, which stalls the simulation until it returns: a documented " +
-            "hole. Use `await` or a controlled overload.",
+            "Blocks the calling physical thread as in the BCL, which stalls the simulation until it returns. Use `await` " +
+            "or a controlled overload.",
         UnrewrittenReason.Schedules =>
             "Runs its work through a BCL task scheduler, the thread pool, or a new physical thread rather than the " +
-            "simulation's coordinator: a documented hole.",
+            "simulation's coordinator.",
         UnrewrittenReason.RuntimeAsync =>
             "Runtime-async intrinsic, which suspends its caller through the runtime's own continuation machinery. " +
             "Rewriting a method compiled with runtime async fails with `CWR0013`.",
@@ -217,6 +239,27 @@ public static class RuleInventoryDocument
             "a substituted type fails.",
         _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, null),
     };
+
+    // A Markdown code span whose delimiter is longer than any backtick run in the text, as Cecil names carry backticks
+    // (Task`1, GetItems``1).
+    private static string Code(string text)
+    {
+        int longestRun = 0;
+        int run = 0;
+        foreach (char c in text)
+        {
+            run = c == '`' ? run + 1 : 0;
+            longestRun = Math.Max(longestRun, run);
+        }
+
+        if (longestRun == 0)
+        {
+            return "`" + text + "`";
+        }
+
+        string fence = new('`', longestRun + 1);
+        return fence + " " + text + " " + fence;
+    }
 
     private static string DescribeFamily(BuiltInRuleFamily family) => family switch
     {
@@ -381,7 +424,7 @@ public static class RuleInventoryDocument
             "`RunAndCaptureTextAsync`/`StartAndForget`, the `Start` instance/`Kill`/`Signal` members, the " +
             "`WaitForExit`/`WaitForExitAsync`/`WaitForExitStatus`/`TryWaitForExitStatus`/`WaitForExitStatusAsync` " +
             "waits, the `ReadAllBytes`/`ReadAllText`/`ReadAllLines` reads (and their async forms) that wait for the " +
-            "process to close its output, the `WaitForInputIdle` waits, `CloseMainWindow`, the `EnableRaisingEvents` " +
+            "process to close its output, the `WaitForInputIdle` waits, the `Responding` getter, `CloseMainWindow`, the `EnableRaisingEvents` " +
             "setter and `BeginOutputReadLine`/`BeginErrorReadLine` (which raise events on threads of the BCL's choosing as " +
             "the process exits or writes), the `Process` priority, processor-affinity, and working-set setters and the " +
             "`ProcessThread` scheduling setters, the `SafeProcessHandle` `Start`/`Signal`/`Resume`/`Kill` and wait members, the " +

@@ -197,6 +197,9 @@ public sealed class ControlledThreadTests
                 () => ControlledThread.SetApartmentState(thread, ApartmentState.STA));
             Assert.Throws<SimulationApiException>(
                 () => ControlledThread.TrySetApartmentState(thread, ApartmentState.STA));
+            var property = Assert.Throws<SimulationApiException>(
+                () => ControlledThread.SetApartmentStateProperty(thread, ApartmentState.STA));
+            Assert.Contains("set_ApartmentState", property.Message, StringComparison.Ordinal);
         });
     }
 

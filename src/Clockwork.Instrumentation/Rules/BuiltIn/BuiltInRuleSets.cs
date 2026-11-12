@@ -997,9 +997,9 @@ public static class BuiltInRuleSets
         RejectedRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.setapartmentstate",
             MemberSignature.Method(ThreadType, "SetApartmentState", ApartmentState), Shim(ThreadShim, "SetApartmentState", ThreadType, ApartmentState));
 
-        // The obsolete ApartmentState property setter sets the apartment state as SetApartmentState does.
+        // The obsolete ApartmentState property setter tries to set the apartment state, as TrySetApartmentState does.
         RejectedRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.set_apartmentstate",
-            MemberSignature.Method(ThreadType, "set_ApartmentState", ApartmentState), Shim(ThreadShim, "SetApartmentState", ThreadType, ApartmentState));
+            MemberSignature.Method(ThreadType, "set_ApartmentState", ApartmentState), Shim(ThreadShim, "SetApartmentStateProperty", ThreadType, ApartmentState));
         RejectedRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.trysetapartmentstate",
             MemberSignature.Method(ThreadType, "TrySetApartmentState", ApartmentState), Shim(ThreadShim, "TrySetApartmentState", ThreadType, ApartmentState));
 
@@ -1185,11 +1185,13 @@ public static class BuiltInRuleSets
         UncontrolledRejection(builder, "clockwork.process.readalllines", ProcessType, "ReadAllLines", NullableTimeSpanType);
         UncontrolledRejection(builder, "clockwork.process.readalllinesasync", ProcessType, "ReadAllLinesAsync", CancellationTokenType);
 
-        // Waiting for a process to go idle or close its main window waits on and signals a real process; the event-based
-        // exit and output notifications raise their events on threads of the BCL's choosing as the process exits or writes.
+        // Waiting for a process to go idle, asking it whether it responds, or closing its main window waits on and signals
+        // a real process; the event-based exit and output notifications raise their events on threads of the BCL's
+        // choosing as the process exits or writes.
         UncontrolledRejection(builder, "clockwork.process.waitforinputidle", ProcessType, "WaitForInputIdle");
         UncontrolledRejection(builder, "clockwork.process.waitforinputidle.milliseconds", ProcessType, "WaitForInputIdle", Int32);
         UncontrolledRejection(builder, "clockwork.process.waitforinputidle.timespan", ProcessType, "WaitForInputIdle", TimeSpanType);
+        UncontrolledRejection(builder, "clockwork.process.get_responding", ProcessType, "get_Responding");
         UncontrolledRejection(builder, "clockwork.process.closemainwindow", ProcessType, "CloseMainWindow");
         UncontrolledRejection(builder, "clockwork.process.set_enableraisingevents", ProcessType, "set_EnableRaisingEvents", Boolean);
         UncontrolledRejection(builder, "clockwork.process.beginoutputreadline", ProcessType, "BeginOutputReadLine");
