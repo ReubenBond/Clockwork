@@ -37,8 +37,6 @@ internal abstract class RewritePass
     /// <summary>Gets the module currently being visited.</summary>
     protected ModuleDefinition? Module { get; private set; }
 
-    /// <summary>Gets the type currently being visited.</summary>
-    protected TypeDefinition? TypeDef { get; private set; }
 
     /// <summary>Gets the method currently being visited.</summary>
     protected MethodDefinition? Method { get; private set; }
@@ -53,7 +51,6 @@ internal abstract class RewritePass
     internal virtual void VisitModule(ModuleDefinition module)
     {
         Module = module;
-        TypeDef = null;
         Method = null;
         Processor = null;
     }
@@ -61,7 +58,6 @@ internal abstract class RewritePass
     /// <summary>Visits a type before its members are visited.</summary>
     internal virtual void VisitType(TypeDefinition type)
     {
-        TypeDef = type;
         Method = null;
         Processor = null;
     }

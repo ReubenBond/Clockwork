@@ -69,7 +69,39 @@ public sealed record InstrumentationConfiguration
     /// </summary>
     public Version? TargetRuntime { get; init; }
 
+    /// <summary>
+    /// Gets where <see cref="TargetRuntime"/> came from, such as the configuration file or <c>ClockworkTargetRuntime</c>,
+    /// or <see langword="null"/> when it was set directly.
+    /// </summary>
+    public string? TargetRuntimeOrigin { get; internal init; }
+
     internal string? SourcePath { get; init; }
+
+    /// <summary>
+    /// Returns this configuration with a target runtime from an explicit setting, such as an MSBuild property or a
+    /// command-line option. A target runtime the configuration already names must agree, so neither silently loses.
+    /// </summary>
+    /// <param name="targetRuntime">The explicitly set target runtime, or <see langword="null"/> if it is not set.</param>
+    /// <param name="origin">The setting's name, for diagnostics.</param>
+    /// <returns>The configuration with the target runtime.</returns>
+    /// <exception cref="ConfigurationException">The configuration names a different target runtime.</exception>
+    public InstrumentationConfiguration WithTargetRuntime(Version? targetRuntime, string origin)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(origin);
+        if (targetRuntime is null || targetRuntime == TargetRuntime)
+        {
+            return this;
+        }
+
+        if (TargetRuntime is not null)
+        {
+            throw new ConfigurationException(
+                $"{origin} names target runtime {targetRuntime}, but {TargetRuntimeOrigin ?? "the configuration"} names " +
+                $"{TargetRuntime}. Set the target runtime in one place.");
+        }
+
+        return this with { TargetRuntime = targetRuntime, TargetRuntimeOrigin = origin };
+    }
 
     /// <summary>
     /// Computes a stable SHA-256 signature over every field that affects the rewritten output. Used

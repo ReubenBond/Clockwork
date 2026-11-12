@@ -5,21 +5,46 @@ namespace Clockwork.Instrumentation.Rules;
 
 /// <summary>
 /// How a rule set's rules support one target runtime. A rule set supports a target when every rule supports it or has
-/// an alternative: a rule with the same target that supports it, as when a rule set carries one rule per runtime for an
-/// API. Rewriting requires that support, so no call site can match only a rule classified for another runtime.
+/// alternatives that do: rules with the same target which together rewrite every kind of site it rewrites, as when a
+/// rule set carries one rule per runtime for an API. A rule for an API the target does not have supports the target
+/// trivially, since no call site can name it. Rewriting requires that support, so every site a rule matches is
+/// rewritten by a rule classified for the target.
 /// </summary>
-/// <param name="TargetRuntime">The target runtime's feature version.</param>
-/// <param name="SupportedRuntimes">
-/// The runtimes every rule that supports <paramref name="TargetRuntime"/> also supports: the range recorded on each
-/// rewritten assembly and checked when a simulation starts.
-/// </param>
-/// <param name="UnsupportedRules">The rules that neither support the target nor have an alternative that does.</param>
-public sealed record RuleSetRuntimeSupport(
-    Version TargetRuntime,
-    RuntimeVersionRange SupportedRuntimes,
-    ImmutableArray<RewriteRule> UnsupportedRules)
+public sealed class RuleSetRuntimeSupport
 {
     private const int ExampleRuleCount = 3;
+
+    private RuleSetRuntimeSupport(
+        RewriteRuleSet ruleSet,
+        Version targetRuntime,
+        RuntimeVersionRange supportedRuntimes,
+        ImmutableArray<RewriteRule> supportedRules,
+        ImmutableArray<RewriteRule> unsupportedRules)
+    {
+        RuleSet = ruleSet;
+        TargetRuntime = targetRuntime;
+        SupportedRuntimes = supportedRuntimes;
+        SupportedRules = supportedRules;
+        UnsupportedRules = unsupportedRules;
+    }
+
+    /// <summary>Gets the evaluated rule set.</summary>
+    public RewriteRuleSet RuleSet { get; }
+
+    /// <summary>Gets the target runtime's feature version.</summary>
+    public Version TargetRuntime { get; }
+
+    /// <summary>
+    /// Gets the runtimes every rule in <see cref="SupportedRules"/> supports: the range recorded on each rewritten
+    /// assembly and checked when a simulation runs it.
+    /// </summary>
+    public RuntimeVersionRange SupportedRuntimes { get; }
+
+    /// <summary>Gets the rules that support <see cref="TargetRuntime"/>, in rule-set order: the rules a rewrite applies.</summary>
+    public ImmutableArray<RewriteRule> SupportedRules { get; }
+
+    /// <summary>Gets the rules that neither support the target nor have alternatives that do.</summary>
+    public ImmutableArray<RewriteRule> UnsupportedRules { get; }
 
     /// <summary>Gets a value indicating whether the rule set supports <see cref="TargetRuntime"/>.</summary>
     public bool IsSupported => UnsupportedRules.IsEmpty;
@@ -41,7 +66,8 @@ public sealed record RuleSetRuntimeSupport(
                 $"Target runtime '{targetRuntime}' is not a feature version (major.minor).", nameof(targetRuntime));
         }
 
-        var supportedTargets = new HashSet<string>(StringComparer.Ordinal);
+        var supportedSites = new Dictionary<string, RewriteSites>(StringComparer.Ordinal);
+        var supportedRules = ImmutableArray.CreateBuilder<RewriteRule>();
         RuntimeVersionRange supportedRuntimes = RuntimeVersionRange.All;
         foreach (RewriteRule rule in ruleSet.Rules)
         {
@@ -55,31 +81,37 @@ public sealed record RuleSetRuntimeSupport(
 
             if (rule.SupportedRuntimes.Includes(targetRuntime))
             {
-                supportedTargets.Add(rule.Target.ToCanonicalString());
+                string target = rule.Target.ToCanonicalString();
+                supportedSites[target] = supportedSites.GetValueOrDefault(target) | rule.Sites;
+                supportedRules.Add(rule);
                 supportedRuntimes = supportedRuntimes.Intersect(rule.SupportedRuntimes);
             }
         }
 
-        ImmutableArray<RewriteRule> unsupported =
+        ImmutableArray<RewriteRule> unsupportedRules =
         [
             .. ruleSet.Rules.Where(rule =>
                 !rule.SupportedRuntimes.Includes(targetRuntime)
-                && !supportedTargets.Contains(rule.Target.ToCanonicalString())),
+                && (rule.Sites & ~supportedSites.GetValueOrDefault(rule.Target.ToCanonicalString())) != RewriteSites.None),
         ];
-        return new RuleSetRuntimeSupport(targetRuntime, supportedRuntimes, unsupported);
+        return new RuleSetRuntimeSupport(
+            ruleSet,
+            targetRuntime,
+            supportedRuntimes,
+            supportedRules.ToImmutable(),
+            unsupportedRules);
     }
 
     /// <summary>Creates the error reporting that the rule set does not support the target runtime.</summary>
-    /// <param name="ruleSet">The evaluated rule set.</param>
-    /// <param name="targetRuntimeOrigin">Where the target runtime came from, such as <c>configured</c>.</param>
+    /// <param name="targetRuntimeOrigin">Where the target runtime came from, such as <c>ClockworkTargetRuntime</c>.</param>
     /// <returns>The <see cref="RewriteDiagnosticIds.RuntimeOutOfRange"/> error.</returns>
-    public RewriteDiagnostic ToDiagnostic(RewriteRuleSet ruleSet, string targetRuntimeOrigin)
+    /// <exception cref="InvalidOperationException">The rule set supports the target runtime.</exception>
+    public RewriteDiagnostic ToDiagnostic(string targetRuntimeOrigin)
     {
-        ArgumentNullException.ThrowIfNull(ruleSet);
         ArgumentException.ThrowIfNullOrEmpty(targetRuntimeOrigin);
         if (IsSupported)
         {
-            throw new InvalidOperationException($"Rule set '{ruleSet.Id}' supports target runtime {TargetRuntime}.");
+            throw new InvalidOperationException($"Rule set '{RuleSet.Id}' supports target runtime {TargetRuntime}.");
         }
 
         string ranges = string.Join(
@@ -93,7 +125,7 @@ public sealed record RuleSetRuntimeSupport(
         return RewriteDiagnostic.Error(
             RewriteDiagnosticIds.RuntimeOutOfRange,
             $"Target runtime {TargetRuntime} ({targetRuntimeOrigin}) is outside the runtimes {UnsupportedRules.Length} of " +
-            $"the {ruleSet.Rules.Length} rules in rule set '{ruleSet.Id}' v{ruleSet.Version} support: {ranges}; for " +
+            $"the {RuleSet.Rules.Length} rules in rule set '{RuleSet.Id}' v{RuleSet.Version} support: {ranges}; for " +
             $"example {examples}. Instrument for a runtime the rules support, or select rules classified for " +
             $"{TargetRuntime}. Nothing was rewritten.");
     }

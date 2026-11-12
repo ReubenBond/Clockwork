@@ -958,30 +958,47 @@ public sealed class InstrumentationRunnerTests : IDisposable
     }
 
     [Fact]
-    public void TargetRuntimeIsDerivedFromTheEntryRuntimeConfig()
+    public void TargetRuntimeIsDerivedFromTheEntryRuntimeConfigAndRecordedOnRewrittenAssemblies()
     {
         BuildMinimalApp();
+        File.WriteAllText(
+            Path.Combine(_source, "app.runtimeconfig.json"),
+            """{ "runtimeOptions": { "framework": { "name": "Microsoft.NETCore.App", "version": "10.0.4" } } }""");
+        var net10 = new Version(10, 0);
 
-        InstrumentationResult result = Run(new InstrumentationConfiguration(), EmptyRuleSet());
+        InstrumentationResult result = Run(new InstrumentationConfiguration(), RuleSetFor(net10));
 
         Assert.True(result.Succeeded, string.Join("\n", result.Errors));
-        Assert.Equal(new Version(Environment.Version.Major, Environment.Version.Minor), result.TargetRuntime);
+        Assert.Equal(net10, result.TargetRuntime);
+        Assert.Equal("from 'app.runtimeconfig.json'", result.TargetRuntimeOrigin);
+        using AssemblyDefinition staged = AssemblyDefinition.ReadAssembly(Path.Combine(_staging, "app.dll"));
+        Assert.Contains(
+            staged.CustomAttributes,
+            attribute => attribute.AttributeType.Name == nameof(System.Reflection.AssemblyMetadataAttribute)
+                && (string)attribute.ConstructorArguments[0].Value == "Clockwork.SupportedRuntimes"
+                && (string)attribute.ConstructorArguments[1].Value == "[10.0,10.0]");
     }
 
     [Fact]
     public void RuleSetThatDoesNotSupportTheTargetRuntimeFailsOnceBeforeStaging()
     {
         BuildStandardClosure();
+        RewriteRuleSet ruleSet = RuleSetFor(new Version(Environment.Version.Major, Environment.Version.Minor));
+        Run(new InstrumentationConfiguration(), ruleSet).EnsureSuccess();
+        string[] staged = [.. EnumerateStagedPaths()];
 
-        InstrumentationResult result = Run(
-            new InstrumentationConfiguration { TargetRuntime = new Version(12, 0) },
-            BuiltInRuleSets.BuildControlledTasks(BuiltInRuleSets.AllFamilies));
+        InstrumentationResult unsupported = Run(new InstrumentationConfiguration { TargetRuntime = new Version(12, 0) }, ruleSet);
+        bool cacheAfterFailure = File.Exists(CachePath());
+        string[] stagedAfterFailure = [.. EnumerateStagedPaths()];
+        InstrumentationResult rerun = Run(new InstrumentationConfiguration(), ruleSet);
 
-        Assert.False(result.Succeeded);
-        Assert.Equal(RewriteDiagnosticIds.RuntimeOutOfRange, Assert.Single(result.Errors).Id);
-        Assert.Empty(result.Assemblies);
-        Assert.False(Directory.Exists(_staging));
-        Assert.False(File.Exists(CachePath()));
+        Assert.False(unsupported.Succeeded);
+        Assert.Equal(RewriteDiagnosticIds.RuntimeOutOfRange, Assert.Single(unsupported.Errors).Id);
+        Assert.Empty(unsupported.Assemblies);
+        Assert.False(cacheAfterFailure);
+        Assert.Equal(staged, stagedAfterFailure);
+        Assert.True(rerun.Succeeded, string.Join("\n", rerun.Errors));
+        Assert.False(rerun.WasIncrementalHit);
     }
 
     [Fact]
@@ -1517,6 +1534,20 @@ public sealed class InstrumentationRunnerTests : IDisposable
     }
 
     private static RewriteRuleSet EmptyRuleSet() => new("clockwork.test", "1.0", []);
+
+    // A rule for an API the closure never calls, classified for one runtime.
+    private static RewriteRuleSet RuleSetFor(Version runtime) => new(
+        "clockwork.test",
+        "1.0",
+        [
+            RewriteRule.RedirectCall(
+                "unused",
+                MemberSignature.Method("System.DateTime", "get_Now"),
+                RewriteReplacement.Method("Shims", "Shims.Clock", "Now")) with
+            {
+                SupportedRuntimes = new RuntimeVersionRange(runtime, runtime),
+            },
+        ]);
 
     private IEnumerable<string> EnumerateStagedPaths() =>
         Directory.EnumerateFiles(_staging, "*", SearchOption.AllDirectories)

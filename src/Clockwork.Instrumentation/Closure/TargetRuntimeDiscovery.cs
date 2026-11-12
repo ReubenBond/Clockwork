@@ -32,7 +32,7 @@ public static class TargetRuntimeDiscovery
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(plan);
         return configuration.TargetRuntime is { } configured
-            ? (configured, "configured")
+            ? (configured, configuration.TargetRuntimeOrigin ?? "configured")
             : FromRuntimeConfig(plan);
     }
 
@@ -53,15 +53,17 @@ public static class TargetRuntimeDiscovery
         JsonDocument document;
         try
         {
-            document = JsonDocument.Parse(File.ReadAllBytes(path), RuntimeConfigJsonOptions);
+            // Parsing the stream skips a UTF-8 byte order mark, which the host accepts.
+            using FileStream stream = File.OpenRead(path);
+            document = JsonDocument.Parse(stream, RuntimeConfigJsonOptions);
         }
         catch (JsonException exception)
         {
-            throw CannotDerive($"'{relative}' is not valid JSON: {exception.Message}");
+            throw CannotDerive($"'{relative}' is not valid JSON: {exception.Message}", exception);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            throw CannotDerive($"'{relative}' is unreadable: {exception.Message}");
+            throw CannotDerive($"'{relative}' is unreadable: {exception.Message}", exception);
         }
 
         using (document)
@@ -74,7 +76,7 @@ public static class TargetRuntimeDiscovery
                     continue;
                 }
 
-                return TryParseFeatureVersion(text, out Version? version)
+                return TryGetFeatureVersion(text, out Version? version)
                     ? (version, $"from '{relative}'")
                     : throw CannotDerive($"'{relative}' references {name} version '{text}', which is not a .NET version");
             }
@@ -130,7 +132,7 @@ public static class TargetRuntimeDiscovery
 
     // A framework version is a full runtime version, possibly prerelease (11.0.0-rc.2.26504.105); rules are classified
     // against its feature version.
-    private static bool TryParseFeatureVersion(string? text, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out Version? version)
+    private static bool TryGetFeatureVersion(string? text, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out Version? version)
     {
         version = null;
         if (text is null)
@@ -148,8 +150,13 @@ public static class TargetRuntimeDiscovery
         return true;
     }
 
-    private static ClosureException CannotDerive(string reason) => new(
+    private static ClosureException CannotDerive(string reason) => new(CannotDeriveMessage(reason));
+
+    private static ClosureException CannotDerive(string reason, Exception innerException) =>
+        new(CannotDeriveMessage(reason), innerException);
+
+    private static string CannotDeriveMessage(string reason) =>
         $"Clockwork evaluates rules against a target runtime, which is not configured and cannot be derived: {reason}. " +
         "Set it to a feature version such as 11.0 with the configuration file's 'targetRuntime', the " +
-        "ClockworkTargetRuntime MSBuild property, or the tool's '--target-runtime' option.");
+        "ClockworkTargetRuntime MSBuild property, or the tool's '--target-runtime' option.";
 }

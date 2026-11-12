@@ -129,12 +129,46 @@ public sealed class ResolutionGoldenTests
             diagnostic => diagnostic.Id == RewriteDiagnosticIds.RuntimeOutOfRange);
 
         // The output records the runtimes the in-range rule supports, which a simulation checks when it starts.
-        using ModuleDefinition module = context.LoadModule(outputPath);
-        CustomAttribute marker = Assert.Single(
-            module.Assembly.CustomAttributes,
-            attribute => attribute.AttributeType.FullName == typeof(System.Reflection.AssemblyMetadataAttribute).FullName
-                && (string)attribute.ConstructorArguments[0].Value == "Clockwork.SupportedRuntimes");
-        Assert.Equal($"[{targetRuntime}.0,{targetRuntime}.0]", marker.ConstructorArguments[1].Value);
+        Assert.Equal($"[{targetRuntime}.0,{targetRuntime}.0]", ReadSupportedRuntimes(context, outputPath));
+    }
+
+    [Fact]
+    public void OutputRecordsTheRuntimesEveryRuleThatSupportsTheTargetSupports()
+    {
+        using var context = RewriteTestContext.Create();
+        string fixturePath = context.CompileFixture("Fx.Resolve.Range", Fixture);
+        string outputPath = fixturePath + ".rewritten.dll";
+        RewriteRule clock = RuntimeSpecificRule(11) with
+        {
+            SupportedRuntimes = new RuntimeVersionRange(new Version(10, 0), new Version(12, 0)),
+        };
+        RewriteRule unused = clock with
+        {
+            Id = "unused",
+            Target = MemberSignature.Method("ClockworkFixtures.Api.RealClock", "Unused"),
+            SupportedRuntimes = RuntimeVersionRange.AtLeast(new Version(11, 0)),
+        };
+        var options = new RewriteOptions
+        {
+            ReplacementAssemblyPaths = [context.ShimPath],
+            ReferenceSearchDirectories = [context.Directory],
+            TargetRuntime = new Version(11, 0),
+        };
+
+        context.Rewrite(fixturePath, outputPath, new RewriteRuleSet("clockwork.fixtures.range", "1.0", [clock, unused]), options)
+            .EnsureSuccess();
+
+        Assert.Equal("[11.0,12.0]", ReadSupportedRuntimes(context, outputPath));
+    }
+
+    private static string? ReadSupportedRuntimes(RewriteTestContext context, string assemblyPath)
+    {
+        using ModuleDefinition module = context.LoadModule(assemblyPath);
+        return module.Assembly.CustomAttributes
+            .Where(attribute => attribute.AttributeType.FullName == typeof(System.Reflection.AssemblyMetadataAttribute).FullName
+                && (string)attribute.ConstructorArguments[0].Value == "Clockwork.SupportedRuntimes")
+            .Select(attribute => (string)attribute.ConstructorArguments[1].Value)
+            .SingleOrDefault();
     }
 
     private static RewriteRule RuntimeSpecificRule(int runtime)

@@ -165,9 +165,9 @@ public sealed class ClockworkInstrumentTask : MSBuildTask
                 Mode = ParseEnum<InstrumentationMode>(InstrumentationMode, nameof(InstrumentationMode)),
             };
 
-        // A configuration file's targetRuntime wins, then ClockworkTargetRuntime; without either, the runner derives the
-        // target from the closure's runtimeconfig.json.
-        configuration = configuration with { TargetRuntime = configuration.TargetRuntime ?? ParseTargetRuntime(TargetRuntime) };
+        // ClockworkTargetRuntime must agree with a configuration file's targetRuntime; without either, the runner derives
+        // the target from the closure's runtimeconfig.json.
+        configuration = configuration.WithTargetRuntime(ParseTargetRuntime(TargetRuntime), "ClockworkTargetRuntime");
 
         System.Collections.Immutable.ImmutableArray<string> taskIncludes = ToPatternArray(IncludePatterns);
         if (!taskIncludes.IsDefaultOrEmpty)

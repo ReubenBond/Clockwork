@@ -87,6 +87,49 @@ internal sealed class BuiltInProcessFixture : IDisposable
         }
         """;
 
+    /// <summary>
+    /// An app shaped like an instrumented test project: the entry assembly stays unrewritten, and the rewritten code
+    /// under test runs only behind a delegate inside the simulation, so it loads after the simulation starts. Each
+    /// attempt posts that delegate and then <c>Send</c>s from outside the simulation, which pumps the simulation until
+    /// its own callback runs. It simulates twice and reports each attempt.
+    /// </summary>
+    public const string DelegatedAppSource = """
+        using System;
+        using System.Threading;
+        using Clockwork;
+        using Clockwork.Runtime;
+        using ThirdParty.Sync;
+
+        public static class Program
+        {
+            public static int Main()
+            {
+                for (int attempt = 1; attempt <= 2; attempt++)
+                {
+                    try
+                    {
+                        Simulate();
+                        Console.WriteLine($"attempt {attempt}: ran");
+                    }
+                    catch (UnsupportedRuntimeException exception)
+                    {
+                        Console.WriteLine($"attempt {attempt}: rejected {exception.AssemblyName}");
+                    }
+                }
+
+                return 0;
+            }
+
+            private static void Simulate()
+            {
+                var simulation = new SimulationCluster(seed: 1);
+                SynchronizationContext context = simulation.AddNode("node").Context.SynchronizationContext;
+                context.Post(_ => _ = Probe.Run(), null);
+                context.Send(_ => { }, null);
+            }
+        }
+        """;
+
     private BuiltInProcessFixture(string root, string sourceDirectory, string stagingDirectory)
     {
         Root = root;
@@ -104,7 +147,7 @@ internal sealed class BuiltInProcessFixture : IDisposable
 
     public string StagedAppPath => Path.Combine(StagingDirectory, AppAssemblyName + ".dll");
 
-    public static BuiltInProcessFixture Create(bool optimize)
+    public static BuiltInProcessFixture Create(bool optimize, string appSource = AppSource)
     {
         string root = TestArtifacts.CreateUnique("cwr-builtins-process");
         string source = Path.Combine(root, "source");
@@ -124,7 +167,7 @@ internal sealed class BuiltInProcessFixture : IDisposable
             optimize);
         FixtureCompiler.Compile(
             AppAssemblyName,
-            AppSource,
+            appSource,
             source,
             FixtureSymbols.PortableFile,
             optimize,
@@ -136,14 +179,24 @@ internal sealed class BuiltInProcessFixture : IDisposable
 
     /// <summary>Instruments the app with the built-in rules for the runtime its runtimeconfig.json names.</summary>
     public InstrumentationResult Instrument() =>
-        Instrument(new InstrumentationConfiguration(), BuiltInRuleSets.BuildControlledTasks(BuiltInRuleSets.AllFamilies));
+        Instrument(
+            new InstrumentationConfiguration { IncludePatterns = [AppAssemblyName + ".dll", DependencyAssemblyName + ".dll"] },
+            BuiltInRuleSets.BuildControlledTasks(BuiltInRuleSets.AllFamilies));
 
     /// <summary>Instruments the app with the built-in rules classified for <paramref name="runtime"/> instead.</summary>
-    public InstrumentationResult Instrument(Version runtime)
+    /// <param name="runtime">The runtime the rules are classified for and the target runtime.</param>
+    /// <param name="rewriteApp">Whether the entry assembly is rewritten along with its dependency.</param>
+    public InstrumentationResult Instrument(Version runtime, bool rewriteApp = true)
     {
         RewriteRuleSet builtIn = BuiltInRuleSets.BuildControlledTasks(BuiltInRuleSets.AllFamilies);
         return Instrument(
-            new InstrumentationConfiguration { TargetRuntime = runtime },
+            new InstrumentationConfiguration
+            {
+                TargetRuntime = runtime,
+                IncludePatterns = rewriteApp
+                    ? [AppAssemblyName + ".dll", DependencyAssemblyName + ".dll"]
+                    : [DependencyAssemblyName + ".dll"],
+            },
             new RewriteRuleSet(
                 builtIn.Id,
                 builtIn.Version,
@@ -156,10 +209,7 @@ internal sealed class BuiltInProcessFixture : IDisposable
             SourceDirectory = SourceDirectory,
             StagingDirectory = StagingDirectory,
             EntryAssemblyName = AppAssemblyName,
-            Configuration = configuration with
-            {
-                IncludePatterns = [AppAssemblyName + ".dll", DependencyAssemblyName + ".dll"],
-            },
+            Configuration = configuration,
             RuleSet = ruleSet,
         });
 

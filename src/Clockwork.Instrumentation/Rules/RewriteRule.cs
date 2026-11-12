@@ -38,6 +38,16 @@ public sealed record RewriteRule
     /// <summary>Gets an optional human-readable description of the rule's intent.</summary>
     public string? Description { get; init; }
 
+    /// <summary>Gets the kinds of site the rule rewrites, which the matcher and runtime-support checks share.</summary>
+    internal RewriteSites Sites => Operation switch
+    {
+        RewriteOperationKind.RedirectCall or RewriteOperationKind.WrapAfterCall => RewriteSites.Call,
+        RewriteOperationKind.RedirectNewObj => RewriteSites.NewObj,
+        RewriteOperationKind.InjectRejection => RewriteSites.Call | RewriteSites.NewObj,
+        RewriteOperationKind.SubstituteType => RewriteSites.Type,
+        _ => RewriteSites.None,
+    };
+
     /// <summary>Creates a rule that redirects a <c>call</c>/<c>callvirt</c> to a static replacement method.</summary>
     public static RewriteRule RedirectCall(string id, MemberSignature target, RewriteReplacement replacement,
         SimulationApiPolicy policy = SimulationApiPolicy.Controlled) =>

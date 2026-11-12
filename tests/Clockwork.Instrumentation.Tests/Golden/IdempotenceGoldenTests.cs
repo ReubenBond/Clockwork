@@ -45,6 +45,34 @@ public sealed class IdempotenceGoldenTests
     }
 
     [Fact]
+    public void RewrittenInputWithoutSupportedRuntimesIsNotAVerifiedNoOp()
+    {
+        using var context = RewriteTestContext.Create();
+        string fixturePath = context.CompileFixture("Fx.IdemRuntimes", Fixture);
+        string firstOut = Path.Combine(context.Directory, "Fx.IdemRuntimes.rewritten.dll");
+        string strippedOut = Path.Combine(context.Directory, "Fx.IdemRuntimes.stripped.dll");
+        context.Rewrite(fixturePath, firstOut, RewriteTestContext.StandardRuleSet()).EnsureSuccess();
+        using (var assembly = AssemblyDefinition.ReadAssembly(firstOut))
+        {
+            assembly.CustomAttributes.Remove(assembly.CustomAttributes.Single(
+                attribute => attribute.ConstructorArguments.Count == 2
+                    && (string)attribute.ConstructorArguments[0].Value == "Clockwork.SupportedRuntimes"));
+            assembly.Write(strippedOut);
+        }
+
+        RewriteResult second = context.Rewrite(
+            strippedOut,
+            Path.Combine(context.Directory, "Fx.IdemRuntimes.twice.dll"),
+            RewriteTestContext.StandardRuleSet());
+
+        Assert.False(second.Succeeded);
+        RewriteDiagnostic diagnostic = Assert.Single(
+            second.Errors,
+            error => error.Id == RewriteDiagnosticIds.IncompatibleRewriteVersion);
+        Assert.Contains("existing supported runtimes 'none', requested '[,]'", diagnostic.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ReRewriteWithSameRulesIsVerifiedNoOp()
     {
         using var context = RewriteTestContext.Create();

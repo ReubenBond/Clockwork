@@ -67,6 +67,20 @@ public sealed class ProcessExecutionTests
     }
 
     [Fact]
+    public void RewrittenCodeLoadedAfterTheSimulationStartsIsRejectedBeforeTheNextStepAndAfter()
+    {
+        using var fixture = BuiltInProcessFixture.Create(optimize: false, BuiltInProcessFixture.DelegatedAppSource);
+        InstrumentationResult instrumentation = fixture.Instrument(new Version(10, 0), rewriteApp: false);
+        Assert.True(instrumentation.Succeeded, string.Join("\n", instrumentation.Errors));
+
+        AppRunResult staged = fixture.RunStaged();
+
+        Assert.True(staged.ExitCode == 0, $"Staged process failed ({staged.ExitCode}):\n{staged.StandardOutput}\n{staged.StandardError}");
+        Assert.Contains("attempt 1: rejected ThirdParty.Sync", staged.Output);
+        Assert.Contains("attempt 2: rejected ThirdParty.Sync", staged.Output);
+    }
+
+    [Fact]
     public void NormalExecutableDoesNotDispatchToShim()
     {
         using var fixture = ExecutionClosureFixture.Create();

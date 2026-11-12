@@ -27,7 +27,6 @@ internal sealed class TypeReferenceRewritingPass : RewritePass
             return instruction;
         }
 
-
         if (!TrySubstitute(type, out TypeReference? substituted, out RewriteRule rule, out string? error))
         {
             if (error is null)
@@ -140,5 +139,4 @@ internal sealed class TypeReferenceRewritingPass : RewritePass
 
         Session.AddUnresolvedReference(rule.Replacement.ToCanonicalString());
     }
-
 }

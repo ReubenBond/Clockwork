@@ -31,7 +31,10 @@ public static class RewriteDiagnosticIds
     /// <summary>Post-rewrite validation (read-back / integrity check) failed.</summary>
     public const string ValidationFailed = "CWR0009";
 
-    /// <summary>A rule did not apply because the configured target runtime is outside its supported range.</summary>
+    /// <summary>
+    /// The selected rules do not support the target runtime: a rule neither supports it nor has alternatives that do.
+    /// Reported once, before anything is rewritten.
+    /// </summary>
     public const string RuntimeOutOfRange = "CWR0010";
 
     /// <summary>A mixed-mode assembly cannot be rewritten by Mono.Cecil.</summary>

@@ -29,7 +29,7 @@ public sealed class BuiltInRuleSetCompletenessTests
         RewriteRuleSet ruleSet = BuiltInRuleSets.BuildControlledTasks(BuiltInRuleSets.AllFamilies);
         HashSet<string> substituted =
         [
-            .. new RewriteRuleMatcher(ruleSet, TargetRuntime).TypeSubstitutionRules.Select(entry => entry.Key),
+            .. new RewriteRuleMatcher(RuleSetRuntimeSupport.Evaluate(ruleSet, TargetRuntime)).TypeSubstitutionRules.Select(entry => entry.Key),
         ];
         var handled = new List<string>();
         var allowed = new HashSet<string>(StringComparer.Ordinal);

@@ -145,7 +145,6 @@ internal sealed class CallSiteRewritingPass : RewritePass
         return false;
     }
 
-
     private bool TryApplyGenericArguments(
         MethodReference open,
         MethodReference matched,

@@ -100,7 +100,18 @@ public static class InstrumentationRunner
             cachePath,
             configuration);
 
-        (Version targetRuntime, string targetRuntimeOrigin) = TargetRuntimeDiscovery.Resolve(configuration, plan);
+        Version targetRuntime;
+        string targetRuntimeOrigin;
+        try
+        {
+            (targetRuntime, targetRuntimeOrigin) = TargetRuntimeDiscovery.Resolve(configuration, plan);
+        }
+        catch (ClosureException)
+        {
+            DeleteIfExists(request.CachePath);
+            throw;
+        }
+
         configuration = configuration with { TargetRuntime = targetRuntime };
         request = request with { Configuration = configuration };
 
@@ -114,9 +125,10 @@ public static class InstrumentationRunner
                 Succeeded = false,
                 WasIncrementalHit = false,
                 TargetRuntime = targetRuntime,
+                TargetRuntimeOrigin = targetRuntimeOrigin,
                 StagingDirectory = stagingDirectory,
                 ManifestPath = request.ManifestPath,
-                Diagnostics = [runtimeSupport.ToDiagnostic(request.RuleSet, targetRuntimeOrigin)],
+                Diagnostics = [runtimeSupport.ToDiagnostic(targetRuntimeOrigin)],
             };
         }
 
@@ -146,6 +158,7 @@ public static class InstrumentationRunner
                 Succeeded = true,
                 WasIncrementalHit = true,
                 TargetRuntime = targetRuntime,
+                TargetRuntimeOrigin = targetRuntimeOrigin,
                 StagingDirectory = stagingDirectory,
                 ManifestPath = request.ManifestPath,
                 Diagnostics = [.. topLevel],
@@ -241,8 +254,7 @@ public static class InstrumentationRunner
                 plan,
                 stagingDirectory,
                 frameworkClassifier,
-                request.RuleSet,
-                targetRuntime,
+                runtimeSupport,
                 rewrittenAssemblyNames,
                 excludedTypesByAssembly));
         }
@@ -274,6 +286,7 @@ public static class InstrumentationRunner
             Succeeded = succeeded,
             WasIncrementalHit = false,
             TargetRuntime = targetRuntime,
+            TargetRuntimeOrigin = targetRuntimeOrigin,
             StagingDirectory = stagingDirectory,
             ManifestPath = request.ManifestPath,
             Assemblies = [.. assemblyResults],

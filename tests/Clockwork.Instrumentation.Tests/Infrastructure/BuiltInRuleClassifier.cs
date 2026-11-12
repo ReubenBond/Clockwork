@@ -66,7 +66,7 @@ internal sealed class BuiltInRuleClassifier
     private BuiltInRuleClassifier(ReferencePack pack)
     {
         Rules = [.. BuiltInRuleSets.DeterministicBclInventory.Concat(BuiltInRuleSets.ControlledTasksInventory).Select(entry => entry.Rule)];
-        _matcher = new RewriteRuleMatcher(new RewriteRuleSet("clockwork.classification", "1.0.0", Rules), BuiltInRuleSets.SupportedRuntime);
+        _matcher = new RewriteRuleMatcher(RuleSetRuntimeSupport.Evaluate(new RewriteRuleSet("clockwork.classification", "1.0.0", Rules), BuiltInRuleSets.SupportedRuntime));
         SubstitutedTypes = _matcher.TypeSubstitutionRules.Select(entry => entry.Key).ToHashSet(StringComparer.Ordinal);
 
         // The mapper imports each substitute into a probe module, which resolves the shim assembly from the test binaries.

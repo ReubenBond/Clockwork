@@ -1,21 +1,32 @@
 using System.Reflection;
+using System.Reflection.Metadata;
 using System.Runtime.CompilerServices;
 
 namespace Clockwork.Runtime;
 
 /// <summary>
-/// Records on each assembly Clockwork rewrites the .NET runtimes it supports, and checks at simulation start that the
-/// process runs one of them. The marker is an <see cref="AssemblyMetadataAttribute"/> keyed <see cref="Key"/> whose
-/// value is <c>[minimum,maximum]</c>: inclusive bounds, each a feature version (major.minor) or empty when open.
+/// Records on each assembly Clockwork rewrites the .NET runtimes it supports, and checks that the process runs one of
+/// them whenever a simulation starts or takes a scheduling step after an assembly has loaded. The marker is an
+/// <see cref="AssemblyMetadataAttribute"/> keyed <see cref="Key"/> whose value is <c>[minimum,maximum]</c>: inclusive
+/// bounds, each a feature version (major.minor) or empty when open.
 /// </summary>
 internal static class SupportedRuntimesMarker
 {
     /// <summary>The <see cref="AssemblyMetadataAttribute"/> key of the marker.</summary>
     public const string Key = "Clockwork.SupportedRuntimes";
 
-    private static readonly string ClockworkAssemblyName = typeof(SupportedRuntimesMarker).Assembly.GetName().Name!;
+    private static readonly Version Runtime = new(Environment.Version.Major, Environment.Version.Minor);
     private static readonly ConditionalWeakTable<Assembly, object> Checked = new();
     private static readonly object CheckedValue = new();
+
+    // Counts assembly loads, so a check that finds no new load since the last complete scan costs one read. The count
+    // starts before any scan reads the loaded assemblies, and an assembly is in that list before its load is counted, so
+    // a scan that read count n saw every assembly whose load made the count n or less.
+    private static int s_loads;
+    private static int s_verifiedLoads = -1;
+
+    static SupportedRuntimesMarker() =>
+        AppDomain.CurrentDomain.AssemblyLoad += static (_, _) => Interlocked.Increment(ref s_loads);
 
     /// <summary>Formats the marker value for an inclusive range of feature versions.</summary>
     /// <param name="minimum">The lower bound, or <see langword="null"/> when open.</param>
@@ -55,13 +66,19 @@ internal static class SupportedRuntimesMarker
     }
 
     /// <summary>
-    /// Requires every loaded assembly Clockwork rewrote to support the runtime this process runs. Each assembly is
-    /// checked once per process; one that fails is checked again at the next simulation start, so it keeps failing.
+    /// Requires every loaded assembly Clockwork rewrote to support the runtime this process runs. Each assembly passes
+    /// once per process, and nothing is read until another assembly loads. An assembly that fails is checked again at
+    /// the next call, so it keeps failing.
     /// </summary>
     /// <exception cref="UnsupportedRuntimeException">A rewritten assembly does not support this runtime.</exception>
     public static void VerifyLoadedAssemblies()
     {
-        Version runtime = new(Environment.Version.Major, Environment.Version.Minor);
+        int loads = Volatile.Read(ref s_loads);
+        if (loads == Volatile.Read(ref s_verifiedLoads))
+        {
+            return;
+        }
+
         foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
         {
             if (Checked.TryGetValue(assembly, out _))
@@ -69,15 +86,12 @@ internal static class SupportedRuntimesMarker
                 continue;
             }
 
-            // Every assembly that runs controlled code references Clockwork: one that doesn't runs as written on any
-            // runtime, so its attributes need not be read.
-            if (!assembly.IsDynamic && ReferencesClockwork(assembly))
-            {
-                Verify(assembly.GetName().Name!, ReadMarker(assembly), runtime);
-            }
-
+            Verify(assembly.GetName().Name!, ReadMarker(assembly), Runtime);
             Checked.AddOrUpdate(assembly, CheckedValue);
         }
+
+        // Racing scans may record an older count; that costs a rescan, never a missed assembly.
+        Volatile.Write(ref s_verifiedLoads, loads);
     }
 
     /// <summary>Requires an assembly carrying <paramref name="marker"/> to support <paramref name="runtime"/>.</summary>
@@ -100,38 +114,60 @@ internal static class SupportedRuntimesMarker
 
         if ((minimum is not null && runtime < minimum) || (maximum is not null && runtime > maximum))
         {
-            throw new UnsupportedRuntimeException(assemblyName, Describe(minimum, maximum), runtime);
+            throw new UnsupportedRuntimeException(assemblyName, minimum, maximum, runtime);
         }
     }
 
-    private static bool ReferencesClockwork(Assembly assembly)
+    // Reads the loaded image's metadata rather than its custom attributes, which would load every attribute type: an
+    // assembly with an attribute whose assembly is absent must not fail every simulation.
+    private static unsafe string? ReadMarker(Assembly assembly)
     {
-        foreach (AssemblyName reference in assembly.GetReferencedAssemblies())
+        if (!assembly.TryGetRawMetadata(out byte* blob, out int length))
         {
-            if (string.Equals(reference.Name, ClockworkAssemblyName, StringComparison.Ordinal))
+            // Only an assembly without loaded metadata, such as a dynamic one, has none; Clockwork rewrites none of those.
+            return null;
+        }
+
+        var reader = new MetadataReader(blob, length);
+        foreach (CustomAttributeHandle handle in reader.GetAssemblyDefinition().GetCustomAttributes())
+        {
+            CustomAttribute attribute = reader.GetCustomAttribute(handle);
+            if (!IsAssemblyMetadataAttribute(reader, attribute.Constructor))
             {
-                return true;
+                continue;
             }
-        }
 
-        return false;
-    }
-
-    private static string? ReadMarker(Assembly assembly)
-    {
-        foreach (CustomAttributeData attribute in assembly.GetCustomAttributesData())
-        {
-            if (attribute.AttributeType == typeof(AssemblyMetadataAttribute)
-                && attribute.ConstructorArguments is [{ Value: Key }, { Value: var value }])
+            // The value blob is the prolog (0x0001) then the key and value strings of AssemblyMetadataAttribute(string, string).
+            BlobReader value = reader.GetBlobReader(attribute.Value);
+            if (value.ReadUInt16() == 1 && value.ReadSerializedString() == Key)
             {
-                return value as string ?? string.Empty;
+                return value.ReadSerializedString() ?? string.Empty;
             }
         }
 
         return null;
     }
 
-    private static string Describe(Version? minimum, Version? maximum) => (minimum, maximum) switch
+    private static bool IsAssemblyMetadataAttribute(MetadataReader reader, EntityHandle constructor)
+    {
+        if (constructor.Kind != HandleKind.MemberReference)
+        {
+            return false;
+        }
+
+        MemberReference member = reader.GetMemberReference((MemberReferenceHandle)constructor);
+        if (member.Parent.Kind != HandleKind.TypeReference)
+        {
+            return false;
+        }
+
+        TypeReference type = reader.GetTypeReference((TypeReferenceHandle)member.Parent);
+        return reader.StringComparer.Equals(type.Name, nameof(AssemblyMetadataAttribute))
+            && reader.StringComparer.Equals(type.Namespace, typeof(AssemblyMetadataAttribute).Namespace!);
+    }
+
+    /// <summary>Describes a range of feature versions for people, such as <c>11.0</c> or <c>11.0 to 12.0</c>.</summary>
+    internal static string DescribeRange(Version? minimum, Version? maximum) => (minimum, maximum) switch
     {
         ({ } low, { } high) when low == high => low.ToString(),
         ({ } low, { } high) => $"{low} to {high}",
@@ -148,7 +184,8 @@ internal static class SupportedRuntimesMarker
             return true;
         }
 
-        return Version.TryParse(text, out bound) && IsFeatureVersion(bound);
+        // Only the text Format writes parses, so a marker has one spelling.
+        return Version.TryParse(text, out bound) && IsFeatureVersion(bound) && bound.ToString() == text;
     }
 
     private static void RequireFeatureVersion(Version? version, string parameterName)
@@ -159,5 +196,6 @@ internal static class SupportedRuntimesMarker
         }
     }
 
-    private static bool IsFeatureVersion(Version version) => version.Build == -1;
+    /// <summary>Returns <see langword="true"/> if <paramref name="version"/> has exactly a major and a minor component.</summary>
+    internal static bool IsFeatureVersion(Version version) => version.Build == -1;
 }

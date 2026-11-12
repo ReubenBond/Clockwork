@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Runtime.ExceptionServices;
+using Clockwork.Runtime;
 
 namespace Clockwork;
 
@@ -137,6 +138,11 @@ public sealed class SimulationSynchronizationContext(SimulationSchedulerLane sch
             }
             catch (ObjectDisposedException) when (schedulerLane.IsDetached)
             {
+                throw;
+            }
+            catch (UnsupportedRuntimeException)
+            {
+                // No later step can succeed in this process, so the pump stops rather than retry.
                 throw;
             }
             catch (Exception ex)

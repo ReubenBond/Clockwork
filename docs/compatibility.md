@@ -355,28 +355,33 @@ by failure kind. The tool also exposes explicit `IReplayScenario` harness comman
 implicitly.
 
 **Target runtime.** Rules are classified against a .NET runtime's surface, so every rewrite evaluates them
-against a target runtime, a feature version such as `11.0`. It is the configuration file's `targetRuntime`;
-else the `ClockworkTargetRuntime` MSBuild property or the CLI's `--target-runtime`; else the runtime the entry
-assembly's `*.runtimeconfig.json` names: `Microsoft.NETCore.App`, or the ASP.NET Core or Windows Desktop
-framework, which ship in lockstep with it. That file is what the host reads to choose a runtime, which the
-target framework stops naming once an app rolls forward. A closure whose runtime cannot be determined, such as a
-library's build output without a runtimeconfig.json, fails until one is set; the engine API requires one. Before
-anything is staged, the selected rules must support the target: each rule's `supportedRuntimes` includes it, or
-another rule with the same target does, so a rule set can carry one rule per runtime for an API. Otherwise the
-run fails once with `CWR0010`, naming the rule set, the runtimes its rules support, and example rules. The
-built-in rules support target runtime `11.0`, and the build log and CLI output name the target each run used.
+against a target runtime, a feature version such as `11.0`. The configuration file's `targetRuntime`, the
+`ClockworkTargetRuntime` MSBuild property, and the CLI's `--target-runtime` set it; when more than one is set, they
+must agree. Without any of them, it is the runtime the entry assembly's `*.runtimeconfig.json` names:
+`Microsoft.NETCore.App`, or the ASP.NET Core or Windows Desktop framework, which ship in lockstep with it. That file
+is what the host reads to choose a runtime, which the target framework stops naming once an app rolls forward. A
+closure whose runtime cannot be determined, such as a library's build output without a runtimeconfig.json, fails
+until one is set; the engine API requires one. The build log and CLI output name the target each run used and where
+it came from.
 
-**Runtime check at simulation start.** Each rewritten assembly records the runtimes the selected rules support
-(the intersection of the `supportedRuntimes` of the rules that support the target) as
-`[assembly: AssemblyMetadata("Clockwork.SupportedRuntimes", "[11.0,11.0]")]`. Every `SimulationScheduler`, and
-so every `SimulationCluster`, replay, and exploration, checks each loaded assembly that references Clockwork
-against the feature version of `Environment.Version`, and fails with `UnsupportedRuntimeException` naming the
-assembly, the runtimes it supports, and the one the process runs. This catches what a build cannot see: a
-`rollForward` policy in runtimeconfig.json or `DOTNET_ROLL_FORWARD` that runs the app on a newer runtime than
-the rules were classified against, whose surface and internals (such as the `ValueTask` field
-`ControlledValueTask` reads) the shims depend on. An assembly that loads after a simulation starts is checked when the next
-one starts.
+Before anything is staged, the selected rules must support the target: each rule's `supportedRuntimes` includes it,
+or rules with the same target that do between them rewrite every kind of site (call, `newobj`, type reference) it
+rewrites. A rule set can so carry one rule per runtime for an API. A rule for an API the target runtime lacks
+should include that runtime, since no call site can name the API there. Otherwise the run fails once with
+`CWR0010`, naming the rule set, the runtimes its rules support, and example rules. The built-in rules support target
+runtime `11.0`.
 
+**Runtime check in every simulation.** Each rewritten assembly records the runtimes the selected rules support (the
+intersection of the `supportedRuntimes` of the rules that support the target) as
+`[assembly: AssemblyMetadata("Clockwork.SupportedRuntimes", "[11.0,11.0]")]`. A `SimulationScheduler` checks every
+loaded assembly against the feature version of `Environment.Version` when it is constructed, so every
+`SimulationCluster`, replay, and exploration does too, and again after any scheduling step during which an assembly
+loaded, since code under test often loads behind a delegate after the simulation starts. A mismatch fails with
+`UnsupportedRuntimeException` naming the assembly, the runtimes it supports, and the one the process runs, and fails
+again at every later check. This catches what a build cannot see: a `rollForward` policy in runtimeconfig.json or
+`DOTNET_ROLL_FORWARD` that runs the app on a newer runtime than the rules were classified against, whose surface
+and internals (such as the `ValueTask` field `ControlledValueTask` reads) the shims depend on. Each assembly's
+metadata is read once per process, and a step after which nothing loaded checks nothing.
 **Configuration is data, not code.** Configuration and rule sets are JSON documents,
 validated strictly for schema, types, and signatures; **no arbitrary code is executed
 from configuration**. Multiple rule sets merge deterministically by a defined precedence shared

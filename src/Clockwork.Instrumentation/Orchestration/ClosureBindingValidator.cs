@@ -26,8 +26,7 @@ internal static class ClosureBindingValidator
     /// <param name="plan">The closure plan.</param>
     /// <param name="stagingDirectory">The directory the closure is staged in.</param>
     /// <param name="frameworkClassifier">The classifier that kept framework assemblies out of the rewrite.</param>
-    /// <param name="ruleSet">The rule set the closure is rewritten with.</param>
-    /// <param name="targetRuntime">The target runtime the rules are evaluated against.</param>
+    /// <param name="runtimeSupport">The rule set the closure is rewritten with, evaluated for its target runtime.</param>
     /// <param name="rewrittenAssemblyNames">The simple names of the assemblies the closure rewrites.</param>
     /// <param name="excludedTypesByAssembly">
     /// The full names of the types each rewritten assembly excluded from rewriting, by assembly simple name, where known.
@@ -37,13 +36,12 @@ internal static class ClosureBindingValidator
         ClosurePlan plan,
         string stagingDirectory,
         FrameworkAssemblyClassifier frameworkClassifier,
-        RewriteRuleSet ruleSet,
-        Version targetRuntime,
+        RuleSetRuntimeSupport runtimeSupport,
         IReadOnlyCollection<string> rewrittenAssemblyNames,
         IReadOnlyDictionary<string, IReadOnlySet<string>> excludedTypesByAssembly)
     {
         var diagnostics = new List<RewriteDiagnostic>();
-        var matcher = new RewriteRuleMatcher(ruleSet, targetRuntime);
+        var matcher = new RewriteRuleMatcher(runtimeSupport);
         IReadOnlySet<string> signatureTypes = matcher.GetSubstitutionTypeNames();
         if (signatureTypes.Count == 0 || rewrittenAssemblyNames.Count == 0)
         {
