@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using Clockwork.Runtime.Tasks;
@@ -503,53 +502,53 @@ public sealed class ControlledSemaphoreSlimTests
     }
 
     [Fact]
-    public void ExternalCancellationReleaseAndDisposePreserveOneWinnerWithoutLeaks()
+    public void ExternalCancellationRacingReleaseOrDisposePreservesOneWinnerWithoutLeaks()
     {
+        // Release and Dispose are controlled APIs, so they run on the simulation's logical thread; cancellation is the
+        // one completion which may arrive from another thread, where its token is cancelled.
         for (var iteration = 0; iteration < 100; iteration++)
         {
             var coordinator = new SimulationSchedulerTestHost();
+            bool releaseFirst = iteration % 2 == 0;
             TaskTestHarness.RunInSimulation(coordinator, () =>
             {
                 var sem = ControlledSemaphoreSlim.Create(0);
                 using var cancellation = new CancellationTokenSource();
                 var waiter = ControlledSemaphoreSlim.WaitAsync(sem, 500, cancellation.Token);
-                using var start = new Barrier(3);
-                var errors = new ConcurrentQueue<Exception>();
+                using var start = new Barrier(2);
                 var testCancellation = TestContext.Current.CancellationToken;
 
-                Task RunExternal(Action action) => Task.Run(() =>
-                {
-                    try
+                var canceler = Task.Run(
+                    () =>
                     {
                         start.SignalAndWait(testCancellation);
-                        action();
-                    }
-                    catch (ObjectDisposedException)
-                    {
-                        // Dispose is allowed to win before Release reaches the serialized state.
-                    }
-                    catch (Exception exception)
-                    {
-                        errors.Enqueue(exception);
-                    }
-                }, testCancellation);
+                        cancellation.Cancel();
+                    },
+                    testCancellation);
 
-                var canceler = RunExternal(cancellation.Cancel);
-                var releaser = RunExternal(() => ControlledSemaphoreSlim.Release(sem));
-                var disposer = RunExternal(() => ControlledSemaphoreSlim.Dispose(sem));
-                Task.WhenAll(canceler, releaser, disposer)
-                    .WaitAsync(TimeSpan.FromSeconds(5), testCancellation)
-                    .GetAwaiter()
-                    .GetResult();
+                start.SignalAndWait(testCancellation);
+                if (releaseFirst)
+                {
+                    ControlledSemaphoreSlim.Release(sem);
+                    ControlledSemaphoreSlim.Dispose(sem);
+                }
+                else
+                {
+                    ControlledSemaphoreSlim.Dispose(sem);
+                    Assert.Throws<ObjectDisposedException>(() => ControlledSemaphoreSlim.Release(sem));
+                }
 
-                Assert.Empty(errors);
+                canceler.WaitAsync(TimeSpan.FromSeconds(5), testCancellation).GetAwaiter().GetResult();
+
                 Assert.True(waiter.IsCompleted);
                 if (waiter.IsCompletedSuccessfully)
                 {
+                    Assert.True(releaseFirst);
                     Assert.True(waiter.Result);
                 }
                 else if (waiter.IsFaulted)
                 {
+                    Assert.False(releaseFirst);
                     Assert.IsType<ObjectDisposedException>(Assert.Single(waiter.Exception!.InnerExceptions));
                 }
                 else

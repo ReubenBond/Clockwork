@@ -32,6 +32,8 @@ internal static class TaskTestHarness
             throw new ArgumentException("The runtime must be owned by the supplied scheduler.", nameof(runtime));
         }
 
+        // The test thread is the simulation's controlling thread: it calls controlled APIs and drives the scheduler.
+        using (host.Scheduler.EnterControlScope())
         using (SimulationExecutionContext.EnterRuntime(activeRuntime))
         {
             if (nodeAddress is null)

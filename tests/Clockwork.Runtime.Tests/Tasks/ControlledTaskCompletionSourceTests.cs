@@ -1,4 +1,5 @@
 using System.Threading.Tasks;
+using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks;
 using Clockwork.Shims.System.Runtime.CompilerServices;
 
@@ -137,6 +138,38 @@ public sealed class ControlledTaskCompletionSourceTests
         Assert.Equal(7, await copied.Task);
     }
 #pragma warning restore xUnit1051
+
+    // With a simulation's ambient context, a completion publishes into that simulation, so a thread which carries the
+    // context off the simulation's logical thread is rejected before the source completes.
+    [Fact]
+    public void CompletionWithAmbientContextOffTheSimulationThreadIsRejectedBeforeCompleting()
+    {
+        var coordinator = new SimulationSchedulerTestHost();
+        var source = new TaskCompletionSource();
+        var generic = new TaskCompletionSource<int>();
+        (Exception? Plain, Exception? Generic) escaped = default;
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            var thread = new Thread(() => escaped = (
+                Record.Exception(() => ControlledTaskCompletionSource.SetResult(source)),
+                Record.Exception(() => ControlledTaskCompletionSource.TrySetResult(generic, 1))))
+            {
+                IsBackground = true,
+            };
+            thread.Start();
+            thread.Join();
+        });
+
+        Assert.Equal(
+            "System.Threading.Tasks.TaskCompletionSource.SetResult",
+            Assert.IsType<SimulationThreadAffinityException>(escaped.Plain).ApiName);
+        Assert.Equal(
+            "System.Threading.Tasks.TaskCompletionSource`1.TrySetResult",
+            Assert.IsType<SimulationThreadAffinityException>(escaped.Generic).ApiName);
+        Assert.False(source.Task.IsCompleted);
+        Assert.False(generic.Task.IsCompleted);
+    }
 
     [Theory]
     [InlineData(TaskCreationOptions.None)]

@@ -120,6 +120,7 @@ The runner drives one step at a time and stops at the first of:
 
 - a detected race, or an operation fault (the first exception that escapes a controlled operation's
   body; a lane callback's escaping exception also stops the run as an unhandled callback failure);
+- a controlled API called off the simulation's logical thread, which aborts the run;
 - completion of the entry task;
 - quiescence: nothing is runnable and no timer is pending;
 - the step bound.
@@ -131,7 +132,7 @@ only the kind and failure identity.
 
 | Outcome | Rule | Failure identity |
 |---|---|---|
-| `Aborted` | The synchronous callback, or the runner outside any controlled operation, threw before a terminal boundary. Not replayable. | exception type |
+| `Aborted` | The synchronous callback, or the runner outside any controlled operation, threw before a terminal boundary, or a controlled API ran off the simulation's logical thread (`SimulationThreadAffinityException`, see [thread affinity](compatibility.md#thread-affinity)). Not replayable. | exception type |
 | `RaceDetected` | Race exploration found a data race. | `race:<hash>` |
 | `Faulted` | An exception, including an `OperationCanceledException`, escaped a controlled operation's body. | concrete exception type |
 | `Deadlocked` | The terminal wait-for graph has a cycle, and the entry is a synchronous callback or an incomplete entry task. | `deadlock:<hash>` |

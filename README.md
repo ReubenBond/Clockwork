@@ -43,7 +43,7 @@ are in [`docs/compatibility.md`](docs/compatibility.md).
 | Synchronization | Full .NET 11 `Interlocked` and `Volatile`; `SpinWait`; events and wait handles; registered waits; `ReaderWriterLockSlim`; `ManualResetEventSlim`; unnamed kernel `Mutex`/`Semaphore`; `SpinLock`; `ExecutionContext`; `SynchronizationContext`; `Barrier`; and `CountdownEvent`. | Named/cross-process primitives, open-existing APIs, raw handles, raw `SynchronizationContext.Wait`, and `WaitAll` arrays containing a `Mutex` are rejected. |
 | Virtual timers | `System.Threading.Timer`, `System.Timers.Timer`, `PeriodicTimer`, all .NET 11 `Task.Delay` and `Task.WaitAsync` overloads, timer-driven cancellation, and `TimeProvider.System`/`CreateTimer`. | Custom providers and non-null `System.Timers.Timer.SynchronizingObject`/designer integration are rejected. |
 | Replay and race exploration | Canonical replay schema version 2, exact compatibility/divergence checks, bounded serial schedule exploration, failure minimization, and opt-in `RaceExploration` instrumentation with structured first-race reports. | Controlled mode adds no fine-grained memory/control-flow calls. Race tracking excludes unmanaged memory, multidimensional arrays, reflection/dynamic invocation, and interface-only collection calls as detailed in compatibility docs. |
-| Activation | Instrumented controlled entry points require an active simulation and registered runtime service; uninstrumented binaries retain ordinary BCL behavior. | There is no inactive pass-through from rewritten controlled calls to real BCL operations, except that completing a `TaskCompletionSource` outside a simulation (from a finalizer, say) calls the BCL member. |
+| Activation | Instrumented controlled entry points require an active simulation, with its registered runtime service, on the simulation's logical thread: an operation thread or the thread driving the scheduler. A thread which carries the simulation's ambient context through uninstrumented code, such as the real `Task.Run` with which `BackgroundService.StartAsync` starts `ExecuteAsync`, throws `SimulationThreadAffinityException`, and the scheduler's next step rethrows it on the driving thread. Uninstrumented binaries retain ordinary BCL behavior. | There is no inactive pass-through from rewritten controlled calls to real BCL operations, except that completing a `TaskCompletionSource` outside a simulation (from a finalizer, say) calls the BCL member. |
 ## Build and test
 
 ```powershell
@@ -467,7 +467,8 @@ dotnet clockwork instrument --source <directory> --output <dir> --builtin clockw
 **Simulation-only contract (never a silent fallback).** Instrumented closure binaries are
 simulation/test artifacts, not production replacements. Every Controlled entry point requires an
 active Clockwork simulation; invoking one without an active simulation throws
-`SimulationNotActiveException` before any real BCL operation runs. With an active simulation:
+`SimulationNotActiveException` before any real BCL operation runs. It also requires the simulation's
+logical thread (see [Thread affinity](docs/compatibility.md#thread-affinity)). With an active simulation:
 
 - **With a registered runtime environment** - dispatches to the current
   node's simulated clock and the correct independent seed domain (Application/Identity only;
@@ -575,7 +576,7 @@ redirect, to publish the race-detection edge an await acquires. `ContinueWith` r
 `SimulationTaskScheduler`, which it cannot preserve; the overloads without a scheduler use `TaskScheduler.Default`.
 
 **Simulation-only contract.** As with the BCL rule set, instrumented Controlled entry points require
-an active Clockwork simulation. Continuations and waits route through the coordinator carried by the
+an active Clockwork simulation, on its logical thread. Continuations and waits route through the coordinator carried by the
 complete ambient runtime, so they cannot fall back to the thread pool. There is no inactive
 pass-through, except for the `TaskCompletionSource` completion members: a finalizer or a callback from
 uninstrumented code may complete a source outside any simulation, so there they call the BCL member and

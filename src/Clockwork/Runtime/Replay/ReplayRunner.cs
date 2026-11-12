@@ -8,6 +8,7 @@ using Clockwork.Runtime.Racing;
 using Clockwork.Runtime.Scheduling;
 using Clockwork.Runtime.Scheduling.Resources;
 using Clockwork.Runtime.Scheduling.Strategies;
+using Clockwork.Runtime.Shims;
 
 namespace Clockwork.Runtime.Replay;
 
@@ -472,7 +473,8 @@ public static class ReplayRunner
     /// Starts the entry and drives the scheduler until a race or an operation fault (including a lane
     /// callback's unhandled exception, which the lane also reports) stops the run; the entry task completes; nothing is runnable and no timer is
     /// pending; or the step bound is reached. Without an entry task, the run is the work the
-    /// synchronous entry registered, so the runner drives it until it quiesces.
+    /// synchronous entry registered, so the runner drives it until it quiesces. A controlled API called
+    /// off the simulation's logical thread aborts the run.
     /// </summary>
     private static DriveResult Drive(
         SimulationScheduler scheduler,
@@ -483,17 +485,35 @@ public static class ReplayRunner
     {
         var steps = 0;
         Task? entry = null;
+        using IDisposable control = scheduler.EnterControlScope();
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
             entry = startEntry();
             while (steps < maxSteps && entry is not { IsCompleted: true })
             {
-                if (scheduler.RunStepCapturingCallbackFailure(
+                bool ran = scheduler.RunStepCapturingCallbackFailure(
                     cancellationToken,
-                    out Exception? callbackFailure))
+                    out Exception? callbackFailure);
+                if (ran)
                 {
                     steps++;
+                }
+
+                // Work which escaped the simulation onto a real thread ran outside the recorded schedule, so the
+                // run cannot be replayed: it ends as aborted, with the violation as its failure.
+                if (callbackFailure is SimulationThreadAffinityException)
+                {
+                    return new DriveResult(
+                        steps,
+                        BoundExceeded: false,
+                        callbackFailure,
+                        IsAborted: true,
+                        entry);
+                }
+
+                if (ran)
+                {
                     if (callbackFailure is not null)
                     {
                         return new DriveResult(
