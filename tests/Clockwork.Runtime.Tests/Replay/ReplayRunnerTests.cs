@@ -1,9 +1,9 @@
 using Clockwork.Runtime.Decisions;
+using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Replay;
 using Clockwork.Runtime.Scheduling;
 using Clockwork.Runtime.Scheduling.Resources;
 using Clockwork.Runtime.Shims;
-using Clockwork.Shims.System;
 
 namespace Clockwork.Runtime.Tests.Replay;
 
@@ -250,27 +250,45 @@ public sealed class ReplayRunnerTests
         Assert.IsType<ExternalReplayException>(recorded.ExecutionException);
     }
 
-    [Fact]
-    public void ControlledApiOffTheSimulationThreadAbortsTheRun()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ControlledApiOffTheSimulationThreadAbortsTheRun(bool fromOperation)
     {
+        // Without an operation, nothing is runnable when the runner first steps.
         ReplayExecutionResult recorded = Record(
             SeededConfiguration(53),
-            static scheduler => scheduler.Schedule(
-                "escape",
-                static () =>
+            scheduler =>
+            {
+                if (fromOperation)
                 {
-                    // A thread started from the operation carries the simulation's ambient context off its logical
-                    // thread, and swallows the rejection.
-                    var escaped = new Thread(static () => _ = Xunit.Record.Exception(() => ControlledDateTime.GetUtcNow()));
-                    escaped.Start();
-                    escaped.Join();
-                }));
+                    scheduler.Schedule("escape", () => CallControlledApiOnAnotherThread(scheduler.Runtime));
+                }
+                else
+                {
+                    CallControlledApiOnAnotherThread(scheduler.Runtime);
+                }
+            });
 
         Assert.Equal(ReplayTerminationKind.Aborted, recorded.Artifact.Outcome.Kind);
         Assert.Equal(typeof(SimulationThreadAffinityException).FullName, recorded.Artifact.Outcome.FailureIdentity);
         Assert.Equal(
             "System.DateTime.UtcNow",
             Assert.IsType<SimulationThreadAffinityException>(recorded.ExecutionException).ApiName);
+    }
+
+    // The thread carries the simulation's ambient context off its logical thread, and swallows the rejection.
+    private static void CallControlledApiOnAnotherThread(SimulationRuntimeIdentity runtime)
+    {
+        var escaped = new Thread(() =>
+        {
+            using (SimulationExecutionContext.EnterRuntime(runtime))
+            {
+                _ = Xunit.Record.Exception(() => ControlledDateTime.GetUtcNow());
+            }
+        });
+        escaped.Start();
+        Assert.True(escaped.Join(TimeSpan.FromSeconds(30)), "The escaped thread did not finish.");
     }
 
     private static ReplayRecordingOptions SeededConfiguration(int scheduleSeed) => new()

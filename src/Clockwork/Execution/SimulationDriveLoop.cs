@@ -13,7 +13,7 @@ namespace Clockwork;
 /// <param name="MaxSimulatedTimeAdvance">The maximum simulated-time gap to jump across in a single advance.</param>
 /// <param name="MaxIterations">The maximum number of loop iterations to execute.</param>
 /// <param name="MaxConsecutiveTimeAdvances">The maximum number of consecutive time advances without executed work.</param>
-/// <param name="ObserveTeardownCancellation">Whether to check the teardown cancellation token each iteration.</param>
+/// <param name="ObserveTeardownCancellation">Whether to check for cluster teardown each iteration.</param>
 /// <param name="InitialConsecutiveTimeAdvances">The consecutive time-advance count carried into this execution.</param>
 /// <param name="EndTime">
 /// An optional absolute ceiling for simulated time. Work due at this instant is drained, but the
@@ -50,7 +50,7 @@ internal readonly record struct SimulationDriveLoopOptions(
 /// <param name="advanceVirtualTime">Advances scheduler-owned virtual time by the given, non-negative amount.</param>
 /// <param name="capturePendingWorkSummary">Captures a snapshot of runnable/waiting/blocked work.</param>
 /// <param name="hasPendingOperations">Returns whether the scheduler still owns non-terminal operations.</param>
-/// <param name="teardownCancellationToken">The cluster's teardown cancellation token.</param>
+/// <param name="isTeardownRequested">Returns whether the cluster is being torn down.</param>
 internal sealed class SimulationDriveLoop(
     Func<DateTimeOffset> getUtcNow,
     Func<CancellationToken, bool> runOneTaskRoundRobin,
@@ -58,7 +58,7 @@ internal sealed class SimulationDriveLoop(
     Action<TimeSpan> advanceVirtualTime,
     Func<SimulationPendingWorkSummary> capturePendingWorkSummary,
     Func<bool> hasPendingOperations,
-    CancellationToken teardownCancellationToken)
+    Func<bool> isTeardownRequested)
 {
     /// <summary>
     /// Runs the drive loop to completion for a single logical operation (one of the RunUntil/RunUntilIdle
@@ -76,7 +76,7 @@ internal sealed class SimulationDriveLoop(
 
         for (var iteration = 0; iteration < options.MaxIterations; iteration++)
         {
-            if (options.ObserveTeardownCancellation && teardownCancellationToken.IsCancellationRequested)
+            if (options.ObserveTeardownCancellation && isTeardownRequested())
             {
                 return Complete(SimulationExecutionReason.TeardownCancellationRequested, iteration);
             }
@@ -153,7 +153,7 @@ internal sealed class SimulationDriveLoop(
 
         if (options.MaxIterations > 0)
         {
-            if (options.ObserveTeardownCancellation && teardownCancellationToken.IsCancellationRequested)
+            if (options.ObserveTeardownCancellation && isTeardownRequested())
             {
                 return Complete(SimulationExecutionReason.TeardownCancellationRequested, options.MaxIterations);
             }

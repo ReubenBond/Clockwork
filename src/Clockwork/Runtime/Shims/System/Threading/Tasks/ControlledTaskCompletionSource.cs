@@ -1,7 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Racing;
 using Clockwork.Runtime.Shims;
 
@@ -34,13 +33,13 @@ namespace Clockwork.Shims.System.Threading.Tasks;
 /// </summary>
 public static class ControlledTaskCompletionSource
 {
-    private const string Api = "System.Threading.Tasks.TaskCompletionSource";
-    private const string GenericApi = "System.Threading.Tasks.TaskCompletionSource`1";
+    private const string TaskCompletionSourceApi = "System.Threading.Tasks.TaskCompletionSource";
+    private const string GenericTaskCompletionSourceApi = "System.Threading.Tasks.TaskCompletionSource`1";
 
     /// <summary>Controlled <c>TaskCompletionSource.SetResult()</c>.</summary>
     public static void SetResult(TaskCompletionSource source)
     {
-        RequireSimulationThread(Api);
+        RequireSimulationThread(TaskCompletionSourceApi);
         source.SetResult();
         Published(source.Task);
     }
@@ -48,14 +47,14 @@ public static class ControlledTaskCompletionSource
     /// <summary>Controlled <c>TaskCompletionSource.TrySetResult()</c>.</summary>
     public static bool TrySetResult(TaskCompletionSource source)
     {
-        RequireSimulationThread(Api);
+        RequireSimulationThread(TaskCompletionSourceApi);
         return Published(source.TrySetResult(), source.Task);
     }
 
     /// <summary>Controlled <c>TaskCompletionSource.SetException(Exception)</c>.</summary>
     public static void SetException(TaskCompletionSource source, Exception exception)
     {
-        RequireSimulationThread(Api);
+        RequireSimulationThread(TaskCompletionSourceApi);
         source.SetException(exception);
         Published(source.Task);
     }
@@ -63,7 +62,7 @@ public static class ControlledTaskCompletionSource
     /// <summary>Controlled <c>TaskCompletionSource.SetException(IEnumerable&lt;Exception&gt;)</c>.</summary>
     public static void SetException(TaskCompletionSource source, IEnumerable<Exception> exceptions)
     {
-        RequireSimulationThread(Api);
+        RequireSimulationThread(TaskCompletionSourceApi);
         source.SetException(exceptions);
         Published(source.Task);
     }
@@ -71,21 +70,21 @@ public static class ControlledTaskCompletionSource
     /// <summary>Controlled <c>TaskCompletionSource.TrySetException(Exception)</c>.</summary>
     public static bool TrySetException(TaskCompletionSource source, Exception exception)
     {
-        RequireSimulationThread(Api);
+        RequireSimulationThread(TaskCompletionSourceApi);
         return Published(source.TrySetException(exception), source.Task);
     }
 
     /// <summary>Controlled <c>TaskCompletionSource.TrySetException(IEnumerable&lt;Exception&gt;)</c>.</summary>
     public static bool TrySetException(TaskCompletionSource source, IEnumerable<Exception> exceptions)
     {
-        RequireSimulationThread(Api);
+        RequireSimulationThread(TaskCompletionSourceApi);
         return Published(source.TrySetException(exceptions), source.Task);
     }
 
     /// <summary>Controlled <c>TaskCompletionSource.SetCanceled()</c>.</summary>
     public static void SetCanceled(TaskCompletionSource source)
     {
-        RequireSimulationThread(Api);
+        RequireSimulationThread(TaskCompletionSourceApi);
         source.SetCanceled();
         Published(source.Task);
     }
@@ -93,7 +92,7 @@ public static class ControlledTaskCompletionSource
     /// <summary>Controlled <c>TaskCompletionSource.SetCanceled(CancellationToken)</c>.</summary>
     public static void SetCanceled(TaskCompletionSource source, CancellationToken cancellationToken)
     {
-        RequireSimulationThread(Api);
+        RequireSimulationThread(TaskCompletionSourceApi);
         source.SetCanceled(cancellationToken);
         Published(source.Task);
     }
@@ -101,21 +100,21 @@ public static class ControlledTaskCompletionSource
     /// <summary>Controlled <c>TaskCompletionSource.TrySetCanceled()</c>.</summary>
     public static bool TrySetCanceled(TaskCompletionSource source)
     {
-        RequireSimulationThread(Api);
+        RequireSimulationThread(TaskCompletionSourceApi);
         return Published(source.TrySetCanceled(), source.Task);
     }
 
     /// <summary>Controlled <c>TaskCompletionSource.TrySetCanceled(CancellationToken)</c>.</summary>
     public static bool TrySetCanceled(TaskCompletionSource source, CancellationToken cancellationToken)
     {
-        RequireSimulationThread(Api);
+        RequireSimulationThread(TaskCompletionSourceApi);
         return Published(source.TrySetCanceled(cancellationToken), source.Task);
     }
 
     /// <summary>Controlled <c>TaskCompletionSource.SetFromTask(Task)</c>.</summary>
     public static void SetFromTask(TaskCompletionSource source, Task completedTask)
     {
-        RequireSimulationThread(Api);
+        RequireSimulationThread(TaskCompletionSourceApi);
         source.SetFromTask(completedTask);
         Published(completedTask, source.Task);
     }
@@ -123,7 +122,7 @@ public static class ControlledTaskCompletionSource
     /// <summary>Controlled <c>TaskCompletionSource.TrySetFromTask(Task)</c>.</summary>
     public static bool TrySetFromTask(TaskCompletionSource source, Task completedTask)
     {
-        RequireSimulationThread(Api);
+        RequireSimulationThread(TaskCompletionSourceApi);
         if (!source.TrySetFromTask(completedTask))
         {
             return false;
@@ -136,7 +135,7 @@ public static class ControlledTaskCompletionSource
     /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.SetResult(TResult)</c>.</summary>
     public static void SetResult<TResult>(TaskCompletionSource<TResult> source, TResult result)
     {
-        RequireSimulationThread(GenericApi);
+        RequireSimulationThread(GenericTaskCompletionSourceApi);
         source.SetResult(result);
         Published(source.Task);
     }
@@ -144,14 +143,14 @@ public static class ControlledTaskCompletionSource
     /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.TrySetResult(TResult)</c>.</summary>
     public static bool TrySetResult<TResult>(TaskCompletionSource<TResult> source, TResult result)
     {
-        RequireSimulationThread(GenericApi);
+        RequireSimulationThread(GenericTaskCompletionSourceApi);
         return Published(source.TrySetResult(result), source.Task);
     }
 
     /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.SetException(Exception)</c>.</summary>
     public static void SetException<TResult>(TaskCompletionSource<TResult> source, Exception exception)
     {
-        RequireSimulationThread(GenericApi);
+        RequireSimulationThread(GenericTaskCompletionSourceApi);
         source.SetException(exception);
         Published(source.Task);
     }
@@ -159,7 +158,7 @@ public static class ControlledTaskCompletionSource
     /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.SetException(IEnumerable&lt;Exception&gt;)</c>.</summary>
     public static void SetException<TResult>(TaskCompletionSource<TResult> source, IEnumerable<Exception> exceptions)
     {
-        RequireSimulationThread(GenericApi);
+        RequireSimulationThread(GenericTaskCompletionSourceApi);
         source.SetException(exceptions);
         Published(source.Task);
     }
@@ -167,21 +166,21 @@ public static class ControlledTaskCompletionSource
     /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.TrySetException(Exception)</c>.</summary>
     public static bool TrySetException<TResult>(TaskCompletionSource<TResult> source, Exception exception)
     {
-        RequireSimulationThread(GenericApi);
+        RequireSimulationThread(GenericTaskCompletionSourceApi);
         return Published(source.TrySetException(exception), source.Task);
     }
 
     /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.TrySetException(IEnumerable&lt;Exception&gt;)</c>.</summary>
     public static bool TrySetException<TResult>(TaskCompletionSource<TResult> source, IEnumerable<Exception> exceptions)
     {
-        RequireSimulationThread(GenericApi);
+        RequireSimulationThread(GenericTaskCompletionSourceApi);
         return Published(source.TrySetException(exceptions), source.Task);
     }
 
     /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.SetCanceled()</c>.</summary>
     public static void SetCanceled<TResult>(TaskCompletionSource<TResult> source)
     {
-        RequireSimulationThread(GenericApi);
+        RequireSimulationThread(GenericTaskCompletionSourceApi);
         source.SetCanceled();
         Published(source.Task);
     }
@@ -189,7 +188,7 @@ public static class ControlledTaskCompletionSource
     /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.SetCanceled(CancellationToken)</c>.</summary>
     public static void SetCanceled<TResult>(TaskCompletionSource<TResult> source, CancellationToken cancellationToken)
     {
-        RequireSimulationThread(GenericApi);
+        RequireSimulationThread(GenericTaskCompletionSourceApi);
         source.SetCanceled(cancellationToken);
         Published(source.Task);
     }
@@ -197,21 +196,21 @@ public static class ControlledTaskCompletionSource
     /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.TrySetCanceled()</c>.</summary>
     public static bool TrySetCanceled<TResult>(TaskCompletionSource<TResult> source)
     {
-        RequireSimulationThread(GenericApi);
+        RequireSimulationThread(GenericTaskCompletionSourceApi);
         return Published(source.TrySetCanceled(), source.Task);
     }
 
     /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.TrySetCanceled(CancellationToken)</c>.</summary>
     public static bool TrySetCanceled<TResult>(TaskCompletionSource<TResult> source, CancellationToken cancellationToken)
     {
-        RequireSimulationThread(GenericApi);
+        RequireSimulationThread(GenericTaskCompletionSourceApi);
         return Published(source.TrySetCanceled(cancellationToken), source.Task);
     }
 
     /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.SetFromTask(Task&lt;TResult&gt;)</c>.</summary>
     public static void SetFromTask<TResult>(TaskCompletionSource<TResult> source, Task<TResult> completedTask)
     {
-        RequireSimulationThread(GenericApi);
+        RequireSimulationThread(GenericTaskCompletionSourceApi);
         source.SetFromTask(completedTask);
         Published(completedTask, source.Task);
     }
@@ -219,7 +218,7 @@ public static class ControlledTaskCompletionSource
     /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.TrySetFromTask(Task&lt;TResult&gt;)</c>.</summary>
     public static bool TrySetFromTask<TResult>(TaskCompletionSource<TResult> source, Task<TResult> completedTask)
     {
-        RequireSimulationThread(GenericApi);
+        RequireSimulationThread(GenericTaskCompletionSourceApi);
         if (!source.TrySetFromTask(completedTask))
         {
             return false;
@@ -229,14 +228,8 @@ public static class ControlledTaskCompletionSource
         return true;
     }
 
-    private static void RequireSimulationThread(string api, [CallerMemberName] string member = "")
-    {
-        if (SimulationExecutionContext.TryGetCurrentRuntime(out SimulationRuntimeIdentity? runtime)
-            && !runtime!.Scheduler.IsSimulationThread)
-        {
-            SimulationRuntimeDispatch.ThrowThreadAffinityViolation(runtime, $"{api}.{member}");
-        }
-    }
+    private static void RequireSimulationThread(string api, [CallerMemberName] string member = "") =>
+        SimulationRuntimeDispatch.RequireSimulationThreadIfActive(api, member);
 
     private static void Published(Task task) => RaceSynchronization.Signal(task);
 

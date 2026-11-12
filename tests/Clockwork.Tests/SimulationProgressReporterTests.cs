@@ -118,7 +118,7 @@ public sealed class SimulationProgressReporterTests
             _ => { },
             () => SimulationPendingWorkSummary.Empty,
             () => false,
-            CancellationToken.None);
+            () => false);
 
         SimulationExecutionResult result = loop.Execute(new SimulationDriveLoopOptions(
             Condition: () => ran,

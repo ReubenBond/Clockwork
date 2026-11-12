@@ -11,6 +11,37 @@ namespace Clockwork.Runtime.Tests.Tasks;
 /// </summary>
 public sealed class ControlledTaskApiTests
 {
+    // Cancellation is the one completion which may arrive from another thread: Clockwork's callbacks complete the
+    // waits without calling a controlled API, so the cancelling thread records no thread-affinity violation.
+    [Fact]
+    public void CancellationFromAnotherThreadCompletesWaitsWithoutAThreadAffinityViolation()
+    {
+        var coordinator = new SimulationSchedulerTestHost();
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            using var cancellation = new CancellationTokenSource();
+            Task delay = ControlledTask.Delay(1_000, cancellation.Token);
+            Task wait = ControlledTask.WaitAsync(new TaskCompletionSource().Task, cancellation.Token);
+            ControlledCancellationTokenSource.CancelAfter(cancellation, 1_000);
+            var periodic = new ControlledPeriodicTimer(TimeSpan.FromSeconds(1));
+            ValueTask<bool> tick = periodic.WaitForNextTickAsync(cancellation.Token);
+
+            // The thread carries the simulation's ambient context, as a thread started from simulation work does.
+            Task.Run(cancellation.Cancel, TestContext.Current.CancellationToken)
+                .WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken)
+                .GetAwaiter()
+                .GetResult();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
+            periodic.Dispose();
+
+            Assert.True(delay.IsCanceled);
+            Assert.True(wait.IsCanceled);
+            Assert.True(tick.IsCanceled);
+            Assert.Null(coordinator.Scheduler.NextTimerDue);
+        });
+    }
+
     [Fact]
     public void WhenAllCompletesAfterAllAntecedents()
     {

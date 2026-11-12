@@ -94,7 +94,8 @@ public sealed class SimulationScheduler : IDisposable
     private SimulationOperation? _current;
     private int _controlThreadId;
     private bool _controlThreadBusy;
-    private bool _threadAffinityViolationReported;
+    private int _threadAffinityViolationReported;
+    private ExceptionDispatchInfo? _threadAffinityViolation;
     private bool _disposed;
     private SimulationOperation? _pendingTerminalNotification;
     private int _transitionPublicationDepth;
@@ -245,17 +246,17 @@ public sealed class SimulationScheduler : IDisposable
     /// <summary>
     /// Gets a value indicating whether the calling physical thread is part of this scheduler's single
     /// logical simulation thread right now: either a thread currently executing one of this
-    /// scheduler's operation bodies, or the controlling thread while it is inside
-    /// <see cref="EnterControlScope"/>. Every controlled rewrite target called with this scheduler's
-    /// runtime as the ambient context requires it, and throws <see cref="SimulationThreadAffinityException"/>
-    /// on any other thread. It also builds the logical-owner delegate of a single-threaded guard.
+    /// scheduler's operation bodies, or the thread inside <see cref="EnterControlScope"/>. Every
+    /// controlled rewrite target called with this scheduler's runtime as the ambient context requires
+    /// it, and throws <see cref="SimulationThreadAffinityException"/> on any other thread. A
+    /// single-threaded guard also uses it as its logical-owner check.
     /// </summary>
     public bool IsSimulationThread =>
         (t_currentOperation is { } op && ReferenceEquals(op.Scheduler, this))
         || Environment.CurrentManagedThreadId == Volatile.Read(ref _controlThreadId);
 
     /// <summary>
-    /// Marks the calling thread as this scheduler's controlling thread until the returned scope is
+    /// Makes the calling thread this scheduler's controlling thread until the returned scope is
     /// disposed, so <see cref="IsSimulationThread"/> reports <see langword="true"/> for it. Code that
     /// drives the scheduler (dequeue plus <see cref="RunStep(CancellationToken)"/>) runs inside this
     /// scope, as does host code that runs simulation callbacks inline while no step is in progress -
@@ -263,12 +264,32 @@ public sealed class SimulationScheduler : IDisposable
     /// callbacks on, say - so those callbacks may call controlled APIs. The scope makes the
     /// controlling thread and the operation threads one logical owner, for controlled APIs and for a
     /// single-threaded guard alike.
+    /// <para>
+    /// One thread at a time holds the scope. The holding thread may enter it again; the nested scope
+    /// leaves control with the outermost one, whose disposal releases it. The scope belongs to the
+    /// thread, so it must not be held across an <see langword="await"/>.
+    /// </para>
     /// </summary>
-    /// <returns>A disposable that restores the previous controlling-thread marker.</returns>
+    /// <returns>A disposable that releases control when the outermost scope is disposed.</returns>
+    /// <exception cref="SimulationSchedulerException">Another thread holds the scope.</exception>
     public IDisposable EnterControlScope()
     {
-        var previous = Interlocked.Exchange(ref _controlThreadId, Environment.CurrentManagedThreadId);
-        return new ControlScope(this, previous);
+        int thread = Environment.CurrentManagedThreadId;
+        int owner = Interlocked.CompareExchange(ref _controlThreadId, thread, 0);
+        if (owner == 0)
+        {
+            return new ControlScope(this, thread);
+        }
+
+        if (owner == thread)
+        {
+            return NestedControlScope.Instance;
+        }
+
+        throw new SimulationSchedulerException(
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"Managed thread {thread} cannot control the scheduler: managed thread {owner} controls it. One thread at a time drives the scheduler or runs simulation callbacks inline."));
     }
 
     /// <summary>
@@ -874,37 +895,36 @@ public sealed class SimulationScheduler : IDisposable
     /// selected through <see cref="SchedulingStrategy"/>.
     /// </para>
     /// <para>
-    /// Whether or not an operation ran, the step then rethrows the oldest failure recorded since the
-    /// previous step: an exception escaping a lane callback, or the first controlled API called with this
-    /// simulation's ambient context off its logical thread (<see cref="SimulationThreadAffinityException"/>).
+    /// Whether or not an operation ran, the step then rethrows a failure not yet surfaced: the first
+    /// controlled API called with this simulation's ambient context off its logical thread
+    /// (<see cref="SimulationThreadAffinityException"/>) ahead of the oldest exception escaping a lane
+    /// callback.
     /// </para>
     /// </summary>
-    /// <returns><see langword="true"/> if an operation ran; <see langword="false"/> if none was runnable.</returns>
-    /// <summary>Runs one scheduler operation unless cancellation has already been requested.</summary>
     /// <param name="cancellationToken">A token checked before dispatching the operation.</param>
     /// <returns><see langword="true"/> if an operation ran; <see langword="false"/> if none was runnable.</returns>
     public bool RunStep(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        bool result = RunStepCore(cancellationToken, out ExceptionDispatchInfo? callbackFailure);
-        callbackFailure?.Throw();
+        bool result = RunStepCore(cancellationToken, out ExceptionDispatchInfo? failure);
+        failure?.Throw();
         return result;
     }
 
-    internal bool RunStepCapturingCallbackFailure(
+    internal bool RunStepCapturingFailure(
         CancellationToken cancellationToken,
-        out Exception? callbackFailure)
+        out Exception? failure)
     {
-        bool result = RunStepCore(cancellationToken, out ExceptionDispatchInfo? failure);
-        callbackFailure = failure?.SourceException;
+        bool result = RunStepCore(cancellationToken, out ExceptionDispatchInfo? captured);
+        failure = captured?.SourceException;
         return result;
     }
 
     private bool RunStepCore(
         CancellationToken cancellationToken,
-        out ExceptionDispatchInfo? callbackFailure)
+        out ExceptionDispatchInfo? failure)
     {
-        callbackFailure = null;
+        failure = null;
         if (Monitor.IsEntered(_transitionPublicationGate))
         {
             throw new SimulationSchedulerException(
@@ -947,7 +967,7 @@ public sealed class SimulationScheduler : IDisposable
 
                 if (!hasRunnable)
                 {
-                    callbackFailure = TakeCallbackFailureUnderLock();
+                    failure = TakeFailureUnderLock();
                     return false;
                 }
 
@@ -998,7 +1018,7 @@ public sealed class SimulationScheduler : IDisposable
 
         lock (_gate)
         {
-            callbackFailure = TakeCallbackFailureUnderLock();
+            failure = TakeFailureUnderLock();
         }
 
         return true;
@@ -1015,27 +1035,32 @@ public sealed class SimulationScheduler : IDisposable
 
     /// <summary>
     /// Records a controlled API called with this simulation's ambient context off its logical thread, so the thread
-    /// driving the scheduler surfaces it from the next <see cref="RunStep(CancellationToken)"/>, whether or not an
+    /// driving the scheduler surfaces it from its next <see cref="RunStep(CancellationToken)"/>, whether or not an
     /// operation runs. Only the first violation is recorded: escaped work typically calls many controlled APIs, and the
-    /// first identifies where it escaped.
+    /// first identifies where it escaped. The calling thread is the escaped one, so recording takes no lock.
     /// </summary>
-    /// <param name="exception">The violation, carrying the escaped thread's stack.</param>
-    internal void ReportThreadAffinityViolation(SimulationThreadAffinityException exception)
+    /// <param name="apiName">The controlled API which was called.</param>
+    internal void ReportThreadAffinityViolation(string apiName)
     {
-        lock (_gate)
+        if (Interlocked.Exchange(ref _threadAffinityViolationReported, 1) != 0)
         {
-            if (_threadAffinityViolationReported)
-            {
-                return;
-            }
-
-            _threadAffinityViolationReported = true;
-            _unhandledCallbackFailures.Enqueue(ExceptionDispatchInfo.Capture(exception));
+            return;
         }
+
+        // The driving thread rethrows its own instance, carrying the escaped thread's stack: one exception object must
+        // not be thrown on two threads at once.
+        var violation = new SimulationThreadAffinityException(apiName, _runtime);
+        ExceptionDispatchInfo.SetCurrentStackTrace(violation);
+        Volatile.Write(ref _threadAffinityViolation, ExceptionDispatchInfo.Capture(violation));
     }
 
-    private ExceptionDispatchInfo? TakeCallbackFailureUnderLock() =>
-        _unhandledCallbackFailures.TryDequeue(out ExceptionDispatchInfo? failure) ? failure : null;
+    /// <summary>Takes the recorded thread-affinity violation, if it has not been surfaced yet.</summary>
+    internal ExceptionDispatchInfo? TakeThreadAffinityViolation() =>
+        Interlocked.Exchange(ref _threadAffinityViolation, null);
+
+    private ExceptionDispatchInfo? TakeFailureUnderLock() =>
+        TakeThreadAffinityViolation()
+        ?? (_unhandledCallbackFailures.TryDequeue(out ExceptionDispatchInfo? failure) ? failure : null);
 
     private void PromoteReadyWaits()
     {
@@ -1201,8 +1226,8 @@ public sealed class SimulationScheduler : IDisposable
 
     internal bool RunStepForPump(CancellationToken cancellationToken)
     {
-        bool result = RunStepCore(cancellationToken, out ExceptionDispatchInfo? callbackFailure);
-        callbackFailure?.Throw();
+        bool result = RunStepCore(cancellationToken, out ExceptionDispatchInfo? failure);
+        failure?.Throw();
         return result;
     }
 
@@ -3072,7 +3097,7 @@ public sealed class SimulationScheduler : IDisposable
         }
     }
 
-    private sealed class ControlScope(SimulationScheduler scheduler, int previousControlThreadId) : IDisposable
+    private sealed class ControlScope(SimulationScheduler scheduler, int thread) : IDisposable
     {
         private int _disposed;
 
@@ -3080,8 +3105,17 @@ public sealed class SimulationScheduler : IDisposable
         {
             if (Interlocked.Exchange(ref _disposed, 1) == 0)
             {
-                Volatile.Write(ref scheduler._controlThreadId, previousControlThreadId);
+                Interlocked.CompareExchange(ref scheduler._controlThreadId, 0, thread);
             }
+        }
+    }
+
+    private sealed class NestedControlScope : IDisposable
+    {
+        public static NestedControlScope Instance { get; } = new();
+
+        public void Dispose()
+        {
         }
     }
 }

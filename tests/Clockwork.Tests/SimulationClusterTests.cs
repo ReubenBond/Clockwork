@@ -182,6 +182,53 @@ public sealed class SimulationClusterTests
         Assert.Equal(DateTime.UnixEpoch, observed);
     }
 
+    [Fact]
+    public async Task CallerCancellationCancelsTheTeardownTokenOnTheSimulationThread()
+    {
+        using var caller = new CancellationTokenSource();
+        var cluster = new SimulationCluster(seed: 42, DateTimeOffset.UnixEpoch, cancellationToken: caller.Token);
+        DateTime? observed = null;
+        cluster.RunToCompletion(
+            () =>
+            {
+                _ = cluster.TeardownCancellationToken.Register(() => observed = ControlledDateTime.GetUtcNow());
+                return Task.CompletedTask;
+            },
+            TestContext.Current.CancellationToken);
+
+        // Cancelled on another thread, as a test framework's timeout token is: the next drive step cancels the
+        // teardown token, on the simulation's logical thread.
+        await Task.Run(caller.Cancel, TestContext.Current.CancellationToken);
+        Assert.False(cluster.TeardownCancellationToken.IsCancellationRequested);
+
+        Assert.Equal(
+            SimulationExecutionReason.TeardownCancellationRequested,
+            cluster.RunUntilIdle(TestContext.Current.CancellationToken).Reason);
+        Assert.Equal(DateTime.UnixEpoch, observed);
+        await cluster.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task DisposalSurfacesAThreadAffinityViolationNoStepRethrew()
+    {
+        var cluster = new SimulationCluster(seed: 42, DateTimeOffset.UnixEpoch);
+        var escaped = new Thread(() =>
+        {
+            using (SimulationExecutionContext.EnterRuntime(cluster.RuntimeIdentity))
+            {
+                _ = Record.Exception(() => ControlledDateTime.GetUtcNow());
+            }
+        });
+        escaped.Start();
+        Assert.True(escaped.Join(TimeSpan.FromSeconds(30)), "The escaped thread did not finish.");
+
+        var exception = await Assert.ThrowsAsync<AggregateException>(() => cluster.DisposeAsync().AsTask());
+
+        Assert.Equal(
+            "System.DateTime.UtcNow",
+            Assert.IsType<SimulationThreadAffinityException>(Assert.Single(exception.InnerExceptions)).ApiName);
+    }
+
     private sealed class FailingDisposeNode(
         string address,
         SimulationNodeContext context) : SimulationNode, IAsyncDisposable

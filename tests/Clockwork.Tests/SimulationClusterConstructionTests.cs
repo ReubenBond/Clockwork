@@ -455,7 +455,11 @@ public sealed class SimulationClusterConstructionTests
         Assert.Equal(start, cluster.StartDateTime);
         Assert.Same(timeZone, cluster.SimulationTimeZone);
 
+        // The next drive step cancels the teardown token, on the simulation's logical thread.
         await cts.CancelAsync();
+        Assert.Equal(
+            SimulationExecutionReason.TeardownCancellationRequested,
+            cluster.RunUntilIdle(TestContext.Current.CancellationToken).Reason);
         Assert.True(cluster.TeardownCancellationToken.IsCancellationRequested);
     }
 
