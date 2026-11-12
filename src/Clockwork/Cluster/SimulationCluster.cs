@@ -40,8 +40,9 @@ public sealed partial class SimulationCluster : IAsyncDisposable
     /// Defaults to <see cref="TimeZoneInfo.Utc"/> so local and UTC time coincide deterministically.
     /// </param>
     /// <param name="cancellationToken">
-    /// Optional cancellation token which tears the cluster down: once it is cancelled, the cluster's next drive step
-    /// cancels <see cref="TeardownCancellationToken"/>.
+    /// Optional cancellation token which tears the cluster down: once it is cancelled, the next step of a cluster drive
+    /// method (<c>RunUntil</c>, <c>RunUntilIdle</c>, <c>RunFor</c>, <c>RunToCompletion</c>) cancels
+    /// <see cref="TeardownCancellationToken"/>.
     /// </param>
     public SimulationCluster(
         int seed,
@@ -148,8 +149,9 @@ public sealed partial class SimulationCluster : IAsyncDisposable
 
     /// <summary>
     /// Gets a cancellation token used to signal when the simulation is being torn down. The cluster cancels it on the
-    /// simulation's logical thread - from a drive step once the token passed to the constructor is cancelled, or when
-    /// the cluster is disposed - so callbacks registered on it from simulation work may call controlled APIs.
+    /// simulation's logical thread - from a step of a cluster drive method once the token passed to the constructor is
+    /// cancelled, or when the cluster is disposed - so callbacks registered on it from simulation work may call
+    /// controlled APIs.
     /// </summary>
     public CancellationToken TeardownCancellationToken { get; }
 
@@ -738,13 +740,13 @@ public sealed partial class SimulationCluster : IAsyncDisposable
     /// Cancels <see cref="TeardownCancellationToken"/> once the caller's token is cancelled. The caller's token may be
     /// cancelled on any thread, while the callbacks registered on the teardown token belong to the system under test,
     /// so the drive loop cancels it on the simulation's logical thread - before each step, and where it checks for
-    /// teardown - instead of linking the two tokens.
+    /// teardown - instead of linking the two tokens. A callback's exception propagates from the drive.
     /// </summary>
     private void ObserveCallerCancellation()
     {
         if (_callerCancellation.IsCancellationRequested && !_teardownCts.IsCancellationRequested)
         {
-            SafeCancel(_teardownCts);
+            _teardownCts.Cancel();
         }
     }
 
