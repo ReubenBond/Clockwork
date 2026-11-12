@@ -451,6 +451,9 @@ public sealed class PackageSmokeTests
             Directory.CreateDirectory(feed);
             Directory.CreateDirectory(packages);
 
+            // Every consumer and the tool install sit under this root, so they find the repository's global.json by
+            // walking up: they build with the SDK band Clockwork builds with, and dotnet test selects the same runner.
+            File.Copy(Path.Combine(repoRoot, "global.json"), Path.Combine(root, "global.json"));
             // A unique prerelease version per run guarantees the consumer resolves these freshly
             // packed artifacts rather than any identically named package in a shared cache.
             string version = "9.9.9-smoke." + DateTime.UtcNow.ToString("yyyyMMddHHmmssfff", System.Globalization.CultureInfo.InvariantCulture);
@@ -506,20 +509,6 @@ public sealed class PackageSmokeTests
                   </packageSources>
                 </configuration>
                 """);
-            if (testingPlatformProject)
-            {
-                File.WriteAllText(Path.Combine(rootDir, "global.json"), """
-                    {
-                      "sdk": {
-                        "version": "11.0.100",
-                        "rollForward": "latestFeature"
-                      },
-                      "test": {
-                        "runner": "Microsoft.Testing.Platform"
-                      }
-                    }
-                    """);
-            }
 
             // The controlled API and the shim live in one dependency assembly, in its own directory
             // so the executable project's default source glob does not also compile it. The redirect
