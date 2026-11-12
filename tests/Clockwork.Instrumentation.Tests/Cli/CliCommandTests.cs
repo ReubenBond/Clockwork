@@ -182,6 +182,37 @@ public sealed class CliCommandTests : IDisposable
     }
 
     [Fact]
+    public void InstrumentDryRunReportsTheTargetRuntimeAndItsSupport()
+    {
+        BuildMinimalClosure();
+
+        (ExitCode derivedCode, string derived, _) = Invoke(
+            "instrument", "--source", _source, "--builtin", "all", "--dry-run");
+        (ExitCode otherCode, string other, _) = Invoke(
+            "instrument", "--source", _source, "--builtin", "all", "--target-runtime", "12.0", "--dry-run");
+
+        Assert.Equal(ExitCode.Success, derivedCode);
+        Assert.Contains(
+            $"Target runtime: {Environment.Version.Major}.{Environment.Version.Minor} (from 'app.runtimeconfig.json')",
+            derived);
+        Assert.Equal(ExitCode.InstrumentationError, otherCode);
+        Assert.Contains("Target runtime: 12.0 (configured)", other);
+        Assert.Single(other.Split('\n'), line => line.Contains(RewriteDiagnosticIds.RuntimeOutOfRange, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void TargetRuntimeMustBeAFeatureVersion()
+    {
+        BuildMinimalClosure();
+
+        (ExitCode code, _, string error) = Invoke(
+            "instrument", "--source", _source, "--builtin", "all", "--target-runtime", "11.0.2", "--dry-run");
+
+        Assert.Equal(ExitCode.UsageError, code);
+        Assert.Contains("not a runtime feature version", error);
+    }
+
+    [Fact]
     public void InstrumentDryRunBuiltInAllExpandsToEveryRuleSet()
     {
         BuildMinimalClosure();
@@ -233,7 +264,7 @@ public sealed class CliCommandTests : IDisposable
         FixtureCompiler.Compile(
             "app", "namespace App { public static class A { public static int Go() => 1; } }",
             _source, FixtureSymbols.PortableFile, optimize: false, strongNameKeyFile: keyPath);
-        File.WriteAllText(Path.Combine(_source, "app.runtimeconfig.json"), "{}");
+        ProcessAppRunner.WriteRuntimeConfig(Path.Combine(_source, "app.dll"));
         string ruleSet = WriteEmptyRuleSet();
 
         (ExitCode code, string output, _) = Invoke(
@@ -353,7 +384,7 @@ public sealed class CliCommandTests : IDisposable
     private void BuildMinimalClosure()
     {
         Compile("app", "namespace App { public static class A { public static int Go() => 1; } }");
-        File.WriteAllText(Path.Combine(_source, "app.runtimeconfig.json"), "{}");
+        ProcessAppRunner.WriteRuntimeConfig(Path.Combine(_source, "app.dll"));
     }
 
     private void BuildSimulationOnlyClosure()

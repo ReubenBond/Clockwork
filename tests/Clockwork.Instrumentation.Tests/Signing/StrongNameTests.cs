@@ -347,7 +347,7 @@ public sealed class StrongNameTests : IDisposable
             inputPath,
             outputPath,
             ruleSet,
-            new Instrumentation.Rewriting.RewriteOptions { ReferenceSearchDirectories = [_directory] });
+            new Instrumentation.Rewriting.RewriteOptions { TargetRuntime = Instrumentation.Rules.BuiltIn.BuiltInRuleSets.SupportedRuntime, ReferenceSearchDirectories = [_directory] });
         Instrumentation.Rewriting.RewriteResult result = Instrumentation.Rewriting.RewriteEngine.Rewrite(request);
         result.EnsureSuccess();
         return outputPath;

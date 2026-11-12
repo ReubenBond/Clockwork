@@ -27,16 +27,6 @@ internal sealed class TypeReferenceRewritingPass : RewritePass
             return instruction;
         }
 
-        IReadOnlyList<RewriteRule> outOfRangeRules = Session.Matcher.GetOutOfRangeTypeRules(type);
-        if (outOfRangeRules.Count > 0)
-        {
-            foreach (RewriteRule outOfRangeRule in outOfRangeRules)
-            {
-                ReportRuntimeOutOfRange(outOfRangeRule, instruction, type);
-            }
-
-            return instruction;
-        }
 
         if (!TrySubstitute(type, out TypeReference? substituted, out RewriteRule rule, out string? error))
         {
@@ -151,12 +141,4 @@ internal sealed class TypeReferenceRewritingPass : RewritePass
         Session.AddUnresolvedReference(rule.Replacement.ToCanonicalString());
     }
 
-    private void ReportRuntimeOutOfRange(RewriteRule rule, Instruction instruction, TypeReference type)
-    {
-        Session.AddDiagnostic(Diagnostics.RewriteDiagnostic.Error(
-            Diagnostics.RewriteDiagnosticIds.RuntimeOutOfRange,
-            $"Rule '{rule.Id}' targeted type '{type.FullName}' but the configured target runtime is outside its supported range {rule.SupportedRuntimes.ToCanonicalString()}.",
-            CecilNames.FullyQualifiedMethodName(Method!),
-            instruction.Offset));
-    }
 }

@@ -2,6 +2,7 @@ using Clockwork.Instrumentation.Diagnostics;
 using Clockwork.Instrumentation.Rewriting;
 using Clockwork.Instrumentation.Rules;
 using Clockwork.Instrumentation.Tests.Infrastructure;
+using Mono.Cecil;
 
 namespace Clockwork.Instrumentation.Tests.Golden;
 
@@ -77,7 +78,7 @@ public sealed class ResolutionGoldenTests
             options);
 
         Assert.False(result.Succeeded);
-        Assert.Contains(result.Errors, diagnostic => diagnostic.Id == RewriteDiagnosticIds.RuntimeOutOfRange);
+        Assert.Equal(RewriteDiagnosticIds.RuntimeOutOfRange, Assert.Single(result.Errors).Id);
         Assert.False(result.WasWritten);
         Assert.Empty(result.Manifest.Transformations);
     }
@@ -114,8 +115,10 @@ public sealed class ResolutionGoldenTests
             TargetRuntime = new Version(targetRuntime, 0),
         };
 
+        string outputPath = fixturePath + ".rewritten.dll";
         RewriteResult result = context.Rewrite(
             fixturePath,
+            outputPath,
             new RewriteRuleSet("clockwork.fixtures.runtime-order", "1.0", rules),
             options);
 
@@ -124,6 +127,14 @@ public sealed class ResolutionGoldenTests
         Assert.DoesNotContain(
             result.Diagnostics,
             diagnostic => diagnostic.Id == RewriteDiagnosticIds.RuntimeOutOfRange);
+
+        // The output records the runtimes the in-range rule supports, which a simulation checks when it starts.
+        using ModuleDefinition module = context.LoadModule(outputPath);
+        CustomAttribute marker = Assert.Single(
+            module.Assembly.CustomAttributes,
+            attribute => attribute.AttributeType.FullName == typeof(System.Reflection.AssemblyMetadataAttribute).FullName
+                && (string)attribute.ConstructorArguments[0].Value == "Clockwork.SupportedRuntimes");
+        Assert.Equal($"[{targetRuntime}.0,{targetRuntime}.0]", marker.ConstructorArguments[1].Value);
     }
 
     private static RewriteRule RuntimeSpecificRule(int runtime)

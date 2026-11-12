@@ -38,6 +38,7 @@ public sealed class ExclusionGoldenTests
 
         var options = new RewriteOptions
         {
+            TargetRuntime = RewriteTestContext.TargetRuntime,
             ReplacementAssemblyPaths = [context.ShimPath],
             ReferenceSearchDirectories = [context.Directory],
             ExcludedTypeFullNames = ["Fx.Skipped"],

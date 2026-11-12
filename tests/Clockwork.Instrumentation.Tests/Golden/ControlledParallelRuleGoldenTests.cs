@@ -61,6 +61,7 @@ public sealed class ControlledParallelRuleGoldenTests
 
         var options = new RewriteOptions
         {
+            TargetRuntime = RewriteTestContext.TargetRuntime,
             ReplacementAssemblyPaths = [RuntimeAssemblyPath],
             ReferenceSearchDirectories = [context.Directory, Path.GetDirectoryName(RuntimeAssemblyPath)!],
         };

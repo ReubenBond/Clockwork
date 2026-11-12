@@ -60,7 +60,6 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
     };
 
     private MemberSubstitutionMapper? _mapper;
-    private readonly HashSet<string> _reportedOutOfRange = new(StringComparer.Ordinal);
     private readonly HashSet<string> _reportedApplicationFailures = new(StringComparer.Ordinal);
     private readonly List<PendingBinding> _pendingBindings = [];
     private readonly Dictionary<MemberReference, RewriteRule[]> _rewrittenSignatures = new(ReferenceEqualityComparer.Instance);
@@ -81,11 +80,6 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
     internal override void VisitType(TypeDefinition type)
     {
         base.VisitType(type);
-        ReportOutOfRange(type.Fields.Select(field => field.FieldType));
-        ReportOutOfRange(type.Properties.Select(property => property.PropertyType));
-        ReportOutOfRange(type.Properties.SelectMany(property => property.Parameters).Select(parameter => parameter.ParameterType));
-        ReportOutOfRange(type.Methods.Select(method => method.ReturnType));
-        ReportOutOfRange(type.Methods.SelectMany(method => method.Parameters).Select(parameter => parameter.ParameterType));
 
         if (!IsActive)
         {
@@ -201,7 +195,6 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
     /// <inheritdoc/>
     protected override void VisitMethodBody(MethodBody body)
     {
-        ReportOutOfRange(body.Variables.Select(variable => variable.VariableType));
         if (!IsActive)
         {
             return;
@@ -221,8 +214,6 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
     /// <inheritdoc/>
     protected override Instruction VisitInstruction(Instruction instruction)
     {
-        ReportOutOfRange(instruction);
-
         if (!IsActive)
         {
             return instruction;
@@ -735,65 +726,6 @@ internal sealed class MemberSubstitutionRewritingPass : RewritePass
                     constraint.ConstraintType = mapped;
                 }
             }
-        }
-    }
-
-    private void ReportOutOfRange(IEnumerable<TypeReference> types)
-    {
-        foreach (TypeReference type in types)
-        {
-            ReportOutOfRange(type, instruction: null);
-        }
-    }
-
-    private void ReportOutOfRange(Instruction instruction)
-    {
-        switch (instruction.Operand)
-        {
-            case MethodReference method:
-                ReportOutOfRange(method.DeclaringType, instruction);
-                ReportOutOfRange(method.ReturnType, instruction);
-                ReportOutOfRange(method.Parameters.Select(parameter => parameter.ParameterType), instruction);
-                if (method is GenericInstanceMethod generic)
-                {
-                    ReportOutOfRange(generic.GenericArguments, instruction);
-                }
-
-                break;
-            case FieldReference field:
-                ReportOutOfRange(field.DeclaringType, instruction);
-                ReportOutOfRange(field.FieldType, instruction);
-                break;
-        }
-    }
-
-    private void ReportOutOfRange(IEnumerable<TypeReference> types, Instruction instruction)
-    {
-        foreach (TypeReference type in types)
-        {
-            ReportOutOfRange(type, instruction);
-        }
-    }
-
-    private void ReportOutOfRange(TypeReference type, Instruction? instruction)
-    {
-        foreach (RewriteRule rule in Session.Matcher.GetOutOfRangeTypeRules(type))
-        {
-            string containing = Method is null
-                ? TypeDef?.FullName ?? Session.TargetModule.Name
-                : CecilNames.FullyQualifiedMethodName(Method);
-            int offset = instruction?.Offset ?? -1;
-            string key = $"{rule.Id}|{containing}|{offset}";
-            if (!_reportedOutOfRange.Add(key))
-            {
-                continue;
-            }
-
-            Session.AddDiagnostic(RewriteDiagnostic.Error(
-                RewriteDiagnosticIds.RuntimeOutOfRange,
-                $"Rule '{rule.Id}' targeted type '{type.FullName}' but the configured target runtime is outside its supported range {rule.SupportedRuntimes.ToCanonicalString()}.",
-                containing,
-                offset));
         }
     }
 

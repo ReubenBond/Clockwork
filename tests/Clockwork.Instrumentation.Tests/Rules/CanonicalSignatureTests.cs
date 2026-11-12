@@ -111,10 +111,12 @@ public sealed class CanonicalSignatureTests
         };
         var onePath = new RewriteOptions
         {
+            TargetRuntime = Infrastructure.RewriteTestContext.TargetRuntime,
             ReplacementAssemblyPaths = ["A,B"],
         };
         var twoPaths = new RewriteOptions
         {
+            TargetRuntime = Infrastructure.RewriteTestContext.TargetRuntime,
             ReplacementAssemblyPaths = ["A", "B"],
         };
 

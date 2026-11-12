@@ -102,7 +102,7 @@ public sealed class TypeSubstitutionGoldenTests
             options);
 
         Assert.False(result.Succeeded);
-        Assert.Contains(result.Errors, diagnostic => diagnostic.Id == RewriteDiagnosticIds.RuntimeOutOfRange);
+        Assert.Equal(RewriteDiagnosticIds.RuntimeOutOfRange, Assert.Single(result.Errors).Id);
         Assert.False(result.WasWritten);
     }
 

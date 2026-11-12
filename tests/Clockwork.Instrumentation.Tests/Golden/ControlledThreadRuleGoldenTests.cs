@@ -54,6 +54,7 @@ public sealed class ControlledThreadRuleGoldenTests
 
         var options = new RewriteOptions
         {
+            TargetRuntime = RewriteTestContext.TargetRuntime,
             ReplacementAssemblyPaths = [RuntimeAssemblyPath],
             ReferenceSearchDirectories = [context.Directory, Path.GetDirectoryName(RuntimeAssemblyPath)!],
         };

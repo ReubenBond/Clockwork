@@ -72,6 +72,7 @@ public sealed class RaceExplorationGoldenTests
 
         var options = new RewriteOptions
         {
+            TargetRuntime = RewriteTestContext.TargetRuntime,
             ReplacementAssemblyPaths = [typeof(RaceInstrumentation).Assembly.Location],
             ReferenceSearchDirectories = [context.Directory, Path.GetDirectoryName(typeof(RaceInstrumentation).Assembly.Location)!],
             InstrumentRaceExploration = true,
@@ -125,6 +126,7 @@ public sealed class RaceExplorationGoldenTests
 
         RewriteResult result = context.Rewrite(input, output, EmptyRules(), new RewriteOptions
         {
+            TargetRuntime = RewriteTestContext.TargetRuntime,
             ReplacementAssemblyPaths = [context.ShimPath],
             ReferenceSearchDirectories = [context.Directory],
         });
@@ -154,6 +156,7 @@ public sealed class RaceExplorationGoldenTests
 
         RewriteResult result = context.Rewrite(input, output, EmptyRules(), new RewriteOptions
         {
+            TargetRuntime = RewriteTestContext.TargetRuntime,
             ReplacementAssemblyPaths = [typeof(RaceInstrumentation).Assembly.Location],
             ReferenceSearchDirectories = [context.Directory],
             InstrumentRaceExploration = true,
@@ -195,6 +198,7 @@ public sealed class RaceExplorationGoldenTests
 
         RewriteResult result = context.Rewrite(input, output, EmptyRules(), new RewriteOptions
         {
+            TargetRuntime = RewriteTestContext.TargetRuntime,
             ReplacementAssemblyPaths = [typeof(RaceInstrumentation).Assembly.Location],
             ReferenceSearchDirectories = [context.Directory],
             InstrumentRaceExploration = true,
@@ -231,6 +235,7 @@ public sealed class RaceExplorationGoldenTests
         string output = Path.Combine(context.Directory, "Fx.PrefixRace.rewritten.dll");
         RewriteResult result = context.Rewrite(modifiedInput, output, EmptyRules(), new RewriteOptions
         {
+            TargetRuntime = RewriteTestContext.TargetRuntime,
             ReplacementAssemblyPaths = [typeof(RaceInstrumentation).Assembly.Location],
             ReferenceSearchDirectories = [context.Directory],
             InstrumentRaceExploration = true,

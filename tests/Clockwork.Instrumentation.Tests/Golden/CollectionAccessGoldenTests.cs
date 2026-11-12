@@ -84,6 +84,7 @@ public sealed class CollectionAccessGoldenTests
         string output = Path.Combine(context.Directory, "Fx.Collections.rewritten.dll");
         RewriteResult result = context.Rewrite(input, output, EmptyRules(), new RewriteOptions
         {
+            TargetRuntime = RewriteTestContext.TargetRuntime,
             ReplacementAssemblyPaths = [typeof(RaceInstrumentation).Assembly.Location],
             ReferenceSearchDirectories = [context.Directory],
             InstrumentRaceExploration = true,
@@ -144,6 +145,7 @@ public sealed class CollectionAccessGoldenTests
         string output = Path.Combine(context.Directory, "Fx.Collections.Execution.rewritten.dll");
         RewriteResult result = context.Rewrite(input, output, EmptyRules(), new RewriteOptions
         {
+            TargetRuntime = RewriteTestContext.TargetRuntime,
             ReplacementAssemblyPaths = [typeof(RaceInstrumentation).Assembly.Location],
             ReferenceSearchDirectories = [context.Directory],
             InstrumentRaceExploration = true,
@@ -185,6 +187,7 @@ public sealed class CollectionAccessGoldenTests
         string output = Path.Combine(context.Directory, "Fx.TailCollection.rewritten.dll");
         RewriteResult result = context.Rewrite(modifiedInput, output, EmptyRules(), new RewriteOptions
         {
+            TargetRuntime = RewriteTestContext.TargetRuntime,
             ReplacementAssemblyPaths = [typeof(RaceInstrumentation).Assembly.Location],
             ReferenceSearchDirectories = [context.Directory],
             InstrumentRaceExploration = true,

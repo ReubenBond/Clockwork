@@ -47,7 +47,8 @@ public static class RewriteEngine
     public static RewriteResult Rewrite(RewriteRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        RewriteOptions options = request.EffectiveOptions;
+        ArgumentNullException.ThrowIfNull(request.Options);
+        RewriteOptions options = request.Options;
 
         string signature = request.RuleSet.ComputeSignature();
         string optionsFingerprint = options.ComputeSemanticFingerprint();
@@ -79,6 +80,14 @@ public static class RewriteEngine
             inputHash,
             hasSymbols,
             context.Symbols.ToString());
+
+        // A rule set that does not support the target runtime fails once, before any call site is visited.
+        RuleSetRuntimeSupport runtimeSupport = RuleSetRuntimeSupport.Evaluate(request.RuleSet, options.TargetRuntime);
+        if (!runtimeSupport.IsSupported)
+        {
+            diagnostics.Add(runtimeSupport.ToDiagnostic(request.RuleSet, "the requested target runtime"));
+            return Failed(request, engineVersion, signature, inputIdentity, diagnostics, exclusions, [], []);
+        }
 
         // Mono.Cecil cannot round-trip mixed-mode assemblies; fail clearly before touching them.
         if (!context.IsPureIL())
@@ -164,6 +173,7 @@ public static class RewriteEngine
         context.StripStrongNames(options.StrongNameAssemblyNames.ToHashSet(StringComparer.Ordinal));
         context.ApplyRewriteSignature(new ClockworkRewriteSignatureValues(
             engineVersion, request.RuleSet.Id, request.RuleSet.Version, signature, optionsFingerprint));
+        context.ApplySupportedRuntimes(runtimeSupport.SupportedRuntimes);
 
         EnsureOutputDirectory(request.OutputPath);
         context.Write(request.OutputPath);
@@ -398,7 +408,7 @@ public static class RewriteEngine
             RuleSetId = request.RuleSet.Id,
             RuleSetVersion = request.RuleSet.Version,
             RuleSetSignature = signature,
-            Mode = request.EffectiveOptions.InstrumentRaceExploration
+            Mode = request.Options.InstrumentRaceExploration
                 ? Configuration.InstrumentationMode.RaceExploration
                 : Configuration.InstrumentationMode.Controlled,
             Input = input,

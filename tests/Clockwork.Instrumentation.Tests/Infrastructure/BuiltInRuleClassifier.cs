@@ -144,7 +144,7 @@ internal sealed class BuiltInRuleClassifier
 
     private RuleClassification Match(MethodDefinition method, bool isNewObj)
     {
-        if (!_matcher.TryMatchInvocation(ReferencePack.CallSite(method), isNewObj, out RewriteRule rule, out _))
+        if (!_matcher.TryMatchInvocation(ReferencePack.CallSite(method), isNewObj, out RewriteRule rule))
         {
             return RuleClassification.None;
         }

@@ -6,6 +6,7 @@ using Clockwork.Instrumentation.Configuration;
 using Clockwork.Instrumentation.Diagnostics;
 using Clockwork.Instrumentation.Imaging;
 using Clockwork.Instrumentation.Rewriting;
+using Clockwork.Instrumentation.Rules;
 using Clockwork.Instrumentation.Rules.BuiltIn;
 using Clockwork.Instrumentation.Signing;
 using Mono.Cecil;
@@ -99,6 +100,26 @@ public static class InstrumentationRunner
             cachePath,
             configuration);
 
+        (Version targetRuntime, string targetRuntimeOrigin) = TargetRuntimeDiscovery.Resolve(configuration, plan);
+        configuration = configuration with { TargetRuntime = targetRuntime };
+        request = request with { Configuration = configuration };
+
+        // A rule set that does not support the target fails once, before anything is staged or rewritten.
+        RuleSetRuntimeSupport runtimeSupport = RuleSetRuntimeSupport.Evaluate(request.RuleSet, targetRuntime);
+        if (!runtimeSupport.IsSupported)
+        {
+            DeleteIfExists(request.CachePath);
+            return new InstrumentationResult
+            {
+                Succeeded = false,
+                WasIncrementalHit = false,
+                TargetRuntime = targetRuntime,
+                StagingDirectory = stagingDirectory,
+                ManifestPath = request.ManifestPath,
+                Diagnostics = [runtimeSupport.ToDiagnostic(request.RuleSet, targetRuntimeOrigin)],
+            };
+        }
+
         var topLevel = new List<RewriteDiagnostic>();
 
         string incrementalKey;
@@ -124,6 +145,7 @@ public static class InstrumentationRunner
             {
                 Succeeded = true,
                 WasIncrementalHit = true,
+                TargetRuntime = targetRuntime,
                 StagingDirectory = stagingDirectory,
                 ManifestPath = request.ManifestPath,
                 Diagnostics = [.. topLevel],
@@ -160,7 +182,7 @@ public static class InstrumentationRunner
         {
             ReplacementAssemblyPaths = replacementPaths,
             ReferenceSearchDirectories = [sourceDirectory],
-            TargetRuntime = configuration.TargetRuntime,
+            TargetRuntime = targetRuntime,
             HardenExceptionHandlers = containsControlledTaskRules,
             InstrumentRaceExploration = configuration.Mode == InstrumentationMode.RaceExploration,
             StrongNameAssemblyNames = strongNameAssemblyNames,
@@ -220,7 +242,7 @@ public static class InstrumentationRunner
                 stagingDirectory,
                 frameworkClassifier,
                 request.RuleSet,
-                configuration.TargetRuntime,
+                targetRuntime,
                 rewrittenAssemblyNames,
                 excludedTypesByAssembly));
         }
@@ -251,6 +273,7 @@ public static class InstrumentationRunner
         {
             Succeeded = succeeded,
             WasIncrementalHit = false,
+            TargetRuntime = targetRuntime,
             StagingDirectory = stagingDirectory,
             ManifestPath = request.ManifestPath,
             Assemblies = [.. assemblyResults],

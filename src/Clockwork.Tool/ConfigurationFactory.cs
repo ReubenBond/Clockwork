@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Clockwork.Instrumentation.Configuration;
+using Clockwork.Instrumentation.Rules;
 using Clockwork.Instrumentation.Rules.BuiltIn;
 
 namespace Clockwork.Tool;
@@ -36,8 +37,14 @@ internal static class ConfigurationFactory
                 Mode = ParseEnum<InstrumentationMode>(
                     reader.GetString("mode"),
                     InstrumentationMode.Controlled),
-                TargetRuntime = ParseVersion(reader.GetString("target-runtime")),
             };
+
+        // As in the MSBuild task, a configuration file's targetRuntime wins over '--target-runtime'; without either, the
+        // runner derives the target from the closure's runtimeconfig.json.
+        configuration = configuration with
+        {
+            TargetRuntime = configuration.TargetRuntime ?? ParseTargetRuntime(reader.GetString("target-runtime")),
+        };
 
         IReadOnlyList<string> extraRuleSets = reader.GetMany("rule-set");
         if (extraRuleSets.Count > 0)
@@ -86,16 +93,17 @@ internal static class ConfigurationFactory
         return configuration;
     }
 
-    private static Version? ParseVersion(string? value)
+    private static Version? ParseTargetRuntime(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
             return null;
         }
 
-        return Version.TryParse(value, out Version? version)
+        return RuntimeFeatureVersion.TryParse(value, out Version? version)
             ? version
-            : throw new UsageException($"'--target-runtime' value '{value}' is not a valid version.");
+            : throw new UsageException(
+                $"'--target-runtime' value '{value}' is not a runtime feature version (major.minor, such as 11.0).");
     }
 
     private static TEnum ParseEnum<TEnum>(string? value, TEnum fallback)

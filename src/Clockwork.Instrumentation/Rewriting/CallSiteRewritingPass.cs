@@ -29,13 +29,8 @@ internal sealed class CallSiteRewritingPass : RewritePass
             return instruction;
         }
 
-        if (!Session.Matcher.TryMatchInvocation(method, isNewObj, out RewriteRule rule, out RewriteRule? outOfRange))
+        if (!Session.Matcher.TryMatchInvocation(method, isNewObj, out RewriteRule rule))
         {
-            if (outOfRange is not null)
-            {
-                ReportRuntimeOutOfRange(instruction, method, outOfRange);
-            }
-
             return instruction;
         }
 
@@ -150,18 +145,6 @@ internal sealed class CallSiteRewritingPass : RewritePass
         return false;
     }
 
-    private void ReportRuntimeOutOfRange(Instruction instruction, MethodReference method, RewriteRule rule)
-    {
-        string containing = CecilNames.FullyQualifiedMethodName(Method!);
-        string message =
-            $"Rule '{rule.Id}' matched {CecilNames.FullyQualifiedMethodName(method)} but the configured target runtime is outside its supported range {rule.SupportedRuntimes.ToCanonicalString()}.";
-
-        Session.AddDiagnostic(RewriteDiagnostic.Error(
-            RewriteDiagnosticIds.RuntimeOutOfRange,
-            message,
-            containing,
-            instruction.Offset));
-    }
 
     private bool TryApplyGenericArguments(
         MethodReference open,

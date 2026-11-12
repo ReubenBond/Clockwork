@@ -16,6 +16,9 @@ public sealed record InstrumentationResult
     /// <summary>Gets a value indicating whether the run was a verified incremental no-op (cache hit).</summary>
     public required bool WasIncrementalHit { get; init; }
 
+    /// <summary>Gets the feature version of the target runtime the rules were evaluated against.</summary>
+    public required Version TargetRuntime { get; init; }
+
     /// <summary>Gets the staging directory the instrumented closure was written to.</summary>
     public required string StagingDirectory { get; init; }
 

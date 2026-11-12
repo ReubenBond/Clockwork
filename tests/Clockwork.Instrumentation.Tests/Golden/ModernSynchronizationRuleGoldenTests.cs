@@ -299,6 +299,7 @@ public sealed class ModernSynchronizationRuleGoldenTests
         string rewrittenConsumerPath = Path.Combine(context.Directory, "Fx.SignatureConsumer.rewritten.dll");
         var options = new RewriteOptions
         {
+            TargetRuntime = RewriteTestContext.TargetRuntime,
             ReplacementAssemblyPaths = [RuntimeAssemblyPath],
             ReferenceSearchDirectories = [context.Directory, Path.GetDirectoryName(RuntimeAssemblyPath)!],
 
@@ -362,6 +363,7 @@ public sealed class ModernSynchronizationRuleGoldenTests
         string outputPath = Path.Combine(context.Directory, assemblyName + ".rewritten.dll");
         var options = new RewriteOptions
         {
+            TargetRuntime = RewriteTestContext.TargetRuntime,
             ReplacementAssemblyPaths = [RuntimeAssemblyPath],
             ReferenceSearchDirectories = [context.Directory, Path.GetDirectoryName(RuntimeAssemblyPath)!],
         };

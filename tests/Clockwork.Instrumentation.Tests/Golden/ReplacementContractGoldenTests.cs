@@ -354,6 +354,7 @@ public sealed class ReplacementContractGoldenTests
             ]);
         var options = new RewriteOptions
         {
+            TargetRuntime = RewriteTestContext.TargetRuntime,
             ReplacementAssemblyPaths = [shimPath],
             ReferenceSearchDirectories = [context.Directory],
         };

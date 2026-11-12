@@ -1,5 +1,6 @@
 using Clockwork.Instrumentation.Configuration;
 using Clockwork.Instrumentation.Orchestration;
+using Clockwork.Instrumentation.Rules;
 using Clockwork.Instrumentation.Rules.BuiltIn;
 using Clockwork.Runtime.Tasks;
 using Microsoft.CodeAnalysis;
@@ -133,18 +134,33 @@ internal sealed class BuiltInProcessFixture : IDisposable
         return fixture;
     }
 
+    /// <summary>Instruments the app with the built-in rules for the runtime its runtimeconfig.json names.</summary>
     public InstrumentationResult Instrument() =>
+        Instrument(new InstrumentationConfiguration(), BuiltInRuleSets.BuildControlledTasks(BuiltInRuleSets.AllFamilies));
+
+    /// <summary>Instruments the app with the built-in rules classified for <paramref name="runtime"/> instead.</summary>
+    public InstrumentationResult Instrument(Version runtime)
+    {
+        RewriteRuleSet builtIn = BuiltInRuleSets.BuildControlledTasks(BuiltInRuleSets.AllFamilies);
+        return Instrument(
+            new InstrumentationConfiguration { TargetRuntime = runtime },
+            new RewriteRuleSet(
+                builtIn.Id,
+                builtIn.Version,
+                builtIn.Rules.Select(rule => rule with { SupportedRuntimes = new RuntimeVersionRange(runtime, runtime) })));
+    }
+
+    private InstrumentationResult Instrument(InstrumentationConfiguration configuration, RewriteRuleSet ruleSet) =>
         InstrumentationRunner.Run(new InstrumentationRequest
         {
             SourceDirectory = SourceDirectory,
             StagingDirectory = StagingDirectory,
             EntryAssemblyName = AppAssemblyName,
-            Configuration = new InstrumentationConfiguration
+            Configuration = configuration with
             {
                 IncludePatterns = [AppAssemblyName + ".dll", DependencyAssemblyName + ".dll"],
-                TargetRuntime = BuiltInRuleSets.SupportedRuntime,
             },
-            RuleSet = BuiltInRuleSets.BuildControlledTasks(BuiltInRuleSets.AllFamilies),
+            RuleSet = ruleSet,
         });
 
     public AppRunResult RunSource() => ProcessAppRunner.Run(SourceAppPath);

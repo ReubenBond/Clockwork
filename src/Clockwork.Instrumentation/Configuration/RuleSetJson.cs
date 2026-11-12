@@ -372,9 +372,10 @@ public static class RuleSetJson
         }
 
         string text = RequireString(value, $"supportedRuntimes.{propertyName}", context);
-        if (!Version.TryParse(text, out Version? version))
+        if (!RuntimeFeatureVersion.TryParse(text, out Version? version))
         {
-            throw new ConfigurationException($"{context}: 'supportedRuntimes.{propertyName}' value '{text}' is not a valid version.");
+            throw new ConfigurationException(
+                $"{context}: 'supportedRuntimes.{propertyName}' value '{text}' is not a runtime feature version (major.minor, such as 11.0).");
         }
 
         return version;

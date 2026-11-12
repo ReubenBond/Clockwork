@@ -38,7 +38,7 @@ internal static class ClosureBindingValidator
         string stagingDirectory,
         FrameworkAssemblyClassifier frameworkClassifier,
         RewriteRuleSet ruleSet,
-        Version? targetRuntime,
+        Version targetRuntime,
         IReadOnlyCollection<string> rewrittenAssemblyNames,
         IReadOnlyDictionary<string, IReadOnlySet<string>> excludedTypesByAssembly)
     {
