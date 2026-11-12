@@ -88,13 +88,13 @@ public sealed class NondeterministicApiAnalyzerTests
         Assert.True(diagnostics.Length <= 1);
     }
 
-    [Fact]
-    public async Task ThreadPrioritySetterRequiresInstrumentationButGetterDoesNot()
+    [Theory]
+    [InlineData("_ = thread.Priority; thread.Priority = System.Threading.ThreadPriority.AboveNormal;")]
+    [InlineData("_ = thread.ApartmentState; thread.ApartmentState = System.Threading.ApartmentState.STA;")]
+    public async Task ThreadSettersRequireInstrumentationButGettersDoNot(string statements)
     {
         ImmutableArray<Diagnostic> diagnostics = await AnalyzeAsync(Wrap(
-            "var thread = System.Threading.Thread.CurrentThread; " +
-            "_ = thread.Priority; " +
-            "thread.Priority = System.Threading.ThreadPriority.AboveNormal;"));
+            "var thread = System.Threading.Thread.CurrentThread; " + statements));
 
         Diagnostic diagnostic = Assert.Single(diagnostics);
         Assert.Equal("CW1001", diagnostic.Id);

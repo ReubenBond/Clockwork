@@ -149,7 +149,8 @@ public enum BuiltInRuleFamily
     /// whose body is scheduled as a fresh controlled operation on the coordinator instead of running on a
     /// physical OS thread, and <c>Join</c> pumps the deterministic loop; the static <c>Sleep</c>,
     /// <c>Yield</c>, and <c>SpinWait</c> hints yield cooperatively without blocking or using real time.
-    /// The OS-specific surface (<c>Priority</c>, apartment state, <c>Interrupt</c>) is classified
+    /// The OS-specific surface (<c>Priority</c>, apartment state, including the obsolete <c>ApartmentState</c> setter,
+    /// <c>Interrupt</c>) is classified
     /// <c>Rejected</c>: it cannot be modelled faithfully by the cooperative scheduler, so the rewritten
     /// call site fails precisely under simulation.
     /// </summary>
@@ -204,14 +205,17 @@ public enum BuiltInRuleFamily
     /// members and the <c>WaitForExit</c> / <c>WaitForExitAsync</c> / <c>WaitForExitStatus</c> /
     /// <c>TryWaitForExitStatus</c> / <c>WaitForExitStatusAsync</c> waits and <c>ReadAllBytes</c> / <c>ReadAllText</c> /
     /// <c>ReadAllLines</c> reads and their async forms (signalling or blocking on an uncontrolled process), the
-    /// <see cref="Microsoft.Win32.SafeHandles.SafeProcessHandle"/> <c>Start</c>, <c>Signal</c>, <c>Resume</c>,
+    /// <c>WaitForInputIdle</c> waits, <c>CloseMainWindow</c>, the <c>EnableRaisingEvents</c> setter and the
+    /// <c>BeginOutputReadLine</c> / <c>BeginErrorReadLine</c> reads (which raise events on threads of the BCL's choosing as
+    /// the process exits or writes), the priority, processor-affinity, and working-set setters of a
+    /// <see cref="System.Diagnostics.Process"/> and the scheduling setters of a <see cref="System.Diagnostics.ProcessThread"/>,
+    /// the <see cref="Microsoft.Win32.SafeHandles.SafeProcessHandle"/> <c>Start</c>, <c>Signal</c>, <c>Resume</c>,
     /// <c>Kill</c>, and wait members and the <c>WindowsProcessStartArguments</c> / <c>UnixProcessStartArguments</c>
-    /// <c>Start</c> launchers, and
-    /// <see cref="System.Environment"/> <c>Exit</c> / <c>FailFast</c> (tearing the host process down out from under
-    /// the simulation). Classified <c>Rejected</c>: the rewritten call site throws a precise uncontrolled-invocation
-    /// diagnostic that names the exact API and IL offset, so a rewritten assembly can never escape the deterministic
-    /// model by launching, signalling, waiting on, or terminating a real process. This mirrors Coyote's
-    /// uncontrolled-invocation pass, which rewrites such call sites to throw rather than run.
+    /// <c>Start</c> launchers, and <see cref="System.Environment"/> <c>Exit</c> / <c>FailFast</c> (tearing the host
+    /// process down out from under the simulation). Classified <c>Rejected</c>: the rewritten call site throws a precise
+    /// uncontrolled-invocation diagnostic that names the exact API and IL offset, so a rewritten assembly can never
+    /// escape the deterministic model by launching, signalling, waiting on, rescheduling, or terminating a real process.
+    /// This mirrors Coyote's uncontrolled-invocation pass, which rewrites such call sites to throw rather than run.
     /// </summary>
     UncontrolledInvocation,
 

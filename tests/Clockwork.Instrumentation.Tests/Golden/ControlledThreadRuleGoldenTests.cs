@@ -38,6 +38,7 @@ public sealed class ControlledThreadRuleGoldenTests
                 public static bool Cede() => Thread.Yield();
                 public static void Prioritise(Thread t) => t.Priority = ThreadPriority.Highest;
                 public static void Interrupt(Thread t) => t.Interrupt();
+                public static void Apartment(Thread t) => t.ApartmentState = ApartmentState.STA;
             }
         }
         """;
@@ -142,10 +143,16 @@ public sealed class ControlledThreadRuleGoldenTests
         MethodDefinition interrupt = CecilInspect.GetMethod(module, "Fx.ThreadUser", "Interrupt");
         Assert.True(CecilInspect.CallsAnyContaining(interrupt, "ControlledThread::Interrupt"));
 
+        MethodDefinition apartment = CecilInspect.GetMethod(module, "Fx.ThreadUser", "Apartment");
+        Assert.True(CecilInspect.CallsAnyContaining(apartment, "ControlledThread::SetApartmentState"));
+        Assert.False(CecilInspect.CallsAnyContaining(apartment, "Threading.Thread::set_ApartmentState"));
+
         ImmutableArray<ManifestTransformation> transformations = result.Manifest.Transformations;
         Assert.Contains(transformations, t =>
             t.RuleId == "clockwork.thread.set_priority" && t.Policy == SimulationApiPolicy.Rejected);
         Assert.Contains(transformations, t =>
             t.RuleId == "clockwork.thread.interrupt" && t.Policy == SimulationApiPolicy.Rejected);
+        Assert.Contains(transformations, t =>
+            t.RuleId == "clockwork.thread.set_apartmentstate" && t.Policy == SimulationApiPolicy.Rejected);
     }
 }

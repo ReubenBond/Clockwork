@@ -405,6 +405,7 @@ Policy: **Controlled**. `Thread` construction (`ThreadStart`/`ParameterizedThrea
 | `clockwork.thread.set_priority` | `System.Threading.Thread::set_Priority(System.Threading.ThreadPriority)` | `Clockwork!Clockwork.Shims.System.Threading.ControlledThread::SetPriority(System.Threading.Thread,System.Threading.ThreadPriority)` | Rejected |
 | `clockwork.thread.interrupt` | `System.Threading.Thread::Interrupt()` | `Clockwork!Clockwork.Shims.System.Threading.ControlledThread::Interrupt(System.Threading.Thread)` | Rejected |
 | `clockwork.thread.setapartmentstate` | `System.Threading.Thread::SetApartmentState(System.Threading.ApartmentState)` | `Clockwork!Clockwork.Shims.System.Threading.ControlledThread::SetApartmentState(System.Threading.Thread,System.Threading.ApartmentState)` | Rejected |
+| `clockwork.thread.set_apartmentstate` | `System.Threading.Thread::set_ApartmentState(System.Threading.ApartmentState)` | `Clockwork!Clockwork.Shims.System.Threading.ControlledThread::SetApartmentState(System.Threading.Thread,System.Threading.ApartmentState)` | Rejected |
 | `clockwork.thread.trysetapartmentstate` | `System.Threading.Thread::TrySetApartmentState(System.Threading.ApartmentState)` | `Clockwork!Clockwork.Shims.System.Threading.ControlledThread::TrySetApartmentState(System.Threading.Thread,System.Threading.ApartmentState)` | Rejected |
 
 ## ThreadPool family
@@ -461,7 +462,7 @@ Policy: **Controlled**. `CancellationTokenSource` timed constructors and `Cancel
 
 ## Parallel family
 
-Policy: **Controlled**. `Parallel.Invoke`, `Parallel.For` (`int`/`long`, with and without `ParallelOptions`), and `Parallel.ForEach(IEnumerable<T>)` run their bodies as controlled operations on the simulation coordinator, preserving results, cancellation, and exception aggregation. The `ParallelLoopState` break/stop overloads cannot be modelled deterministically yet and are rejected with a precise diagnostic.
+Policy: **Controlled**. `Parallel.Invoke`, `Parallel.For` (`int`/`long`, with and without `ParallelOptions`), and `Parallel.ForEach(IEnumerable<T>)` run their bodies as controlled operations on the simulation coordinator, preserving results, cancellation, and exception aggregation. The overloads whose body takes a `ParallelLoopState` (break/stop) or thread-local state (`TLocal`), and the `Partitioner`/`OrderablePartitioner` overloads, cannot be modelled deterministically yet and are rejected with a precise diagnostic.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -479,6 +480,26 @@ Policy: **Controlled**. `Parallel.Invoke`, `Parallel.For` (`int`/`long`, with an
 | `clockwork.parallel.for.int64.loopstate.options` | `System.Threading.Tasks.Parallel::For(System.Int64,System.Int64,System.Threading.Tasks.ParallelOptions,System.Action`2<System.Int64,System.Threading.Tasks.ParallelLoopState>)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
 | `clockwork.parallel.foreach.loopstate` | `System.Threading.Tasks.Parallel::ForEach(System.Collections.Generic.IEnumerable`1<!!0>,System.Action`2<!!0,System.Threading.Tasks.ParallelLoopState>)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
 | `clockwork.parallel.foreach.loopstate.index` | `System.Threading.Tasks.Parallel::ForEach(System.Collections.Generic.IEnumerable`1<!!0>,System.Action`3<!!0,System.Threading.Tasks.ParallelLoopState,System.Int64>)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.foreach.loopstate.options` | `System.Threading.Tasks.Parallel::ForEach(System.Collections.Generic.IEnumerable`1<!!0>,System.Threading.Tasks.ParallelOptions,System.Action`2<!!0,System.Threading.Tasks.ParallelLoopState>)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.foreach.loopstate.index.options` | `System.Threading.Tasks.Parallel::ForEach(System.Collections.Generic.IEnumerable`1<!!0>,System.Threading.Tasks.ParallelOptions,System.Action`3<!!0,System.Threading.Tasks.ParallelLoopState,System.Int64>)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.foreach.partitioner` | `System.Threading.Tasks.Parallel::ForEach(System.Collections.Concurrent.Partitioner`1<!!0>,System.Action`1<!!0>)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.foreach.partitioner.options` | `System.Threading.Tasks.Parallel::ForEach(System.Collections.Concurrent.Partitioner`1<!!0>,System.Threading.Tasks.ParallelOptions,System.Action`1<!!0>)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.foreach.partitioner.loopstate` | `System.Threading.Tasks.Parallel::ForEach(System.Collections.Concurrent.Partitioner`1<!!0>,System.Action`2<!!0,System.Threading.Tasks.ParallelLoopState>)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.foreach.partitioner.loopstate.options` | `System.Threading.Tasks.Parallel::ForEach(System.Collections.Concurrent.Partitioner`1<!!0>,System.Threading.Tasks.ParallelOptions,System.Action`2<!!0,System.Threading.Tasks.ParallelLoopState>)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.foreach.orderablepartitioner.loopstate.index` | `System.Threading.Tasks.Parallel::ForEach(System.Collections.Concurrent.OrderablePartitioner`1<!!0>,System.Action`3<!!0,System.Threading.Tasks.ParallelLoopState,System.Int64>)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.foreach.orderablepartitioner.loopstate.index.options` | `System.Threading.Tasks.Parallel::ForEach(System.Collections.Concurrent.OrderablePartitioner`1<!!0>,System.Threading.Tasks.ParallelOptions,System.Action`3<!!0,System.Threading.Tasks.ParallelLoopState,System.Int64>)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.for.int32.local` | `System.Threading.Tasks.Parallel::For(System.Int32,System.Int32,System.Func`1<!!0>,System.Func`4<System.Int32,System.Threading.Tasks.ParallelLoopState,!!0,!!0>,System.Action`1<!!0>)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.for.int32.local.options` | `System.Threading.Tasks.Parallel::For(System.Int32,System.Int32,System.Threading.Tasks.ParallelOptions,System.Func`1<!!0>,System.Func`4<System.Int32,System.Threading.Tasks.ParallelLoopState,!!0,!!0>,System.Action`1<!!0>)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.for.int64.local` | `System.Threading.Tasks.Parallel::For(System.Int64,System.Int64,System.Func`1<!!0>,System.Func`4<System.Int64,System.Threading.Tasks.ParallelLoopState,!!0,!!0>,System.Action`1<!!0>)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.for.int64.local.options` | `System.Threading.Tasks.Parallel::For(System.Int64,System.Int64,System.Threading.Tasks.ParallelOptions,System.Func`1<!!0>,System.Func`4<System.Int64,System.Threading.Tasks.ParallelLoopState,!!0,!!0>,System.Action`1<!!0>)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.foreach.local` | `System.Threading.Tasks.Parallel::ForEach(System.Collections.Generic.IEnumerable`1<!!0>,System.Func`1<!!1>,System.Func`4<!!0,System.Threading.Tasks.ParallelLoopState,!!1,!!1>,System.Action`1<!!1>)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.foreach.local.options` | `System.Threading.Tasks.Parallel::ForEach(System.Collections.Generic.IEnumerable`1<!!0>,System.Threading.Tasks.ParallelOptions,System.Func`1<!!1>,System.Func`4<!!0,System.Threading.Tasks.ParallelLoopState,!!1,!!1>,System.Action`1<!!1>)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.foreach.local.index` | `System.Threading.Tasks.Parallel::ForEach(System.Collections.Generic.IEnumerable`1<!!0>,System.Func`1<!!1>,System.Func`5<!!0,System.Threading.Tasks.ParallelLoopState,System.Int64,!!1,!!1>,System.Action`1<!!1>)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.foreach.local.index.options` | `System.Threading.Tasks.Parallel::ForEach(System.Collections.Generic.IEnumerable`1<!!0>,System.Threading.Tasks.ParallelOptions,System.Func`1<!!1>,System.Func`5<!!0,System.Threading.Tasks.ParallelLoopState,System.Int64,!!1,!!1>,System.Action`1<!!1>)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.foreach.partitioner.local` | `System.Threading.Tasks.Parallel::ForEach(System.Collections.Concurrent.Partitioner`1<!!0>,System.Func`1<!!1>,System.Func`4<!!0,System.Threading.Tasks.ParallelLoopState,!!1,!!1>,System.Action`1<!!1>)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.foreach.partitioner.local.options` | `System.Threading.Tasks.Parallel::ForEach(System.Collections.Concurrent.Partitioner`1<!!0>,System.Threading.Tasks.ParallelOptions,System.Func`1<!!1>,System.Func`4<!!0,System.Threading.Tasks.ParallelLoopState,!!1,!!1>,System.Action`1<!!1>)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.foreach.orderablepartitioner.local.index` | `System.Threading.Tasks.Parallel::ForEach(System.Collections.Concurrent.OrderablePartitioner`1<!!0>,System.Func`1<!!1>,System.Func`5<!!0,System.Threading.Tasks.ParallelLoopState,System.Int64,!!1,!!1>,System.Action`1<!!1>)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
+| `clockwork.parallel.foreach.orderablepartitioner.local.index.options` | `System.Threading.Tasks.Parallel::ForEach(System.Collections.Concurrent.OrderablePartitioner`1<!!0>,System.Threading.Tasks.ParallelOptions,System.Func`1<!!1>,System.Func`5<!!0,System.Threading.Tasks.ParallelLoopState,System.Int64,!!1,!!1>,System.Action`1<!!1>)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledParallel::RejectUnsupported(System.String)` | Rejected |
 
 ## Monitor family
 
@@ -840,7 +861,7 @@ Policy: **Controlled**. `CountdownEvent` is wholly substituted with `ControlledC
 
 ## UncontrolledInvocation family
 
-Policy: **Rejected**. Process control and abrupt-termination APIs (`Process.Start`/`Run`/`RunAsync`/`RunAndCaptureText`/`RunAndCaptureTextAsync`/`StartAndForget`, the `Start` instance/`Kill`/`Signal` members, the `WaitForExit`/`WaitForExitAsync`/`WaitForExitStatus`/`TryWaitForExitStatus`/`WaitForExitStatusAsync` waits, the `ReadAllBytes`/`ReadAllText`/`ReadAllLines` reads (and their async forms) that wait for the process to close its output, the `SafeProcessHandle` `Start`/`Signal`/`Resume`/`Kill` and wait members, the `WindowsProcessStartArguments`/`UnixProcessStartArguments` `Start` launchers, and `Environment.Exit`/`FailFast`) cannot be modelled inside a single simulated process at all. A throwing guard is injected before each call site so a rewritten assembly can never launch, signal, wait on, or terminate a real OS process; unlike the controlled shims the rejection is unconditional (it fires whether or not a simulation is active).
+Policy: **Rejected**. Process control and abrupt-termination APIs (`Process.Start`/`Run`/`RunAsync`/`RunAndCaptureText`/`RunAndCaptureTextAsync`/`StartAndForget`, the `Start` instance/`Kill`/`Signal` members, the `WaitForExit`/`WaitForExitAsync`/`WaitForExitStatus`/`TryWaitForExitStatus`/`WaitForExitStatusAsync` waits, the `ReadAllBytes`/`ReadAllText`/`ReadAllLines` reads (and their async forms) that wait for the process to close its output, the `WaitForInputIdle` waits, `CloseMainWindow`, the `EnableRaisingEvents` setter and `BeginOutputReadLine`/`BeginErrorReadLine` (which raise events on threads of the BCL's choosing as the process exits or writes), the `Process` priority, processor-affinity, and working-set setters and the `ProcessThread` scheduling setters, the `SafeProcessHandle` `Start`/`Signal`/`Resume`/`Kill` and wait members, the `WindowsProcessStartArguments`/`UnixProcessStartArguments` `Start` launchers, and `Environment.Exit`/`FailFast`) cannot be modelled inside a single simulated process at all. A throwing guard is injected before each call site so a rewritten assembly can never launch, signal, wait on, reschedule, or terminate a real OS process; unlike the controlled shims the rejection is unconditional (it fires whether or not a simulation is active).
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -877,6 +898,23 @@ Policy: **Rejected**. Process control and abrupt-termination APIs (`Process.Star
 | `clockwork.process.readalltextasync` | `System.Diagnostics.Process::ReadAllTextAsync(System.Threading.CancellationToken)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
 | `clockwork.process.readalllines` | `System.Diagnostics.Process::ReadAllLines(System.Nullable`1<System.TimeSpan>)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
 | `clockwork.process.readalllinesasync` | `System.Diagnostics.Process::ReadAllLinesAsync(System.Threading.CancellationToken)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.waitforinputidle` | `System.Diagnostics.Process::WaitForInputIdle()` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.waitforinputidle.milliseconds` | `System.Diagnostics.Process::WaitForInputIdle(System.Int32)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.waitforinputidle.timespan` | `System.Diagnostics.Process::WaitForInputIdle(System.TimeSpan)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.closemainwindow` | `System.Diagnostics.Process::CloseMainWindow()` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.set_enableraisingevents` | `System.Diagnostics.Process::set_EnableRaisingEvents(System.Boolean)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.beginoutputreadline` | `System.Diagnostics.Process::BeginOutputReadLine()` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.beginerrorreadline` | `System.Diagnostics.Process::BeginErrorReadLine()` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.set_priorityclass` | `System.Diagnostics.Process::set_PriorityClass(System.Diagnostics.ProcessPriorityClass)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.set_priorityboostenabled` | `System.Diagnostics.Process::set_PriorityBoostEnabled(System.Boolean)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.set_processoraffinity` | `System.Diagnostics.Process::set_ProcessorAffinity(System.IntPtr)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.set_maxworkingset` | `System.Diagnostics.Process::set_MaxWorkingSet(System.IntPtr)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.process.set_minworkingset` | `System.Diagnostics.Process::set_MinWorkingSet(System.IntPtr)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.processthread.set_idealprocessor` | `System.Diagnostics.ProcessThread::set_IdealProcessor(System.Int32)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.processthread.resetidealprocessor` | `System.Diagnostics.ProcessThread::ResetIdealProcessor()` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.processthread.set_priorityboostenabled` | `System.Diagnostics.ProcessThread::set_PriorityBoostEnabled(System.Boolean)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.processthread.set_prioritylevel` | `System.Diagnostics.ProcessThread::set_PriorityLevel(System.Diagnostics.ThreadPriorityLevel)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
+| `clockwork.processthread.set_processoraffinity` | `System.Diagnostics.ProcessThread::set_ProcessorAffinity(System.IntPtr)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
 | `clockwork.safeprocesshandle.start` | `Microsoft.Win32.SafeHandles.SafeProcessHandle::Start(System.Diagnostics.ProcessStartInfo)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
 | `clockwork.safeprocesshandle.signal` | `Microsoft.Win32.SafeHandles.SafeProcessHandle::Signal(System.Runtime.InteropServices.PosixSignal)` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
 | `clockwork.safeprocesshandle.resume` | `Microsoft.Win32.SafeHandles.SafeProcessHandle::Resume()` | `Clockwork!Clockwork.Runtime.UncontrolledInvocationGuard::Reject(System.String)` | Rejected |
@@ -909,14 +947,222 @@ This inventory is enabled only when instrumentation mode is `RaceExploration`; `
 
 Limits: constructors and property accessors are excluded; generated `MoveNext` methods are visited, with generated value-type state fields schedule-only. Multidimensional arrays, interface-typed and tail-prefixed collection calls, reflection/dynamic dispatch, spans, unmanaged memory, and arbitrary pointer offsets are not assigned tracked locations.
 
+# Members left as BCL calls
+
+Every public and protected member of a type the built-in rules target is controlled or rejected by a rule above, or is listed below with the reason a call to it stays a BCL call. A type is targeted when a rule names or substitutes it, or when a member's signature mentions a class, struct, or interface of `System.Diagnostics.Process.dll`. A test classifies each targeted type against the reference assemblies of the supported runtime, so a member a new runtime adds fails that test until it is classified, and another test fails when the reference pack gains or loses an assembly.
+
+| Reason | Behavior |
+| --- | --- |
+| `Value` | Computes its result from the receiver and its arguments, or creates, configures, or releases the receiver. |
+| `CultureOrTimeZone` | Uses or sets the current culture, or converts local time with the host's time zone, so its result follows the host's configuration. |
+| `HostState` | Reads or changes state of the host process or machine (environment variables, paths, identity, and processor, memory, and thread-pool statistics), so a simulation observes the host's values. |
+| `Process` | Looks up, configures, reads, or releases an OS process or its handle. The members that start, signal, wait on, reschedule, or terminate a process are rejected (`UncontrolledInvocation` family). |
+| `Dispatch` | Runs on the receiver. `new Random()`, `Random.Shared`, `RandomNumberGenerator.Create`, and `TimeProvider.System` return instances that draw from the simulation's seeded streams and virtual clock. |
+| `RealClock` | Reads the host's monotonic clock: a documented hole. `Stopwatch.GetTimestamp()` and `Stopwatch.GetElapsedTime(long)` are controlled. |
+| `ProcessWideId` | Returns an identifier drawn from a process-wide counter, so its value depends on the tasks and threads the process created before. |
+| `CurrentThread` | Reads or changes the calling thread's state (its `Thread` object, thread-local data slots, principal, and affinity hints), which belongs to the physical thread that runs every logical thread or flows with the `ExecutionContext` as in the BCL. |
+| `IdentityHandle` | Reads the BCL `Thread` object that a controlled thread keeps as its identity. That object never runs, so a controlled thread reports itself unstarted: a documented hole. |
+| `Fence` | Performs one memory access or fence, which the cooperative scheduler runs as an indivisible step. Race exploration does not track it. |
+| `Blocks` | Blocks the calling physical thread as in the BCL, which stalls the simulation until it returns: a documented hole. Use `await` or a controlled overload. |
+| `Schedules` | Runs its work through a BCL task scheduler, the thread pool, or a new physical thread rather than the simulation's coordinator: a documented hole. |
+| `RuntimeAsync` | Runtime-async intrinsic, which suspends its caller through the runtime's own continuation machinery. Rewriting a method compiled with runtime async fails with `CWR0013`. |
+| `AlwaysThrows` | Throws on .NET 11: `PlatformNotSupportedException`, or `InvalidOperationException` for `GetCompressedStack` and `SetCompressedStack`. |
+| `SubstitutedTypeProtected` | Protected member of a substituted type, which only a derived type can call. Rewriting a type derived from a substituted type fails. |
+
+## `Microsoft.Win32.SafeHandles.SafeProcessHandle`
+
+- `Process`: `.ctor()`, `.ctor(System.IntPtr,System.Boolean)`, `get_ProcessId()`, `ReleaseHandle()`, `Open(System.Int32)`, `TryOpen(System.Int32,Microsoft.Win32.SafeHandles.SafeProcessHandle&)`
+
+## `System.DateTime`
+
+- `Value`: `.ctor(System.DateOnly,System.TimeOnly)`, `.ctor(System.DateOnly,System.TimeOnly,System.DateTimeKind)`, `.ctor(System.Int32,System.Int32,System.Int32)`, `.ctor(System.Int32,System.Int32,System.Int32,System.Globalization.Calendar)`, `.ctor(System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32)`, `.ctor(System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.DateTimeKind)`, `.ctor(System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Globalization.Calendar)`, `.ctor(System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32)`, `.ctor(System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.DateTimeKind)`, `.ctor(System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Globalization.Calendar)`, `.ctor(System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Globalization.Calendar,System.DateTimeKind)`, `.ctor(System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32)`, `.ctor(System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.DateTimeKind)`, `.ctor(System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Globalization.Calendar)`, `.ctor(System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Globalization.Calendar,System.DateTimeKind)`, `.ctor(System.Int64)`, `.ctor(System.Int64,System.DateTimeKind)`, `get_Date()`, `get_Day()`, `get_DayOfWeek()`, `get_DayOfYear()`, `get_Hour()`, `get_Kind()`, `get_Microsecond()`, `get_Millisecond()`, `get_Minute()`, `get_Month()`, `get_Nanosecond()`, `get_Second()`, `get_Ticks()`, `get_TimeOfDay()`, `get_Year()`, `Add(System.TimeSpan)`, `AddDays(System.Double)`, `AddHours(System.Double)`, `AddMicroseconds(System.Double)`, `AddMilliseconds(System.Double)`, `AddMinutes(System.Double)`, `AddMonths(System.Int32)`, `AddSeconds(System.Double)`, `AddTicks(System.Int64)`, `AddYears(System.Int32)`, `Compare(System.DateTime,System.DateTime)`, `CompareTo(System.DateTime)`, `CompareTo(System.Object)`, `DaysInMonth(System.Int32,System.Int32)`, `Deconstruct(System.DateOnly&,System.TimeOnly&)`, `Deconstruct(System.Int32&,System.Int32&,System.Int32&)`, `Equals(System.DateTime)`, `Equals(System.DateTime,System.DateTime)`, `Equals(System.Object)`, `FromFileTimeUtc(System.Int64)`, `FromOADate(System.Double)`, `GetHashCode()`, `GetTypeCode()`, `IsLeapYear(System.Int32)`, `op_Addition(System.DateTime,System.TimeSpan)`, `op_Equality(System.DateTime,System.DateTime)`, `op_GreaterThan(System.DateTime,System.DateTime)`, `op_GreaterThanOrEqual(System.DateTime,System.DateTime)`, `op_Inequality(System.DateTime,System.DateTime)`, `op_LessThan(System.DateTime,System.DateTime)`, `op_LessThanOrEqual(System.DateTime,System.DateTime)`, `op_Subtraction(System.DateTime,System.DateTime)`, `op_Subtraction(System.DateTime,System.TimeSpan)`, `SpecifyKind(System.DateTime,System.DateTimeKind)`, `Subtract(System.DateTime)`, `Subtract(System.TimeSpan)`, `ToOADate()`, `MaxValue`, `MinValue`, `UnixEpoch`
+- `CultureOrTimeZone`: `FromBinary(System.Int64)`, `FromFileTime(System.Int64)`, `GetDateTimeFormats()`, `GetDateTimeFormats(System.Char)`, `GetDateTimeFormats(System.Char,System.IFormatProvider)`, `GetDateTimeFormats(System.IFormatProvider)`, `IsDaylightSavingTime()`, `Parse(System.ReadOnlySpan`1<System.Char>,System.IFormatProvider)`, `Parse(System.ReadOnlySpan`1<System.Char>,System.IFormatProvider,System.Globalization.DateTimeStyles)`, `Parse(System.String)`, `Parse(System.String,System.IFormatProvider)`, `Parse(System.String,System.IFormatProvider,System.Globalization.DateTimeStyles)`, `ParseExact(System.ReadOnlySpan`1<System.Char>,System.ReadOnlySpan`1<System.Char>,System.IFormatProvider,System.Globalization.DateTimeStyles)`, `ParseExact(System.ReadOnlySpan`1<System.Char>,System.String[],System.IFormatProvider,System.Globalization.DateTimeStyles)`, `ParseExact(System.String,System.String,System.IFormatProvider)`, `ParseExact(System.String,System.String,System.IFormatProvider,System.Globalization.DateTimeStyles)`, `ParseExact(System.String,System.String[],System.IFormatProvider,System.Globalization.DateTimeStyles)`, `ToBinary()`, `ToFileTime()`, `ToFileTimeUtc()`, `ToLocalTime()`, `ToLongDateString()`, `ToLongTimeString()`, `ToShortDateString()`, `ToShortTimeString()`, `ToString()`, `ToString(System.IFormatProvider)`, `ToString(System.String)`, `ToString(System.String,System.IFormatProvider)`, `ToUniversalTime()`, `TryFormat(System.Span`1<System.Byte>,System.Int32&,System.ReadOnlySpan`1<System.Char>,System.IFormatProvider)`, `TryFormat(System.Span`1<System.Char>,System.Int32&,System.ReadOnlySpan`1<System.Char>,System.IFormatProvider)`, `TryParse(System.ReadOnlySpan`1<System.Char>,System.DateTime&)`, `TryParse(System.ReadOnlySpan`1<System.Char>,System.IFormatProvider,System.DateTime&)`, `TryParse(System.ReadOnlySpan`1<System.Char>,System.IFormatProvider,System.Globalization.DateTimeStyles,System.DateTime&)`, `TryParse(System.String,System.DateTime&)`, `TryParse(System.String,System.IFormatProvider,System.DateTime&)`, `TryParse(System.String,System.IFormatProvider,System.Globalization.DateTimeStyles,System.DateTime&)`, `TryParseExact(System.ReadOnlySpan`1<System.Char>,System.ReadOnlySpan`1<System.Char>,System.IFormatProvider,System.Globalization.DateTimeStyles,System.DateTime&)`, `TryParseExact(System.ReadOnlySpan`1<System.Char>,System.String[],System.IFormatProvider,System.Globalization.DateTimeStyles,System.DateTime&)`, `TryParseExact(System.String,System.String,System.IFormatProvider,System.Globalization.DateTimeStyles,System.DateTime&)`, `TryParseExact(System.String,System.String[],System.IFormatProvider,System.Globalization.DateTimeStyles,System.DateTime&)`
+
+## `System.DateTimeOffset`
+
+- `Value`: `.ctor(System.DateOnly,System.TimeOnly,System.TimeSpan)`, `.ctor(System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Globalization.Calendar,System.TimeSpan)`, `.ctor(System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Globalization.Calendar,System.TimeSpan)`, `.ctor(System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.TimeSpan)`, `.ctor(System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.TimeSpan)`, `.ctor(System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.TimeSpan)`, `.ctor(System.Int64,System.TimeSpan)`, `get_Date()`, `get_DateTime()`, `get_Day()`, `get_DayOfWeek()`, `get_DayOfYear()`, `get_Hour()`, `get_Microsecond()`, `get_Millisecond()`, `get_Minute()`, `get_Month()`, `get_Nanosecond()`, `get_Offset()`, `get_Second()`, `get_Ticks()`, `get_TimeOfDay()`, `get_TotalOffsetMinutes()`, `get_UtcDateTime()`, `get_UtcTicks()`, `get_Year()`, `Add(System.TimeSpan)`, `AddDays(System.Double)`, `AddHours(System.Double)`, `AddMicroseconds(System.Double)`, `AddMilliseconds(System.Double)`, `AddMinutes(System.Double)`, `AddMonths(System.Int32)`, `AddSeconds(System.Double)`, `AddTicks(System.Int64)`, `AddYears(System.Int32)`, `Compare(System.DateTimeOffset,System.DateTimeOffset)`, `CompareTo(System.DateTimeOffset)`, `Deconstruct(System.DateOnly&,System.TimeOnly&,System.TimeSpan&)`, `Equals(System.DateTimeOffset)`, `Equals(System.DateTimeOffset,System.DateTimeOffset)`, `Equals(System.Object)`, `EqualsExact(System.DateTimeOffset)`, `FromUnixTimeMilliseconds(System.Int64)`, `FromUnixTimeSeconds(System.Int64)`, `GetHashCode()`, `op_Addition(System.DateTimeOffset,System.TimeSpan)`, `op_Equality(System.DateTimeOffset,System.DateTimeOffset)`, `op_GreaterThan(System.DateTimeOffset,System.DateTimeOffset)`, `op_GreaterThanOrEqual(System.DateTimeOffset,System.DateTimeOffset)`, `op_Inequality(System.DateTimeOffset,System.DateTimeOffset)`, `op_LessThan(System.DateTimeOffset,System.DateTimeOffset)`, `op_LessThanOrEqual(System.DateTimeOffset,System.DateTimeOffset)`, `op_Subtraction(System.DateTimeOffset,System.DateTimeOffset)`, `op_Subtraction(System.DateTimeOffset,System.TimeSpan)`, `Subtract(System.DateTimeOffset)`, `Subtract(System.TimeSpan)`, `ToFileTime()`, `ToOffset(System.TimeSpan)`, `ToUniversalTime()`, `ToUnixTimeMilliseconds()`, `ToUnixTimeSeconds()`, `MaxValue`, `MinValue`, `UnixEpoch`
+- `CultureOrTimeZone`: `.ctor(System.DateTime)`, `.ctor(System.DateTime,System.TimeSpan)`, `get_LocalDateTime()`, `FromFileTime(System.Int64)`, `op_Implicit(System.DateTime)`, `Parse(System.ReadOnlySpan`1<System.Char>,System.IFormatProvider)`, `Parse(System.ReadOnlySpan`1<System.Char>,System.IFormatProvider,System.Globalization.DateTimeStyles)`, `Parse(System.String)`, `Parse(System.String,System.IFormatProvider)`, `Parse(System.String,System.IFormatProvider,System.Globalization.DateTimeStyles)`, `ParseExact(System.ReadOnlySpan`1<System.Char>,System.ReadOnlySpan`1<System.Char>,System.IFormatProvider,System.Globalization.DateTimeStyles)`, `ParseExact(System.ReadOnlySpan`1<System.Char>,System.String[],System.IFormatProvider,System.Globalization.DateTimeStyles)`, `ParseExact(System.String,System.String,System.IFormatProvider)`, `ParseExact(System.String,System.String,System.IFormatProvider,System.Globalization.DateTimeStyles)`, `ParseExact(System.String,System.String[],System.IFormatProvider,System.Globalization.DateTimeStyles)`, `ToLocalTime()`, `ToString()`, `ToString(System.IFormatProvider)`, `ToString(System.String)`, `ToString(System.String,System.IFormatProvider)`, `TryFormat(System.Span`1<System.Byte>,System.Int32&,System.ReadOnlySpan`1<System.Char>,System.IFormatProvider)`, `TryFormat(System.Span`1<System.Char>,System.Int32&,System.ReadOnlySpan`1<System.Char>,System.IFormatProvider)`, `TryParse(System.ReadOnlySpan`1<System.Char>,System.DateTimeOffset&)`, `TryParse(System.ReadOnlySpan`1<System.Char>,System.IFormatProvider,System.DateTimeOffset&)`, `TryParse(System.ReadOnlySpan`1<System.Char>,System.IFormatProvider,System.Globalization.DateTimeStyles,System.DateTimeOffset&)`, `TryParse(System.String,System.DateTimeOffset&)`, `TryParse(System.String,System.IFormatProvider,System.DateTimeOffset&)`, `TryParse(System.String,System.IFormatProvider,System.Globalization.DateTimeStyles,System.DateTimeOffset&)`, `TryParseExact(System.ReadOnlySpan`1<System.Char>,System.ReadOnlySpan`1<System.Char>,System.IFormatProvider,System.Globalization.DateTimeStyles,System.DateTimeOffset&)`, `TryParseExact(System.ReadOnlySpan`1<System.Char>,System.String[],System.IFormatProvider,System.Globalization.DateTimeStyles,System.DateTimeOffset&)`, `TryParseExact(System.String,System.String,System.IFormatProvider,System.Globalization.DateTimeStyles,System.DateTimeOffset&)`, `TryParseExact(System.String,System.String[],System.IFormatProvider,System.Globalization.DateTimeStyles,System.DateTimeOffset&)`
+
+## `System.Diagnostics.DataReceivedEventArgs`
+
+- `Value`: `get_Data()`
+
+## `System.Diagnostics.MonitoringDescriptionAttribute`
+
+- `Value`: `.ctor(System.String)`, `get_Description()`
+
+## `System.Diagnostics.Process`
+
+- `Process`: `.ctor()`, `get_BasePriority()`, `get_EnableRaisingEvents()`, `get_ExitCode()`, `get_ExitTime()`, `get_Handle()`, `get_HandleCount()`, `get_HasExited()`, `get_Id()`, `get_MachineName()`, `get_MainModule()`, `get_MainWindowHandle()`, `get_MainWindowTitle()`, `get_MaxWorkingSet()`, `get_MinWorkingSet()`, `get_Modules()`, `get_NonpagedSystemMemorySize()`, `get_NonpagedSystemMemorySize64()`, `get_PagedMemorySize()`, `get_PagedMemorySize64()`, `get_PagedSystemMemorySize()`, `get_PagedSystemMemorySize64()`, `get_PeakPagedMemorySize()`, `get_PeakPagedMemorySize64()`, `get_PeakVirtualMemorySize()`, `get_PeakVirtualMemorySize64()`, `get_PeakWorkingSet()`, `get_PeakWorkingSet64()`, `get_PriorityBoostEnabled()`, `get_PriorityClass()`, `get_PrivateMemorySize()`, `get_PrivateMemorySize64()`, `get_PrivilegedProcessorTime()`, `get_ProcessName()`, `get_ProcessorAffinity()`, `get_Responding()`, `get_SafeHandle()`, `get_SessionId()`, `get_StandardError()`, `get_StandardInput()`, `get_StandardOutput()`, `get_StartInfo()`, `set_StartInfo(System.Diagnostics.ProcessStartInfo)`, `get_StartTime()`, `get_SynchronizingObject()`, `set_SynchronizingObject(System.ComponentModel.ISynchronizeInvoke)`, `get_Threads()`, `get_TotalProcessorTime()`, `get_UserProcessorTime()`, `get_VirtualMemorySize()`, `get_VirtualMemorySize64()`, `get_WorkingSet()`, `get_WorkingSet64()`, `add_ErrorDataReceived(System.Diagnostics.DataReceivedEventHandler)`, `remove_ErrorDataReceived(System.Diagnostics.DataReceivedEventHandler)`, `add_Exited(System.EventHandler)`, `remove_Exited(System.EventHandler)`, `add_OutputDataReceived(System.Diagnostics.DataReceivedEventHandler)`, `remove_OutputDataReceived(System.Diagnostics.DataReceivedEventHandler)`, `CancelErrorRead()`, `CancelOutputRead()`, `Close()`, `Dispose(System.Boolean)`, `EnterDebugMode()`, `GetCurrentProcess()`, `GetProcessById(System.Int32)`, `GetProcessById(System.Int32,System.String)`, `GetProcesses()`, `GetProcesses(System.String)`, `GetProcessesByName(System.String)`, `GetProcessesByName(System.String,System.String)`, `LeaveDebugMode()`, `OnExited()`, `Refresh()`, `ToString()`, `TryGetProcessById(System.Int32,System.Diagnostics.Process&)`
+
+## `System.Diagnostics.ProcessExitStatus`
+
+- `Value`: `.ctor(System.Int32,System.Boolean,System.Nullable`1<System.Runtime.InteropServices.PosixSignal>)`, `get_Canceled()`, `get_ExitCode()`, `get_Signal()`
+
+## `System.Diagnostics.ProcessModule`
+
+- `Process`: `get_BaseAddress()`, `get_EntryPointAddress()`, `get_FileName()`, `get_FileVersionInfo()`, `get_ModuleMemorySize()`, `get_ModuleName()`, `ToString()`
+
+## `System.Diagnostics.ProcessModuleCollection`
+
+- `Value`: `.ctor()`, `.ctor(System.Diagnostics.ProcessModule[])`, `get_Item(System.Int32)`, `Contains(System.Diagnostics.ProcessModule)`, `CopyTo(System.Diagnostics.ProcessModule[],System.Int32)`, `IndexOf(System.Diagnostics.ProcessModule)`
+
+## `System.Diagnostics.ProcessOutputLine`
+
+- `Value`: `.ctor(System.String,System.Boolean)`, `get_Content()`, `get_StandardError()`, `ToString()`
+
+## `System.Diagnostics.ProcessStartInfo`
+
+- `Process`: `.ctor()`, `.ctor(System.String)`, `.ctor(System.String,System.String)`, `.ctor(System.String,System.Collections.Generic.IEnumerable`1<System.String>)`, `get_ArgumentList()`, `get_Arguments()`, `set_Arguments(System.String)`, `get_CreateNewProcessGroup()`, `set_CreateNewProcessGroup(System.Boolean)`, `get_CreateNoWindow()`, `set_CreateNoWindow(System.Boolean)`, `get_Domain()`, `set_Domain(System.String)`, `get_Environment()`, `get_EnvironmentVariables()`, `get_ErrorDialog()`, `set_ErrorDialog(System.Boolean)`, `get_ErrorDialogParentHandle()`, `set_ErrorDialogParentHandle(System.IntPtr)`, `get_FileName()`, `set_FileName(System.String)`, `get_InheritedHandles()`, `set_InheritedHandles(System.Collections.Generic.IList`1<System.Runtime.InteropServices.SafeHandle>)`, `get_KillOnParentExit()`, `set_KillOnParentExit(System.Boolean)`, `get_LoadUserProfile()`, `set_LoadUserProfile(System.Boolean)`, `get_Password()`, `set_Password(System.Security.SecureString)`, `get_PasswordInClearText()`, `set_PasswordInClearText(System.String)`, `get_RedirectStandardError()`, `set_RedirectStandardError(System.Boolean)`, `get_RedirectStandardInput()`, `set_RedirectStandardInput(System.Boolean)`, `get_RedirectStandardOutput()`, `set_RedirectStandardOutput(System.Boolean)`, `get_StandardErrorEncoding()`, `set_StandardErrorEncoding(System.Text.Encoding)`, `get_StandardErrorHandle()`, `set_StandardErrorHandle(Microsoft.Win32.SafeHandles.SafeFileHandle)`, `get_StandardInputEncoding()`, `set_StandardInputEncoding(System.Text.Encoding)`, `get_StandardInputHandle()`, `set_StandardInputHandle(Microsoft.Win32.SafeHandles.SafeFileHandle)`, `get_StandardOutputEncoding()`, `set_StandardOutputEncoding(System.Text.Encoding)`, `get_StandardOutputHandle()`, `set_StandardOutputHandle(Microsoft.Win32.SafeHandles.SafeFileHandle)`, `get_StartDetached()`, `set_StartDetached(System.Boolean)`, `get_StartSuspended()`, `set_StartSuspended(System.Boolean)`, `get_UseCredentialsForNetworkingOnly()`, `set_UseCredentialsForNetworkingOnly(System.Boolean)`, `get_UserName()`, `set_UserName(System.String)`, `get_UseShellExecute()`, `set_UseShellExecute(System.Boolean)`, `get_Verb()`, `set_Verb(System.String)`, `get_Verbs()`, `get_WindowStyle()`, `set_WindowStyle(System.Diagnostics.ProcessWindowStyle)`, `get_WorkingDirectory()`, `set_WorkingDirectory(System.String)`
+
+## `System.Diagnostics.ProcessTextOutput`
+
+- `Value`: `.ctor(System.Diagnostics.ProcessExitStatus,System.String,System.String,System.Int32)`, `get_ExitStatus()`, `get_ProcessId()`, `get_StandardError()`, `get_StandardOutput()`
+
+## `System.Diagnostics.ProcessThread`
+
+- `Process`: `get_BasePriority()`, `get_CurrentPriority()`, `get_Id()`, `get_PriorityBoostEnabled()`, `get_PriorityLevel()`, `get_PrivilegedProcessorTime()`, `get_StartAddress()`, `get_StartTime()`, `get_ThreadState()`, `get_TotalProcessorTime()`, `get_UserProcessorTime()`, `get_WaitReason()`
+
+## `System.Diagnostics.ProcessThreadCollection`
+
+- `Value`: `.ctor()`, `.ctor(System.Diagnostics.ProcessThread[])`, `get_Item(System.Int32)`, `Add(System.Diagnostics.ProcessThread)`, `Contains(System.Diagnostics.ProcessThread)`, `CopyTo(System.Diagnostics.ProcessThread[],System.Int32)`, `IndexOf(System.Diagnostics.ProcessThread)`, `Insert(System.Int32,System.Diagnostics.ProcessThread)`, `Remove(System.Diagnostics.ProcessThread)`
+
+## `System.Diagnostics.Stopwatch`
+
+- `Value`: `.ctor()`, `get_IsRunning()`, `GetElapsedTime(System.Int64,System.Int64)`, `Reset()`
+- `HostState`: `Frequency`, `IsHighResolution`
+- `RealClock`: `get_Elapsed()`, `get_ElapsedMilliseconds()`, `get_ElapsedTicks()`, `Restart()`, `Start()`, `StartNew()`, `Stop()`, `ToString()`
+
+## `System.Environment`
+
+- `HostState`: `get_CommandLine()`, `get_CpuUsage()`, `get_CurrentDirectory()`, `set_CurrentDirectory(System.String)`, `get_ExitCode()`, `set_ExitCode(System.Int32)`, `get_HasShutdownStarted()`, `get_Is64BitOperatingSystem()`, `get_Is64BitProcess()`, `get_IsPrivilegedProcess()`, `get_MachineName()`, `get_NewLine()`, `get_OSVersion()`, `get_ProcessId()`, `get_ProcessorCount()`, `get_ProcessPath()`, `get_StackTrace()`, `get_SystemDirectory()`, `get_SystemPageSize()`, `get_UserDomainName()`, `get_UserInteractive()`, `get_UserName()`, `get_Version()`, `get_WorkingSet()`, `ExpandEnvironmentVariables(System.String)`, `GetCommandLineArgs()`, `GetEnvironmentVariable(System.String)`, `GetEnvironmentVariable(System.String,System.EnvironmentVariableTarget)`, `GetEnvironmentVariables()`, `GetEnvironmentVariables(System.EnvironmentVariableTarget)`, `GetFolderPath(System.Environment/SpecialFolder)`, `GetFolderPath(System.Environment/SpecialFolder,System.Environment/SpecialFolderOption)`, `GetLogicalDrives()`, `SetEnvironmentVariable(System.String,System.String)`, `SetEnvironmentVariable(System.String,System.String,System.EnvironmentVariableTarget)`
+
+## `System.Guid`
+
+- `Value`: `.ctor(System.Byte[])`, `.ctor(System.Int32,System.Int16,System.Int16,System.Byte,System.Byte,System.Byte,System.Byte,System.Byte,System.Byte,System.Byte,System.Byte)`, `.ctor(System.Int32,System.Int16,System.Int16,System.Byte[])`, `.ctor(System.ReadOnlySpan`1<System.Byte>)`, `.ctor(System.ReadOnlySpan`1<System.Byte>,System.Boolean)`, `.ctor(System.String)`, `.ctor(System.UInt32,System.UInt16,System.UInt16,System.Byte,System.Byte,System.Byte,System.Byte,System.Byte,System.Byte,System.Byte,System.Byte)`, `get_AllBitsSet()`, `get_Variant()`, `get_Version()`, `CompareTo(System.Guid)`, `CompareTo(System.Object)`, `Equals(System.Guid)`, `Equals(System.Object)`, `GetHashCode()`, `op_Equality(System.Guid,System.Guid)`, `op_GreaterThan(System.Guid,System.Guid)`, `op_GreaterThanOrEqual(System.Guid,System.Guid)`, `op_Inequality(System.Guid,System.Guid)`, `op_LessThan(System.Guid,System.Guid)`, `op_LessThanOrEqual(System.Guid,System.Guid)`, `Parse(System.ReadOnlySpan`1<System.Byte>)`, `Parse(System.ReadOnlySpan`1<System.Byte>,System.IFormatProvider)`, `Parse(System.ReadOnlySpan`1<System.Char>)`, `Parse(System.ReadOnlySpan`1<System.Char>,System.IFormatProvider)`, `Parse(System.String)`, `Parse(System.String,System.IFormatProvider)`, `ParseExact(System.ReadOnlySpan`1<System.Char>,System.ReadOnlySpan`1<System.Char>)`, `ParseExact(System.String,System.String)`, `ToByteArray()`, `ToByteArray(System.Boolean)`, `ToString()`, `ToString(System.String)`, `ToString(System.String,System.IFormatProvider)`, `TryFormat(System.Span`1<System.Byte>,System.Int32&,System.ReadOnlySpan`1<System.Char>)`, `TryFormat(System.Span`1<System.Char>,System.Int32&,System.ReadOnlySpan`1<System.Char>)`, `TryParse(System.ReadOnlySpan`1<System.Byte>,System.Guid&)`, `TryParse(System.ReadOnlySpan`1<System.Byte>,System.IFormatProvider,System.Guid&)`, `TryParse(System.ReadOnlySpan`1<System.Char>,System.Guid&)`, `TryParse(System.ReadOnlySpan`1<System.Char>,System.IFormatProvider,System.Guid&)`, `TryParse(System.String,System.Guid&)`, `TryParse(System.String,System.IFormatProvider,System.Guid&)`, `TryParseExact(System.ReadOnlySpan`1<System.Char>,System.ReadOnlySpan`1<System.Char>,System.Guid&)`, `TryParseExact(System.String,System.String,System.Guid&)`, `TryWriteBytes(System.Span`1<System.Byte>)`, `TryWriteBytes(System.Span`1<System.Byte>,System.Boolean,System.Int32&)`, `Empty`
+
+## `System.Random`
+
+- `Dispatch`: `GetHexString(System.Int32,System.Boolean)`, `GetHexString(System.Span`1<System.Char>,System.Boolean)`, `GetItems``1(System.ReadOnlySpan`1<!!0>,System.Int32)`, `GetItems``1(System.ReadOnlySpan`1<!!0>,System.Span`1<!!0>)`, `GetItems``1(!!0[],System.Int32)`, `GetString(System.ReadOnlySpan`1<System.Char>,System.Int32)`, `Next()`, `Next(System.Int32)`, `Next(System.Int32,System.Int32)`, `NextBinaryFloat``1()`, `NextBytes(System.Byte[])`, `NextBytes(System.Span`1<System.Byte>)`, `NextDouble()`, `NextInt64()`, `NextInt64(System.Int64)`, `NextInt64(System.Int64,System.Int64)`, `NextInteger``1()`, `NextInteger``1(!!0)`, `NextInteger``1(!!0,!!0)`, `NextSingle()`, `Sample()`, `Shuffle``1(System.Span`1<!!0>)`, `Shuffle``1(!!0[])`
+
+## `System.Runtime.CompilerServices.AsyncHelpers`
+
+- `RuntimeAsync`: `UnsafeAwaitAwaiter``1(!!0)`, `AwaitAwaiter``1(!!0)`, `Await(System.Threading.Tasks.Task)`, `Await``1(System.Threading.Tasks.Task`1<!!0>)`, `Await(System.Threading.Tasks.ValueTask)`, `Await``1(System.Threading.Tasks.ValueTask`1<!!0>)`
+
+## `System.Runtime.InteropServices.UnixProcessStartArguments`
+
+- `Process`: `get_ResolvedPath()`, `get_Arguments()`, `get_EnvironmentVariables()`, `get_ProcessStartInfo()`, `get_StandardError()`, `get_StandardInput()`, `get_StandardOutput()`
+
+## `System.Runtime.InteropServices.WindowsProcessStartArguments`
+
+- `Process`: `get_Arguments()`, `get_EnvironmentVariables()`, `get_ProcessStartInfo()`, `get_StandardError()`, `get_StandardInput()`, `get_StandardOutput()`
+
+## `System.Security.Cryptography.RandomNumberGenerator`
+
+- `Value`: `.ctor()`, `Dispose()`, `Dispose(System.Boolean)`
+- `Dispatch`: `GetBytes(System.Byte[])`, `GetBytes(System.Byte[],System.Int32,System.Int32)`, `GetBytes(System.Span`1<System.Byte>)`, `GetNonZeroBytes(System.Byte[])`, `GetNonZeroBytes(System.Span`1<System.Byte>)`
+
+## `System.Threading.Barrier`
+
+- `SubstitutedTypeProtected`: `Dispose(System.Boolean)`
+
+## `System.Threading.CancellationTokenSource`
+
+- `Value`: `.ctor()`, `get_IsCancellationRequested()`, `get_Token()`, `CreateLinkedTokenSource(System.Threading.CancellationToken)`, `CreateLinkedTokenSource(System.Threading.CancellationToken,System.Threading.CancellationToken)`, `CreateLinkedTokenSource(System.ReadOnlySpan`1<System.Threading.CancellationToken>)`, `CreateLinkedTokenSource(System.Threading.CancellationToken[])`, `Dispose(System.Boolean)`
+
+## `System.Threading.CountdownEvent`
+
+- `SubstitutedTypeProtected`: `Dispose(System.Boolean)`
+
+## `System.Threading.ManualResetEventSlim`
+
+- `Value`: `Dispose(System.Boolean)`
+
+## `System.Threading.PeriodicTimer`
+
+- `SubstitutedTypeProtected`: `Finalize()`
+
+## `System.Threading.SemaphoreSlim`
+
+- `Value`: `Dispose(System.Boolean)`
+
+## `System.Threading.SynchronizationContext`
+
+- `Value`: `.ctor()`, `SetWaitNotificationRequired()`
+- `Blocks`: `WaitHelper(System.IntPtr[],System.Boolean,System.Int32)`
+
+## `System.Threading.Tasks.Parallel`
+
+- `Schedules`: `ForAsync``1(!!0,!!0,System.Func`3<!!0,System.Threading.CancellationToken,System.Threading.Tasks.ValueTask>)`, `ForAsync``1(!!0,!!0,System.Threading.CancellationToken,System.Func`3<!!0,System.Threading.CancellationToken,System.Threading.Tasks.ValueTask>)`, `ForAsync``1(!!0,!!0,System.Threading.Tasks.ParallelOptions,System.Func`3<!!0,System.Threading.CancellationToken,System.Threading.Tasks.ValueTask>)`, `ForEachAsync``1(System.Collections.Generic.IEnumerable`1<!!0>,System.Func`3<!!0,System.Threading.CancellationToken,System.Threading.Tasks.ValueTask>)`, `ForEachAsync``1(System.Collections.Generic.IEnumerable`1<!!0>,System.Threading.CancellationToken,System.Func`3<!!0,System.Threading.CancellationToken,System.Threading.Tasks.ValueTask>)`, `ForEachAsync``1(System.Collections.Generic.IEnumerable`1<!!0>,System.Threading.Tasks.ParallelOptions,System.Func`3<!!0,System.Threading.CancellationToken,System.Threading.Tasks.ValueTask>)`, `ForEachAsync``1(System.Collections.Generic.IAsyncEnumerable`1<!!0>,System.Func`3<!!0,System.Threading.CancellationToken,System.Threading.Tasks.ValueTask>)`, `ForEachAsync``1(System.Collections.Generic.IAsyncEnumerable`1<!!0>,System.Threading.CancellationToken,System.Func`3<!!0,System.Threading.CancellationToken,System.Threading.Tasks.ValueTask>)`, `ForEachAsync``1(System.Collections.Generic.IAsyncEnumerable`1<!!0>,System.Threading.Tasks.ParallelOptions,System.Func`3<!!0,System.Threading.CancellationToken,System.Threading.Tasks.ValueTask>)`
+
+## `System.Threading.Tasks.Task`
+
+- `Value`: `.ctor(System.Action)`, `.ctor(System.Action,System.Threading.CancellationToken)`, `.ctor(System.Action,System.Threading.CancellationToken,System.Threading.Tasks.TaskCreationOptions)`, `.ctor(System.Action,System.Threading.Tasks.TaskCreationOptions)`, `.ctor(System.Action`1<System.Object>,System.Object)`, `.ctor(System.Action`1<System.Object>,System.Object,System.Threading.CancellationToken)`, `.ctor(System.Action`1<System.Object>,System.Object,System.Threading.CancellationToken,System.Threading.Tasks.TaskCreationOptions)`, `.ctor(System.Action`1<System.Object>,System.Object,System.Threading.Tasks.TaskCreationOptions)`, `get_AsyncState()`, `get_CompletedTask()`, `get_CreationOptions()`, `get_Exception()`, `get_Factory()`, `get_IsCanceled()`, `get_IsCompleted()`, `get_IsCompletedSuccessfully()`, `get_IsFaulted()`, `get_Status()`, `Dispose()`, `Dispose(System.Boolean)`, `FromCanceled(System.Threading.CancellationToken)`, `FromCanceled``1(System.Threading.CancellationToken)`, `FromException(System.Exception)`, `FromException``1(System.Exception)`, `FromResult``1(!!0)`
+- `ProcessWideId`: `get_CurrentId()`, `get_Id()`
+- `Blocks`: `Wait(System.Int32)`, `Wait(System.Int32,System.Threading.CancellationToken)`, `Wait(System.Threading.CancellationToken)`, `Wait(System.TimeSpan)`, `Wait(System.TimeSpan,System.Threading.CancellationToken)`, `WaitAll(System.Collections.Generic.IEnumerable`1<System.Threading.Tasks.Task>,System.Threading.CancellationToken)`, `WaitAll(System.ReadOnlySpan`1<System.Threading.Tasks.Task>)`, `WaitAll(System.Threading.Tasks.Task[],System.Int32)`, `WaitAll(System.Threading.Tasks.Task[],System.Int32,System.Threading.CancellationToken)`, `WaitAll(System.Threading.Tasks.Task[],System.Threading.CancellationToken)`, `WaitAll(System.Threading.Tasks.Task[],System.TimeSpan)`, `WaitAny(System.Threading.Tasks.Task[],System.Int32)`, `WaitAny(System.Threading.Tasks.Task[],System.Int32,System.Threading.CancellationToken)`, `WaitAny(System.Threading.Tasks.Task[],System.Threading.CancellationToken)`, `WaitAny(System.Threading.Tasks.Task[],System.TimeSpan)`
+- `Schedules`: `RunSynchronously()`, `RunSynchronously(System.Threading.Tasks.TaskScheduler)`, `Start()`, `Start(System.Threading.Tasks.TaskScheduler)`
+
+## `System.Threading.Tasks.TaskCompletionSource`
+
+- `Value`: `.ctor()`, `.ctor(System.Object)`, `.ctor(System.Object,System.Threading.Tasks.TaskCreationOptions)`, `.ctor(System.Threading.Tasks.TaskCreationOptions)`, `get_Task()`
+
+## `System.Threading.Tasks.TaskCompletionSource`1`
+
+- `Value`: `.ctor()`, `.ctor(System.Object)`, `.ctor(System.Object,System.Threading.Tasks.TaskCreationOptions)`, `.ctor(System.Threading.Tasks.TaskCreationOptions)`, `get_Task()`
+
+## `System.Threading.Tasks.TaskFactory`
+
+- `Value`: `.ctor()`, `.ctor(System.Threading.CancellationToken)`, `.ctor(System.Threading.CancellationToken,System.Threading.Tasks.TaskCreationOptions,System.Threading.Tasks.TaskContinuationOptions,System.Threading.Tasks.TaskScheduler)`, `.ctor(System.Threading.Tasks.TaskCreationOptions,System.Threading.Tasks.TaskContinuationOptions)`, `.ctor(System.Threading.Tasks.TaskScheduler)`, `get_CancellationToken()`, `get_ContinuationOptions()`, `get_CreationOptions()`, `get_Scheduler()`
+
+## `System.Threading.Tasks.TaskFactory`1`
+
+- `Value`: `.ctor()`, `.ctor(System.Threading.CancellationToken)`, `.ctor(System.Threading.CancellationToken,System.Threading.Tasks.TaskCreationOptions,System.Threading.Tasks.TaskContinuationOptions,System.Threading.Tasks.TaskScheduler)`, `.ctor(System.Threading.Tasks.TaskCreationOptions,System.Threading.Tasks.TaskContinuationOptions)`, `.ctor(System.Threading.Tasks.TaskScheduler)`, `get_CancellationToken()`, `get_ContinuationOptions()`, `get_CreationOptions()`, `get_Scheduler()`
+
+## `System.Threading.Tasks.Task`1`
+
+- `Value`: `.ctor(System.Func`2<System.Object,!0>,System.Object)`, `.ctor(System.Func`2<System.Object,!0>,System.Object,System.Threading.CancellationToken)`, `.ctor(System.Func`2<System.Object,!0>,System.Object,System.Threading.CancellationToken,System.Threading.Tasks.TaskCreationOptions)`, `.ctor(System.Func`2<System.Object,!0>,System.Object,System.Threading.Tasks.TaskCreationOptions)`, `.ctor(System.Func`1<!0>)`, `.ctor(System.Func`1<!0>,System.Threading.CancellationToken)`, `.ctor(System.Func`1<!0>,System.Threading.CancellationToken,System.Threading.Tasks.TaskCreationOptions)`, `.ctor(System.Func`1<!0>,System.Threading.Tasks.TaskCreationOptions)`, `get_Factory()`
+
+## `System.Threading.Tasks.ValueTask`
+
+- `Value`: `.ctor(System.Threading.Tasks.Sources.IValueTaskSource,System.Int16)`, `.ctor(System.Threading.Tasks.Task)`, `get_CompletedTask()`, `get_IsCanceled()`, `get_IsCompleted()`, `get_IsCompletedSuccessfully()`, `get_IsFaulted()`, `Equals(System.Object)`, `Equals(System.Threading.Tasks.ValueTask)`, `FromCanceled(System.Threading.CancellationToken)`, `FromCanceled``1(System.Threading.CancellationToken)`, `FromException(System.Exception)`, `FromException``1(System.Exception)`, `FromResult``1(!!0)`, `GetHashCode()`, `op_Equality(System.Threading.Tasks.ValueTask,System.Threading.Tasks.ValueTask)`, `op_Inequality(System.Threading.Tasks.ValueTask,System.Threading.Tasks.ValueTask)`
+
+## `System.Threading.Tasks.ValueTask`1`
+
+- `Value`: `.ctor(System.Threading.Tasks.Sources.IValueTaskSource`1<!0>,System.Int16)`, `.ctor(System.Threading.Tasks.Task`1<!0>)`, `.ctor(!0)`, `get_IsCanceled()`, `get_IsCompleted()`, `get_IsCompletedSuccessfully()`, `get_IsFaulted()`, `Equals(System.Object)`, `Equals(System.Threading.Tasks.ValueTask`1<!0>)`, `GetHashCode()`, `op_Equality(System.Threading.Tasks.ValueTask`1<!0>,System.Threading.Tasks.ValueTask`1<!0>)`, `op_Inequality(System.Threading.Tasks.ValueTask`1<!0>,System.Threading.Tasks.ValueTask`1<!0>)`, `ToString()`
+- `Blocks`: `get_Result()`
+
+## `System.Threading.Thread`
+
+- `Value`: `get_ApartmentState()`, `get_IsBackground()`, `set_IsBackground(System.Boolean)`, `get_Name()`, `set_Name(System.String)`, `get_Priority()`, `DisableComObjectEagerCleanup()`, `Finalize()`, `GetApartmentState()`
+- `CultureOrTimeZone`: `get_CurrentCulture()`, `set_CurrentCulture(System.Globalization.CultureInfo)`, `get_CurrentUICulture()`, `set_CurrentUICulture(System.Globalization.CultureInfo)`
+- `HostState`: `GetCurrentProcessorId()`, `GetDomain()`, `GetDomainID()`
+- `ProcessWideId`: `get_ManagedThreadId()`, `GetHashCode()`
+- `CurrentThread`: `get_CurrentPrincipal()`, `set_CurrentPrincipal(System.Security.Principal.IPrincipal)`, `get_CurrentThread()`, `get_ExecutionContext()`, `get_IsThreadPoolThread()`, `AllocateDataSlot()`, `AllocateNamedDataSlot(System.String)`, `BeginCriticalRegion()`, `BeginThreadAffinity()`, `EndCriticalRegion()`, `EndThreadAffinity()`, `FreeNamedDataSlot(System.String)`, `GetData(System.LocalDataStoreSlot)`, `GetNamedDataSlot(System.String)`, `SetData(System.LocalDataStoreSlot,System.Object)`
+- `IdentityHandle`: `get_IsAlive()`, `get_ThreadState()`
+- `Fence`: `MemoryBarrier()`, `VolatileRead(System.Byte&)`, `VolatileRead(System.Double&)`, `VolatileRead(System.Int16&)`, `VolatileRead(System.Int32&)`, `VolatileRead(System.Int64&)`, `VolatileRead(System.IntPtr&)`, `VolatileRead(System.Object&)`, `VolatileRead(System.SByte&)`, `VolatileRead(System.Single&)`, `VolatileRead(System.UInt16&)`, `VolatileRead(System.UInt32&)`, `VolatileRead(System.UInt64&)`, `VolatileRead(System.UIntPtr&)`, `VolatileWrite(System.Byte&,System.Byte)`, `VolatileWrite(System.Double&,System.Double)`, `VolatileWrite(System.Int16&,System.Int16)`, `VolatileWrite(System.Int32&,System.Int32)`, `VolatileWrite(System.Int64&,System.Int64)`, `VolatileWrite(System.IntPtr&,System.IntPtr)`, `VolatileWrite(System.Object&,System.Object)`, `VolatileWrite(System.SByte&,System.SByte)`, `VolatileWrite(System.Single&,System.Single)`, `VolatileWrite(System.UInt16&,System.UInt16)`, `VolatileWrite(System.UInt32&,System.UInt32)`, `VolatileWrite(System.UInt64&,System.UInt64)`, `VolatileWrite(System.UIntPtr&,System.UIntPtr)`
+- `Schedules`: `UnsafeStart()`, `UnsafeStart(System.Object)`
+- `AlwaysThrows`: `Abort()`, `Abort(System.Object)`, `GetCompressedStack()`, `ResetAbort()`, `Resume()`, `SetCompressedStack(System.Threading.CompressedStack)`, `Suspend()`
+
+## `System.Threading.ThreadPool`
+
+- `HostState`: `get_CompletedWorkItemCount()`, `get_PendingWorkItemCount()`, `get_ThreadCount()`, `GetAvailableThreads(System.Int32&,System.Int32&)`, `GetMaxThreads(System.Int32&,System.Int32&)`, `GetMinThreads(System.Int32&,System.Int32&)`, `SetMaxThreads(System.Int32,System.Int32)`, `SetMinThreads(System.Int32,System.Int32)`
+- `Schedules`: `BindHandle(System.IntPtr)`, `BindHandle(System.Runtime.InteropServices.SafeHandle)`
+
+## `System.Threading.WaitHandle`
+
+- `Value`: `.ctor()`, `Dispose(System.Boolean)`, `InvalidHandle`, `WaitTimeout`
+
+## `System.TimeProvider`
+
+- `Value`: `.ctor()`
+- `Dispatch`: `get_LocalTimeZone()`, `get_TimestampFrequency()`, `GetElapsedTime(System.Int64)`, `GetElapsedTime(System.Int64,System.Int64)`, `GetLocalNow()`, `GetTimestamp()`, `GetUtcNow()`
+
 ## Documented holes (not rewritten in these rule sets)
 
 These nondeterministic or entropy-drawing surfaces are intentionally **not** covered and
 remain real BCL calls even under simulation:
 
-- `Stopwatch` instance APIs (`Start`/`Stop`/`Restart`/`Elapsed`/`ElapsedMilliseconds`/`ElapsedTicks`) remain uncontrolled because their mutable lifecycle would require whole-type substitution. `GetElapsedTime(long, long)` is intentionally not rewritten or analyzed: it is deterministic arithmetic over caller-supplied timestamps (use controlled `GetTimestamp()` values).
-- Any `RandomNumberGenerator` overloads beyond those listed above.
-- `DateTime`/`DateTimeOffset` parsing/formatting and any culture-, timezone-, or kind-conversion helpers other than the `Now`/`UtcNow`/`Today` clocks above.
+- Every member listed above with the `CultureOrTimeZone`, `HostState`, `RealClock`, `ProcessWideId`, `CurrentThread`, `IdentityHandle`, `Blocks`, or `Schedules` reason.
 - Blocking `ValueTask<T>.Result` reads: the accessor is not rewritten, so it would block the logical thread on an incomplete value task. `await`, or `GetAwaiter().GetResult()` through the controlled awaiter (which pumps until the value task completes), is the supported controlled path.
 - Continuations registered by uninstrumented code (an assembly excluded from rewriting, or the framework itself) follow the BCL's dispatch, so a source which runs its continuations asynchronously runs them on the thread pool.
 - Named/cross-process synchronization (named `EventWaitHandle`/`Mutex`/`Semaphore` and their `OpenExisting`/`TryOpenExisting` APIs): a single-process simulation cannot model kernel-object sharing, so these are rejected.

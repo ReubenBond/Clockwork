@@ -5,10 +5,12 @@ using Clockwork.Runtime.Policy;
 namespace Clockwork.Instrumentation.Rules.BuiltIn;
 
 /// <summary>
-/// Renders the deterministic BCL rule inventory (<see cref="BuiltInRuleSets.DeterministicBclInventory"/>)
-/// as stable Markdown. The output is committed to <c>docs/rule-inventory.md</c> and verified against
-/// this renderer by a test, so the published inventory can never silently drift from the shipped rule
-/// set. The rendering is deterministic: families and rules follow their canonical declared order.
+/// Renders the built-in rule inventories (<see cref="BuiltInRuleSets.DeterministicBclInventory"/> and
+/// <see cref="BuiltInRuleSets.ControlledTasksInventory"/>) and the members of their targeted types that stay BCL calls
+/// (<see cref="UnrewrittenMembers"/>) as stable Markdown. The output is committed to <c>docs/rule-inventory.md</c> and
+/// verified against this renderer by a test, so the published inventory can never silently drift from the shipped rule
+/// set. The rendering is deterministic: families and rules follow their canonical declared order, and listed members
+/// are grouped by declaring type in ordinal order, then by reason.
 /// </summary>
 public static class RuleInventoryDocument
 {
@@ -64,14 +66,14 @@ public static class RuleInventoryDocument
         Line("Limits: constructors and property accessors are excluded; generated `MoveNext` methods are visited, with generated value-type state fields schedule-only. Multidimensional arrays, interface-typed and tail-prefixed collection calls, reflection/dynamic dispatch, spans, unmanaged memory, and arbitrary pointer offsets are not assigned tracked locations.");
         Line();
 
+        RenderUnrewrittenMembers(sb);
+
         Line("## Documented holes (not rewritten in these rule sets)");
         Line();
         Line("These nondeterministic or entropy-drawing surfaces are intentionally **not** covered and");
         Line("remain real BCL calls even under simulation:");
         Line();
-        Line("- `Stopwatch` instance APIs (`Start`/`Stop`/`Restart`/`Elapsed`/`ElapsedMilliseconds`/`ElapsedTicks`) remain uncontrolled because their mutable lifecycle would require whole-type substitution. `GetElapsedTime(long, long)` is intentionally not rewritten or analyzed: it is deterministic arithmetic over caller-supplied timestamps (use controlled `GetTimestamp()` values).");
-        Line("- Any `RandomNumberGenerator` overloads beyond those listed above.");
-        Line("- `DateTime`/`DateTimeOffset` parsing/formatting and any culture-, timezone-, or kind-conversion helpers other than the `Now`/`UtcNow`/`Today` clocks above.");
+        Line("- Every member listed above with the `CultureOrTimeZone`, `HostState`, `RealClock`, `ProcessWideId`, `CurrentThread`, `IdentityHandle`, `Blocks`, or `Schedules` reason.");
         Line("- Blocking `ValueTask<T>.Result` reads: the accessor is not rewritten, so it would block the logical thread on an incomplete value task. `await`, or `GetAwaiter().GetResult()` through the controlled awaiter (which pumps until the value task completes), is the supported controlled path.");
         Line("- Continuations registered by uninstrumented code (an assembly excluded from rewriting, or the framework itself) follow the BCL's dispatch, so a source which runs its continuations asynchronously runs them on the thread pool.");
         Line("- Named/cross-process synchronization (named `EventWaitHandle`/`Mutex`/`Semaphore` and their `OpenExisting`/`TryOpenExisting` APIs): a single-process simulation cannot model kernel-object sharing, so these are rejected.");
@@ -128,6 +130,93 @@ public static class RuleInventoryDocument
 
     private static string DescribePolicy(ImmutableArray<RewriteRule> rules) =>
         rules.All(r => r.Policy == SimulationApiPolicy.Rejected) ? "Rejected" : "Controlled";
+
+    private static void RenderUnrewrittenMembers(StringBuilder sb)
+    {
+        void Line(string text = "") => sb.Append(text).Append('\n');
+
+        Line("# Members left as BCL calls");
+        Line();
+        Line(
+            "Every public and protected member of a type the built-in rules target is controlled or rejected by a rule " +
+            "above, or is listed below with the reason a call to it stays a BCL call. A type is targeted when a rule " +
+            "names or substitutes it, or when a member's signature mentions a class, struct, or interface of " +
+            "`System.Diagnostics.Process.dll`. A test classifies each targeted type against the reference assemblies of " +
+            "the supported runtime, so a member a new runtime adds fails that test until it is classified, and another " +
+            "test fails when the reference pack gains or loses an assembly.");
+        Line();
+        Line("| Reason | Behavior |");
+        Line("| --- | --- |");
+        foreach (UnrewrittenReason reason in Enum.GetValues<UnrewrittenReason>())
+        {
+            Line($"| `{reason}` | {DescribeReason(reason)} |");
+        }
+
+        Line();
+        foreach (IGrouping<string, UnrewrittenMember> type in UnrewrittenMembers.All
+            .GroupBy(member => member.DeclaringTypeFullName)
+            .OrderBy(group => group.Key, StringComparer.Ordinal))
+        {
+            Line($"## `{type.Key}`");
+            Line();
+            foreach (IGrouping<UnrewrittenReason, UnrewrittenMember> reason in type.GroupBy(member => member.Reason).OrderBy(group => group.Key))
+            {
+                Line($"- `{reason.Key}`: " + string.Join(", ", reason.Select(member => "`" + member.Member + "`")));
+            }
+
+            Line();
+        }
+    }
+
+    private static string DescribeReason(UnrewrittenReason reason) => reason switch
+    {
+        UnrewrittenReason.Value =>
+            "Computes its result from the receiver and its arguments, or creates, configures, or releases the receiver.",
+        UnrewrittenReason.CultureOrTimeZone =>
+            "Uses or sets the current culture, or converts local time with the host's time zone, so its result follows " +
+            "the host's configuration.",
+        UnrewrittenReason.HostState =>
+            "Reads or changes state of the host process or machine (environment variables, paths, identity, and " +
+            "processor, memory, and thread-pool statistics), so a simulation observes the host's values.",
+        UnrewrittenReason.Process =>
+            "Looks up, configures, reads, or releases an OS process or its handle. The members that start, signal, wait " +
+            "on, reschedule, or terminate a process are rejected (`UncontrolledInvocation` family).",
+        UnrewrittenReason.Dispatch =>
+            "Runs on the receiver. `new Random()`, `Random.Shared`, `RandomNumberGenerator.Create`, and " +
+            "`TimeProvider.System` return instances that draw from the simulation's seeded streams and virtual clock.",
+        UnrewrittenReason.RealClock =>
+            "Reads the host's monotonic clock: a documented hole. `Stopwatch.GetTimestamp()` and " +
+            "`Stopwatch.GetElapsedTime(long)` are controlled.",
+        UnrewrittenReason.ProcessWideId =>
+            "Returns an identifier drawn from a process-wide counter, so its value depends on the tasks and threads the " +
+            "process created before.",
+        UnrewrittenReason.CurrentThread =>
+            "Reads or changes the calling thread's state (its `Thread` object, thread-local data slots, principal, and " +
+            "affinity hints), which belongs to the physical thread that runs every logical thread or flows with the " +
+            "`ExecutionContext` as in the BCL.",
+        UnrewrittenReason.IdentityHandle =>
+            "Reads the BCL `Thread` object that a controlled thread keeps as its identity. That object never runs, so a " +
+            "controlled thread reports itself unstarted: a documented hole.",
+        UnrewrittenReason.Fence =>
+            "Performs one memory access or fence, which the cooperative scheduler runs as an indivisible step. Race " +
+            "exploration does not track it.",
+        UnrewrittenReason.Blocks =>
+            "Blocks the calling physical thread as in the BCL, which stalls the simulation until it returns: a documented " +
+            "hole. Use `await` or a controlled overload.",
+        UnrewrittenReason.Schedules =>
+            "Runs its work through a BCL task scheduler, the thread pool, or a new physical thread rather than the " +
+            "simulation's coordinator: a documented hole.",
+        UnrewrittenReason.RuntimeAsync =>
+            "Runtime-async intrinsic, which suspends its caller through the runtime's own continuation machinery. " +
+            "Rewriting a method compiled with runtime async fails with `CWR0013`.",
+        UnrewrittenReason.AlwaysThrows =>
+            "Throws on .NET 11: `PlatformNotSupportedException`, or `InvalidOperationException` for " +
+            "`GetCompressedStack` and `SetCompressedStack`.",
+        UnrewrittenReason.SubstitutedTypeProtected =>
+            "Protected member of a substituted type, which only a derived type can call. Rewriting a type derived from " +
+            "a substituted type fails.",
+        _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, null),
+    };
 
     private static string DescribeFamily(BuiltInRuleFamily family) => family switch
     {
@@ -272,8 +361,9 @@ public static class RuleInventoryDocument
         BuiltInRuleFamily.Parallel =>
             "`Parallel.Invoke`, `Parallel.For` (`int`/`long`, with and without `ParallelOptions`), and " +
             "`Parallel.ForEach(IEnumerable<T>)` run their bodies as controlled operations on the simulation " +
-            "coordinator, preserving results, cancellation, and exception aggregation. The `ParallelLoopState` " +
-            "break/stop overloads cannot be modelled deterministically yet and are rejected with a precise " +
+            "coordinator, preserving results, cancellation, and exception aggregation. The overloads whose body takes a " +
+            "`ParallelLoopState` (break/stop) or thread-local state (`TLocal`), and the `Partitioner`/" +
+            "`OrderablePartitioner` overloads, cannot be modelled deterministically yet and are rejected with a precise " +
             "diagnostic.",
         BuiltInRuleFamily.Monitor =>
             "The complete .NET 11 `Monitor` surface is classified: synchronization and C# `lock (object)` " +
@@ -291,11 +381,14 @@ public static class RuleInventoryDocument
             "`RunAndCaptureTextAsync`/`StartAndForget`, the `Start` instance/`Kill`/`Signal` members, the " +
             "`WaitForExit`/`WaitForExitAsync`/`WaitForExitStatus`/`TryWaitForExitStatus`/`WaitForExitStatusAsync` " +
             "waits, the `ReadAllBytes`/`ReadAllText`/`ReadAllLines` reads (and their async forms) that wait for the " +
-            "process to close its output, the `SafeProcessHandle` `Start`/`Signal`/`Resume`/`Kill` and wait members, the " +
+            "process to close its output, the `WaitForInputIdle` waits, `CloseMainWindow`, the `EnableRaisingEvents` " +
+            "setter and `BeginOutputReadLine`/`BeginErrorReadLine` (which raise events on threads of the BCL's choosing as " +
+            "the process exits or writes), the `Process` priority, processor-affinity, and working-set setters and the " +
+            "`ProcessThread` scheduling setters, the `SafeProcessHandle` `Start`/`Signal`/`Resume`/`Kill` and wait members, the " +
             "`WindowsProcessStartArguments`/`UnixProcessStartArguments` `Start` launchers, and `Environment.Exit`/" +
             "`FailFast`) cannot be modelled inside a single " +
             "simulated process at all. A throwing guard is injected before each call site so a rewritten assembly can " +
-            "never launch, signal, wait on, or terminate a real OS process; unlike the controlled shims the " +
+            "never launch, signal, wait on, reschedule, or terminate a real OS process; unlike the controlled shims the " +
             "rejection is unconditional (it fires whether or not a simulation is active).",
         BuiltInRuleFamily.Interlocked =>
             "The full .NET 11 `Interlocked` surface - `Increment`/`Decrement`/`Add` (`int`/`long`/`uint`/`ulong`), " +

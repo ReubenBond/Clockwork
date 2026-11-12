@@ -15,7 +15,7 @@ namespace Clockwork.Instrumentation.Tests.Golden;
 /// a compiled fixture against the real <c>Clockwork</c> assembly and assert that each site is
 /// rejected - a throwing <see cref="Clockwork.Runtime.UncontrolledInvocationGuard.Reject(string)"/> is
 /// injected before the original call, which the manifest records as a <see cref="SimulationApiPolicy.Rejected"/>
-/// transformation naming the exact API. This proves a rewritten assembly cannot launch, kill, wait on, or
+/// transformation naming the exact API. This proves a rewritten assembly cannot launch, kill, wait on, reschedule, or
 /// terminate a real OS process.
 /// </summary>
 public sealed class UncontrolledInvocationRuleGoldenTests
@@ -76,6 +76,23 @@ public sealed class UncontrolledInvocationRuleGoldenTests
                 public static void Exit() => Environment.Exit(1);
                 public static void FailFast() => Environment.FailFast("boom");
                 public static void FailFastEx(Exception ex) => Environment.FailFast("boom", ex);
+                public static bool WaitIdle(Process p) => p.WaitForInputIdle();
+                public static bool WaitIdleMs(Process p) => p.WaitForInputIdle(5);
+                public static bool WaitIdleSpan(Process p) => p.WaitForInputIdle(TimeSpan.Zero);
+                public static bool CloseWindow(Process p) => p.CloseMainWindow();
+                public static void RaiseEvents(Process p) => p.EnableRaisingEvents = true;
+                public static void ReadOutput(Process p) => p.BeginOutputReadLine();
+                public static void ReadError(Process p) => p.BeginErrorReadLine();
+                public static void PriorityClass(Process p) => p.PriorityClass = ProcessPriorityClass.High;
+                public static void PriorityBoost(Process p) => p.PriorityBoostEnabled = true;
+                public static void Affinity(Process p) => p.ProcessorAffinity = (IntPtr)1;
+                public static void MaxWorkingSet(Process p) => p.MaxWorkingSet = (IntPtr)1;
+                public static void MinWorkingSet(Process p) => p.MinWorkingSet = (IntPtr)1;
+                public static void IdealProcessor(ProcessThread t) => t.IdealProcessor = 0;
+                public static void ResetIdealProcessor(ProcessThread t) => t.ResetIdealProcessor();
+                public static void ThreadPriorityBoost(ProcessThread t) => t.PriorityBoostEnabled = true;
+                public static void ThreadPriority(ProcessThread t) => t.PriorityLevel = ThreadPriorityLevel.Highest;
+                public static void ThreadAffinity(ProcessThread t) => t.ProcessorAffinity = (IntPtr)1;
             }
         }
         """;
@@ -118,7 +135,10 @@ public sealed class UncontrolledInvocationRuleGoldenTests
             "Signal", "WaitStatus", "TryWaitStatus", "WaitStatusAsync", "Bytes", "BytesAsync",
             "Text", "TextAsync", "Lines", "LinesAsync", "HandleStart", "HandleSignal", "HandleResume", "HandleKill",
             "HandleWait", "HandleTryWait", "HandleWaitAsync", "HandleWaitOrKill", "HandleWaitOrKillAsync",
-            "WindowsStart", "UnixStart", "Exit", "FailFast", "FailFastEx",
+            "WindowsStart", "UnixStart", "Exit", "FailFast", "FailFastEx", "WaitIdle", "WaitIdleMs", "WaitIdleSpan",
+            "CloseWindow", "RaiseEvents", "ReadOutput", "ReadError", "PriorityClass", "PriorityBoost", "Affinity",
+            "MaxWorkingSet", "MinWorkingSet", "IdealProcessor", "ResetIdealProcessor", "ThreadPriorityBoost",
+            "ThreadPriority", "ThreadAffinity",
         })
         {
             MethodDefinition definition = CecilInspect.GetMethod(module, "Fx.ProcessUser", method);
@@ -134,5 +154,9 @@ public sealed class UncontrolledInvocationRuleGoldenTests
             t.RuleId == "clockwork.environment.exit" && t.Policy == SimulationApiPolicy.Rejected);
         Assert.Contains(transformations, t =>
             t.RuleId == "clockwork.process.waitforexitasync" && t.Policy == SimulationApiPolicy.Rejected);
+        Assert.Contains(transformations, t =>
+            t.RuleId == "clockwork.process.set_enableraisingevents" && t.Policy == SimulationApiPolicy.Rejected);
+        Assert.Contains(transformations, t =>
+            t.RuleId == "clockwork.processthread.set_processoraffinity" && t.Policy == SimulationApiPolicy.Rejected);
     }
 }
