@@ -4,13 +4,17 @@ namespace Clockwork.Instrumentation.Rules.BuiltIn;
 
 /// <summary>A member of a type the built-in rules target that no built-in rule rewrites, with the reason it stays a BCL call.</summary>
 /// <param name="DeclaringTypeFullName">The Cecil full name of the declaring type.</param>
-/// <param name="Member">
+/// <param name="MemberKey">
 /// The member as a call site names it: <c>Name(parameters)</c> for a method, with <c>``N</c> after the name of a method
 /// with N generic parameters, and <c>Name</c> for a field. Parameter types use the rule-target form, in which generic
 /// parameters are positional (<c>!0</c> for the declaring type's, <c>!!0</c> for the method's).
 /// </param>
 /// <param name="Reason">Why a call stays a BCL call.</param>
-internal readonly record struct UnrewrittenMember(string DeclaringTypeFullName, string Member, UnrewrittenReason Reason);
+internal readonly record struct UnrewrittenMember(string DeclaringTypeFullName, string MemberKey, UnrewrittenReason Reason)
+{
+    /// <summary>Gets the member qualified by its declaring type: <c>DeclaringType::MemberKey</c>.</summary>
+    public string QualifiedKey => DeclaringTypeFullName + "::" + MemberKey;
+}
 
 /// <summary>
 /// The public and protected members of the types the built-in rule sets target that no built-in rule rewrites, each with
@@ -29,11 +33,11 @@ internal static class UnrewrittenMembers
     private static ImmutableArray<UnrewrittenMember> Build()
     {
         var members = ImmutableArray.CreateBuilder<UnrewrittenMember>();
-        void Add(string type, UnrewrittenReason reason, params string[] signatures)
+        void Add(string type, UnrewrittenReason reason, params string[] memberKeys)
         {
-            foreach (string signature in signatures)
+            foreach (string memberKey in memberKeys)
             {
-                members.Add(new UnrewrittenMember(type, signature, reason));
+                members.Add(new UnrewrittenMember(type, memberKey, reason));
             }
         }
 
@@ -271,6 +275,10 @@ internal static class UnrewrittenMembers
             ".ctor(System.String)",
             "get_Description()");
 
+        Add("System.Diagnostics.Process", UnrewrittenReason.HostState,
+            "EnterDebugMode()",
+            "LeaveDebugMode()");
+
         Add("System.Diagnostics.Process", UnrewrittenReason.Process,
             ".ctor()",
             "get_BasePriority()",
@@ -307,7 +315,6 @@ internal static class UnrewrittenMembers
             "get_PrivilegedProcessorTime()",
             "get_ProcessName()",
             "get_ProcessorAffinity()",
-            "get_Responding()",
             "get_SafeHandle()",
             "get_SessionId()",
             "get_StandardError()",
@@ -335,7 +342,6 @@ internal static class UnrewrittenMembers
             "CancelOutputRead()",
             "Close()",
             "Dispose(System.Boolean)",
-            "EnterDebugMode()",
             "GetCurrentProcess()",
             "GetProcessById(System.Int32)",
             "GetProcessById(System.Int32,System.String)",
@@ -343,7 +349,6 @@ internal static class UnrewrittenMembers
             "GetProcesses(System.String)",
             "GetProcessesByName(System.String)",
             "GetProcessesByName(System.String,System.String)",
-            "LeaveDebugMode()",
             "OnExited()",
             "Refresh()",
             "ToString()",
@@ -609,6 +614,10 @@ internal static class UnrewrittenMembers
             "Shuffle``1(System.Span`1<!!0>)",
             "Shuffle``1(!!0[])");
 
+        Add("System.Random", UnrewrittenReason.ConstructorCall,
+            ".ctor()",
+            ".ctor(System.Int32)");
+
         Add("System.Runtime.CompilerServices.AsyncHelpers", UnrewrittenReason.RuntimeAsync,
             "UnsafeAwaitAwaiter``1(!!0)",
             "AwaitAwaiter``1(!!0)",
@@ -659,17 +668,42 @@ internal static class UnrewrittenMembers
             "CreateLinkedTokenSource(System.Threading.CancellationToken[])",
             "Dispose(System.Boolean)");
 
+        Add("System.Threading.CancellationTokenSource", UnrewrittenReason.ConstructorCall,
+            ".ctor(System.Int32)",
+            ".ctor(System.TimeSpan)",
+            ".ctor(System.TimeSpan,System.TimeProvider)");
+
         Add("System.Threading.CountdownEvent", UnrewrittenReason.SubstitutedTypeProtected,
             "Dispose(System.Boolean)");
+
+        Add("System.Threading.EventWaitHandle", UnrewrittenReason.ConstructorCall,
+            ".ctor(System.Boolean,System.Threading.EventResetMode)",
+            ".ctor(System.Boolean,System.Threading.EventResetMode,System.String)",
+            ".ctor(System.Boolean,System.Threading.EventResetMode,System.String,System.Threading.NamedWaitHandleOptions)",
+            ".ctor(System.Boolean,System.Threading.EventResetMode,System.String,System.Boolean&)",
+            ".ctor(System.Boolean,System.Threading.EventResetMode,System.String,System.Threading.NamedWaitHandleOptions,System.Boolean&)");
 
         Add("System.Threading.ManualResetEventSlim", UnrewrittenReason.Value,
             "Dispose(System.Boolean)");
 
+        Add("System.Threading.ManualResetEventSlim", UnrewrittenReason.ConstructorCall,
+            ".ctor()",
+            ".ctor(System.Boolean)",
+            ".ctor(System.Boolean,System.Int32)");
+
         Add("System.Threading.PeriodicTimer", UnrewrittenReason.SubstitutedTypeProtected,
             "Finalize()");
 
+        Add("System.Threading.ReaderWriterLockSlim", UnrewrittenReason.ConstructorCall,
+            ".ctor()",
+            ".ctor(System.Threading.LockRecursionPolicy)");
+
         Add("System.Threading.SemaphoreSlim", UnrewrittenReason.Value,
             "Dispose(System.Boolean)");
+
+        Add("System.Threading.SemaphoreSlim", UnrewrittenReason.ConstructorCall,
+            ".ctor(System.Int32)",
+            ".ctor(System.Int32,System.Int32)");
 
         Add("System.Threading.SynchronizationContext", UnrewrittenReason.Value,
             ".ctor()",
@@ -858,7 +892,6 @@ internal static class UnrewrittenMembers
             "set_CurrentPrincipal(System.Security.Principal.IPrincipal)",
             "get_CurrentThread()",
             "get_ExecutionContext()",
-            "get_IsThreadPoolThread()",
             "AllocateDataSlot()",
             "AllocateNamedDataSlot(System.String)",
             "BeginCriticalRegion()",
@@ -872,6 +905,7 @@ internal static class UnrewrittenMembers
 
         Add("System.Threading.Thread", UnrewrittenReason.IdentityHandle,
             "get_IsAlive()",
+            "get_IsThreadPoolThread()",
             "get_ThreadState()");
 
         Add("System.Threading.Thread", UnrewrittenReason.Fence,

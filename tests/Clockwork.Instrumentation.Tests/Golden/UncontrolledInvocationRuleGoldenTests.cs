@@ -80,6 +80,7 @@ public sealed class UncontrolledInvocationRuleGoldenTests
                 public static bool WaitIdleMs(Process p) => p.WaitForInputIdle(5);
                 public static bool WaitIdleSpan(Process p) => p.WaitForInputIdle(TimeSpan.Zero);
                 public static bool CloseWindow(Process p) => p.CloseMainWindow();
+                public static bool Responding(Process p) => p.Responding;
                 public static void RaiseEvents(Process p) => p.EnableRaisingEvents = true;
                 public static void ReadOutput(Process p) => p.BeginOutputReadLine();
                 public static void ReadError(Process p) => p.BeginErrorReadLine();
@@ -136,7 +137,7 @@ public sealed class UncontrolledInvocationRuleGoldenTests
             "Text", "TextAsync", "Lines", "LinesAsync", "HandleStart", "HandleSignal", "HandleResume", "HandleKill",
             "HandleWait", "HandleTryWait", "HandleWaitAsync", "HandleWaitOrKill", "HandleWaitOrKillAsync",
             "WindowsStart", "UnixStart", "Exit", "FailFast", "FailFastEx", "WaitIdle", "WaitIdleMs", "WaitIdleSpan",
-            "CloseWindow", "RaiseEvents", "ReadOutput", "ReadError", "PriorityClass", "PriorityBoost", "Affinity",
+            "CloseWindow", "Responding", "RaiseEvents", "ReadOutput", "ReadError", "PriorityClass", "PriorityBoost", "Affinity",
             "MaxWorkingSet", "MinWorkingSet", "IdealProcessor", "ResetIdealProcessor", "ThreadPriorityBoost",
             "ThreadPriority", "ThreadAffinity",
         })

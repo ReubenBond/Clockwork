@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.RegularExpressions;
 using Clockwork.Instrumentation.Rewriting;
 using Clockwork.Instrumentation.Rules.BuiltIn;
 using Clockwork.Instrumentation.Tests.Infrastructure;
@@ -15,9 +16,10 @@ namespace Clockwork.Instrumentation.Tests.Rules;
 /// rejected, substituted, or rebuilt by the rules, or listed in <see cref="UnrewrittenMembers"/> with the reason it stays
 /// a BCL call; a listed member that the pack lacks or that a rule matches is stale. A runtime that adds a member to a
 /// targeted type, or a process-control type to its process assembly, therefore fails these tests until the member is
-/// classified, and a runtime that adds an assembly fails the snapshot of the pack's assemblies.
+/// classified, and a runtime that adds an assembly, or a public type to a namespace a targeted type is in, fails a
+/// snapshot until the addition is reviewed.
 /// </summary>
-[Collection(ReferencePackTests.Name)]
+[Collection(ReferencePackGroup.Name)]
 public sealed class BuiltInRuleSurfaceTests
 {
     private const string SnapshotVariable = "CLOCKWORK_UPDATE_SNAPSHOTS";
@@ -31,6 +33,14 @@ public sealed class BuiltInRuleSurfaceTests
         "System.Runtime.InteropServices.WindowsProcessStartArguments",
     ];
 
+    // The names of the members that start, signal, wait on, reschedule, or terminate a process, which no reason lists.
+    private static readonly Regex ProcessControlVerb = new(
+        "^(Start|StartAndForget|Run|RunAsync|RunAndCaptureText|RunAndCaptureTextAsync|Kill|Signal|Resume|CloseMainWindow|" +
+        "(Try)?WaitFor\\w*|Begin(Output|Error)ReadLine|ReadAll\\w*|get_Responding|ResetIdealProcessor|" +
+        "set_(EnableRaisingEvents|PriorityClass|PriorityBoostEnabled|PriorityLevel|ProcessorAffinity|IdealProcessor|" +
+        "MaxWorkingSet|MinWorkingSet))$",
+        RegexOptions.CultureInvariant);
+
     private static readonly Lazy<Surface> Targets = new(Surface.Find);
 
     public static TheoryData<string> TargetedTypes => [.. Targets.Value.TargetedTypes.Order(StringComparer.Ordinal)];
@@ -42,7 +52,8 @@ public sealed class BuiltInRuleSurfaceTests
         Assert.True(ReferencePack.Shared.Types.TryGetValue(typeFullName, out TypeDefinition? type), $"'{typeFullName}' is not a public type of the reference pack.");
         Dictionary<string, UnrewrittenMember> listed = UnrewrittenMembers.All
             .Where(member => member.DeclaringTypeFullName == typeFullName)
-            .ToDictionary(member => member.Member, StringComparer.Ordinal);
+            .GroupBy(member => member.MemberKey, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
         var members = new HashSet<string>(StringComparer.Ordinal);
         var unclassified = new List<string>();
         var stale = new List<string>();
@@ -51,14 +62,22 @@ public sealed class BuiltInRuleSurfaceTests
             string key = ReferencePack.MemberKey(member);
             Assert.True(members.Add(key), $"Two members of '{typeFullName}' are both named '{key}'.");
             RuleClassification classification = BuiltInRuleClassifier.Shared.Classify(member);
-            bool isListed = listed.ContainsKey(key);
-            if (classification.Outcome != RuleOutcome.None && isListed)
+            bool needsReason = classification.Outcome is RuleOutcome.None or RuleOutcome.NewObjOnly;
+            if (!listed.TryGetValue(key, out UnrewrittenMember entry))
+            {
+                if (needsReason)
+                {
+                    string reason = classification.Outcome == RuleOutcome.NewObjOnly ? $" // {nameof(UnrewrittenReason.ConstructorCall)}" : string.Empty;
+                    unclassified.Add($"    \"{key}\",{reason}");
+                }
+            }
+            else if (!needsReason)
             {
                 stale.Add($"    \"{key}\" ({classification})");
             }
-            else if (classification.Outcome == RuleOutcome.None && !isListed)
+            else if ((classification.Outcome == RuleOutcome.NewObjOnly) != (entry.Reason == UnrewrittenReason.ConstructorCall))
             {
-                unclassified.Add($"    \"{key}\",");
+                stale.Add($"    \"{key}\" ({classification}, listed as {entry.Reason}: only a constructor a rule rewrites at newobj but not at call is {nameof(UnrewrittenReason.ConstructorCall)})");
             }
         }
 
@@ -66,7 +85,7 @@ public sealed class BuiltInRuleSurfaceTests
         Assert.True(
             unclassified.Count == 0 && stale.Count == 0,
             $"'{typeFullName}' has members the built-in rules do not classify. Give each unclassified member a rule, or list it " +
-            $"in {nameof(UnrewrittenMembers)} with the reason it stays a BCL call, and remove each stale entry." + Environment.NewLine +
+            $"in {nameof(UnrewrittenMembers)} with the reason it stays a BCL call, and remove or correct each stale entry." + Environment.NewLine +
             "Unclassified:" + Environment.NewLine + string.Join(Environment.NewLine, unclassified) + Environment.NewLine +
             "Stale:" + Environment.NewLine + string.Join(Environment.NewLine, stale));
     }
@@ -78,7 +97,7 @@ public sealed class BuiltInRuleSurfaceTests
         string[] duplicates =
         [
             .. UnrewrittenMembers.All
-                .GroupBy(member => member.DeclaringTypeFullName + "::" + member.Member, StringComparer.Ordinal)
+                .GroupBy(member => member.QualifiedKey, StringComparer.Ordinal)
                 .Where(group => group.Count() > 1)
                 .Select(group => group.Key),
         ];
@@ -95,25 +114,34 @@ public sealed class BuiltInRuleSurfaceTests
     }
 
     [Fact]
+    public void ProcessControlTypesIncludeEveryProcessLauncher() =>
+        Assert.Superset(KnownProcessControlTypes.ToHashSet(StringComparer.Ordinal), Targets.Value.ProcessControlTypes.ToHashSet(StringComparer.Ordinal));
+
+    [Fact]
     public void EveryMemberWithAProcessControlSignatureIsRejectedOrListed()
     {
-        Surface surface = Targets.Value;
-        HashSet<string> listed = [.. UnrewrittenMembers.All.Select(member => member.DeclaringTypeFullName + "::" + member.Member)];
+        HashSet<string> listed = [.. UnrewrittenMembers.All.Select(member => member.QualifiedKey)];
         var violations = new List<string>();
-        foreach (IMemberDefinition member in surface.ProcessControlMembers)
+        foreach (IMemberDefinition member in Targets.Value.ProcessControlMembers)
         {
-            string name = member.DeclaringType.FullName + "::" + ReferencePack.MemberKey(member);
             RuleClassification classification = BuiltInRuleClassifier.Shared.Classify(member);
-            if (classification.Outcome != RuleOutcome.Rejected && !listed.Contains(name))
+            if (classification.Outcome == RuleOutcome.Rejected)
+            {
+                continue;
+            }
+
+            string name = ReferencePack.QualifiedKey(member);
+            if (ProcessControlVerb.IsMatch(member.Name))
+            {
+                violations.Add($"{name} ({classification}): it starts, signals, waits on, reschedules, or terminates a process, so a rule must reject it");
+            }
+            else if (!listed.Contains(name))
             {
                 violations.Add($"{name} ({classification})");
             }
         }
 
-        Assert.Superset(KnownProcessControlTypes.ToHashSet(StringComparer.Ordinal), surface.ProcessControlTypes);
-        Assert.Contains(
-            surface.ProcessControlMembers,
-            member => member.DeclaringType.FullName == "System.Diagnostics.Process" && member.Name == "Start");
+        Assert.Contains(Targets.Value.ProcessControlMembers, member => ProcessControlVerb.IsMatch(member.Name));
         Assert.True(
             violations.Count == 0,
             "Members whose signatures mention a process-control type must be rejected or listed:" + Environment.NewLine +
@@ -121,10 +149,39 @@ public sealed class BuiltInRuleSurfaceTests
     }
 
     [Fact]
-    public void ReferencePackAssembliesMatchTheSnapshot()
+    public void ReferencePackAssembliesMatchTheSnapshot() =>
+        AssertMatchesSnapshot(
+            "ReferencePackAssemblies.txt",
+            ReferencePack.Shared.AssemblyFileNames,
+            "Review each added assembly for members that read a clock, entropy, or host state, schedule or block work, or " +
+            "start or control a process, and give them rules (BuiltInRuleSets) when they need control.");
+
+    [Fact]
+    public void PublicTypesOfTargetedNamespacesMatchTheSnapshot()
     {
-        string[] actual = [.. ReferencePack.Shared.AssemblyFileNames];
-        string path = Repository.PathOf("tests", "Clockwork.Instrumentation.Tests", "Rules", "ReferencePackAssemblies.txt");
+        ReferencePack pack = ReferencePack.Shared;
+        HashSet<string> namespaces = [.. Targets.Value.TargetedTypes.Select(name => NamespaceOf(pack.Types[name]))];
+        AssertMatchesSnapshot(
+            "ReferencePackTypes.txt",
+            [.. pack.Types.Values.Where(type => namespaces.Contains(NamespaceOf(type))).Select(type => type.FullName).Order(StringComparer.Ordinal)],
+            "Review each added type for members that read a clock, entropy, or host state, schedule or block work, or start " +
+            "or control a process, and give them rules (BuiltInRuleSets) when they need control; the theory then classifies " +
+            "the rest of the type.");
+    }
+
+    private static string NamespaceOf(TypeDefinition type)
+    {
+        while (type.IsNested)
+        {
+            type = type.DeclaringType;
+        }
+
+        return type.Namespace;
+    }
+
+    private static void AssertMatchesSnapshot(string fileName, IReadOnlyList<string> actual, string review)
+    {
+        string path = Repository.PathOf("tests", "Clockwork.Instrumentation.Tests", "Rules", fileName);
         if (Environment.GetEnvironmentVariable(SnapshotVariable) == "1")
         {
             File.WriteAllText(path, string.Join('\n', actual) + "\n");
@@ -138,9 +195,7 @@ public sealed class BuiltInRuleSurfaceTests
             $"The reference pack at '{ReferencePack.Shared.Directory}' no longer matches '{path}'." + Environment.NewLine +
             "Added: " + string.Join(", ", added) + Environment.NewLine +
             "Removed: " + string.Join(", ", removed) + Environment.NewLine +
-            "Review each added assembly for members that read a clock, entropy, or host state, schedule or block work, or start " +
-            "or control a process, and give them rules (BuiltInRuleSets) or list them with a reason (UnrewrittenMembers) when " +
-            $"they belong to a targeted type. Then refresh the snapshot with `$env:{SnapshotVariable}='1'; dotnet run --project " +
+            review + $" Then refresh the snapshots with `$env:{SnapshotVariable}='1'; dotnet run --project " +
             "tests/Clockwork.Instrumentation.Tests/Clockwork.Instrumentation.Tests.csproj -- --filter-class " +
             $"{typeof(BuiltInRuleSurfaceTests).FullName}`.");
     }

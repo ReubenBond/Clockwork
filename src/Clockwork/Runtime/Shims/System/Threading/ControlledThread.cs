@@ -249,6 +249,18 @@ public static class ControlledThread
             "COM apartment state is an OS-thread concept with no analogue for a controlled operation.");
     }
 
+    /// <summary>Rejected controlled <c>thread.ApartmentState = value</c>, the obsolete property setter.</summary>
+    /// <param name="instance">The receiving thread.</param>
+    /// <param name="state">The requested apartment state.</param>
+    public static void SetApartmentStateProperty(Thread instance, ApartmentState state)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Thread.set_ApartmentState");
+        ArgumentNullException.ThrowIfNull(instance);
+        throw Unsupported(
+            "System.Threading.Thread.set_ApartmentState",
+            "COM apartment state is an OS-thread concept with no analogue for a controlled operation.");
+    }
+
     private static void StartControlled(Thread instance, object? parameter, bool parameterSupplied)
     {
         if (!Registry.TryGetValue(instance, out Registration? registration))

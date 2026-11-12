@@ -133,6 +133,12 @@ public sealed class ControlledParallelRuleGoldenTests
         Assert.Contains(transformations, t =>
             t.RuleId == "clockwork.parallel.for.int32.local" && t.Policy == SimulationApiPolicy.Rejected);
         Assert.Contains(transformations, t =>
+            t.RuleId == "clockwork.parallel.foreach.local" && t.Policy == SimulationApiPolicy.Rejected);
+        Assert.Contains(transformations, t =>
+            t.RuleId == "clockwork.parallel.foreach.loopstate.options" && t.Policy == SimulationApiPolicy.Rejected);
+        Assert.Contains(transformations, t =>
+            t.RuleId == "clockwork.parallel.foreach.partitioner" && t.Policy == SimulationApiPolicy.Rejected);
+        Assert.Contains(transformations, t =>
             t.RuleId == "clockwork.parallel.foreach.orderablepartitioner.loopstate.index" && t.Policy == SimulationApiPolicy.Rejected);
     }
 }

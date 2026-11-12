@@ -363,12 +363,15 @@ struct, or interface of `System.Diagnostics.Process.dll`, so a process API is cl
 the framework adds it.
 Tests classify each targeted type against the .NET 11 reference assemblies with the rewriter's own
 rule matcher and substitution mapper, and fail on an unclassified member or on a listed member that
-the reference assemblies lack or a rule matches; a snapshot of the reference pack's assembly list
-fails when a runtime adds or removes an assembly, prompting a review of it. A member that starts,
-signals, waits on, reschedules, or terminates a process is rejected; every other member no rule
-rewrites is listed with its behavior, and the `CultureOrTimeZone`, `HostState`, `RealClock`,
-`ProcessWideId`, `CurrentThread`, `IdentityHandle`, `Blocks`, and `Schedules` reasons mark
-documented holes.
+the reference assemblies lack or a rule matches. A constructor counts as rewritten only if rules
+rewrite both its `newobj` and a `call` to it, which a derived type's constructor or a value type
+constructed in place makes. Snapshots of the reference pack's
+assembly list and of the public types in the namespaces of the targeted types fail when a runtime
+adds or removes one, prompting a review of it. A member that starts, signals, waits on, reschedules,
+or terminates a process is rejected; every other member no rule rewrites is listed with its
+behavior, and the reasons the inventory marks as documented holes (`CultureOrTimeZone`,
+`HostState`, `Process`, `RealClock`, `ProcessWideId`, `CurrentThread`, `IdentityHandle`,
+`ConstructorCall`, `Blocks`, and `Schedules`) are real BCL calls under simulation.
 
 Instrumented closure binaries are simulation/test artifacts, not production replacements. Every
 Controlled entry point requires an active Clockwork simulation; without one it throws
@@ -628,7 +631,7 @@ and `Parallel.Invoke`/`For`/`ForEach`.
   `RunAsync`/`RunAndCaptureText`/`RunAndCaptureTextAsync`/`StartAndForget`/`Kill`/`Signal`, the
   `WaitForExit`/`WaitForExitAsync`/`WaitForExitStatus`/`TryWaitForExitStatus`/`WaitForExitStatusAsync` waits,
   the `ReadAllBytes`/`ReadAllText`/`ReadAllLines` reads and their async forms, the `WaitForInputIdle`
-  waits, `CloseMainWindow`, the `EnableRaisingEvents` setter and `BeginOutputReadLine`/`BeginErrorReadLine`
+  waits, the `Responding` getter, `CloseMainWindow`, the `EnableRaisingEvents` setter and `BeginOutputReadLine`/`BeginErrorReadLine`
   (whose events the BCL raises on threads of its choosing), the `Process` priority, processor-affinity,
   and working-set setters and the `ProcessThread` scheduling setters, the `SafeProcessHandle`
   `Start`/`Signal`/`Resume`/`Kill` and wait members, the `WindowsProcessStartArguments`/
@@ -864,9 +867,11 @@ cancels all remaining registrations without invoking user callbacks.
   [`rule-inventory.md`](rule-inventory.md) are rewritten. Its *Members left as BCL calls* section
   lists every other member of a targeted type with its behavior; the documented holes among them
   include `Stopwatch` instance APIs (`RealClock`), `DateTime`/`DateTimeOffset` parse/format/convert
-  helpers (`CultureOrTimeZone`), host environment reads (`HostState`), and the blocking and scheduling
+  helpers (`CultureOrTimeZone`), host and process reads (`HostState`, `Process`), a derived type's
+  constructor chaining to a controlled one (`ConstructorCall`), and the blocking and scheduling
   `Task`, `Thread`, and `Parallel` overloads the controlled surface does not cover (`Blocks`,
-  `Schedules`). Timer limitations are unrecognized custom `TimeProvider`
+  `Schedules`). A delegate created from a member (`ldftn`) calls the BCL member, since rules rewrite
+  `call`, `callvirt`, and `newobj` sites. Timer limitations are unrecognized custom `TimeProvider`
   implementations, non-null `System.Timers.Timer.SynchronizingObject`/designer integration, and
   `Timer.Dispose(WaitHandle)` with a handle outside Clockwork's controlled event surface.
 - **No runtime interception.** Clockwork intentionally provides no CLR profiler/ReJIT component,

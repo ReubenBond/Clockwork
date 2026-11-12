@@ -18,6 +18,12 @@ internal enum RuleOutcome
     /// <summary>A rule rejects the call.</summary>
     Rejected,
 
+    /// <summary>
+    /// A rule rewrites a <c>newobj</c> of the constructor, but not a <c>call</c> to it: a derived type's constructor
+    /// chaining to it, or a value type constructed in place.
+    /// </summary>
+    NewObjOnly,
+
     /// <summary>The declaring type is substituted, and its substitute declares the member.</summary>
     Substituted,
 
@@ -30,18 +36,22 @@ internal enum RuleOutcome
 /// <param name="RuleId">The id of the deciding rule, if any.</param>
 internal readonly record struct RuleClassification(RuleOutcome Outcome, string? RuleId)
 {
+    /// <summary>Gets the classification of a call no rule rewrites.</summary>
+    public static RuleClassification None { get; } = new(RuleOutcome.None, null);
+
     public override string ToString() => RuleId is null ? Outcome.ToString() : $"{Outcome} by {RuleId}";
 }
 
 /// <summary>
 /// Classifies reference-pack members with the rewriter's own rule matcher and substitution mapper over every built-in
 /// rule, so the classification agrees with what a rewrite does. Like <see cref="ReferencePack"/>, it is shared by the
-/// tests of <see cref="ReferencePackTests"/> and lives for the test run.
+/// tests of <see cref="ReferencePackGroup"/> and lives for the test run.
 /// </summary>
 internal sealed class BuiltInRuleClassifier
 {
     private static readonly Lazy<BuiltInRuleClassifier> Instance = new(() => new BuiltInRuleClassifier(ReferencePack.Shared));
 
+    // The receivers whose GetAwaiter and ConfigureAwait calls the member-aware pass rebuilds, as it gates them.
     private static readonly HashSet<string> AwaiterSourceReceivers = new(StringComparer.Ordinal)
     {
         "System.Threading.Tasks.Task",
@@ -83,38 +93,62 @@ internal sealed class BuiltInRuleClassifier
     public IReadOnlySet<string> SubstitutedTypes { get; }
 
     /// <summary>
-    /// Returns whether <paramref name="method"/> is an awaiter source: a task or value task's <c>GetAwaiter</c> or
-    /// <c>ConfigureAwait</c>, whose substituted awaiter the member-aware pass rebuilds from the receiver.
+    /// Returns whether the member-aware pass rebuilds a call to <paramref name="method"/>, a task or value task's
+    /// <c>GetAwaiter</c> or <c>ConfigureAwait</c>, as a controlled awaiter or awaitable built from the receiver.
     /// </summary>
-    public static bool IsAwaiterSource(MethodDefinition method) =>
-        method.Name is "GetAwaiter" or "ConfigureAwait" && AwaiterSourceReceivers.Contains(method.DeclaringType.FullName);
+    public bool IsAwaiterSource(MethodDefinition method) =>
+        method.Name is "GetAwaiter" or "ConfigureAwait"
+        && AwaiterSourceReceivers.Contains(method.DeclaringType.FullName)
+        && _mapper.BuildAwaiterSourceConstructor(ReferencePack.CallSite(method)) is not null;
 
     /// <summary>Classifies a call to <paramref name="member"/>.</summary>
     public RuleClassification Classify(IMemberDefinition member)
     {
-        string declaringType = member.DeclaringType.FullName;
-        if (SubstitutedTypes.Contains(declaringType))
+        TypeDefinition declaringType = member.DeclaringType;
+        if (SubstitutedTypes.Contains(declaringType.FullName))
         {
             bool mapped = member switch
             {
                 MethodDefinition method => _mapper.MapMethod(method).Kind == MemberMappingKind.Mapped,
-                _ => _mapper.OpenSubstituteFor(declaringType)!.Resolve().Fields
-                    .Any(field => field.Name == member.Name && ReferencePack.IsVisible(field)),
+                FieldDefinition field => _mapper.OpenSubstituteFor(declaringType.FullName)!.Resolve().Fields
+                    .Any(candidate => candidate.Name == field.Name && ReferencePack.IsVisible(candidate)),
+                _ => throw new ArgumentException($"'{member.FullName}' is neither a method nor a field.", nameof(member)),
             };
-            return mapped ? new RuleClassification(RuleOutcome.Substituted, _mapper.RuleIdFor(declaringType)) : default;
+            return mapped ? new RuleClassification(RuleOutcome.Substituted, _mapper.RuleIdFor(declaringType.FullName)) : RuleClassification.None;
         }
 
         if (member is not MethodDefinition invoked)
         {
-            return default;
+            return RuleClassification.None;
         }
 
-        if (_matcher.TryMatchInvocation(ReferencePack.CallSite(invoked), invoked.IsConstructor, out RewriteRule rule, out _))
+        RuleClassification matched = Match(invoked, isNewObj: invoked.IsConstructor);
+
+        // A derived type's constructor chains to its base constructor, and a value type is constructed in place, with a
+        // call, which only a rule matching calls rewrites. A sealed reference type has neither.
+        if (invoked.IsConstructor
+            && matched.Outcome != RuleOutcome.None
+            && (!declaringType.IsSealed || declaringType.IsValueType)
+            && Match(invoked, isNewObj: false).Outcome == RuleOutcome.None)
         {
-            RuleOutcome outcome = rule.Policy == SimulationApiPolicy.Rejected ? RuleOutcome.Rejected : RuleOutcome.Controlled;
-            return new RuleClassification(outcome, rule.Id);
+            return new RuleClassification(RuleOutcome.NewObjOnly, matched.RuleId);
         }
 
-        return IsAwaiterSource(invoked) ? new RuleClassification(RuleOutcome.AwaiterSource, null) : default;
+        if (matched.Outcome != RuleOutcome.None)
+        {
+            return matched;
+        }
+
+        return IsAwaiterSource(invoked) ? new RuleClassification(RuleOutcome.AwaiterSource, null) : RuleClassification.None;
+    }
+
+    private RuleClassification Match(MethodDefinition method, bool isNewObj)
+    {
+        if (!_matcher.TryMatchInvocation(ReferencePack.CallSite(method), isNewObj, out RewriteRule rule, out _))
+        {
+            return RuleClassification.None;
+        }
+
+        return new RuleClassification(rule.Policy == SimulationApiPolicy.Rejected ? RuleOutcome.Rejected : RuleOutcome.Controlled, rule.Id);
     }
 }

@@ -282,7 +282,7 @@ public sealed class RuleInventoryDocumentTests
     public void DocumentedHolesDoNotNameFullyClassifiedFamilies()
     {
         string rendered = RuleInventoryDocument.Render();
-        string holes = rendered[rendered.IndexOf("## Documented holes", StringComparison.Ordinal)..];
+        string holes = rendered[rendered.IndexOf("# Documented holes", StringComparison.Ordinal)..];
 
         Assert.DoesNotMatch(new Regex(@"\bTask\.Delay\b", RegexOptions.CultureInvariant), holes);
         Assert.DoesNotMatch(new Regex(@"\bTaskFactory\b", RegexOptions.CultureInvariant), holes);

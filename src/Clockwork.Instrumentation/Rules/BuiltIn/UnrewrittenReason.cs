@@ -34,6 +34,12 @@ internal enum UnrewrittenReason
     /// <summary>Reads the BCL object a controlled thread keeps as its identity.</summary>
     IdentityHandle,
 
+    /// <summary>
+    /// A constructor that a rule rewrites where <c>newobj</c> calls it, but not where a <c>call</c> does: a derived type's
+    /// constructor chaining to it, or a value type constructed in place.
+    /// </summary>
+    ConstructorCall,
+
     /// <summary>Performs one memory access or fence.</summary>
     Fence,
 
