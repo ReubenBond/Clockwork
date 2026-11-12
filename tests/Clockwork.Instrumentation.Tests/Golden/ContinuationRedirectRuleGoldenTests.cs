@@ -150,6 +150,7 @@ public sealed class ContinuationRedirectRuleGoldenTests
         string outputPath = Path.Combine(context.Directory, "Fx.ContinuationRedirects.rewritten.dll");
         var options = new RewriteOptions
         {
+            TargetRuntime = RewriteTestContext.TargetRuntime,
             ReplacementAssemblyPaths = [RuntimeAssemblyPath],
             ReferenceSearchDirectories = [context.Directory, Path.GetDirectoryName(RuntimeAssemblyPath)!],
         };

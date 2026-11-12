@@ -80,6 +80,7 @@ public sealed class ExceptionHardeningRuleGoldenTests
 
         var options = new RewriteOptions
         {
+            TargetRuntime = RewriteTestContext.TargetRuntime,
             HardenExceptionHandlers = true,
             ReplacementAssemblyPaths = [RuntimeAssemblyPath],
             ReferenceSearchDirectories = [context.Directory, Path.GetDirectoryName(RuntimeAssemblyPath)!],

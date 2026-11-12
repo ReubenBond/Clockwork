@@ -98,6 +98,7 @@ public sealed class RuleSetJsonTests
     [InlineData("""{ "id": "s", "version": "1" }""", "'rules' array")]
     [InlineData("""{ "version": "1", "rules": [] }""", "required property 'id'")]
     [InlineData("""{ "id": "s", "version": "1", "rules": [ { "id": "r", "operation": "Nope", "target": {"type":"T","member":"M"}, "replacement": {"assembly":"A","type":"R","member":"M"} } ] }""", "not one of")]
+    [InlineData("""{ "id": "s", "version": "1", "rules": [ { "id": "r", "operation": "RedirectCall", "target": {"type":"T","member":"M"}, "replacement": {"assembly":"A","type":"R","member":"M"}, "supportedRuntimes": { "max": "11.0.2" } } ] }""", "not a runtime feature version")]
     public void RejectsMalformedDocuments(string json, string expectedFragment)
     {
         ConfigurationException ex = Assert.Throws<ConfigurationException>(() => RuleSetJson.Parse(json));

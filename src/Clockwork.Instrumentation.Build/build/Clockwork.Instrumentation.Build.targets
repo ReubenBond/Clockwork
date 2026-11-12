@@ -29,9 +29,9 @@
     <ClockworkSourceDirectory Condition="'$(ClockworkSourceDirectory)' == ''">$(TargetDir)</ClockworkSourceDirectory>
     <ClockworkEntryAssemblyName Condition="'$(ClockworkEntryAssemblyName)' == ''">$(TargetName)</ClockworkEntryAssemblyName>
 
-    <!-- Rules are evaluated against the runtime the project targets, so a rule classified against another runtime's
-         surface fails the rewrite (CWR0010) instead of instrumenting against the wrong one. -->
-    <ClockworkTargetRuntime Condition="'$(ClockworkTargetRuntime)' == '' and '$(TargetFrameworkIdentifier)' == '.NETCoreApp'">$(TargetFrameworkVersion.TrimStart('v'))</ClockworkTargetRuntime>
+    <!-- ClockworkTargetRuntime (major.minor) names the runtime rules are evaluated against. When it is empty and the
+         configuration file names none, the task derives it from the closure's runtimeconfig.json, which names the
+         runtime the host runs the code on; the target framework does not when the app rolls forward. -->
 
     <!--
       Out-of-place staging and manifest defaults. These are defined here (not in the .props file)

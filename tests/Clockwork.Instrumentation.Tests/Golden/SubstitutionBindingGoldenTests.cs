@@ -692,6 +692,7 @@ public sealed class SubstitutionBindingGoldenTests
         string runtimePath = typeof(ControlledLock).Assembly.Location;
         var options = new RewriteOptions
         {
+            TargetRuntime = RewriteTestContext.TargetRuntime,
             ReplacementAssemblyPaths = [runtimePath],
             ReferenceSearchDirectories = [context.Directory, Path.GetDirectoryName(runtimePath)!],
         };
@@ -770,6 +771,7 @@ public sealed class SubstitutionBindingGoldenTests
         string runtimePath = typeof(ControlledLock).Assembly.Location;
         var options = new RewriteOptions
         {
+            TargetRuntime = RewriteTestContext.TargetRuntime,
             ReplacementAssemblyPaths = [runtimePath],
             ReferenceSearchDirectories = [context.Directory, Path.GetDirectoryName(runtimePath)!],
             ExcludedTypeFullNames = byAttribute ? [] : ["Fx.Legacy"],
@@ -841,6 +843,7 @@ public sealed class SubstitutionBindingGoldenTests
         string runtimePath = typeof(ControlledLock).Assembly.Location;
         var options = new RewriteOptions
         {
+            TargetRuntime = RewriteTestContext.TargetRuntime,
             ReplacementAssemblyPaths = [runtimePath],
             ReferenceSearchDirectories = [context.Directory, Path.GetDirectoryName(runtimePath)!],
         };
@@ -1126,6 +1129,7 @@ public sealed class SubstitutionBindingGoldenTests
     private static RewriteOptions MarkerOptions(RewriteTestContext context, string? excluded = null) =>
         new()
         {
+            TargetRuntime = RewriteTestContext.TargetRuntime,
             ReplacementAssemblyPaths = [context.ShimPath],
             ReferenceSearchDirectories = [context.Directory],
             ExcludedTypeFullNames = excluded is null ? [] : [excluded],

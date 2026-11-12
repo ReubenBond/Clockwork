@@ -89,7 +89,7 @@ public sealed class PackageSmokeTests
             useBuiltInRules: true,
             useConfigurationFile: true);
 
-        // The configuration file names no targetRuntime, so the rules are evaluated against the project's.
+        // The configuration file names no targetRuntime, so ClockworkTargetRuntime sets the target.
         AppRunResult build = consumer.Build("-p:ClockworkTargetRuntime=12.0");
 
         Assert.NotEqual(0, build.ExitCode);

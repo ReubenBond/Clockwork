@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Text.Json;
 using Clockwork.Instrumentation.Orchestration;
+using Clockwork.Instrumentation.Rules;
 
 namespace Clockwork.Instrumentation.Configuration;
 
@@ -100,7 +101,7 @@ public static class InstrumentationConfigurationLoader
             ImmutableArray<string> builtInExclude = GetStringArray(root, "builtInExcludeFamilies", origin);
             ImmutableArray<string> include = GetStringArray(root, "include", origin);
             ImmutableArray<string> exclude = GetStringArray(root, "exclude", origin);
-            Version? targetRuntime = GetOptionalVersion(root, "targetRuntime", origin);
+            Version? targetRuntime = GetOptionalFeatureVersion(root, "targetRuntime", origin);
 
             return new InstrumentationConfiguration
             {
@@ -241,7 +242,7 @@ public static class InstrumentationConfigurationLoader
         return result;
     }
 
-    private static Version? GetOptionalVersion(JsonElement element, string propertyName, string origin)
+    private static Version? GetOptionalFeatureVersion(JsonElement element, string propertyName, string origin)
     {
         string? text = GetOptionalString(element, propertyName, origin);
         if (text is null)
@@ -249,9 +250,10 @@ public static class InstrumentationConfigurationLoader
             return null;
         }
 
-        if (!Version.TryParse(text, out Version? version))
+        if (!RuntimeFeatureVersion.TryParse(text, out Version? version))
         {
-            throw new ConfigurationException($"{origin}: '{propertyName}' value '{text}' is not a valid version.");
+            throw new ConfigurationException(
+                $"{origin}: '{propertyName}' value '{text}' is not a runtime feature version (major.minor, such as 11.0).");
         }
 
         return version;

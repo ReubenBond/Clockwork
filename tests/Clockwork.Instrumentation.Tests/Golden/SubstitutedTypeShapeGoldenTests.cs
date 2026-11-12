@@ -228,6 +228,7 @@ public sealed class SubstitutedTypeShapeGoldenTests
         string outputPath = Path.Combine(context.Directory, assemblyName + ".rewritten.dll");
         var options = new RewriteOptions
         {
+            TargetRuntime = RewriteTestContext.TargetRuntime,
             ReplacementAssemblyPaths = [RuntimeAssemblyPath],
             ReferenceSearchDirectories = [context.Directory, Path.GetDirectoryName(RuntimeAssemblyPath)!],
         };

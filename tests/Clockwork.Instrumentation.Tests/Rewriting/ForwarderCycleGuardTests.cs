@@ -88,7 +88,7 @@ public sealed class ForwarderCycleGuardTests
         RewriteResult result = context.Rewrite(
             fixturePath,
             MarkerRuleSet(),
-            new RewriteOptions { ReplacementAssemblyPaths = [context.ShimPath], ReferenceSearchDirectories = [context.Directory] });
+            new RewriteOptions { TargetRuntime = RewriteTestContext.TargetRuntime, ReplacementAssemblyPaths = [context.ShimPath], ReferenceSearchDirectories = [context.Directory] });
 
         Assert.False(result.Succeeded);
         RewriteDiagnostic error = Assert.Single(result.Errors);

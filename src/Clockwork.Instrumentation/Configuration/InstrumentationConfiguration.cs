@@ -63,9 +63,9 @@ public sealed record InstrumentationConfiguration
     public ImmutableArray<string> ExcludePatterns { get; init; } = [];
 
     /// <summary>
-    /// Gets the target runtime version rules are evaluated against (see
-    /// <see cref="Rewriting.RewriteOptions.TargetRuntime"/>). <see langword="null"/> disables runtime
-    /// filtering.
+    /// Gets the feature version (major.minor) of the target runtime rules are evaluated against (see
+    /// <see cref="Rewriting.RewriteOptions.TargetRuntime"/>), or <see langword="null"/> to derive it from the
+    /// closure's <c>runtimeconfig.json</c> (see <see cref="Closure.TargetRuntimeDiscovery"/>).
     /// </summary>
     public Version? TargetRuntime { get; init; }
 

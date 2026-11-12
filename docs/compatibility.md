@@ -348,15 +348,34 @@ project, never using a solution-wide `ClockworkInstrumentationEnabled` global pr
 
 **Task package requires the .NET 11 SDK.** The task and its Cecil-based engine target
 `net11.0` and load only under `dotnet build` / `dotnet msbuild`; .NET Framework MSBuild
-(classic `msbuild.exe`) cannot host them. Rules are evaluated against a target runtime: the configuration
-file's `targetRuntime`, or else `ClockworkTargetRuntime`, which defaults to the project's target framework
-version (`11.0` for `net11.0`). A project targeting a runtime outside a rule's `supportedRuntimes` fails the
-rewrite (`CWR0010`) at each call site the rule matches. The built-in rules support target runtime `11.0`.
-The `Clockwork.Tool` CLI exposes `rewrite`
+(classic `msbuild.exe`) cannot host them. The `Clockwork.Tool` CLI exposes `rewrite`
 (with `--dry-run`) and `inspect` (text or `--json`), with nonzero exit codes classified
 by failure kind. The tool also exposes explicit `IReplayScenario` harness commands for
 `run`/`replay`/`explore`/`minimize`/`trace show`; it never discovers a process or scenario type
 implicitly.
+
+**Target runtime.** Rules are classified against a .NET runtime's surface, so every rewrite evaluates them
+against a target runtime, a feature version such as `11.0`. It is the configuration file's `targetRuntime`;
+else the `ClockworkTargetRuntime` MSBuild property or the CLI's `--target-runtime`; else the runtime the entry
+assembly's `*.runtimeconfig.json` names: `Microsoft.NETCore.App`, or the ASP.NET Core or Windows Desktop
+framework, which ship in lockstep with it. That file is what the host reads to choose a runtime, which the
+target framework stops naming once an app rolls forward. A closure whose runtime cannot be determined, such as a
+library's build output without a runtimeconfig.json, fails until one is set; the engine API requires one. Before
+anything is staged, the selected rules must support the target: each rule's `supportedRuntimes` includes it, or
+another rule with the same target does, so a rule set can carry one rule per runtime for an API. Otherwise the
+run fails once with `CWR0010`, naming the rule set, the runtimes its rules support, and example rules. The
+built-in rules support target runtime `11.0`, and the build log and CLI output name the target each run used.
+
+**Runtime check at simulation start.** Each rewritten assembly records the runtimes the selected rules support
+(the intersection of the `supportedRuntimes` of the rules that support the target) as
+`[assembly: AssemblyMetadata("Clockwork.SupportedRuntimes", "[11.0,11.0]")]`. Every `SimulationScheduler`, and
+so every `SimulationCluster`, replay, and exploration, checks each loaded assembly that references Clockwork
+against the feature version of `Environment.Version`, and fails with `UnsupportedRuntimeException` naming the
+assembly, the runtimes it supports, and the one the process runs. This catches what a build cannot see: a
+`rollForward` policy in runtimeconfig.json or `DOTNET_ROLL_FORWARD` that runs the app on a newer runtime than
+the rules were classified against, whose surface and internals (such as the `ValueTask` field
+`ControlledValueTask` reads) the shims depend on. An assembly that loads after a simulation starts is checked when the next
+one starts.
 
 **Configuration is data, not code.** Configuration and rule sets are JSON documents,
 validated strictly for schema, types, and signatures; **no arbitrary code is executed

@@ -91,7 +91,8 @@ public sealed class InstrumentationConfigurationTests
     }
 
     [Theory]
-    [InlineData("""{ "schemaVersion": 2, "targetRuntime": "abc" }""", "not a valid version")]
+    [InlineData("""{ "schemaVersion": 2, "targetRuntime": "abc" }""", "not a runtime feature version")]
+    [InlineData("""{ "schemaVersion": 2, "targetRuntime": "11.0.2" }""", "not a runtime feature version")]
     [InlineData("""{ "schemaVersion": 2, "ruleSets": "single" }""", "must be an array")]
     [InlineData("""{ "schemaVersion": 99 }""", "unsupported schemaVersion")]
     public void RejectsMalformedConfigurations(string json, string fragment)

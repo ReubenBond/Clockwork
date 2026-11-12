@@ -51,6 +51,7 @@ public sealed class AsyncHelpersRuleGoldenTests
         string runtimePath = typeof(ControlledAsyncHelpers).Assembly.Location;
         var options = new RewriteOptions
         {
+            TargetRuntime = RewriteTestContext.TargetRuntime,
             ReplacementAssemblyPaths = [runtimePath],
             ReferenceSearchDirectories = [context.Directory, Path.GetDirectoryName(runtimePath)!],
         };

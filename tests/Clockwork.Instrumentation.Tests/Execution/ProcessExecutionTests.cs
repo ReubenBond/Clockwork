@@ -37,6 +37,7 @@ public sealed class ProcessExecutionTests
 
         InstrumentationResult instrumentation = fixture.Instrument();
         Assert.True(instrumentation.Succeeded, string.Join("\n", instrumentation.Errors));
+        Assert.Equal(new Version(Environment.Version.Major, Environment.Version.Minor), instrumentation.TargetRuntime);
         AppRunResult staged = fixture.RunStaged();
         Assert.True(
             staged.ExitCode == 0,
@@ -46,6 +47,23 @@ public sealed class ProcessExecutionTests
         Assert.Contains("semaphore=signaled", staged.Output);
         Assert.Contains("delays=6", staged.Output);
         Assert.Contains("timer=Clockwork.Shims.System.Threading.ControlledTimer", staged.Output);
+    }
+
+    [Fact]
+    public void SimulationStartRejectsAnAppRewrittenForAnotherRuntime()
+    {
+        // Rules classified for .NET 10 rewrite the app as they would for a net10.0 app that rolls forward onto this runtime.
+        using var fixture = BuiltInProcessFixture.Create(optimize: false);
+        InstrumentationResult instrumentation = fixture.Instrument(new Version(10, 0));
+        Assert.True(instrumentation.Succeeded, string.Join("\n", instrumentation.Errors));
+
+        AppRunResult staged = fixture.RunStaged();
+
+        Assert.NotEqual(0, staged.ExitCode);
+        Assert.Contains("UnsupportedRuntimeException", staged.StandardError);
+        Assert.Contains(
+            $"rewritten by Clockwork for .NET 10.0, but this process runs .NET {Environment.Version.Major}.{Environment.Version.Minor}",
+            staged.StandardError);
     }
 
     [Fact]

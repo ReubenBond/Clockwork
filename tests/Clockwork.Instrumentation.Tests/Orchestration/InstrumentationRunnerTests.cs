@@ -958,12 +958,39 @@ public sealed class InstrumentationRunnerTests : IDisposable
     }
 
     [Fact]
+    public void TargetRuntimeIsDerivedFromTheEntryRuntimeConfig()
+    {
+        BuildMinimalApp();
+
+        InstrumentationResult result = Run(new InstrumentationConfiguration(), EmptyRuleSet());
+
+        Assert.True(result.Succeeded, string.Join("\n", result.Errors));
+        Assert.Equal(new Version(Environment.Version.Major, Environment.Version.Minor), result.TargetRuntime);
+    }
+
+    [Fact]
+    public void RuleSetThatDoesNotSupportTheTargetRuntimeFailsOnceBeforeStaging()
+    {
+        BuildStandardClosure();
+
+        InstrumentationResult result = Run(
+            new InstrumentationConfiguration { TargetRuntime = new Version(12, 0) },
+            BuiltInRuleSets.BuildControlledTasks(BuiltInRuleSets.AllFamilies));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(RewriteDiagnosticIds.RuntimeOutOfRange, Assert.Single(result.Errors).Id);
+        Assert.Empty(result.Assemblies);
+        Assert.False(Directory.Exists(_staging));
+        Assert.False(File.Exists(CachePath()));
+    }
+
+    [Fact]
     public void ChangedCopiedAssetInputInvalidatesIncrementalCache()
     {
         BuildStandardClosure();
         Run(new InstrumentationConfiguration(), EmptyRuleSet());
         string sourceAsset = Path.Combine(_source, "app.runtimeconfig.json");
-        string updatedContents = """{"runtimeOptions":{}}""";
+        string updatedContents = File.ReadAllText(sourceAsset).Replace("latestMinor", "Major", StringComparison.Ordinal);
         File.WriteAllText(sourceAsset, updatedContents);
 
         InstrumentationResult second = Run(new InstrumentationConfiguration(), EmptyRuleSet());
@@ -983,7 +1010,8 @@ public sealed class InstrumentationRunnerTests : IDisposable
         BuildMinimalApp();
         InstrumentationResult first = Run(new InstrumentationConfiguration(), EmptyRuleSet());
         string firstKey = ReadIncrementalKey();
-        File.WriteAllText(Path.Combine(_source, "app.runtimeconfig.json"), """{"changed":true}""");
+        string runtimeConfig = Path.Combine(_source, "app.runtimeconfig.json");
+        File.WriteAllText(runtimeConfig, File.ReadAllText(runtimeConfig).Replace("latestMinor", "Major", StringComparison.Ordinal));
 
         InstrumentationResult second = Run(new InstrumentationConfiguration(), EmptyRuleSet());
         string secondKey = ReadIncrementalKey();
@@ -1052,8 +1080,9 @@ public sealed class InstrumentationRunnerTests : IDisposable
             FileAccess.ReadWrite,
             FileShare.None);
 
+        // A configured target runtime leaves the runtimeconfig.json to the closure's hashing, which this test exercises.
         ClosureException exception = Assert.Throws<ClosureException>(
-            () => Run(new InstrumentationConfiguration(), EmptyRuleSet()));
+            () => Run(new InstrumentationConfiguration { TargetRuntime = RewriteTestContext.TargetRuntime }, EmptyRuleSet()));
 
         Assert.Contains("app.runtimeconfig.json", exception.Message, StringComparison.Ordinal);
         Assert.Contains("unreadable", exception.Message, StringComparison.OrdinalIgnoreCase);
@@ -1102,7 +1131,7 @@ public sealed class InstrumentationRunnerTests : IDisposable
         File.Copy(
             typeof(Clockwork.Runtime.SimulationExceptionGuard).Assembly.Location,
             Path.Combine(_source, "Clockwork.dll"));
-        File.WriteAllText(Path.Combine(_source, "app.runtimeconfig.json"), "{}");
+        ProcessAppRunner.WriteRuntimeConfig(Path.Combine(_source, "app.dll"));
 
         InstrumentationResult result = Run(
             new InstrumentationConfiguration(),
@@ -1336,7 +1365,7 @@ public sealed class InstrumentationRunnerTests : IDisposable
             "namespace App { public static class A { public static int Go() => Third.T.V(); } }",
             keyPath,
             references: [third]);
-        File.WriteAllText(Path.Combine(_source, "app.runtimeconfig.json"), "{}");
+        ProcessAppRunner.WriteRuntimeConfig(Path.Combine(_source, "app.dll"));
 
         InstrumentationResult result = Run(new InstrumentationConfiguration(), EmptyRuleSet());
 
@@ -1360,7 +1389,7 @@ public sealed class InstrumentationRunnerTests : IDisposable
             "namespace App { public static class Entry { public static int Get() => Dependency.Value.Get(); } }",
             keyPath,
             references: [dependency]);
-        File.WriteAllText(Path.Combine(_source, "app.runtimeconfig.json"), "{}");
+        ProcessAppRunner.WriteRuntimeConfig(Path.Combine(_source, "app.dll"));
 
         InstrumentationResult result = Run(
             new InstrumentationConfiguration { IncludePatterns = ["dependency.dll"] },
@@ -1478,13 +1507,13 @@ public sealed class InstrumentationRunnerTests : IDisposable
         File.WriteAllBytes(Path.Combine(_source, "native.dll"), [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07]);
         File.WriteAllBytes(Path.Combine(_source, "symbols.pdb"), [0x08, 0x09, 0x0a, 0x0b]);
         File.WriteAllText(Path.Combine(_source, "app.deps.json"), "{}");
-        File.WriteAllText(Path.Combine(_source, "app.runtimeconfig.json"), "{}");
+        ProcessAppRunner.WriteRuntimeConfig(Path.Combine(_source, "app.dll"));
     }
 
     private void BuildMinimalApp()
     {
         Compile("app", "namespace App { public static class A { public static int Go() => 1; } }");
-        File.WriteAllText(Path.Combine(_source, "app.runtimeconfig.json"), "{}");
+        ProcessAppRunner.WriteRuntimeConfig(Path.Combine(_source, "app.dll"));
     }
 
     private static RewriteRuleSet EmptyRuleSet() => new("clockwork.test", "1.0", []);

@@ -137,6 +137,8 @@ public sealed class SimulationScheduler : IDisposable
                 $"Simulation runtime '{runtime.Id}' is already owned by another scheduler.");
         }
 
+        SupportedRuntimesMarker.VerifyLoadedAssemblies();
+
         _runtime = runtime;
         _listener = listener;
         StartDateTime = startDateTime;

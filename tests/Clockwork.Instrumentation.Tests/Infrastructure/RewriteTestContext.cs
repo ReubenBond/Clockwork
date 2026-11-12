@@ -1,5 +1,6 @@
 using Clockwork.Instrumentation.Rewriting;
 using Clockwork.Instrumentation.Rules;
+using Clockwork.Instrumentation.Rules.BuiltIn;
 using Mono.Cecil;
 
 namespace Clockwork.Instrumentation.Tests.Infrastructure;
@@ -18,6 +19,9 @@ internal sealed class RewriteTestContext : IDisposable
         ApiPath = apiPath;
         ShimPath = shimPath;
     }
+
+    /// <summary>Gets the target runtime the tests rewrite for: the one the built-in rules support.</summary>
+    public static Version TargetRuntime => BuiltInRuleSets.SupportedRuntime;
 
     /// <summary>Gets the sandbox directory.</summary>
     public string Directory { get; }
@@ -64,6 +68,7 @@ internal sealed class RewriteTestContext : IDisposable
     {
         options ??= new RewriteOptions
         {
+            TargetRuntime = RewriteTestContext.TargetRuntime,
             ReplacementAssemblyPaths = [ShimPath],
             ReferenceSearchDirectories = [Directory],
         };

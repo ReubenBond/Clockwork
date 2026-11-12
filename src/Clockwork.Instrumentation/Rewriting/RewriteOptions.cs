@@ -21,11 +21,11 @@ public sealed record RewriteOptions
     public ImmutableArray<string> ReferenceSearchDirectories { get; init; } = [];
 
     /// <summary>
-    /// Gets the target runtime version the rules are evaluated against. Rules whose
-    /// <see cref="Rules.RewriteRule.SupportedRuntimes"/> exclude this version are diagnosed rather
-    /// than silently skipped. <see langword="null"/> disables runtime filtering.
+    /// Gets the feature version (major.minor) of the target runtime the rules are evaluated against. The rule set
+    /// must support it (see <see cref="Rules.RuleSetRuntimeSupport"/>), and each rewritten assembly records the
+    /// runtimes the rules support, which a simulation checks when it starts.
     /// </summary>
-    public Version? TargetRuntime { get; init; }
+    public required Version TargetRuntime { get; init; }
 
     /// <summary>
     /// Gets the Cecil full names of types excluded from rewriting (in addition to types marked with
@@ -103,7 +103,7 @@ public sealed record RewriteOptions
         var canonical = new CanonicalEncoding(nameof(RewriteOptions));
         AppendPaths(canonical, nameof(ReplacementAssemblyPaths), ReplacementAssemblyPaths, sort: false);
         AppendPaths(canonical, nameof(ReferenceSearchDirectories), ReferenceSearchDirectories, sort: false);
-        canonical.AddString(nameof(TargetRuntime), TargetRuntime?.ToString());
+        canonical.AddString(nameof(TargetRuntime), TargetRuntime.ToString());
         AppendPaths(canonical, nameof(ExcludedTypeFullNames), ExcludedTypeFullNames, sort: true);
         canonical.AddBoolean(nameof(WarnOnUnresolvedReferences), WarnOnUnresolvedReferences);
         canonical.AddBoolean(nameof(ComputeOutputHash), ComputeOutputHash);

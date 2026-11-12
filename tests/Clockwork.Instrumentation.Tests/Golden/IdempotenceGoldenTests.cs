@@ -97,6 +97,7 @@ public sealed class IdempotenceGoldenTests
         var versionOne = new RewriteRuleSet(current.Id, "1.0.0", current.Rules);
         var options = new RewriteOptions
         {
+            TargetRuntime = RewriteTestContext.TargetRuntime,
             ReplacementAssemblyPaths = [typeof(SimulationRuntimeDispatch).Assembly.Location],
             ReferenceSearchDirectories = [AppContext.BaseDirectory],
         };
@@ -130,6 +131,7 @@ public sealed class IdempotenceGoldenTests
         using var context = RewriteTestContext.Create();
         var baseline = new RewriteOptions
         {
+            TargetRuntime = RewriteTestContext.TargetRuntime,
             ReplacementAssemblyPaths = [context.ShimPath],
             ReferenceSearchDirectories = [context.Directory],
         };
@@ -168,8 +170,8 @@ public sealed class IdempotenceGoldenTests
     [Fact]
     public void ExclusionOrderingDoesNotChangeOptionsFingerprint()
     {
-        var first = new RewriteOptions { ExcludedTypeFullNames = ["Fx.B", "Fx.A", "Fx.B"] };
-        var second = new RewriteOptions { ExcludedTypeFullNames = ["Fx.A", "Fx.B"] };
+        var first = new RewriteOptions { TargetRuntime = RewriteTestContext.TargetRuntime, ExcludedTypeFullNames = ["Fx.B", "Fx.A", "Fx.B"] };
+        var second = new RewriteOptions { TargetRuntime = RewriteTestContext.TargetRuntime, ExcludedTypeFullNames = ["Fx.A", "Fx.B"] };
 
         Assert.Equal(first.ComputeSemanticFingerprint(), second.ComputeSemanticFingerprint());
     }

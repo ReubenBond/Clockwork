@@ -27,6 +27,9 @@ properties; Clockwork does not wrap loggers or prefix rendered messages.
 Clockwork targets .NET 11 (`net11.0`) and builds with the .NET 11 SDK's 11.0.1xx feature band. `global.json`
 rolls forward to the newest installed 11.0.1xx patch (`latestPatch`), and CI installs that patch from the same
 file. The built-in rule sets are classified against the .NET 11 reference assemblies and support target runtime 11.0.
+Instrumentation evaluates rules against the runtime the app's `runtimeconfig.json` names unless one is configured,
+and each simulation checks that the process runs a runtime its rewritten assemblies support, which catches an app
+that rolls forward onto a newer runtime (see [Target runtime](docs/compatibility.md#build-and-tool-integration)).
 
 ## Current capability contract
 

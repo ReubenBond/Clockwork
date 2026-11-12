@@ -1,9 +1,9 @@
 namespace Clockwork.Instrumentation.Rules;
 
 /// <summary>
-/// An inclusive range of target-runtime versions a <see cref="RewriteRule"/> supports. A rule only
-/// applies when the engine's configured target-runtime version falls within the range. Either bound
-/// may be open (<see langword="null"/>). The default <see cref="All"/> matches every version.
+/// An inclusive range of .NET runtime feature versions (see <see cref="RuntimeFeatureVersion"/>) a
+/// <see cref="RewriteRule"/> supports. Either bound may be open (<see langword="null"/>). The default
+/// <see cref="All"/> matches every version.
 /// </summary>
 /// <param name="Minimum">The inclusive lower bound, or <see langword="null"/> for no lower bound.</param>
 /// <param name="Maximum">The inclusive upper bound, or <see langword="null"/> for no upper bound.</param>
@@ -18,29 +18,36 @@ public readonly record struct RuntimeVersionRange(Version? Minimum, Version? Max
     /// <summary>Creates a range with only an upper bound.</summary>
     public static RuntimeVersionRange AtMost(Version maximum) => new(null, maximum);
 
-    /// <summary>
-    /// Returns <see langword="true"/> if <paramref name="version"/> falls within this range. A
-    /// <see langword="null"/> version (unspecified target runtime) is considered in range.
-    /// </summary>
-    public bool Includes(Version? version)
+    /// <summary>Returns <see langword="true"/> if <paramref name="version"/> falls within this range.</summary>
+    /// <param name="version">The runtime feature version.</param>
+    /// <returns><see langword="true"/> if the range includes <paramref name="version"/>.</returns>
+    public bool Includes(Version version)
     {
-        if (version is null)
-        {
-            return true;
-        }
-
-        if (Minimum is not null && version < Minimum)
-        {
-            return false;
-        }
-
-        if (Maximum is not null && version > Maximum)
-        {
-            return false;
-        }
-
-        return true;
+        ArgumentNullException.ThrowIfNull(version);
+        return (Minimum is null || version >= Minimum) && (Maximum is null || version <= Maximum);
     }
+
+    /// <summary>Returns the versions both ranges include.</summary>
+    /// <param name="other">The other range.</param>
+    /// <returns>The intersection, which is empty (its minimum exceeds its maximum) when the ranges are disjoint.</returns>
+    public RuntimeVersionRange Intersect(RuntimeVersionRange other) => new(
+        Minimum is null ? other.Minimum : other.Minimum is null || Minimum >= other.Minimum ? Minimum : other.Minimum,
+        Maximum is null ? other.Maximum : other.Maximum is null || Maximum <= other.Maximum ? Maximum : other.Maximum);
+
+    /// <summary>Returns <see langword="true"/> if both bounds are open or feature versions.</summary>
+    public bool HasFeatureVersionBounds =>
+        (Minimum is null || RuntimeFeatureVersion.IsFeatureVersion(Minimum))
+        && (Maximum is null || RuntimeFeatureVersion.IsFeatureVersion(Maximum));
+
+    /// <summary>Returns the range for people, such as <c>11.0</c>, <c>11.0 to 12.0</c>, or <c>11.0 or later</c>.</summary>
+    public string ToDisplayString() => (Minimum, Maximum) switch
+    {
+        ({ } low, { } high) when low == high => low.ToString(),
+        ({ } low, { } high) => $"{low} to {high}",
+        ({ } low, null) => $"{low} or later",
+        (null, { } high) => $"{high} or earlier",
+        _ => "any runtime",
+    };
 
     /// <summary>Returns a stable canonical string for signature hashing.</summary>
     public string ToCanonicalString()

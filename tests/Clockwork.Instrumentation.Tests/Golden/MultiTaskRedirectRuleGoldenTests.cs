@@ -132,6 +132,7 @@ public sealed class MultiTaskRedirectRuleGoldenTests
         string outputPath = Path.Combine(context.Directory, "Fx.MultiTaskRedirects.rewritten.dll");
         var options = new RewriteOptions
         {
+            TargetRuntime = RewriteTestContext.TargetRuntime,
             ReplacementAssemblyPaths = [RuntimeAssemblyPath],
             ReferenceSearchDirectories = [context.Directory, Path.GetDirectoryName(RuntimeAssemblyPath)!],
         };

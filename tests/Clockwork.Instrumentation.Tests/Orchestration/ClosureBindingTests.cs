@@ -755,7 +755,10 @@ public sealed class ClosureBindingTests : IDisposable
         {
             SourceDirectory = _source,
             StagingDirectory = _staging,
-            Configuration = configuration ?? new InstrumentationConfiguration(),
+            Configuration = (configuration ?? new InstrumentationConfiguration()) with
+            {
+                TargetRuntime = RewriteTestContext.TargetRuntime,
+            },
             RuleSet = MarkerRuleSet(),
         });
 

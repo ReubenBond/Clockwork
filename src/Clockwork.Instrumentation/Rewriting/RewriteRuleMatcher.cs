@@ -4,22 +4,36 @@ using Mono.Cecil;
 namespace Clockwork.Instrumentation.Rewriting;
 
 /// <summary>
-/// Indexes a <see cref="RewriteRuleSet"/> for fast, deterministic matching of Mono.Cecil references
-/// during a single rewrite, honouring the configured target-runtime version. Member-operation rules
-/// (call/newobj/wrap/reject) are keyed by declaring-type full name; type-substitution rules are
-/// keyed by target-type full name.
+/// Indexes the rules of a <see cref="RewriteRuleSet"/> that support one target runtime for fast, deterministic
+/// matching of Mono.Cecil references during a single rewrite. Member-operation rules (call/newobj/wrap/reject) are
+/// keyed by declaring-type full name; type-substitution rules are keyed by target-type full name.
 /// </summary>
 internal sealed class RewriteRuleMatcher
 {
     private readonly Dictionary<string, List<RewriteRule>> _memberRules = new(StringComparer.Ordinal);
     private readonly Dictionary<string, RewriteRule> _typeSubstitutions = new(StringComparer.Ordinal);
-    private readonly Version? _targetRuntime;
 
-    public RewriteRuleMatcher(RewriteRuleSet ruleSet, Version? targetRuntime)
+    /// <summary>Indexes the rules of <paramref name="ruleSet"/> that support <paramref name="targetRuntime"/>.</summary>
+    /// <exception cref="InvalidOperationException">
+    /// The rule set does not support the target (see <see cref="RuleSetRuntimeSupport"/>): a rule it skips would leave
+    /// call sites it targets unrewritten. Callers report the rule set's support before rewriting.
+    /// </exception>
+    public RewriteRuleMatcher(RewriteRuleSet ruleSet, Version targetRuntime)
     {
-        _targetRuntime = targetRuntime;
+        RuleSetRuntimeSupport support = RuleSetRuntimeSupport.Evaluate(ruleSet, targetRuntime);
+        if (!support.IsSupported)
+        {
+            throw new InvalidOperationException(
+                $"Rule set '{ruleSet.Id}' does not support target runtime {targetRuntime}; its support is checked before rewriting.");
+        }
+
         foreach (RewriteRule rule in ruleSet.Rules)
         {
+            if (!rule.SupportedRuntimes.Includes(targetRuntime))
+            {
+                continue;
+            }
+
             if (rule.Operation == RewriteOperationKind.SubstituteType)
             {
                 // First rule for a given type wins (rule sets forbid duplicate ids, but two rules
@@ -43,27 +57,14 @@ internal sealed class RewriteRuleMatcher
     public bool HasTypeSubstitutions => _typeSubstitutions.Count > 0;
 
     /// <summary>
-    /// Gets the type-substitution rules whose target runtime includes the configured target, keyed by
-    /// the substituted type's Cecil full name. Used by the member-aware substitution pass to build its
-    /// type map (fields, locals, method/field references), which the operand-only
+    /// Gets the type-substitution rules, keyed by the substituted type's Cecil full name. Used by the member-aware
+    /// substitution pass to build its type map (fields, locals, method/field references), which the operand-only
     /// <see cref="TypeReferenceRewritingPass"/> does not cover.
     /// </summary>
-    public IEnumerable<KeyValuePair<string, RewriteRule>> TypeSubstitutionRules
-    {
-        get
-        {
-            foreach (KeyValuePair<string, RewriteRule> entry in _typeSubstitutions)
-            {
-                if (entry.Value.SupportedRuntimes.Includes(_targetRuntime))
-                {
-                    yield return entry;
-                }
-            }
-        }
-    }
+    public IEnumerable<KeyValuePair<string, RewriteRule>> TypeSubstitutionRules => _typeSubstitutions;
 
     /// <summary>
-    /// Returns the Cecil full names of the in-range substituted types and of their substitutes: the types whose
+    /// Returns the Cecil full names of the substituted types and of their substitutes: the types whose
     /// presence in a member reference's signature makes whether it binds depend on the rewrite.
     /// </summary>
     public IReadOnlySet<string> GetSubstitutionTypeNames()
@@ -80,14 +81,11 @@ internal sealed class RewriteRuleMatcher
 
     /// <summary>
     /// Finds the first rule (in declared order) matching an invocation of <paramref name="method"/>
-    /// at a call/newobj site. Returns <see langword="false"/> if no rule applies. If no in-range rule
-    /// applies, the first target-matching rule whose runtime is out of range is returned via
-    /// <paramref name="outOfRangeRule"/> so the caller can diagnose it deterministically.
+    /// at a call/newobj site. Returns <see langword="false"/> if no rule applies.
     /// </summary>
-    public bool TryMatchInvocation(MethodReference method, bool isNewObj, out RewriteRule matched, out RewriteRule? outOfRangeRule)
+    public bool TryMatchInvocation(MethodReference method, bool isNewObj, out RewriteRule matched)
     {
         matched = null!;
-        outOfRangeRule = null;
 
         string declaringType = CecilNames.NormalizedTypeFullName(method.DeclaringType);
         if (!_memberRules.TryGetValue(declaringType, out List<RewriteRule>? rules))
@@ -112,13 +110,6 @@ internal sealed class RewriteRuleMatcher
                 continue;
             }
 
-            if (!rule.SupportedRuntimes.Includes(_targetRuntime))
-            {
-                outOfRangeRule ??= rule;
-                continue;
-            }
-
-            outOfRangeRule = null;
             matched = rule;
             return true;
         }
@@ -131,7 +122,7 @@ internal sealed class RewriteRuleMatcher
     {
         matched = null!;
         string key = CecilNames.NormalizedTypeFullName(type);
-        if (_typeSubstitutions.TryGetValue(key, out RewriteRule? rule) && rule.SupportedRuntimes.Includes(_targetRuntime))
+        if (_typeSubstitutions.TryGetValue(key, out RewriteRule? rule))
         {
             matched = rule;
             return true;
@@ -141,38 +132,24 @@ internal sealed class RewriteRuleMatcher
     }
 
     /// <summary>
-    /// Returns the out-of-range type-substitution rules referenced by <paramref name="type"/>,
-    /// including rules targeting element types and generic arguments.
-    /// </summary>
-    public IReadOnlyList<RewriteRule> GetOutOfRangeTypeRules(TypeReference type)
-    {
-        var rules = new List<RewriteRule>();
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        CollectTypeRules(type, rules, seen, inRange: false);
-        return rules;
-    }
-
-    /// <summary>
-    /// Returns the in-range type-substitution rules referenced by <paramref name="type"/>,
+    /// Returns the type-substitution rules referenced by <paramref name="type"/>,
     /// including rules targeting element types and generic arguments.
     /// </summary>
     public IReadOnlyList<RewriteRule> GetMatchingTypeRules(TypeReference type)
     {
         var rules = new List<RewriteRule>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        CollectTypeRules(type, rules, seen, inRange: true);
+        CollectTypeRules(type, rules, seen);
         return rules;
     }
 
     private void CollectTypeRules(
         TypeReference type,
         List<RewriteRule> rules,
-        HashSet<string> seen,
-        bool inRange)
+        HashSet<string> seen)
     {
         TypeReference candidate = type is GenericInstanceType generic ? generic.ElementType : type;
         if (_typeSubstitutions.TryGetValue(candidate.FullName, out RewriteRule? rule)
-            && rule.SupportedRuntimes.Includes(_targetRuntime) == inRange
             && seen.Add(rule.Id))
         {
             rules.Add(rule);
@@ -183,12 +160,12 @@ internal sealed class RewriteRuleMatcher
             case GenericInstanceType instance:
                 foreach (TypeReference argument in instance.GenericArguments)
                 {
-                    CollectTypeRules(argument, rules, seen, inRange);
+                    CollectTypeRules(argument, rules, seen);
                 }
 
                 break;
             case TypeSpecification specification:
-                CollectTypeRules(specification.ElementType, rules, seen, inRange);
+                CollectTypeRules(specification.ElementType, rules, seen);
                 break;
         }
     }

@@ -91,7 +91,11 @@ internal static class InstrumentCommand
         TextWriter output)
     {
         ClosurePlan plan = ClosureDiscovery.Discover(source, configuration, string.IsNullOrWhiteSpace(entry) ? null : entry);
-        ImmutableArray<RewriteDiagnostic> diagnostics = [];
+        (Version targetRuntime, string targetRuntimeOrigin) = TargetRuntimeDiscovery.Resolve(configuration, plan);
+        RuleSetRuntimeSupport runtimeSupport = RuleSetRuntimeSupport.Evaluate(ruleSet, targetRuntime);
+        ImmutableArray<RewriteDiagnostic> diagnostics = runtimeSupport.IsSupported
+            ? []
+            : [runtimeSupport.ToDiagnostic(ruleSet, targetRuntimeOrigin)];
 
         var rows = new List<PlannedAction>();
         foreach (ClosureAsset asset in plan.AssembliesToRewrite)
@@ -133,6 +137,7 @@ internal static class InstrumentCommand
                 ["ruleSetId"] = ruleSet.Id,
                 ["ruleSetVersion"] = ruleSet.Version,
                 ["ruleCount"] = ruleSet.Rules.Length,
+                ["targetRuntime"] = targetRuntime.ToString(),
                 ["builtInRuleSets"] = builtInArray,
                 ["candidates"] = rows.Count,
                 ["copies"] = plan.AssetsToCopy.Count(),
@@ -146,6 +151,7 @@ internal static class InstrumentCommand
         {
             output.WriteLine($"Dry run for '{plan.RootDirectory}'");
             output.WriteLine($"Rule set: {ruleSet.Id} v{ruleSet.Version} ({ruleSet.Rules.Length} rules)");
+            output.WriteLine($"Target runtime: {targetRuntime} ({targetRuntimeOrigin})");
             if (!builtInIds.IsEmpty)
             {
                 output.WriteLine($"Built-in rule sets: {string.Join(", ", builtInIds)}");
@@ -222,6 +228,7 @@ internal static class InstrumentCommand
             ? $"Up to date (incremental): '{result.StagingDirectory}'"
             : $"Instrumented '{result.StagingDirectory}'");
         output.WriteLine($"Manifest: {result.ManifestPath}");
+        output.WriteLine($"Target runtime: {result.TargetRuntime}");
         output.WriteLine($"Instrumented: {result.RewrittenCount}; no-ops: {result.NoOpCount}; copied assets: {result.CopiedAssets.Length}");
         foreach (AssemblyInstrumentationResult assembly in result.Assemblies.OrderBy(a => a.RelativePath, StringComparer.Ordinal))
         {
@@ -260,6 +267,7 @@ internal static class InstrumentCommand
             ["command"] = "instrument",
             ["succeeded"] = result.Succeeded,
             ["incremental"] = result.WasIncrementalHit,
+            ["targetRuntime"] = result.TargetRuntime.ToString(),
             ["stagingDirectory"] = result.StagingDirectory,
             ["manifestPath"] = result.ManifestPath,
             ["instrumentedCount"] = result.RewrittenCount,

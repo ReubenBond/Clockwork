@@ -78,6 +78,7 @@ public sealed class CrossAssemblyTaskDetectionGoldenTests
         string outputPath = Path.Combine(context.Directory, "Fx.Consumer.rewritten.dll");
         var options = new RewriteOptions
         {
+            TargetRuntime = RewriteTestContext.TargetRuntime,
             DetectUncontrolledTasks = true,
             ReplacementAssemblyPaths = [context.ShimPath],
             ReferenceSearchDirectories = [context.Directory],
@@ -128,6 +129,7 @@ public sealed class CrossAssemblyTaskDetectionGoldenTests
 
         var options = new RewriteOptions
         {
+            TargetRuntime = RewriteTestContext.TargetRuntime,
             DetectUncontrolledTasks = true,
             ReplacementAssemblyPaths = [context.ShimPath],
             ReferenceSearchDirectories = [context.Directory],

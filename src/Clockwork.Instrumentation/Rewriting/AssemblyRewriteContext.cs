@@ -14,6 +14,7 @@
 
 using Clockwork.Instrumentation.Attributes;
 using Clockwork.Instrumentation.Diagnostics;
+using Clockwork.Instrumentation.Rules;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
@@ -241,26 +242,39 @@ internal sealed class AssemblyRewriteContext : IDisposable
     /// </summary>
     public void ApplyRewriteSignature(ClockworkRewriteSignatureValues values)
     {
-        ModuleDefinition module = Definition.MainModule;
-        TypeReference stringType = module.TypeSystem.String;
         string encoded = RewriteSignatureMetadata.Encode(
             values.EngineVersion,
             values.RuleSetId,
             values.RuleSetVersion,
             values.Signature,
             values.OptionsFingerprint);
-        CustomAttribute? existing = FindSignatureMetadata();
+        ApplyAssemblyMetadata(RewriteSignatureMetadata.Key, encoded);
+    }
+
+    /// <summary>
+    /// Records the runtimes the rules support, which a simulation checks the runtime against when it starts (see
+    /// <see cref="Runtime.SupportedRuntimesMarker"/>).
+    /// </summary>
+    public void ApplySupportedRuntimes(RuntimeVersionRange supportedRuntimes) =>
+        ApplyAssemblyMetadata(
+            Runtime.SupportedRuntimesMarker.Key,
+            Runtime.SupportedRuntimesMarker.Format(supportedRuntimes.Minimum, supportedRuntimes.Maximum));
+
+    private void ApplyAssemblyMetadata(string key, string value)
+    {
+        TypeReference stringType = Definition.MainModule.TypeSystem.String;
+        CustomAttribute? existing = FindAssemblyMetadata(key);
         if (existing is not null)
         {
-            existing.ConstructorArguments[1] = new CustomAttributeArgument(stringType, encoded);
+            existing.ConstructorArguments[1] = new CustomAttributeArgument(stringType, value);
             return;
         }
 
-        MethodReference ctor = module.ImportReference(
+        MethodReference ctor = Definition.MainModule.ImportReference(
             typeof(System.Reflection.AssemblyMetadataAttribute).GetConstructor([typeof(string), typeof(string)])!);
         var attribute = new CustomAttribute(ctor);
-        attribute.ConstructorArguments.Add(new CustomAttributeArgument(stringType, RewriteSignatureMetadata.Key));
-        attribute.ConstructorArguments.Add(new CustomAttributeArgument(stringType, encoded));
+        attribute.ConstructorArguments.Add(new CustomAttributeArgument(stringType, key));
+        attribute.ConstructorArguments.Add(new CustomAttributeArgument(stringType, value));
         Definition.CustomAttributes.Add(attribute);
     }
 
@@ -385,13 +399,15 @@ internal sealed class AssemblyRewriteContext : IDisposable
             a.AttributeType.Namespace == SignatureAttributeNamespace &&
             a.AttributeType.Name == SignatureAttributeName);
 
-    private CustomAttribute? FindSignatureMetadata() =>
+    private CustomAttribute? FindSignatureMetadata() => FindAssemblyMetadata(RewriteSignatureMetadata.Key);
+
+    private CustomAttribute? FindAssemblyMetadata(string key) =>
         Definition.CustomAttributes.FirstOrDefault(attribute =>
             attribute.AttributeType.FullName == AssemblyMetadataAttributeFullName &&
             attribute.ConstructorArguments.Count == 2 &&
             string.Equals(
                 attribute.ConstructorArguments[0].Value as string,
-                RewriteSignatureMetadata.Key,
+                key,
                 StringComparison.Ordinal));
 
     /// <inheritdoc/>
