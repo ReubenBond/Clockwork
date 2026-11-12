@@ -47,6 +47,8 @@ internal static class ShimTestHarness
             environment.LocalTimeZone);
         environment.Clock.Bind(scheduler);
 
+        // The test thread is the simulation's controlling thread: it calls controlled APIs and drives the scheduler.
+        using (scheduler.EnterControlScope())
         using (SimulationExecutionContext.EnterRuntime(activeRuntime))
         {
             if (nodeAddress is null)

@@ -2,6 +2,8 @@ using Clockwork.Runtime.Decisions;
 using Clockwork.Runtime.Replay;
 using Clockwork.Runtime.Scheduling;
 using Clockwork.Runtime.Scheduling.Resources;
+using Clockwork.Runtime.Shims;
+using Clockwork.Shims.System;
 
 namespace Clockwork.Runtime.Tests.Replay;
 
@@ -246,6 +248,29 @@ public sealed class ReplayRunnerTests
         Assert.Equal(ReplayTerminationKind.Aborted, recorded.Artifact.Outcome.Kind);
         Assert.Equal(typeof(ExternalReplayException).FullName, recorded.Artifact.Outcome.FailureIdentity);
         Assert.IsType<ExternalReplayException>(recorded.ExecutionException);
+    }
+
+    [Fact]
+    public void ControlledApiOffTheSimulationThreadAbortsTheRun()
+    {
+        ReplayExecutionResult recorded = Record(
+            SeededConfiguration(53),
+            static scheduler => scheduler.Schedule(
+                "escape",
+                static () =>
+                {
+                    // A thread started from the operation carries the simulation's ambient context off its logical
+                    // thread, and swallows the rejection.
+                    var escaped = new Thread(static () => _ = Xunit.Record.Exception(() => ControlledDateTime.GetUtcNow()));
+                    escaped.Start();
+                    escaped.Join();
+                }));
+
+        Assert.Equal(ReplayTerminationKind.Aborted, recorded.Artifact.Outcome.Kind);
+        Assert.Equal(typeof(SimulationThreadAffinityException).FullName, recorded.Artifact.Outcome.FailureIdentity);
+        Assert.Equal(
+            "System.DateTime.UtcNow",
+            Assert.IsType<SimulationThreadAffinityException>(recorded.ExecutionException).ApiName);
     }
 
     private static ReplayRecordingOptions SeededConfiguration(int scheduleSeed) => new()

@@ -30,8 +30,39 @@ Clockwork verifies usage with shipped Roslyn diagnostics and redirects the exact
 inventory through opt-in IL rewriting. Controlled async/task/thread/thread-pool/Parallel and modern
 synchronization surfaces run on logical strands. Controlled code never falls through to an inactive
 or unregistered runtime service: it fails explicitly instead. (Completing a `TaskCompletionSource`
-is the one exception: it passes through to the BCL outside a simulation.) Timers, delays, asynchronous timeouts,
+is the one exception: it passes through to the BCL outside a simulation.) Controlled code also runs only
+on the simulation's logical thread (see [Thread affinity](#thread-affinity)). Timers, delays, asynchronous timeouts,
 and timer-driven cancellation use the shared virtual-time deadline scheduler.
+
+#### Thread affinity
+
+A simulation's logical thread is, at any moment, the thread running one of its scheduler's operations
+or the thread driving its scheduler inside `SimulationScheduler.EnterControlScope()`
+(`SimulationScheduler.IsSimulationThread`). The cluster's drive methods (`RunUntil`, `RunUntilIdle`,
+`RunFor`, `RunToCompletion`), its disposal, and `ReplayRunner` enter that scope on the calling thread.
+Every controlled entry point called with a simulation's ambient context requires that thread, and on any
+other thread throws `SimulationThreadAffinityException` naming the API, the thread, and the runtime and
+seed, before it does anything else.
+
+The ambient context flows with the `ExecutionContext`, so work which uninstrumented code moves onto a
+real thread carries it there: the real `Task.Run` with which `BackgroundService.StartAsync` starts a
+rewritten `ExecuteAsync` (see the [.NET 11 note](#supported-today)), a timer, thread-pool item, or
+continuation queued by an uninstrumented library, or a `CancellationToken.Register` callback which a
+thread outside the simulation runs by cancelling the token. That work races the coordinator, so it
+fails at its first controlled call. The scheduler also records the first violation and rethrows it, with
+the escaped thread's stack, from its next step on the driving thread, whether or not an operation runs:
+the run fails even when the escaped work swallows the exception, as a faulted `ExecuteTask` does. Cluster
+disposal collects it among its failures, and `ReplayRunner` ends the run as `Aborted`, since the escaped
+work ran outside the recorded schedule.
+
+Two kinds of call are not escaped work. A `TaskCompletionSource` completion with no ambient context
+(from a finalizer, say) passes through to the BCL. Host code which runs simulation callbacks inline
+while no step is in progress - cancelling a token which the system under test registered callbacks on,
+between drives - runs them on the logical thread by entering `EnterControlScope()` first; the cluster
+does so when its disposal cancels `TeardownCancellationToken`. A token cancelled on a thread outside the
+simulation, such as a test framework's timeout token passed into the system under test, runs those
+callbacks off the logical thread: pass the system under test a token which the scenario owns and
+cancels from simulation work instead.
 
 #### Scheduling and resource model
 
@@ -375,7 +406,9 @@ behavior, and the reasons the inventory marks as documented holes (`CultureOrTim
 
 Instrumented closure binaries are simulation/test artifacts, not production replacements. Every
 Controlled entry point requires an active Clockwork simulation; without one it throws
-`SimulationNotActiveException` before any real BCL operation runs. With an active simulation:
+`SimulationNotActiveException` before any real BCL operation runs. It also requires the simulation's
+logical thread, and elsewhere throws `SimulationThreadAffinityException` (see
+[Thread affinity](#thread-affinity)). With an active simulation:
 
 - **With a registered runtime environment** it dispatches to the node's
   simulated clock and the correct independent seed domain (Application/Identity only - never
@@ -819,7 +852,9 @@ cancels all remaining registrations without invoking user callbacks.
   `Microsoft.Extensions` abstractions (`Logging.Abstractions`, `DependencyInjection.Abstractions`,
   `Options`, `Primitives`, and the other `*.Abstractions` assemblies), and NuGet prunes their packages
   from a `net11.0` project's dependencies, so they load from the shared framework and are not rewritten:
-  `BackgroundService.StartAsync`, for example, starts `ExecuteAsync` through the real `Task.Run`.
+  `BackgroundService.StartAsync`, for example, starts `ExecuteAsync` through the real `Task.Run`. A
+  rewritten `ExecuteAsync` started that way fails at its first controlled call with
+  `SimulationThreadAffinityException`, and so does the run (see [Thread affinity](#thread-affinity)).
 - **Windows, Linux, and macOS** are all supported for the existing kernel; it has no
   platform-specific dependencies (no P/Invoke, no OS-specific I/O).
 - **JIT execution** (the default `dotnet run`/`dotnet test` path) is fully supported.

@@ -770,7 +770,13 @@ public sealed partial class SimulationCluster : IAsyncDisposable
             }
         }
 
-        SafeCancel(_teardownCts);
+        // Cancellation runs the callbacks registered on the teardown token inline. The system under test registered
+        // them from simulation work, so they carry the simulation's ambient context and run on its logical thread.
+        using (Scheduler.EnterControlScope())
+        {
+            SafeCancel(_teardownCts);
+        }
+
         DrainAttachmentWorkToQuiescence(cleanupContexts, failures);
 
         RunDisposalToCompletion(

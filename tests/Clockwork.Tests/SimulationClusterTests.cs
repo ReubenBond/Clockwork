@@ -2,6 +2,7 @@ using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Shims;
 using Clockwork.Runtime.Tasks;
 using Clockwork.Runtime.Threading;
+using Clockwork.Shims.System;
 
 namespace Clockwork.Tests;
 
@@ -159,6 +160,26 @@ public sealed class SimulationClusterTests
 
         await cluster.DisposeAsync();
         Assert.Equal(1, node.DisposeCallCount);
+    }
+
+    [Fact]
+    public async Task TeardownCancellationRunsRegisteredCallbacksOnTheSimulationThread()
+    {
+        var cluster = new SimulationCluster(seed: 42, DateTimeOffset.UnixEpoch);
+        DateTime? observed = null;
+        cluster.RunToCompletion(
+            () =>
+            {
+                // Registered from simulation work, the callback captures the simulation's ambient context, so the
+                // controlled clock it reads requires the simulation's logical thread when disposal cancels the token.
+                _ = cluster.TeardownCancellationToken.Register(() => observed = ControlledDateTime.GetUtcNow());
+                return Task.CompletedTask;
+            },
+            TestContext.Current.CancellationToken);
+
+        await cluster.DisposeAsync();
+
+        Assert.Equal(DateTime.UnixEpoch, observed);
     }
 
     private sealed class FailingDisposeNode(
