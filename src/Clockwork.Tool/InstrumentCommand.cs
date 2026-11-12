@@ -95,7 +95,7 @@ internal static class InstrumentCommand
         RuleSetRuntimeSupport runtimeSupport = RuleSetRuntimeSupport.Evaluate(ruleSet, targetRuntime);
         ImmutableArray<RewriteDiagnostic> diagnostics = runtimeSupport.IsSupported
             ? []
-            : [runtimeSupport.ToDiagnostic(ruleSet, targetRuntimeOrigin)];
+            : [runtimeSupport.ToDiagnostic(targetRuntimeOrigin)];
 
         var rows = new List<PlannedAction>();
         foreach (ClosureAsset asset in plan.AssembliesToRewrite)
@@ -138,6 +138,7 @@ internal static class InstrumentCommand
                 ["ruleSetVersion"] = ruleSet.Version,
                 ["ruleCount"] = ruleSet.Rules.Length,
                 ["targetRuntime"] = targetRuntime.ToString(),
+                ["targetRuntimeOrigin"] = targetRuntimeOrigin,
                 ["builtInRuleSets"] = builtInArray,
                 ["candidates"] = rows.Count,
                 ["copies"] = plan.AssetsToCopy.Count(),
@@ -168,9 +169,12 @@ internal static class InstrumentCommand
                 output.WriteLine($"  {diagnostic.Id} [{diagnostic.Severity}] {diagnostic.Message}");
             }
 
-            output.WriteLine(anyBlocking
-                ? "One or more assemblies would fail; nothing was written."
-                : "All candidates can be instrumented; nothing was written.");
+            output.WriteLine(
+                !runtimeSupport.IsSupported
+                    ? "The rule set does not support the target runtime, so nothing would be rewritten; nothing was written."
+                    : anyBlocking
+                        ? "One or more assemblies would fail; nothing was written."
+                        : "All candidates can be instrumented; nothing was written.");
         }
 
         return anyBlocking ? ExitCode.InstrumentationError : ExitCode.Success;
@@ -228,7 +232,7 @@ internal static class InstrumentCommand
             ? $"Up to date (incremental): '{result.StagingDirectory}'"
             : $"Instrumented '{result.StagingDirectory}'");
         output.WriteLine($"Manifest: {result.ManifestPath}");
-        output.WriteLine($"Target runtime: {result.TargetRuntime}");
+        output.WriteLine($"Target runtime: {result.TargetRuntime} ({result.TargetRuntimeOrigin})");
         output.WriteLine($"Instrumented: {result.RewrittenCount}; no-ops: {result.NoOpCount}; copied assets: {result.CopiedAssets.Length}");
         foreach (AssemblyInstrumentationResult assembly in result.Assemblies.OrderBy(a => a.RelativePath, StringComparer.Ordinal))
         {
@@ -268,6 +272,7 @@ internal static class InstrumentCommand
             ["succeeded"] = result.Succeeded,
             ["incremental"] = result.WasIncrementalHit,
             ["targetRuntime"] = result.TargetRuntime.ToString(),
+            ["targetRuntimeOrigin"] = result.TargetRuntimeOrigin,
             ["stagingDirectory"] = result.StagingDirectory,
             ["manifestPath"] = result.ManifestPath,
             ["instrumentedCount"] = result.RewrittenCount,

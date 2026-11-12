@@ -85,7 +85,7 @@ public static class RewriteEngine
         RuleSetRuntimeSupport runtimeSupport = RuleSetRuntimeSupport.Evaluate(request.RuleSet, options.TargetRuntime);
         if (!runtimeSupport.IsSupported)
         {
-            diagnostics.Add(runtimeSupport.ToDiagnostic(request.RuleSet, "the requested target runtime"));
+            diagnostics.Add(runtimeSupport.ToDiagnostic("requested"));
             return Failed(request, engineVersion, signature, inputIdentity, diagnostics, exclusions, [], []);
         }
 
@@ -103,12 +103,22 @@ public static class RewriteEngine
         if (context.TryGetRewriteSignature(out ClockworkRewriteSignatureValues existing))
         {
             return HandleAlreadyRewritten(
-                request, options, engineVersion, signature, optionsFingerprint, existing, inputIdentity, diagnostics, exclusions);
+                request,
+                options,
+                engineVersion,
+                signature,
+                optionsFingerprint,
+                existing,
+                context.ReadSupportedRuntimes(),
+                AssemblyRewriteContext.FormatSupportedRuntimes(runtimeSupport.SupportedRuntimes),
+                inputIdentity,
+                diagnostics,
+                exclusions);
         }
 
         CollectExclusions(context, options, exclusions, diagnostics, out HashSet<string> skip);
 
-        var matcher = new RewriteRuleMatcher(request.RuleSet, options.TargetRuntime);
+        var matcher = new RewriteRuleMatcher(runtimeSupport);
         using var resolver = new ReplacementResolver(options.ReplacementAssemblyPaths, options.ReferenceSearchDirectories);
         var session = new RewriteSession(context.MainModule, matcher, resolver, skip, options.RewrittenAssemblyNames);
 
@@ -215,15 +225,19 @@ public static class RewriteEngine
         string signature,
         string optionsFingerprint,
         ClockworkRewriteSignatureValues existing,
+        string? existingSupportedRuntimes,
+        string supportedRuntimes,
         ManifestAssemblyIdentity inputIdentity,
         List<RewriteDiagnostic> diagnostics,
         List<ManifestExclusion> exclusions)
     {
+        // An input rewritten without the supported-runtimes record would run unchecked, so it is not a verified no-op.
         bool compatible = existing.Signature == signature
             && existing.EngineVersion == engineVersion
             && existing.RuleSetId == request.RuleSet.Id
             && existing.RuleSetVersion == request.RuleSet.Version
-            && existing.OptionsFingerprint == optionsFingerprint;
+            && existing.OptionsFingerprint == optionsFingerprint
+            && existingSupportedRuntimes == supportedRuntimes;
 
         if (!compatible)
         {
@@ -232,7 +246,8 @@ public static class RewriteEngine
                 $"Assembly '{inputIdentity.Name}' was already rewritten by engine {existing.EngineVersion} with rule set " +
                 $"'{existing.RuleSetId}' v{existing.RuleSetVersion} (signature {existing.Signature}). Re-run against the " +
                 $"original, un-rewritten assembly to apply a different rule set or rewrite options " +
-                $"(existing options fingerprint '{DisplayFingerprint(existing.OptionsFingerprint)}', requested '{optionsFingerprint}'); " +
+                $"(existing options fingerprint '{DisplayFingerprint(existing.OptionsFingerprint)}', requested '{optionsFingerprint}'; " +
+                $"existing supported runtimes '{existingSupportedRuntimes ?? "none"}', requested '{supportedRuntimes}'); " +
                 "double-rewriting is refused."));
             return Failed(request, engineVersion, signature, inputIdentity, diagnostics, exclusions, [], []);
         }

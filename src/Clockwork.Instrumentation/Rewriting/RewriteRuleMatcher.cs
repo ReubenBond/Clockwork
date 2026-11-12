@@ -13,27 +13,21 @@ internal sealed class RewriteRuleMatcher
     private readonly Dictionary<string, List<RewriteRule>> _memberRules = new(StringComparer.Ordinal);
     private readonly Dictionary<string, RewriteRule> _typeSubstitutions = new(StringComparer.Ordinal);
 
-    /// <summary>Indexes the rules of <paramref name="ruleSet"/> that support <paramref name="targetRuntime"/>.</summary>
+    /// <summary>Indexes the rules that support the evaluated target runtime.</summary>
     /// <exception cref="InvalidOperationException">
-    /// The rule set does not support the target (see <see cref="RuleSetRuntimeSupport"/>): a rule it skips would leave
-    /// call sites it targets unrewritten. Callers report the rule set's support before rewriting.
+    /// The rule set does not support the target: a rule it skips would leave sites it targets unrewritten. Callers
+    /// report the rule set's support before rewriting.
     /// </exception>
-    public RewriteRuleMatcher(RewriteRuleSet ruleSet, Version targetRuntime)
+    public RewriteRuleMatcher(RuleSetRuntimeSupport support)
     {
-        RuleSetRuntimeSupport support = RuleSetRuntimeSupport.Evaluate(ruleSet, targetRuntime);
         if (!support.IsSupported)
         {
             throw new InvalidOperationException(
-                $"Rule set '{ruleSet.Id}' does not support target runtime {targetRuntime}; its support is checked before rewriting.");
+                $"Rule set '{support.RuleSet.Id}' does not support target runtime {support.TargetRuntime}; its support is checked before rewriting.");
         }
 
-        foreach (RewriteRule rule in ruleSet.Rules)
+        foreach (RewriteRule rule in support.SupportedRules)
         {
-            if (!rule.SupportedRuntimes.Includes(targetRuntime))
-            {
-                continue;
-            }
-
             if (rule.Operation == RewriteOperationKind.SubstituteType)
             {
                 // First rule for a given type wins (rule sets forbid duplicate ids, but two rules
@@ -95,7 +89,7 @@ internal sealed class RewriteRuleMatcher
 
         foreach (RewriteRule rule in rules)
         {
-            if (!AppliesTo(rule.Operation, isNewObj))
+            if (!AppliesTo(rule, isNewObj))
             {
                 continue;
             }
@@ -170,13 +164,8 @@ internal sealed class RewriteRuleMatcher
         }
     }
 
-    private static bool AppliesTo(RewriteOperationKind operation, bool isNewObj) => operation switch
-    {
-        RewriteOperationKind.RedirectNewObj => isNewObj,
-        RewriteOperationKind.RedirectCall or RewriteOperationKind.WrapAfterCall => !isNewObj,
-        RewriteOperationKind.InjectRejection => true,
-        _ => false,
-    };
+    private static bool AppliesTo(RewriteRule rule, bool isNewObj) =>
+        (rule.Sites & (isNewObj ? RewriteSites.NewObj : RewriteSites.Call)) != RewriteSites.None;
 
     private static bool MatchesParameters(MemberSignature target, MethodReference method)
     {

@@ -40,14 +40,7 @@ public readonly record struct RuntimeVersionRange(Version? Minimum, Version? Max
         && (Maximum is null || RuntimeFeatureVersion.IsFeatureVersion(Maximum));
 
     /// <summary>Returns the range for people, such as <c>11.0</c>, <c>11.0 to 12.0</c>, or <c>11.0 or later</c>.</summary>
-    public string ToDisplayString() => (Minimum, Maximum) switch
-    {
-        ({ } low, { } high) when low == high => low.ToString(),
-        ({ } low, { } high) => $"{low} to {high}",
-        ({ } low, null) => $"{low} or later",
-        (null, { } high) => $"{high} or earlier",
-        _ => "any runtime",
-    };
+    public string ToDisplayString() => Runtime.SupportedRuntimesMarker.DescribeRange(Minimum, Maximum);
 
     /// <summary>Returns a stable canonical string for signature hashing.</summary>
     public string ToCanonicalString()

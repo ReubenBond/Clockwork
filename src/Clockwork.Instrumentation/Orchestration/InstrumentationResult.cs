@@ -19,6 +19,9 @@ public sealed record InstrumentationResult
     /// <summary>Gets the feature version of the target runtime the rules were evaluated against.</summary>
     public required Version TargetRuntime { get; init; }
 
+    /// <summary>Gets where <see cref="TargetRuntime"/> came from, such as <c>from 'App.runtimeconfig.json'</c>.</summary>
+    public required string TargetRuntimeOrigin { get; init; }
+
     /// <summary>Gets the staging directory the instrumented closure was written to.</summary>
     public required string StagingDirectory { get; init; }
 

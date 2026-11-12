@@ -196,8 +196,41 @@ public sealed class CliCommandTests : IDisposable
             $"Target runtime: {Environment.Version.Major}.{Environment.Version.Minor} (from 'app.runtimeconfig.json')",
             derived);
         Assert.Equal(ExitCode.InstrumentationError, otherCode);
-        Assert.Contains("Target runtime: 12.0 (configured)", other);
+        Assert.Contains("Target runtime: 12.0 (--target-runtime)", other);
         Assert.Single(other.Split('\n'), line => line.Contains(RewriteDiagnosticIds.RuntimeOutOfRange, StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(null, "12.0", "Target runtime: 12.0 (--target-runtime)")]
+    [InlineData("12.0", null, "Target runtime: 12.0 ('targetRuntime' in configuration")]
+    [InlineData("12.0", "12.0", "Target runtime: 12.0 ('targetRuntime' in configuration")]
+    public void TargetRuntimeOptionCombinesWithTheConfigurationFile(string? file, string? option, string expected)
+    {
+        BuildMinimalClosure();
+        string config = WriteConfiguration(file);
+        List<string> args = ["instrument", "--source", _source, "--config", config, "--builtin", "all", "--dry-run"];
+        if (option is not null)
+        {
+            args.AddRange(["--target-runtime", option]);
+        }
+
+        (ExitCode code, string output, string error) = Invoke([.. args]);
+
+        Assert.True(code == ExitCode.InstrumentationError, error);
+        Assert.Contains(expected, output);
+    }
+
+    [Fact]
+    public void TargetRuntimeOptionThatConflictsWithTheConfigurationFileFails()
+    {
+        BuildMinimalClosure();
+        string config = WriteConfiguration("11.0");
+
+        (ExitCode code, _, string error) = Invoke(
+            "instrument", "--source", _source, "--config", config, "--builtin", "all", "--target-runtime", "12.0", "--dry-run");
+
+        Assert.Equal(ExitCode.ConfigurationError, code);
+        Assert.Contains("--target-runtime names target runtime 12.0", error);
     }
 
     [Fact]
@@ -379,6 +412,17 @@ public sealed class CliCommandTests : IDisposable
         var errors = new StringWriter();
         ExitCode code = Program.Run(args, output, errors);
         return (code, output.ToString(), errors.ToString());
+    }
+
+    private string WriteConfiguration(string? targetRuntime)
+    {
+        string path = Path.Combine(_root, "clockwork.config.json");
+        File.WriteAllText(
+            path,
+            targetRuntime is null
+                ? """{ "schemaVersion": 2 }"""
+                : $$"""{ "schemaVersion": 2, "targetRuntime": "{{targetRuntime}}" }""");
+        return path;
     }
 
     private void BuildMinimalClosure()

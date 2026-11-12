@@ -113,6 +113,7 @@ public static class InstrumentationConfigurationLoader
                 IncludePatterns = include,
                 ExcludePatterns = exclude,
                 TargetRuntime = targetRuntime,
+                TargetRuntimeOrigin = targetRuntime is null ? null : $"'targetRuntime' in {origin}",
             };
         }
     }

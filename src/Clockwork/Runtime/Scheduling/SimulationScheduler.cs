@@ -109,6 +109,9 @@ public sealed class SimulationScheduler : IDisposable
     /// </summary>
     /// <param name="runtime">The simulation runtime identity every operation runs under.</param>
     /// <param name="listener">An optional lifecycle listener for diagnostics.</param>
+    /// <exception cref="UnsupportedRuntimeException">
+    /// A loaded assembly rewritten by Clockwork does not support the runtime this process runs.
+    /// </exception>
     public SimulationScheduler(
         SimulationRuntimeIdentity runtime,
         ISimulationOperationListener? listener = null)
@@ -1021,6 +1024,10 @@ public sealed class SimulationScheduler : IDisposable
             FinalizeTerminal(operation);
         }
 
+        // Rewritten code can load after the simulation starts (behind a delegate, say), so every step that ran checks
+        // any assembly loaded since the last check. Checking only after a step keeps a caller that retries failed steps
+        // making progress, and checking before a recorded failure is taken loses none.
+        SupportedRuntimesMarker.VerifyLoadedAssemblies();
         lock (_gate)
         {
             failure = TakeFailureUnderLock();

@@ -52,6 +52,24 @@ public sealed class InstrumentationConfigurationTests
     }
 
     [Fact]
+    public void ExplicitTargetRuntimeMustAgreeWithTheConfigurationFile()
+    {
+        InstrumentationConfiguration file = InstrumentationConfigurationLoader.Parse(
+            """{ "schemaVersion": 2, "targetRuntime": "11.0" }""");
+
+        InstrumentationConfiguration unset = new InstrumentationConfiguration()
+            .WithTargetRuntime(new Version(12, 0), "--target-runtime");
+        ConfigurationException conflict = Assert.Throws<ConfigurationException>(
+            () => file.WithTargetRuntime(new Version(12, 0), "ClockworkTargetRuntime"));
+
+        Assert.Same(file, file.WithTargetRuntime(null, "ClockworkTargetRuntime"));
+        Assert.Same(file, file.WithTargetRuntime(new Version(11, 0), "ClockworkTargetRuntime"));
+        Assert.Equal((new Version(12, 0), "--target-runtime"), (unset.TargetRuntime, unset.TargetRuntimeOrigin));
+        Assert.Contains("ClockworkTargetRuntime names target runtime 12.0", conflict.Message, StringComparison.Ordinal);
+        Assert.Contains("'targetRuntime' in configuration names 11.0", conflict.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ParsesBuiltInSelectionFields()
     {
         const string doc = """

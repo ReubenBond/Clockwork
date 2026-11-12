@@ -39,12 +39,9 @@ internal static class ConfigurationFactory
                     InstrumentationMode.Controlled),
             };
 
-        // As in the MSBuild task, a configuration file's targetRuntime wins over '--target-runtime'; without either, the
-        // runner derives the target from the closure's runtimeconfig.json.
-        configuration = configuration with
-        {
-            TargetRuntime = configuration.TargetRuntime ?? ParseTargetRuntime(reader.GetString("target-runtime")),
-        };
+        // As in the MSBuild task, '--target-runtime' must agree with a configuration file's targetRuntime; without either,
+        // the runner derives the target from the closure's runtimeconfig.json.
+        configuration = configuration.WithTargetRuntime(ParseTargetRuntime(reader.GetString("target-runtime")), "--target-runtime");
 
         IReadOnlyList<string> extraRuleSets = reader.GetMany("rule-set");
         if (extraRuleSets.Count > 0)

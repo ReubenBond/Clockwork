@@ -44,6 +44,9 @@ public sealed partial class SimulationCluster : IAsyncDisposable
     /// method (<c>RunUntil</c>, <c>RunUntilIdle</c>, <c>RunFor</c>, <c>RunToCompletion</c>) cancels
     /// <see cref="TeardownCancellationToken"/>.
     /// </param>
+    /// <exception cref="Clockwork.Runtime.UnsupportedRuntimeException">
+    /// A loaded assembly rewritten by Clockwork does not support the runtime this process runs.
+    /// </exception>
     public SimulationCluster(
         int seed,
         DateTimeOffset? startDateTime = null,

@@ -30,9 +30,13 @@ public sealed class TargetRuntimeDiscoveryTests : IDisposable
     [InlineData(
         """{ "runtimeOptions": { "includedFrameworks": [ { "name": "Microsoft.NETCore.App", "version": "11.0.0-rc.2.26504.105" } ] } }""",
         "11.0")]
+    [InlineData("""{ "runtimeOptions": { "framework": { "name": "Microsoft.NETCore.App", "version": "10.0.4" } } }""", "10.0")]
+    [InlineData("""{ "runtimeOptions": { "framework": { "name": "Microsoft.NETCore.App", "version": "12.0.0-preview.3" } } }""", "12.0")]
+    [InlineData("""{ "runtimeOptions": { "framework": { "name": "Microsoft.NETCore.App", "version": "12.1.0+abc123" } } }""", "12.1")]
     public void DerivesTheRuntimeTheEntryRunsOn(string runtimeConfig, string expected)
     {
-        File.WriteAllText(Path.Combine(_root, "App.runtimeconfig.json"), runtimeConfig);
+        // The host accepts a UTF-8 byte order mark.
+        File.WriteAllText(Path.Combine(_root, "App.runtimeconfig.json"), runtimeConfig, new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
 
         (Version targetRuntime, string origin) = TargetRuntimeDiscovery.Resolve(new InstrumentationConfiguration(), Plan("App.dll"));
 
@@ -43,12 +47,16 @@ public sealed class TargetRuntimeDiscoveryTests : IDisposable
     [Fact]
     public void ConfiguredTargetRuntimeWins()
     {
+        File.WriteAllText(
+            Path.Combine(_root, "App.runtimeconfig.json"),
+            """{ "runtimeOptions": { "framework": { "name": "Microsoft.NETCore.App", "version": "11.0.0" } } }""");
+
         (Version targetRuntime, string origin) = TargetRuntimeDiscovery.Resolve(
-            new InstrumentationConfiguration { TargetRuntime = new Version(12, 0) },
-            Plan(entry: null));
+            new InstrumentationConfiguration().WithTargetRuntime(new Version(12, 0), "ClockworkTargetRuntime"),
+            Plan("App.dll"));
 
         Assert.Equal(new Version(12, 0), targetRuntime);
-        Assert.Equal("configured", origin);
+        Assert.Equal("ClockworkTargetRuntime", origin);
     }
 
     [Theory]

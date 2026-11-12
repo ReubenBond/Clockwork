@@ -256,9 +256,15 @@ internal sealed class AssemblyRewriteContext : IDisposable
     /// <see cref="Runtime.SupportedRuntimesMarker"/>).
     /// </summary>
     public void ApplySupportedRuntimes(RuntimeVersionRange supportedRuntimes) =>
-        ApplyAssemblyMetadata(
-            Runtime.SupportedRuntimesMarker.Key,
-            Runtime.SupportedRuntimesMarker.Format(supportedRuntimes.Minimum, supportedRuntimes.Maximum));
+        ApplyAssemblyMetadata(Runtime.SupportedRuntimesMarker.Key, FormatSupportedRuntimes(supportedRuntimes));
+
+    /// <summary>Reads the runtimes a previous rewrite recorded, or <see langword="null"/> if it recorded none.</summary>
+    public string? ReadSupportedRuntimes() =>
+        FindAssemblyMetadata(Runtime.SupportedRuntimesMarker.Key)?.ConstructorArguments[1].Value as string;
+
+    /// <summary>Formats the value <see cref="ApplySupportedRuntimes"/> records.</summary>
+    public static string FormatSupportedRuntimes(RuntimeVersionRange supportedRuntimes) =>
+        Runtime.SupportedRuntimesMarker.Format(supportedRuntimes.Minimum, supportedRuntimes.Maximum);
 
     private void ApplyAssemblyMetadata(string key, string value)
     {
