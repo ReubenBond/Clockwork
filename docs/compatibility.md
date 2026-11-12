@@ -67,8 +67,8 @@ Two kinds of call legitimately run off an operation thread. A `TaskCompletionSou
 no ambient context (from a finalizer, say) passes through to the BCL. Host code which runs simulation
 callbacks inline while no step is in progress - cancelling a token which the system under test
 registered callbacks on, between drives - runs them on the logical thread inside `EnterControlScope()`.
-The cluster cancels `TeardownCancellationToken` that way, at disposal or from the drive step after the
-token passed to its constructor is cancelled, wherever that token is cancelled. Pass the system under
+The cluster cancels `TeardownCancellationToken` that way, at disposal or, once the token passed to its
+constructor is cancelled wherever that happens, from the next step of a cluster drive method. Pass the system under
 test a token which the scenario owns and cancels from simulation work, rather than a token another
 thread cancels, such as a test framework's timeout token.
 

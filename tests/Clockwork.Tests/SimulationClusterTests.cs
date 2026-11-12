@@ -209,6 +209,26 @@ public sealed class SimulationClusterTests
     }
 
     [Fact]
+    public async Task TeardownCallbackFailureFromCallerCancellationPropagatesFromTheDrive()
+    {
+        using var caller = new CancellationTokenSource();
+        var cluster = new SimulationCluster(seed: 42, DateTimeOffset.UnixEpoch, cancellationToken: caller.Token);
+        cluster.RunToCompletion(
+            () =>
+            {
+                _ = cluster.TeardownCancellationToken.Register(() => throw new InvalidOperationException("teardown failed"));
+                return Task.CompletedTask;
+            },
+            TestContext.Current.CancellationToken);
+
+        await caller.CancelAsync();
+
+        var failure = Assert.Throws<AggregateException>(() => cluster.RunUntilIdle(TestContext.Current.CancellationToken));
+        Assert.Equal("teardown failed", Assert.Single(failure.InnerExceptions).Message);
+        await cluster.DisposeAsync();
+    }
+
+    [Fact]
     public async Task DisposalSurfacesAThreadAffinityViolationNoStepRethrew()
     {
         var cluster = new SimulationCluster(seed: 42, DateTimeOffset.UnixEpoch);

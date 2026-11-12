@@ -64,6 +64,10 @@ public sealed class SimulationScheduler : IDisposable
         operation.Scheduler.RunBodyScoped(operation);
     };
 
+    // Marks a scheduler's thread-affinity violation as surfaced, so later violations stay unrecorded.
+    private static readonly ExceptionDispatchInfo s_surfacedThreadAffinityViolation =
+        ExceptionDispatchInfo.Capture(new InvalidOperationException("A thread-affinity violation was surfaced."));
+
     private readonly object _gate = new();
     private readonly object _transitionPublicationGate = new();
     private readonly List<SimulationOperation> _operations = [];
@@ -94,7 +98,6 @@ public sealed class SimulationScheduler : IDisposable
     private SimulationOperation? _current;
     private int _controlThreadId;
     private bool _controlThreadBusy;
-    private int _threadAffinityViolationReported;
     private ExceptionDispatchInfo? _threadAffinityViolation;
     private bool _disposed;
     private SimulationOperation? _pendingTerminalNotification;
@@ -1042,7 +1045,8 @@ public sealed class SimulationScheduler : IDisposable
     /// <param name="apiName">The controlled API which was called.</param>
     internal void ReportThreadAffinityViolation(string apiName)
     {
-        if (Interlocked.Exchange(ref _threadAffinityViolationReported, 1) != 0)
+        // Once a violation is recorded or surfaced, later ones skip building an exception.
+        if (Volatile.Read(ref _threadAffinityViolation) is not null)
         {
             return;
         }
@@ -1051,12 +1055,25 @@ public sealed class SimulationScheduler : IDisposable
         // not be thrown on two threads at once.
         var violation = new SimulationThreadAffinityException(apiName, _runtime);
         ExceptionDispatchInfo.SetCurrentStackTrace(violation);
-        Volatile.Write(ref _threadAffinityViolation, ExceptionDispatchInfo.Capture(violation));
+        Interlocked.CompareExchange(ref _threadAffinityViolation, ExceptionDispatchInfo.Capture(violation), null);
     }
 
     /// <summary>Takes the recorded thread-affinity violation, if it has not been surfaced yet.</summary>
-    internal ExceptionDispatchInfo? TakeThreadAffinityViolation() =>
-        Interlocked.Exchange(ref _threadAffinityViolation, null);
+    internal ExceptionDispatchInfo? TakeThreadAffinityViolation()
+    {
+        ExceptionDispatchInfo? violation = Volatile.Read(ref _threadAffinityViolation);
+        if (violation is null || ReferenceEquals(violation, s_surfacedThreadAffinityViolation))
+        {
+            return null;
+        }
+
+        // The slot holds at most one violation, so one taker wins it; the sentinel keeps later violations unrecorded.
+        ExceptionDispatchInfo? taken = Interlocked.CompareExchange(
+            ref _threadAffinityViolation,
+            s_surfacedThreadAffinityViolation,
+            violation);
+        return ReferenceEquals(taken, violation) ? violation : null;
+    }
 
     private ExceptionDispatchInfo? TakeFailureUnderLock() =>
         TakeThreadAffinityViolation()
