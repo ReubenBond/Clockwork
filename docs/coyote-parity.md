@@ -90,6 +90,7 @@ the OS-specific surface Coyote simply leaves as an uncontrolled real call.
 | *(not modelled by Coyote)* | `Thread.Interrupt()` | ⛔ Rejected (tested) | `clockwork.thread.interrupt` — OS thread interruption cannot be modelled |
 | *(not modelled by Coyote)* | `Thread.SetApartmentState(ApartmentState)` | ⛔ Rejected (tested) | `clockwork.thread.setapartmentstate` — COM apartments are an OS concept |
 | *(not modelled by Coyote)* | `Thread.TrySetApartmentState(ApartmentState)` | ⛔ Rejected (tested) | `clockwork.thread.trysetapartmentstate` |
+| *(not modelled by Coyote)* | `Thread.set_ApartmentState(ApartmentState)` (obsolete property) | ⛔ Rejected (tested) | `clockwork.thread.set_apartmentstate` — sets the apartment state as `SetApartmentState` does |
 
 **Deviation:** `Join`/`Sleep` are *virtual* waits (yield through the deterministic loop, no real
 time) — identical in spirit to Coyote's `DelayCurrentOperation`/`PauseUntilThreadCompletes`.
@@ -192,9 +193,9 @@ Coyote wraps the full `Invoke`/`For`/`ForEach` matrix including thread-local (`T
 | `For(long, long, Action<long>)` (± `ParallelOptions`) | ✅ Controlled | `clockwork.parallel.for.int64[.options]` |
 | `ForEach<T>(IEnumerable<T>, Action<T>)` (± `ParallelOptions`) | ✅ Controlled | `clockwork.parallel.foreach[.options]` |
 | `For(…, Action<int/long, ParallelLoopState>)` (break/stop) | ⛔ Rejected (tested) | `clockwork.parallel.for.int32/int64.loopstate[.options]` — `ParallelLoopState` has no public constructor and break/stop cannot be modelled deterministically yet |
-| `ForEach(…, Action<T, ParallelLoopState>)` / `Action<T, ParallelLoopState, long>` | ⛔ Rejected (tested) | `clockwork.parallel.foreach.loopstate[.index]` |
-| `For<TLocal>(…)` / `ForEach<TSource,TLocal>(…)` (thread-local accumulation) | ⛔ Rejected (tested) | rejected via the loop-state guard family — thread-local aggregation depends on the physical partition count |
-| `ForEach<T>(Partitioner<T> \| OrderablePartitioner<T>, …)` | ⛔ Rejected (tested) | rejected — a `Partitioner` exposes no controllable enumeration for the coordinator |
+| `ForEach(…, Action<T, ParallelLoopState>)` / `Action<T, ParallelLoopState, long>` (± `ParallelOptions`) | ⛔ Rejected (tested) | `clockwork.parallel.foreach.loopstate[.index][.options]` |
+| `For<TLocal>(…)` / `ForEach<TSource,TLocal>(…)` (thread-local accumulation) | ⛔ Rejected (tested) | `clockwork.parallel.for.int32/int64.local[.options]`, `clockwork.parallel.foreach.local[.index][.options]` — thread-local aggregation depends on the physical partition count |
+| `ForEach<T>(Partitioner<T> \| OrderablePartitioner<T>, …)` | ⛔ Rejected (tested) | `clockwork.parallel.foreach.partitioner…`, `clockwork.parallel.foreach.orderablepartitioner…` — a `Partitioner` exposes no controllable enumeration for the coordinator |
 
 **Deviation:** results, cancellation (`ParallelOptions.CancellationToken`), and fault aggregation
 (`AggregateException`) are preserved for the controlled overloads; execution is cooperative

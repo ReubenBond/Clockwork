@@ -263,6 +263,19 @@ public static class BuiltInRuleSets
     private const string ActionOfInt64LoopState = "System.Action`2<System.Int64,System.Threading.Tasks.ParallelLoopState>";
     private const string ActionOfTSourceLoopStateVar = "System.Action`2<!!0,System.Threading.Tasks.ParallelLoopState>";
     private const string ActionOfTSourceLoopStateInt64Var = "System.Action`3<!!0,System.Threading.Tasks.ParallelLoopState,System.Int64>";
+    private const string PartitionerOfTSourceVar = "System.Collections.Concurrent.Partitioner`1<!!0>";
+    private const string OrderablePartitionerOfTSourceVar = "System.Collections.Concurrent.OrderablePartitioner`1<!!0>";
+
+    // The thread-local (TLocal) overloads: For<TLocal> declares TLocal as its only method generic parameter (`!!0`), while
+    // ForEach<TSource, TLocal> declares it second (`!!1`).
+    private const string ForLocalInit = "System.Func`1<!!0>";
+    private const string ForInt32LocalBody = "System.Func`4<System.Int32,System.Threading.Tasks.ParallelLoopState,!!0,!!0>";
+    private const string ForInt64LocalBody = "System.Func`4<System.Int64,System.Threading.Tasks.ParallelLoopState,!!0,!!0>";
+    private const string ForLocalFinally = "System.Action`1<!!0>";
+    private const string ForEachLocalInit = "System.Func`1<!!1>";
+    private const string ForEachLocalBody = "System.Func`4<!!0,System.Threading.Tasks.ParallelLoopState,!!1,!!1>";
+    private const string ForEachIndexedLocalBody = "System.Func`5<!!0,System.Threading.Tasks.ParallelLoopState,System.Int64,!!1,!!1>";
+    private const string ForEachLocalFinally = "System.Action`1<!!1>";
 
     // Cecil full names for the uncontrolled-invocation surface: process control and
     // abrupt host termination. These cannot be modelled by the deterministic scheduler, so every rewritten
@@ -280,6 +293,9 @@ public static class BuiltInRuleSets
     private const string ProcessExitStatusRef = "System.Diagnostics.ProcessExitStatus&";
     private const string PosixSignalType = "System.Runtime.InteropServices.PosixSignal";
     private const string SafeProcessHandleType = "Microsoft.Win32.SafeHandles.SafeProcessHandle";
+    private const string ProcessThreadType = "System.Diagnostics.ProcessThread";
+    private const string ProcessPriorityClassType = "System.Diagnostics.ProcessPriorityClass";
+    private const string ThreadPriorityLevelType = "System.Diagnostics.ThreadPriorityLevel";
     private const string WindowsProcessStartArgumentsType = "System.Runtime.InteropServices.WindowsProcessStartArguments";
     private const string UnixProcessStartArgumentsType = "System.Runtime.InteropServices.UnixProcessStartArguments";
     private const string WindowsProcessStarter = "System.Func`2<System.Runtime.InteropServices.WindowsProcessStartArguments,System.IntPtr>";
@@ -980,6 +996,10 @@ public static class BuiltInRuleSets
             MemberSignature.Method(ThreadType, "Interrupt"), Shim(ThreadShim, "Interrupt", ThreadType));
         RejectedRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.setapartmentstate",
             MemberSignature.Method(ThreadType, "SetApartmentState", ApartmentState), Shim(ThreadShim, "SetApartmentState", ThreadType, ApartmentState));
+
+        // The obsolete ApartmentState property setter sets the apartment state as SetApartmentState does.
+        RejectedRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.set_apartmentstate",
+            MemberSignature.Method(ThreadType, "set_ApartmentState", ApartmentState), Shim(ThreadShim, "SetApartmentState", ThreadType, ApartmentState));
         RejectedRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.trysetapartmentstate",
             MemberSignature.Method(ThreadType, "TrySetApartmentState", ApartmentState), Shim(ThreadShim, "TrySetApartmentState", ThreadType, ApartmentState));
 
@@ -1077,8 +1097,8 @@ public static class BuiltInRuleSets
         // controlled operations on the coordinator (each branch queued, then the loop drained until all
         // complete). Parallel is static, so the shim signatures match the target exactly. The generic
         // ForEach<TSource> overloads are GenericInstanceMethods (`!!0` target, `TSource` replacement). The
-        // break/stop (ParallelLoopState) overloads are rejected at the call site; the TLocal and Partitioner
-        // overloads are caught by the uncontrolled-invocation pass. ----
+        // break/stop (ParallelLoopState), thread-local (TLocal), and Partitioner overloads are rejected at the call
+        // site. ----
         TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.invoke",
             MemberSignature.Method(ParallelType, "Invoke", ActionArray), Shim(ParallelShim, "Invoke", ActionArray));
         TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.invoke.options",
@@ -1104,9 +1124,29 @@ public static class BuiltInRuleSets
         ParallelRejection(builder, "clockwork.parallel.for.int64.loopstate.options", "For", Int64, Int64, ParallelOptionsType, ActionOfInt64LoopState);
         ParallelRejection(builder, "clockwork.parallel.foreach.loopstate", "ForEach", IEnumerableOfTSourceVar, ActionOfTSourceLoopStateVar);
         ParallelRejection(builder, "clockwork.parallel.foreach.loopstate.index", "ForEach", IEnumerableOfTSourceVar, ActionOfTSourceLoopStateInt64Var);
+        ParallelRejection(builder, "clockwork.parallel.foreach.loopstate.options", "ForEach", IEnumerableOfTSourceVar, ParallelOptionsType, ActionOfTSourceLoopStateVar);
+        ParallelRejection(builder, "clockwork.parallel.foreach.loopstate.index.options", "ForEach", IEnumerableOfTSourceVar, ParallelOptionsType, ActionOfTSourceLoopStateInt64Var);
+        ParallelRejection(builder, "clockwork.parallel.foreach.partitioner", "ForEach", PartitionerOfTSourceVar, ActionOfTSourceVar);
+        ParallelRejection(builder, "clockwork.parallel.foreach.partitioner.options", "ForEach", PartitionerOfTSourceVar, ParallelOptionsType, ActionOfTSourceVar);
+        ParallelRejection(builder, "clockwork.parallel.foreach.partitioner.loopstate", "ForEach", PartitionerOfTSourceVar, ActionOfTSourceLoopStateVar);
+        ParallelRejection(builder, "clockwork.parallel.foreach.partitioner.loopstate.options", "ForEach", PartitionerOfTSourceVar, ParallelOptionsType, ActionOfTSourceLoopStateVar);
+        ParallelRejection(builder, "clockwork.parallel.foreach.orderablepartitioner.loopstate.index", "ForEach", OrderablePartitionerOfTSourceVar, ActionOfTSourceLoopStateInt64Var);
+        ParallelRejection(builder, "clockwork.parallel.foreach.orderablepartitioner.loopstate.index.options", "ForEach", OrderablePartitionerOfTSourceVar, ParallelOptionsType, ActionOfTSourceLoopStateInt64Var);
+        ParallelRejection(builder, "clockwork.parallel.for.int32.local", "For", Int32, Int32, ForLocalInit, ForInt32LocalBody, ForLocalFinally);
+        ParallelRejection(builder, "clockwork.parallel.for.int32.local.options", "For", Int32, Int32, ParallelOptionsType, ForLocalInit, ForInt32LocalBody, ForLocalFinally);
+        ParallelRejection(builder, "clockwork.parallel.for.int64.local", "For", Int64, Int64, ForLocalInit, ForInt64LocalBody, ForLocalFinally);
+        ParallelRejection(builder, "clockwork.parallel.for.int64.local.options", "For", Int64, Int64, ParallelOptionsType, ForLocalInit, ForInt64LocalBody, ForLocalFinally);
+        ParallelRejection(builder, "clockwork.parallel.foreach.local", "ForEach", IEnumerableOfTSourceVar, ForEachLocalInit, ForEachLocalBody, ForEachLocalFinally);
+        ParallelRejection(builder, "clockwork.parallel.foreach.local.options", "ForEach", IEnumerableOfTSourceVar, ParallelOptionsType, ForEachLocalInit, ForEachLocalBody, ForEachLocalFinally);
+        ParallelRejection(builder, "clockwork.parallel.foreach.local.index", "ForEach", IEnumerableOfTSourceVar, ForEachLocalInit, ForEachIndexedLocalBody, ForEachLocalFinally);
+        ParallelRejection(builder, "clockwork.parallel.foreach.local.index.options", "ForEach", IEnumerableOfTSourceVar, ParallelOptionsType, ForEachLocalInit, ForEachIndexedLocalBody, ForEachLocalFinally);
+        ParallelRejection(builder, "clockwork.parallel.foreach.partitioner.local", "ForEach", PartitionerOfTSourceVar, ForEachLocalInit, ForEachLocalBody, ForEachLocalFinally);
+        ParallelRejection(builder, "clockwork.parallel.foreach.partitioner.local.options", "ForEach", PartitionerOfTSourceVar, ParallelOptionsType, ForEachLocalInit, ForEachLocalBody, ForEachLocalFinally);
+        ParallelRejection(builder, "clockwork.parallel.foreach.orderablepartitioner.local.index", "ForEach", OrderablePartitionerOfTSourceVar, ForEachLocalInit, ForEachIndexedLocalBody, ForEachLocalFinally);
+        ParallelRejection(builder, "clockwork.parallel.foreach.orderablepartitioner.local.index.options", "ForEach", OrderablePartitionerOfTSourceVar, ParallelOptionsType, ForEachLocalInit, ForEachIndexedLocalBody, ForEachLocalFinally);
 
         // ---- Uncontrolled invocation: process control and abrupt host termination. A
-        // rewritten assembly must never launch, kill, block on, or terminate a real OS process out from
+        // rewritten assembly must never launch, kill, signal, wait on, reschedule, or terminate a real OS process out from
         // under the simulation, so each of these call sites is rejected with a precise diagnostic naming
         // the exact API and IL offset (recorded in the manifest as a Rejected transformation). ----
         UncontrolledRejection(builder, "clockwork.process.start.filename", ProcessType, "Start", String);
@@ -1144,6 +1184,28 @@ public static class BuiltInRuleSets
         UncontrolledRejection(builder, "clockwork.process.readalltextasync", ProcessType, "ReadAllTextAsync", CancellationTokenType);
         UncontrolledRejection(builder, "clockwork.process.readalllines", ProcessType, "ReadAllLines", NullableTimeSpanType);
         UncontrolledRejection(builder, "clockwork.process.readalllinesasync", ProcessType, "ReadAllLinesAsync", CancellationTokenType);
+
+        // Waiting for a process to go idle or close its main window waits on and signals a real process; the event-based
+        // exit and output notifications raise their events on threads of the BCL's choosing as the process exits or writes.
+        UncontrolledRejection(builder, "clockwork.process.waitforinputidle", ProcessType, "WaitForInputIdle");
+        UncontrolledRejection(builder, "clockwork.process.waitforinputidle.milliseconds", ProcessType, "WaitForInputIdle", Int32);
+        UncontrolledRejection(builder, "clockwork.process.waitforinputidle.timespan", ProcessType, "WaitForInputIdle", TimeSpanType);
+        UncontrolledRejection(builder, "clockwork.process.closemainwindow", ProcessType, "CloseMainWindow");
+        UncontrolledRejection(builder, "clockwork.process.set_enableraisingevents", ProcessType, "set_EnableRaisingEvents", Boolean);
+        UncontrolledRejection(builder, "clockwork.process.beginoutputreadline", ProcessType, "BeginOutputReadLine");
+        UncontrolledRejection(builder, "clockwork.process.beginerrorreadline", ProcessType, "BeginErrorReadLine");
+
+        // The scheduling, affinity, and working-set setters of a process and of its OS threads control a real process.
+        UncontrolledRejection(builder, "clockwork.process.set_priorityclass", ProcessType, "set_PriorityClass", ProcessPriorityClassType);
+        UncontrolledRejection(builder, "clockwork.process.set_priorityboostenabled", ProcessType, "set_PriorityBoostEnabled", Boolean);
+        UncontrolledRejection(builder, "clockwork.process.set_processoraffinity", ProcessType, "set_ProcessorAffinity", IntPtrType);
+        UncontrolledRejection(builder, "clockwork.process.set_maxworkingset", ProcessType, "set_MaxWorkingSet", IntPtrType);
+        UncontrolledRejection(builder, "clockwork.process.set_minworkingset", ProcessType, "set_MinWorkingSet", IntPtrType);
+        UncontrolledRejection(builder, "clockwork.processthread.set_idealprocessor", ProcessThreadType, "set_IdealProcessor", Int32);
+        UncontrolledRejection(builder, "clockwork.processthread.resetidealprocessor", ProcessThreadType, "ResetIdealProcessor");
+        UncontrolledRejection(builder, "clockwork.processthread.set_priorityboostenabled", ProcessThreadType, "set_PriorityBoostEnabled", Boolean);
+        UncontrolledRejection(builder, "clockwork.processthread.set_prioritylevel", ProcessThreadType, "set_PriorityLevel", ThreadPriorityLevelType);
+        UncontrolledRejection(builder, "clockwork.processthread.set_processoraffinity", ProcessThreadType, "set_ProcessorAffinity", IntPtrType);
 
         // A process handle starts, signals, resumes, kills, and waits on a process as Process does.
         UncontrolledRejection(builder, "clockwork.safeprocesshandle.start", SafeProcessHandleType, "Start", ProcessStartInfoType);

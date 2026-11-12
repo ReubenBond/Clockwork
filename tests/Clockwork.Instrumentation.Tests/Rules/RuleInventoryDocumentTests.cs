@@ -2,30 +2,35 @@ using System.Reflection;
 using System.Text.RegularExpressions;
 using Clockwork.Instrumentation.Rules;
 using Clockwork.Instrumentation.Rules.BuiltIn;
+using Clockwork.Instrumentation.Tests.Infrastructure;
 
 namespace Clockwork.Instrumentation.Tests.Rules;
 
 /// <summary>
-/// Guards the generated rule inventory and records the repository path and command used by the separate
-/// documentation-refresh task.
+/// Verifies the committed rule inventory matches <see cref="RuleInventoryDocument.Render"/> and guards the per-family
+/// surfaces it describes.
 /// </summary>
 public sealed class RuleInventoryDocumentTests
 {
     [Fact]
-    public void GeneratedInventoryExposesRefreshCommandAndPath()
+    public void CommittedInventoryMatchesGeneratedContent()
     {
-        string rendered = RuleInventoryDocument.Render();
-        string path = InventoryPath();
+        string expected = RuleInventoryDocument.Render();
+        string path = Repository.PathOf("docs", "rule-inventory.md");
 
         if (Environment.GetEnvironmentVariable("CLOCKWORK_UPDATE_DOCS") == "1")
         {
-            File.WriteAllText(path, rendered);
+            File.WriteAllText(path, expected);
         }
 
-        Assert.NotEmpty(rendered);
-        Assert.True(
-            File.Exists(path),
-            $"Refresh '{path}' with `$env:CLOCKWORK_UPDATE_DOCS='1'; dotnet test tests\\Clockwork.Instrumentation.Tests\\Clockwork.Instrumentation.Tests.csproj --filter-class Clockwork.Instrumentation.Tests.Rules.RuleInventoryDocumentTests`.");
+        string refresh =
+            $"Refresh '{path}' with `$env:CLOCKWORK_UPDATE_DOCS='1'; dotnet run --project tests/Clockwork.Instrumentation.Tests/Clockwork.Instrumentation.Tests.csproj -- --filter-class {typeof(RuleInventoryDocumentTests).FullName}`.";
+        Assert.True(File.Exists(path), refresh);
+        string[] expectedLines = expected.Split('\n');
+        string[] actualLines = File.ReadAllText(path).Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        int line = Enumerable.Range(0, Math.Max(expectedLines.Length, actualLines.Length))
+            .FirstOrDefault(index => index >= expectedLines.Length || index >= actualLines.Length || expectedLines[index] != actualLines[index], -1);
+        Assert.True(line < 0, $"'{path}' differs from the rendered inventory at line {line + 1}. {refresh}");
     }
 
     [Fact]
@@ -406,17 +411,4 @@ public sealed class RuleInventoryDocumentTests
         type.IsByRef ? CallSiteName(type.GetElementType()!) + "&"
         : type.IsGenericMethodParameter ? "!!" + type.GenericParameterPosition
         : type.FullName!;
-
-    // CI builds map source paths (ContinuousIntegrationBuild), so the repository is found from the test binaries.
-    private static string InventoryPath()
-    {
-        DirectoryInfo? directory = new(AppContext.BaseDirectory);
-        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "Clockwork.slnx")))
-        {
-            directory = directory.Parent;
-        }
-
-        Assert.NotNull(directory);
-        return Path.Combine(directory.FullName, "docs", "rule-inventory.md");
-    }
 }

@@ -92,7 +92,7 @@ public sealed class NondeterministicApiAnalyzer : DiagnosticAnalyzer
         else if (known.TryGetMetadataName(type, out string typeName)
             && InstrumentedApiInventory.Contains(typeName, property.Name)
             && (typeName != "System.Threading.Thread"
-                || property.Name != "Priority"
+                || property.Name is not ("Priority" or "ApartmentState")
                 || IsPropertyWrite(operation)))
         {
             ReportControlled(

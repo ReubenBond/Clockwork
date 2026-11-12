@@ -32,8 +32,9 @@ namespace Clockwork.Shims.System.Threading;
 /// thread on a real OS thread gated by a physical baton, whereas Clockwork schedules the body as a
 /// cooperative controlled operation. The observable single-logical-thread interleaving is the same; the
 /// deviation is documented in <c>docs/compatibility.md</c>. The operating-system-specific surface
-/// (priority, apartment state, abort/suspend/resume/interrupt) cannot be modelled faithfully and is
-/// rejected precisely - see <see cref="SimulationApiException"/>.
+/// (priority, apartment state, interrupt) cannot be modelled faithfully and is rejected precisely - see
+/// <see cref="SimulationApiException"/>; abort, suspend, and resume throw <see cref="PlatformNotSupportedException"/> on
+/// .NET 11.
 /// </para>
 /// </summary>
 public static class ControlledThread

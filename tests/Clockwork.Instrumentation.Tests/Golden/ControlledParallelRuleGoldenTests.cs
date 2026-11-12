@@ -15,11 +15,13 @@ namespace Clockwork.Instrumentation.Tests.Golden;
 /// fixture against the real <c>Clockwork</c> assembly and assert on the rewritten IL and
 /// manifest. This proves the static signatures declared in <c>BuiltInRuleSets</c> line up with the actual
 /// <see cref="Clockwork.Shims.System.Threading.Tasks.ControlledParallel"/> members, and that the break/stop
-/// (<c>ParallelLoopState</c>) overloads are rejected at the call site.
+/// (<c>ParallelLoopState</c>), thread-local (<c>TLocal</c>), and <c>Partitioner</c> overloads are rejected at the call
+/// site.
 /// </summary>
 public sealed class ControlledParallelRuleGoldenTests
 {
     private const string Fixture = """
+        using System.Collections.Concurrent;
         using System.Collections.Generic;
         using System.Threading.Tasks;
 
@@ -39,6 +41,11 @@ public sealed class ControlledParallelRuleGoldenTests
                 public static ParallelLoopResult ForLoopState() => Parallel.For(0, 3, (i, state) => state.Break());
                 public static ParallelLoopResult ForEachLoopState(IEnumerable<int> s) => Parallel.ForEach(s, (i, state) => state.Break());
                 public static ParallelLoopResult ForEachLoopStateIndex(IEnumerable<int> s) => Parallel.ForEach(s, (i, state, idx) => state.Break());
+                public static ParallelLoopResult ForEachLoopStateOptions(IEnumerable<int> s, ParallelOptions o) => Parallel.ForEach(s, o, (i, state) => state.Break());
+                public static ParallelLoopResult ForLocal() => Parallel.For(0, 3, () => 0, (i, state, local) => local + i, local => { });
+                public static ParallelLoopResult ForEachLocal(IEnumerable<int> s) => Parallel.ForEach(s, () => 0, (i, state, local) => local + i, local => { });
+                public static ParallelLoopResult ForEachPartitioner(IEnumerable<int> s) => Parallel.ForEach(Partitioner.Create(s), i => { });
+                public static ParallelLoopResult ForEachOrderablePartitioner(IList<int> s) => Parallel.ForEach(Partitioner.Create(s, true), (i, state, idx) => { });
             }
         }
         """;
@@ -100,7 +107,7 @@ public sealed class ControlledParallelRuleGoldenTests
     }
 
     [Fact]
-    public void LoopStateOverloadsAreRejectedAtTheCallSite()
+    public void LoopStateThreadLocalAndPartitionerOverloadsAreRejectedAtTheCallSite()
     {
         using var context = RewriteTestContext.Create();
         var result = RewriteFixture(context, "Fx.ParallelRejected");
@@ -108,7 +115,11 @@ public sealed class ControlledParallelRuleGoldenTests
         using ModuleDefinition module = context.LoadModule(
             Path.Combine(context.Directory, "Fx.ParallelRejected.rewritten.dll"));
 
-        foreach (var method in new[] { "ForLoopState", "ForEachLoopState", "ForEachLoopStateIndex" })
+        foreach (var method in new[]
+        {
+            "ForLoopState", "ForEachLoopState", "ForEachLoopStateIndex", "ForEachLoopStateOptions", "ForLocal", "ForEachLocal",
+            "ForEachPartitioner", "ForEachOrderablePartitioner",
+        })
         {
             MethodDefinition definition = CecilInspect.GetMethod(module, "Fx.ParallelUser", method);
             Assert.True(CecilInspect.CallsAnyContaining(definition, "ControlledParallel::RejectUnsupported"), $"{method} should be rejected");
@@ -119,5 +130,9 @@ public sealed class ControlledParallelRuleGoldenTests
             t.RuleId == "clockwork.parallel.for.int32.loopstate" && t.Policy == SimulationApiPolicy.Rejected);
         Assert.Contains(transformations, t =>
             t.RuleId == "clockwork.parallel.foreach.loopstate.index" && t.Policy == SimulationApiPolicy.Rejected);
+        Assert.Contains(transformations, t =>
+            t.RuleId == "clockwork.parallel.for.int32.local" && t.Policy == SimulationApiPolicy.Rejected);
+        Assert.Contains(transformations, t =>
+            t.RuleId == "clockwork.parallel.foreach.orderablepartitioner.loopstate.index" && t.Policy == SimulationApiPolicy.Rejected);
     }
 }

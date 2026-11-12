@@ -443,7 +443,9 @@ wiring. Enabling it rewrites those call sites to runtime shims in the `Clockwork
 under namespaces matching `Clockwork.Shims.<framework namespace>`.
 The complete, exhaustive list of controlled and rejected signatures is generated into
 [`docs/rule-inventory.md`](docs/rule-inventory.md) and verified against the shipped rules by a
-test, so the documentation cannot drift from the code.
+test, so the documentation cannot drift from the code. The inventory also lists every other public
+member of the types the rules target with the reason a call to it stays a BCL call, and a test fails
+when a new runtime adds a member that is neither ruled nor listed.
 
 **Enabling it (no JSON required).**
 

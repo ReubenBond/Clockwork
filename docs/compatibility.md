@@ -354,6 +354,22 @@ list of controlled and rejected signatures is generated into
 [`rule-inventory.md`](rule-inventory.md) and verified against the shipped rules by a test, so
 the published inventory can never drift from the code.
 
+**Surface classification.** Every public and protected member of each type the built-in rules
+target is controlled or rejected by a rule, or is listed in the inventory's *Members left as BCL
+calls* section with the reason a call to it stays a BCL call: `Value` for `DateTime.AddDays`,
+`HostState` for `Environment.MachineName`, `Blocks` for `Task.Wait(int)`, and so on. A type is
+targeted when a rule names or substitutes it, or when a member's signature mentions a class,
+struct, or interface of `System.Diagnostics.Process.dll`, so a process API is classified wherever
+the framework adds it.
+Tests classify each targeted type against the .NET 11 reference assemblies with the rewriter's own
+rule matcher and substitution mapper, and fail on an unclassified member or on a listed member that
+the reference assemblies lack or a rule matches; a snapshot of the reference pack's assembly list
+fails when a runtime adds or removes an assembly, prompting a review of it. A member that starts,
+signals, waits on, reschedules, or terminates a process is rejected; every other member no rule
+rewrites is listed with its behavior, and the `CultureOrTimeZone`, `HostState`, `RealClock`,
+`ProcessWideId`, `CurrentThread`, `IdentityHandle`, `Blocks`, and `Schedules` reasons mark
+documented holes.
+
 Instrumented closure binaries are simulation/test artifacts, not production replacements. Every
 Controlled entry point requires an active Clockwork simulation; without one it throws
 `SimulationNotActiveException` before any real BCL operation runs. With an active simulation:
@@ -602,19 +618,23 @@ and `Parallel.Invoke`/`For`/`ForEach`.
   so `AsyncLocal` values observed by the callback differ between the two exactly as they do on the
   real thread pool.
 - **OS-specific and un-modellable surfaces are rejected precisely, not silently ignored.** Thread
-  `Priority`/apartment-state/`Interrupt`, `Parallel` `ParallelLoopState` (break/stop) and
-  thread-local overloads, and `ThreadPool.UnsafeQueueNativeOverlapped` all fail at the rewritten call
+  `Priority`/apartment-state (including the obsolete `ApartmentState` setter)/`Interrupt`, `Parallel`
+  `ParallelLoopState` (break/stop), thread-local, and `Partitioner` overloads, and
+  `ThreadPool.UnsafeQueueNativeOverlapped` all fail at the rewritten call
   site with a diagnostic that names the exact API. The registered-wait APIs
   (`RegisterWaitForSingleObject`/`UnsafeRegisterWaitForSingleObject`) are **controlled**
   (see below) — they depend on controlled wait handles, which now exist.
 - **Uncontrolled process/termination APIs are rejected *unconditionally*.** `Process.Start`/`Run`/
   `RunAsync`/`RunAndCaptureText`/`RunAndCaptureTextAsync`/`StartAndForget`/`Kill`/`Signal`, the
   `WaitForExit`/`WaitForExitAsync`/`WaitForExitStatus`/`TryWaitForExitStatus`/`WaitForExitStatusAsync` waits,
-  the `ReadAllBytes`/`ReadAllText`/`ReadAllLines` reads and their async forms, the `SafeProcessHandle`
+  the `ReadAllBytes`/`ReadAllText`/`ReadAllLines` reads and their async forms, the `WaitForInputIdle`
+  waits, `CloseMainWindow`, the `EnableRaisingEvents` setter and `BeginOutputReadLine`/`BeginErrorReadLine`
+  (whose events the BCL raises on threads of its choosing), the `Process` priority, processor-affinity,
+  and working-set setters and the `ProcessThread` scheduling setters, the `SafeProcessHandle`
   `Start`/`Signal`/`Resume`/`Kill` and wait members, the `WindowsProcessStartArguments`/
   `UnixProcessStartArguments` `Start` launchers, and
   `Environment.Exit`/`FailFast` throw whether or not a simulation is active (a rewritten assembly must
-  never launch, signal, wait on, or tear down a real OS process). This unconditional guard is distinct
+  never launch, signal, wait on, reschedule, or tear down a real OS process). This unconditional guard is distinct
   from the simulation-only Controlled invariant, because there is no faithful in-simulation model of
   spawning or killing a process.
 - **Cross-assembly uncontrolled-task detection is diagnosis, not wrapping.** With
@@ -841,10 +861,12 @@ cancels all remaining registrations without invoking user callbacks.
   stripped automatically. Authenticode is detected but not re-applied; consumers must apply it
   after instrumentation if an instrumented artifact must be redistributed.
 - **Nondeterministic BCL surface beyond the rule inventory.** Only the exact signatures in
-  [`rule-inventory.md`](rule-inventory.md) are rewritten. Documented holes include `Stopwatch`
-  instance APIs and `GetElapsedTime(long, long)`; unlisted `RandomNumberGenerator` overloads; and
-  `DateTime`/`DateTimeOffset`
-  parse/format/convert helpers. Timer limitations are unrecognized custom `TimeProvider`
+  [`rule-inventory.md`](rule-inventory.md) are rewritten. Its *Members left as BCL calls* section
+  lists every other member of a targeted type with its behavior; the documented holes among them
+  include `Stopwatch` instance APIs (`RealClock`), `DateTime`/`DateTimeOffset` parse/format/convert
+  helpers (`CultureOrTimeZone`), host environment reads (`HostState`), and the blocking and scheduling
+  `Task`, `Thread`, and `Parallel` overloads the controlled surface does not cover (`Blocks`,
+  `Schedules`). Timer limitations are unrecognized custom `TimeProvider`
   implementations, non-null `System.Timers.Timer.SynchronizingObject`/designer integration, and
   `Timer.Dispose(WaitHandle)` with a handle outside Clockwork's controlled event surface.
 - **No runtime interception.** Clockwork intentionally provides no CLR profiler/ReJIT component,

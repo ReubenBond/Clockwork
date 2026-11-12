@@ -72,6 +72,7 @@ public static class InstrumentedApiInventory
         Api("System.Threading.Thread", "Interrupt"),
         Api("System.Threading.Thread", "SetApartmentState"),
         Api("System.Threading.Thread", "TrySetApartmentState"),
+        Api("System.Threading.Thread", "ApartmentState"),
         Api("System.Threading.ThreadPool", "QueueUserWorkItem"),
         Api("System.Threading.ThreadPool", "UnsafeQueueUserWorkItem"),
         Api("System.Threading.ThreadPool", "UnsafeQueueNativeOverlapped"),
