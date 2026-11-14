@@ -1,5 +1,6 @@
 using Clockwork.Runtime.Decisions;
 using Clockwork.Runtime.Racing;
+using Clockwork.Runtime.Replay;
 using Clockwork.Runtime.Scheduling;
 using Clockwork.Runtime.Scheduling.Strategies;
 using Clockwork.Runtime.Tests.Scheduling;
@@ -58,6 +59,18 @@ public sealed class RaceSchedulingPointTests
         RaceReport race = Assert.IsType<RaceReport>(scheduler.FirstRace);
         Assert.InRange(race.ScheduleTrace.Length, 1, 3);
         Assert.Equal(race.SecondAccess.Source, race.ScheduleTrace[^1].Source);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(ReplayArtifactLimits.MaxRaceSchedulingPoints + 1)]
+    public void TraceCapacityOutsideWhatAnArtifactHoldsIsRejected(int capacity)
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => scheduler.RaceTraceCapacity = capacity);
+        scheduler.RaceTraceCapacity = ReplayArtifactLimits.MaxRaceSchedulingPoints;
+        Assert.Equal(ReplayArtifactLimits.MaxRaceSchedulingPoints, scheduler.RaceTraceCapacity);
     }
 
     [Fact]

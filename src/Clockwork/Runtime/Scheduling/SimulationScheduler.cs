@@ -332,8 +332,10 @@ public sealed class SimulationScheduler : IDisposable
     /// Gets or sets the number of the most recent race scheduling points the scheduler retains, for
     /// <see cref="CaptureRaceSchedulingPoints"/>, race reports, and replay artifacts. Older points are dropped, so a long
     /// run retains a bounded trace; replaying the run with a larger capacity recovers them. Defaults to
-    /// <see cref="DefaultRaceTraceCapacity"/>.
+    /// <see cref="DefaultRaceTraceCapacity"/>, and is at most
+    /// <see cref="Replay.ReplayArtifactLimits.MaxRaceSchedulingPoints"/>, the most a replay artifact holds.
     /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">The value is not positive, or exceeds the replay artifact limit.</exception>
     public int RaceTraceCapacity
     {
         get
@@ -346,6 +348,8 @@ public sealed class SimulationScheduler : IDisposable
 
         set
         {
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(value);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(value, Replay.ReplayArtifactLimits.MaxRaceSchedulingPoints);
             lock (_gate)
             {
                 _raceSchedulingPoints.Capacity = value;
