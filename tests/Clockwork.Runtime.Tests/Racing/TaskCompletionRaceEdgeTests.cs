@@ -1,3 +1,4 @@
+using Clockwork;
 using System.Threading.Tasks;
 using Clockwork.Runtime.Racing;
 using Clockwork.Runtime.Scheduling;
@@ -156,18 +157,20 @@ public sealed class TaskCompletionRaceEdgeTests
         Assert.Null(scheduler.FirstRace);
     }
 
-    // A documented limitation: a task which uninstrumented code completes publishes no release edge. A framework method
-    // awaits a task which rewritten code completes, and completes its own task inline inside that completion; rewritten
-    // code which awaits the framework method's task is not ordered after the completer's writes, so the detector reports
-    // a race that is not one.
+    // A documented limitation: a task which uninstrumented code completes publishes no release edge. In a scheduler lane's
+    // work, a framework method awaits a task which rewritten code completes, and completes its own task inline inside that
+    // completion; rewritten code which awaits the framework method's task is not ordered after the completer's writes, so
+    // the detector reports a race that is not one.
     [Fact]
-    public void ATaskWhichAFrameworkAwaitCompletesPublishesNoEdge()
+    public void ATaskWhichAFrameworkAwaitCompletesInALanesWorkPublishesNoEdge()
     {
         var antecedent = new TaskCompletionSource<int>();
         Task? forwarded = null;
         using SimulationScheduler scheduler = SchedulerTestHarness.NewScheduler();
-        scheduler.Schedule("producer", () =>
+        var lane = new SimulationSchedulerLane(scheduler, new SingleThreadedGuard());
+        lane.Enqueue(() =>
         {
+            Assert.IsType<SimulationSynchronizationContext>(SynchronizationContext.Current);
             forwarded = ForwardAsync(antecedent.Task);
             RaceInstrumentation.WriteStatic(Location, "producer", 1, null, -1);
             ControlledTaskCompletionSource.SetResult(antecedent, 1);
