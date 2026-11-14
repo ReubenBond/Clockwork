@@ -49,7 +49,7 @@ internal sealed class SimulationDelayPromise
         }
 
         _cancellationRegistration.Unregister();
-        _completion.TrySetResult();
+        SimulationCompletion.TrySetResult(_completion, Api);
     }
 
     private void CompleteFromCancellation(CancellationToken token)
@@ -60,7 +60,7 @@ internal sealed class SimulationDelayPromise
         }
 
         _deadline?.Cancel();
-        _completion.TrySetCanceled(token);
+        SimulationCompletion.TrySetCanceled(_completion, token, Api);
     }
 }
 

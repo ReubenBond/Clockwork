@@ -73,8 +73,10 @@ public sealed class ThreadAffinityConformanceTests : IDisposable
 
     /// <summary>
     /// Outside any simulation, the same entry points reject the call before reading their arguments, except the
-    /// <c>TaskCompletionSource</c> constructors, which construct the BCL source, and its completions and
-    /// <c>Task.CreationOptions</c>, which pass through to the BCL member and fail on the null receiver.
+    /// <c>TaskCompletionSource</c> constructors, which construct the BCL source, its completions and
+    /// <c>Task.CreationOptions</c>, which pass through to the BCL member and fail on the null receiver, and
+    /// <c>ManualResetValueTaskSourceCore</c>'s completions, which pass through to the BCL member: <c>SetResult</c> completes
+    /// the default core passed by reference, and <c>SetException</c> rejects the null exception.
     /// </summary>
     [Fact]
     public void EveryControlledEntryPointRejectsACallOutsideASimulation()
@@ -84,6 +86,10 @@ public sealed class ThreadAffinityConformanceTests : IDisposable
         List<string> failures = InvokeEach(ambient: null, entryPoints, static (entryPoint, exception) =>
             entryPoint.Method.DeclaringType == typeof(ControlledTaskCompletionSource) && entryPoint.Method.Name.StartsWith("Create", StringComparison.Ordinal)
                 ? exception is null
+                : entryPoint.Method.DeclaringType == typeof(Clockwork.Shims.System.Threading.Tasks.Sources.ControlledManualResetValueTaskSourceCore)
+                    ? entryPoint.Method.Name == nameof(System.Threading.Tasks.Sources.ManualResetValueTaskSourceCore<int>.SetException)
+                        ? exception is ArgumentNullException
+                        : exception is null
                 : entryPoint.Method.DeclaringType == typeof(ControlledTaskCompletionSource)
                     || entryPoint.Method == typeof(ControlledTask).GetMethod(nameof(ControlledTask.CreationOptions))
                     ? exception is NullReferenceException

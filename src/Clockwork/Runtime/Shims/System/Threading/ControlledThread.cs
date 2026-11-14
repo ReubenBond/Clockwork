@@ -329,7 +329,7 @@ public static class ControlledThread
                     break;
             }
 
-            registration.Completion.TrySetResult();
+            SimulationCompletion.TrySetResult(registration.Completion, StartApi);
         }
         catch (InfiniteSleepException)
         {
@@ -341,7 +341,7 @@ public static class ControlledThread
             // process. The thread has terminated, so Join observes termination without the exception
             // (Join never surfaces a thread's exception), and the exception then escapes the body to
             // fault its controlled operation, which a replay classifies as Faulted.
-            registration.Completion.TrySetResult();
+            SimulationCompletion.TrySetResult(registration.Completion, StartApi);
             throw;
         }
     }

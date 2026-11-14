@@ -190,7 +190,8 @@ public static class ControlledChannelReader
                 enumeratorCancellationToken.UnsafeRegister(CancelCombined, combined));
         }
 
-        private static void CancelCombined(object? combined) => ((CancellationTokenSource)combined!).Cancel();
+        private static void CancelCombined(object? combined) =>
+            SimulationCompletion.Cancel((CancellationTokenSource)combined!, ReadAllAsyncApi);
     }
 
     /// <summary>

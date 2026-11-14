@@ -248,7 +248,8 @@ public sealed class TaskFactoryConformanceTests : IDisposable
     [Fact]
     public void StartNewRejectsCustomSchedulerInsideSimulation()
     {
-        using var host = new SimulationHost(Start);
+        // The guard is off: completing the probe's scheduler pair queues its completion to the thread pool.
+        using var host = new SimulationHost(Start, allowThreadPoolEscapes: true);
         var task = (Task<bool>)host.Invoke(Method("RejectsCustomScheduler"))!;
         Assert.True(Result<bool>(task));
     }

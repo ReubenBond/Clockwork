@@ -17,4 +17,9 @@
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- CW1004 holds every completion in this assembly to SimulationCompletion. -->
+    <ProjectReference Include="..\Clockwork.Analyzers\Clockwork.Analyzers.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
 </Project>

@@ -1,6 +1,7 @@
 using System.Threading.Tasks.Sources;
 using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Shims;
+using Clockwork.Runtime.Tasks;
 
 namespace Clockwork.Shims.System.Threading;
 
@@ -146,11 +147,19 @@ public sealed class ControlledPeriodicTimer : IDisposable
 
             if (cancellationToken.IsCancellationRequested)
             {
-                _source.SetException(new OperationCanceledException(cancellationToken));
+                SimulationCompletion.Run(
+                    ref _source,
+                    new OperationCanceledException(cancellationToken),
+                    static (ref ManualResetValueTaskSourceCore<bool> source, OperationCanceledException exception) => source.SetException(exception),
+                    Api);
             }
             else
             {
-                _source.SetResult(true);
+                SimulationCompletion.Run(
+                    ref _source,
+                    true,
+                    static (ref ManualResetValueTaskSourceCore<bool> source, bool result) => source.SetResult(result),
+                    Api);
             }
         }
 

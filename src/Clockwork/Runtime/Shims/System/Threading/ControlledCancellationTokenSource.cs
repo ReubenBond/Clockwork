@@ -12,6 +12,7 @@ namespace Clockwork.Shims.System.Threading;
 public static class ControlledCancellationTokenSource
 {
     private const string Api = "System.Threading.CancellationTokenSource";
+    private const string CancelApi = Api + ".Cancel";
     private const uint MaxSupportedTimeout = 0xfffffffe;
     private static readonly ConditionalWeakTable<CancellationTokenSource, Registration> Registrations = new();
 
@@ -58,41 +59,36 @@ public static class ControlledCancellationTokenSource
     }
 
     /// <summary>
-    /// Cancels synchronously and disables any pending virtual cancellation timer. The callbacks run as on a thread-pool
-    /// thread (see <see cref="ThreadPoolLocation"/>), so the BCL runs a framework continuation of a task they cancel
-    /// inline on the logical thread.
+    /// Cancels synchronously and disables any pending virtual cancellation timer. The callbacks run as
+    /// <see cref="SimulationCompletion"/> runs a completion.
     /// </summary>
     public static void Cancel(CancellationTokenSource source)
     {
         RequireRuntime("Cancel");
         ArgumentNullException.ThrowIfNull(source);
-        DisableTimer(source);
-        _ = ThreadPoolLocation.Run(
+        SimulationCompletion.Run(
             source,
             static source =>
             {
+                DisableTimer(source);
                 source.Cancel();
-                return true;
-            });
+            },
+            CancelApi);
     }
 
-    /// <summary>
-    /// Cancels synchronously and disables any pending virtual cancellation timer. The callbacks run as on a thread-pool
-    /// thread (see <see cref="ThreadPoolLocation"/>), so the BCL runs a framework continuation of a task they cancel
-    /// inline on the logical thread.
-    /// </summary>
+    /// <inheritdoc cref="Cancel(CancellationTokenSource)"/>
     public static void Cancel(CancellationTokenSource source, bool throwOnFirstException)
     {
         RequireRuntime("Cancel");
         ArgumentNullException.ThrowIfNull(source);
-        DisableTimer(source);
-        _ = ThreadPoolLocation.Run(
+        SimulationCompletion.Run(
             (source, throwOnFirstException),
-            static cancellation =>
+            static completion =>
             {
-                cancellation.source.Cancel(cancellation.throwOnFirstException);
-                return true;
-            });
+                DisableTimer(completion.source);
+                completion.source.Cancel(completion.throwOnFirstException);
+            },
+            CancelApi);
     }
 
     /// <summary>Queues cancellation as controlled work instead of using the physical thread pool.</summary>
@@ -109,18 +105,21 @@ public static class ControlledCancellationTokenSource
         DisableTimer(source);
         var completion = new TaskCompletionSource();
         SimulationTaskRuntime.QueueWork(
-            () =>
-            {
-                try
+            () => SimulationCompletion.Run(
+                (source, promise: completion),
+                static completion =>
                 {
-                    source.Cancel();
-                    completion.TrySetResult();
-                }
-                catch (Exception exception)
-                {
-                    completion.TrySetException(exception);
-                }
-            },
+                    try
+                    {
+                        completion.source.Cancel();
+                        completion.promise.TrySetResult();
+                    }
+                    catch (Exception exception)
+                    {
+                        completion.promise.TrySetException(exception);
+                    }
+                },
+                $"{Api}.CancelAsync"),
             $"{Api}.CancelAsync",
             flowExecutionContext: false);
         return completion.Task;
@@ -160,7 +159,7 @@ public static class ControlledCancellationTokenSource
         var source = new CancellationTokenSource();
         if (delay == TimeSpan.Zero)
         {
-            source.Cancel();
+            SimulationCompletion.Run(source, static source => source.Cancel(), $"{Api}..ctor");
             return source;
         }
 
@@ -197,13 +196,16 @@ public static class ControlledCancellationTokenSource
         new(
             new ShimTimerRegistration(
                 snapshot,
-                _ =>
-                {
-                    if (!source.IsCancellationRequested)
+                _ => SimulationCompletion.Run(
+                    source,
+                    static source =>
                     {
-                        source.Cancel();
-                    }
-                },
+                        if (!source.IsCancellationRequested)
+                        {
+                            source.Cancel();
+                        }
+                    },
+                    $"{Api}.CancelAfter"),
                 null,
                 null),
             source.Token);

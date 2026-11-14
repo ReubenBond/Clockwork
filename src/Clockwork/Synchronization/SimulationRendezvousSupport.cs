@@ -6,6 +6,8 @@ namespace Clockwork;
 /// </summary>
 internal static class SimulationRendezvousSupport
 {
+    private const string RendezvousApi = "Clockwork.SimulationRendezvous";
+
     /// <summary>
     /// Adds a waiter while the owning primitive's lock is held.
     /// </summary>
@@ -125,13 +127,13 @@ internal static class SimulationRendezvousSupport
         public void CompleteCancellation()
         {
             DisposeRegistration();
-            _completion.TrySetCanceled(_cancellationToken);
+            SimulationCompletion.TrySetCanceled(_completion, _cancellationToken, RendezvousApi);
         }
 
         public void ScheduleRelease(SimulationSchedulerLane queue)
         {
             DisposeRegistration();
-            queue.Enqueue(() => _completion.TrySetResult());
+            queue.Enqueue(() => SimulationCompletion.TrySetResult(_completion, RendezvousApi));
         }
 
         private void CancellationRequested() => _onCancellation(this);

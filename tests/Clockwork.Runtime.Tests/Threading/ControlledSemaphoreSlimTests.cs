@@ -112,14 +112,18 @@ public sealed class ControlledSemaphoreSlimTests
         {
             var sem = ControlledSemaphoreSlim.Create(0);
 
-            // With no permit available the task is pending; a Release completes it synchronously on the
-            // logical thread (which is exactly what a loop-driven await observes).
+            // With no permit available the task is pending. A Release hands the permit to the waiter at once, and, as the
+            // BCL runs a WaitAsync task's continuations asynchronously, a controlled operation of its own completes the
+            // task, so no continuation runs inside Release.
             var task = ControlledSemaphoreSlim.WaitAsync(sem);
             Assert.False(task.IsCompleted);
 
             ControlledSemaphoreSlim.Release(sem);
-            Assert.True(task.IsCompleted);
             Assert.Equal(0, ControlledSemaphoreSlim.CurrentCount(sem));
+            Assert.False(task.IsCompleted);
+
+            Assert.Equal(1, coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken));
+            Assert.True(task.IsCompletedSuccessfully);
         });
     }
 
@@ -447,6 +451,7 @@ public sealed class ControlledSemaphoreSlimTests
 
             // A release before the deadline completes the task with true and cancels the pending deadline.
             ControlledSemaphoreSlim.Release(sem);
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
 
             Assert.True(task.IsCompletedSuccessfully);
             Assert.True(task.Result);
@@ -467,6 +472,7 @@ public sealed class ControlledSemaphoreSlimTests
             Assert.False(task.IsCompleted);
 
             cts.Cancel();
+            coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
 
             Assert.True(task.IsCanceled);
             Assert.True(coordinator.Scheduler.IsIdle);
@@ -489,10 +495,11 @@ public sealed class ControlledSemaphoreSlimTests
                 ControlledSemaphoreSlim.BeforeCancellationRegistrationForTesting = cancellation.Cancel;
                 var task = ControlledSemaphoreSlim.WaitAsync(sem, 500, cancellation.Token);
 
+                // The one step delivers the cancellation; no stale deadline remains to fire.
+                Assert.Equal(1, coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken));
                 Assert.True(task.IsCanceled);
                 Assert.Null(coordinator.Scheduler.NextTimerDue);
                 Assert.Equal(TimeSpan.Zero, coordinator.Scheduler.VirtualTime);
-                Assert.Equal(0, coordinator.Scheduler.RunUntilIdle(TestContext.Current.CancellationToken));
             }
             finally
             {
@@ -539,6 +546,7 @@ public sealed class ControlledSemaphoreSlimTests
                 }
 
                 canceler.WaitAsync(TimeSpan.FromSeconds(5), testCancellation).GetAwaiter().GetResult();
+                coordinator.Scheduler.RunUntilIdle(testCancellation);
 
                 Assert.True(waiter.IsCompleted);
                 if (waiter.IsCompletedSuccessfully)

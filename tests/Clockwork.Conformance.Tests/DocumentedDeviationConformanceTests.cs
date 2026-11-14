@@ -7,7 +7,10 @@ namespace Clockwork.Conformance.Tests;
 /// Pins the documented deviations from the BCL, with Clockwork as the oracle; each assertion's comment gives the BCL's
 /// value. The coordinator observes completions between scheduling steps, so antecedents which complete within one step
 /// are ordered by argument position, and a result whose antecedents complete later completes on a controlled operation
-/// of its own, after the completing call. Both Release and Debug codegen are staged.
+/// of its own, after the completing call. A completion which rewritten code makes runs with no synchronization context and
+/// the default scheduler, so code inside it sees neither, and a continuation which captured the current context is posted
+/// to it; the BCL's value there comes from the same probe, uninstrumented, run in the same place. Both Release and Debug
+/// codegen are staged.
 /// </summary>
 public sealed class DocumentedDeviationConformanceTests : IDisposable
 {
@@ -125,6 +128,29 @@ public sealed class DocumentedDeviationConformanceTests : IDisposable
                 await disposal;
                 return observed;
             }
+
+            // Uninstrumented code awaits the source's task without ConfigureAwait(false), capturing the context current
+            // where the probe runs, and the probe completes the source.
+            public static async Task<string> ContinuationCapturedOnTheCurrentContext(Func<Task, List<string>, Task> awaitUninstrumented)
+            {
+                var log = new List<string>();
+                var source = new TaskCompletionSource();
+                Task waiting = awaitUninstrumented(source.Task, log);
+                source.SetResult();
+                log.Add("after SetResult");
+                await waiting;
+                return string.Join("|", log);
+            }
+
+            // A callback which the probe registers runs inside Cancel, and describes the context and scheduler it sees.
+            public static Task<string> ContextInsideACompletion(Func<string> describe)
+            {
+                string seen = "not run";
+                var cancellation = new CancellationTokenSource();
+                cancellation.Token.Register(() => seen = describe());
+                cancellation.Cancel();
+                return Task.FromResult(seen);
+            }
         } }
         """;
 
@@ -133,9 +159,11 @@ public sealed class DocumentedDeviationConformanceTests : IDisposable
     private readonly RewriteFixture _fixture = new();
     private readonly Lazy<StagedProbe> _release;
     private readonly Lazy<StagedProbe> _debug;
+    private readonly Lazy<UninstrumentedProbe> _bcl;
 
     public DocumentedDeviationConformanceTests()
     {
+        _bcl = new Lazy<UninstrumentedProbe>(() => _fixture.CompileUninstrumented("Conf.DeviationBcl", ProbeType, Source));
         _release = new Lazy<StagedProbe>(() =>
             _fixture.StageControlledTasks("Conf.DeviationRel", ProbeType, Source, optimize: true));
         _debug = new Lazy<StagedProbe>(() =>
@@ -192,11 +220,73 @@ public sealed class DocumentedDeviationConformanceTests : IDisposable
         Assert.Equal("None completed=False", Simulated("TimerDisposalWhileTheCallbackRuns", optimize));
     }
 
+    /// <summary>Where a probe runs: before the first await of <c>RunToCompletion</c>'s root task, or in a lane's work.</summary>
+    public enum Location
+    {
+        /// <summary>The root task, on the cluster's scheduler with its context current.</summary>
+        Root,
+
+        /// <summary>A scheduler lane's work, with the lane's context current.</summary>
+        Lane,
+    }
+
+    public static TheoryData<Location, bool> Locations => new()
+    {
+        { Location.Root, true },
+        { Location.Root, false },
+        { Location.Lane, true },
+        { Location.Lane, false },
+    };
+
+    [Theory]
+    [MemberData(nameof(Locations))]
+    public void AContinuationCapturedOnTheCurrentContextIsPostedToIt(Location location, bool optimize)
+    {
+        Func<Task, List<string>, Task> awaitUninstrumented = AwaitOnTheCurrentContext;
+
+        // The BCL runs the continuation inline in SetResult, as the context it captured is still current.
+        Assert.Equal("continuation|after SetResult", At(location, _bcl.Value.Method("ContinuationCapturedOnTheCurrentContext"), awaitUninstrumented));
+        Assert.Equal("after SetResult|continuation", At(location, Method("ContinuationCapturedOnTheCurrentContext", optimize), awaitUninstrumented));
+    }
+
+    [Theory]
+    [MemberData(nameof(Locations))]
+    public void CodeInsideACompletionSeesNoContextAndTheDefaultScheduler(Location location, bool optimize)
+    {
+        Func<string> describe = () =>
+            (SynchronizationContext.Current?.GetType().Name ?? "no context") + "," + TaskScheduler.Current.GetType().Name;
+
+        // The BCL runs the callback under the canceller's context, and its scheduler in the root.
+        string scheduler = location == Location.Root ? nameof(SimulationTaskScheduler) : "ThreadPoolTaskScheduler";
+        Assert.Equal(nameof(SimulationSynchronizationContext) + "," + scheduler, At(location, _bcl.Value.Method("ContextInsideACompletion"), describe));
+        Assert.Equal("no context,ThreadPoolTaskScheduler", At(location, Method("ContextInsideACompletion", optimize), describe));
+    }
+
+    private static string At(Location location, MethodInfo method, params object[] args)
+    {
+        using var host = new SimulationHost(Start);
+        if (location == Location.Root)
+        {
+            return host.RunToCompletion<string>(method, args);
+        }
+
+        var task = (Task<string>)host.Invoke(method, args)!;
+        Assert.Equal(TaskStatus.RanToCompletion, task.Status);
+        return task.GetAwaiter().GetResult();
+    }
+
+    private static async Task AwaitOnTheCurrentContext(Task task, List<string> log)
+    {
+        await task;
+        log.Add("continuation");
+    }
+
+    private MethodInfo Method(string name, bool optimize) => (optimize ? _release : _debug).Value.Method(name);
+
     private string Simulated(string name, bool optimize)
     {
         using var host = new SimulationHost(Start);
-        MethodInfo method = (optimize ? _release : _debug).Value.Method(name);
-        var task = (Task<string>)host.Invoke(method)!;
+        var task = (Task<string>)host.Invoke(Method(name, optimize))!;
         Assert.Equal(TaskStatus.RanToCompletion, task.Status);
         return task.GetAwaiter().GetResult();
     }

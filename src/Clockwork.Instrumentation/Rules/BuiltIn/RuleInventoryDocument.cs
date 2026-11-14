@@ -351,9 +351,11 @@ public static class RuleInventoryDocument
     {
         EscapeReason.FrameworkAwait =>
             "A framework async method or adapter. It runs on the caller until it awaits; its continuations follow the BCL's " +
-            "dispatch, running inline where controlled code completes the awaited operation, or on the thread pool when " +
-            "that operation runs its continuations asynchronously, where the thread-affinity check catches their first " +
-            "controlled call.",
+            "dispatch. A bare continuation runs inline where Clockwork completes the awaited operation " +
+            "([Completions from rewritten code](compatibility.md#completions-from-rewritten-code)), and one which " +
+            "captured a lane's context is posted to that lane. It runs on the thread pool when the operation runs its " +
+            "continuations asynchronously, or when uninstrumented code completes it where a context or scheduler of the " +
+            "simulation is current; the thread-affinity check catches its first controlled call there.",
         EscapeReason.OsResource =>
             "Performs I/O on an OS file, socket, or network connection, which completes on the operating system's I/O " +
             "threads or the thread pool. A simulation performs I/O through the system under test's own abstractions, " +

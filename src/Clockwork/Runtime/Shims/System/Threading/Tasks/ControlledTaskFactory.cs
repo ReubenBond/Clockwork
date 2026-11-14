@@ -484,23 +484,23 @@ public static partial class ControlledTaskFactory
         {
             if (cancellationToken.IsCancellationRequested)
             {
-                tcs.TrySetCanceled(cancellationToken);
+                SimulationCompletion.TrySetCanceled(tcs, cancellationToken, StartNewApi);
                 return;
             }
 
             try
             {
                 action();
-                tcs.TrySetResult();
+                SimulationCompletion.TrySetResult(tcs, StartNewApi);
             }
             catch (OperationCanceledException oce)
                 when (cancellationToken.IsCancellationRequested && oce.CancellationToken == cancellationToken)
             {
-                tcs.TrySetCanceled(cancellationToken);
+                SimulationCompletion.TrySetCanceled(tcs, cancellationToken, StartNewApi);
             }
             catch (Exception ex)
             {
-                tcs.TrySetException(ex);
+                SimulationCompletion.TrySetException(tcs, ex, StartNewApi);
             }
         }
         finally
@@ -518,22 +518,23 @@ public static partial class ControlledTaskFactory
         {
             if (cancellationToken.IsCancellationRequested)
             {
-                tcs.TrySetCanceled(cancellationToken);
+                SimulationCompletion.TrySetCanceled(tcs, cancellationToken, StartNewApi);
                 return;
             }
 
             try
             {
-                tcs.TrySetResult(function());
+                TResult result = function();
+                SimulationCompletion.TrySetResult(tcs, result, StartNewApi);
             }
             catch (OperationCanceledException oce)
                 when (cancellationToken.IsCancellationRequested && oce.CancellationToken == cancellationToken)
             {
-                tcs.TrySetCanceled(cancellationToken);
+                SimulationCompletion.TrySetCanceled(tcs, cancellationToken, StartNewApi);
             }
             catch (Exception ex)
             {
-                tcs.TrySetException(ex);
+                SimulationCompletion.TrySetException(tcs, ex, StartNewApi);
             }
         }
         finally

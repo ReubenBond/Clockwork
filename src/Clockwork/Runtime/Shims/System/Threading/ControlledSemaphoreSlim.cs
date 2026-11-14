@@ -41,6 +41,7 @@ namespace Clockwork.Shims.System.Threading;
 public static class ControlledSemaphoreSlim
 {
     private const string WaitApi = "System.Threading.SemaphoreSlim.Wait";
+    private const string WaitAsyncApi = "System.Threading.SemaphoreSlim.WaitAsync";
 
     private sealed class State
     {
@@ -393,7 +394,7 @@ public static class ControlledSemaphoreSlim
             }
             else
             {
-                waiter = EnqueueUnderLock(state, millisecondsTimeout);
+                waiter = EnqueueUnderLock(state, millisecondsTimeout, asynchronousApi: null);
             }
         }
 
@@ -457,16 +458,17 @@ public static class ControlledSemaphoreSlim
                 return Task.FromResult(false);
             }
 
-            waiter = EnqueueUnderLock(state, millisecondsTimeout);
+            waiter = EnqueueUnderLock(state, millisecondsTimeout, WaitAsyncApi);
         }
 
         AttachCancellation(state, waiter, cancellationToken);
         return waiter.Task;
     }
 
-    private static SimulationWaiter EnqueueUnderLock(State state, int millisecondsTimeout)
+    // A WaitAsync waiter continues asynchronously, as the BCL's does (see SimulationWaiter).
+    private static SimulationWaiter EnqueueUnderLock(State state, int millisecondsTimeout, string? asynchronousApi)
     {
-        var waiter = new SimulationWaiter();
+        var waiter = new SimulationWaiter(asynchronousApi);
         state.Waiters.Add(waiter);
 
         if (millisecondsTimeout != Timeout.Infinite)

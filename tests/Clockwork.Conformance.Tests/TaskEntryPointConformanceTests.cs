@@ -496,7 +496,8 @@ public sealed class TaskEntryPointConformanceTests : IDisposable
             ProbeType,
             Source,
             rule => rule.Id == ruleId);
-        using var host = new SimulationHost(Start);
+        // The guard is off: the escape this test pins queues the work to the thread pool.
+        using var host = new SimulationHost(Start, allowThreadPoolEscapes: true);
         var observed = new ConcurrentQueue<bool>();
 
         host.Invoke(escaping.Method(probe), new Action(() => observed.Enqueue(host.Scheduler.IsSimulationThread)));

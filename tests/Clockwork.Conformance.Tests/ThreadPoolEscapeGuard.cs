@@ -1,0 +1,66 @@
+using System.Collections.Concurrent;
+using System.Diagnostics.Tracing;
+using Clockwork.Runtime.Scheduling;
+
+namespace Clockwork.Conformance.Tests;
+
+/// <summary>
+/// <para>
+/// Records work queued to the real thread pool by a simulation's logical thread. The BCL raises
+/// <c>FrameworkEventSource</c>'s <c>ThreadPoolEnqueueWork</c> event on the thread which queues the work, so a listener
+/// sees it on that thread and can ask each watched scheduler whether it is that scheduler's logical thread. Work queued
+/// there runs off the simulation: a concurrency escape, such as a framework continuation which the BCL declined to run
+/// inline.
+/// </para>
+/// <para>
+/// The guard only observes: it neither delays nor reorders work, so a simulation runs exactly as it would without it.
+/// <see cref="SimulationHost"/> watches its cluster's scheduler and fails a test whose simulation queued such work.
+/// </para>
+/// </summary>
+internal sealed class ThreadPoolEscapeGuard : EventListener
+{
+    private const string FrameworkEventSourceName = "System.Diagnostics.Eventing.FrameworkEventSource";
+    private const string EnqueueEventName = "ThreadPoolEnqueueWork";
+
+    // FrameworkEventSource.Keywords.ThreadPool | ThreadTransfer: the BCL raises the enqueue event only when both are on.
+    private const EventKeywords ThreadPoolKeywords = (EventKeywords)0x12;
+
+    private static readonly Lazy<ThreadPoolEscapeGuard> Instance = new(() => new ThreadPoolEscapeGuard());
+
+    private readonly ConcurrentDictionary<SimulationScheduler, ConcurrentQueue<string>> _watched = new();
+
+    /// <summary>Starts recording the work which <paramref name="scheduler"/>'s logical thread queues to the thread pool.</summary>
+    /// <param name="scheduler">The scheduler to watch.</param>
+    public static void Watch(SimulationScheduler scheduler) =>
+        Instance.Value._watched.TryAdd(scheduler, new ConcurrentQueue<string>());
+
+    /// <summary>Stops watching <paramref name="scheduler"/> and returns the stacks which queued work while it was watched.</summary>
+    /// <param name="scheduler">The watched scheduler.</param>
+    /// <returns>The stack of each enqueue.</returns>
+    public static IReadOnlyCollection<string> Unwatch(SimulationScheduler scheduler) =>
+        Instance.Value._watched.TryRemove(scheduler, out ConcurrentQueue<string>? escapes) ? escapes : [];
+
+    protected override void OnEventSourceCreated(EventSource eventSource)
+    {
+        if (eventSource.Name == FrameworkEventSourceName)
+        {
+            EnableEvents(eventSource, EventLevel.Verbose, ThreadPoolKeywords);
+        }
+    }
+
+    protected override void OnEventWritten(EventWrittenEventArgs eventData)
+    {
+        if (eventData.EventName != EnqueueEventName)
+        {
+            return;
+        }
+
+        foreach ((SimulationScheduler scheduler, ConcurrentQueue<string> escapes) in _watched)
+        {
+            if (scheduler.IsSimulationThread)
+            {
+                escapes.Enqueue(Environment.StackTrace);
+            }
+        }
+    }
+}

@@ -254,31 +254,47 @@ public sealed class TaskSchedulingConformanceTests : IDisposable
                     return string.Join(",", observed) + "|" + string.Join(",", items);
                 }
 
-                // A framework operator awaits a task-backed source with ConfigureAwait(false), and the caller's 'run' runs
-                // the code which completes the source's task: inline, or in a task which uninstrumented code constructs.
-                // The BCL must see wherever that code runs as a thread-pool thread for it to run the operator's
-                // continuation inline rather than on the thread pool.
+                // A framework operator awaits a task-backed source, and the caller's 'run' runs the code which completes the
+                // source's task: inline, or in a task which uninstrumented code starts. The operator registers its awaits
+                // inside a completion, where no context or scheduler is current (as on a thread-pool thread, and as an
+                // operator continuing inside a completion registers its next await), so they are bare continuations. Each
+                // item records whether the operator observed it inside 'run''s code, on the physical thread which ran it
+                // ("inline"), and whether on the simulation's logical thread. A continuation which did not run inline is
+                // reported at once, before the probe awaits anything which an escaped continuation completes.
                 public static async Task<string> FrameworkContinuationsCompletedWhereTheCallerRuns(
                     Func<Action, Task> run,
-                    Func<bool> onSimulationThread)
+                    Action<Task, Action> whenCompleted,
+                    Func<int> physicalThread,
+                    Func<bool> onLogicalThread)
                 {
                     var observed = new List<string>();
+                    int completingThread = 0;
                     var source = new TaskBackedSequence();
-                    Task<List<int>> list = source
+                    Task<List<int>> list = null;
+                    var registering = new TaskCompletionSource();
+                    whenCompleted(registering.Task, () => list = source
                         .Append(9)
                         .Select(item =>
                         {
-                            observed.Add(item + ":" + onSimulationThread());
+                            string placement = completingThread == physicalThread() ? "inline" : "later";
+                            observed.Add(item + ":" + placement + ":" + onLogicalThread());
                             return item;
                         })
                         .ToListAsync()
-                        .AsTask();
+                        .AsTask());
+                    registering.SetResult();
+                    if (list == null)
+                    {
+                        return "not registered inline";
+                    }
 
                     Task completing = run(() =>
                     {
+                        completingThread = physicalThread();
                         source.Produce(1);
                         source.Produce(2);
                         source.Finish();
+                        completingThread = 0;
                     });
                     if (completing.Status == TaskStatus.Created)
                     {
@@ -286,8 +302,48 @@ public sealed class TaskSchedulingConformanceTests : IDisposable
                     }
 
                     await completing;
+                    string placements = string.Join(",", observed);
+                    if (observed.Count != 3 || placements.Contains(":later:"))
+                    {
+                        return "not inline|" + placements;
+                    }
+
                     List<int> items = await list;
-                    return string.Join(",", observed) + "|" + string.Join(",", items);
+                    return placements + "|" + string.Join(",", items);
+                }
+
+                // Clog's pattern: a scheduler lane's work starts rewritten work fire-and-forget. Its synchronous prefix
+                // runs in the lane's work and completes a framework operator's source; it then awaits the operator, and a
+                // WaitAsync with ConfigureAwait(false).
+                public static async Task StartedFireAndForgetOnALane(Action<string> report, Func<bool> onLogicalThread)
+                {
+                    try
+                    {
+                        var observed = new List<string>();
+                        var source = new TaskBackedSequence();
+                        Task<List<int>> list = source
+                            .Append(9)
+                            .Select(item =>
+                            {
+                                observed.Add(item + ":" + onLogicalThread());
+                                return item;
+                            })
+                            .ToListAsync()
+                            .AsTask();
+                        source.Produce(1);
+                        source.Finish();
+                        List<int> items = await list;
+
+                        var gate = new TaskCompletionSource();
+                        Task waited = gate.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                        gate.SetResult();
+                        await waited.ConfigureAwait(false);
+                        report(string.Join(",", observed) + "|" + string.Join(",", items) + "|" + onLogicalThread());
+                    }
+                    catch (Exception exception)
+                    {
+                        report(exception.GetType().Name);
+                    }
                 }
 
                 // Buffers what it produces, so a consumer which continues later, on a context it captured, sees every item.
@@ -549,12 +605,28 @@ public sealed class TaskSchedulingConformanceTests : IDisposable
         Assert.Equal("1:True,2:True,9:True|1,2,9", log);
     }
 
-    public static TheoryData<string, bool> CompletionLocations
+    /// <summary>Where rewritten code completes a framework operator's task-backed source.</summary>
+    public enum CompletionLocation
+    {
+        /// <summary>Before the first await of <c>RunToCompletion</c>'s root task, on the cluster's scheduler and context.</summary>
+        Root,
+
+        /// <summary>In a scheduler lane's work, with the lane's context current.</summary>
+        Lane,
+
+        /// <summary>In a task which uninstrumented code starts on a node's <see cref="SimulationTaskScheduler"/>.</summary>
+        LaneTask,
+
+        /// <summary>In a task which uninstrumented code constructs and rewritten code starts, on the coordinator's scheduler.</summary>
+        UninstrumentedTask,
+    }
+
+    public static TheoryData<CompletionLocation, bool> CompletionLocations
     {
         get
         {
-            var data = new TheoryData<string, bool>();
-            foreach (string location in new[] { "root", "lane", "lane task", "uninstrumented task" })
+            var data = new TheoryData<CompletionLocation, bool>();
+            foreach (CompletionLocation location in Enum.GetValues<CompletionLocation>())
             {
                 foreach (bool optimize in new[] { true, false })
                 {
@@ -567,35 +639,83 @@ public sealed class TaskSchedulingConformanceTests : IDisposable
     }
 
     // Rewritten code completes a framework operator's task-backed source where Clockwork's cooperative surfaces are
-    // current: before the first await of RunToCompletion's root task, which runs visibly on the cluster's
-    // SimulationTaskScheduler with its SimulationSynchronizationContext; in a scheduler lane's work, which runs with the
-    // lane's context; in a task which uninstrumented code starts on a node's SimulationTaskScheduler; and in a task which
-    // uninstrumented code constructs and rewritten code starts, which runs visibly on the coordinator's scheduler.
+    // current, and the operator's bare continuations run inline, on the logical thread, as the BCL runs them on a
+    // thread-pool thread.
     [Theory]
     [MemberData(nameof(CompletionLocations))]
-    public async Task FrameworkContinuationsWhichRewrittenCodeCompletesRunOnTheLogicalThread(string location, bool optimize)
+    public void FrameworkContinuationsWhichRewrittenCodeCompletesRunOnTheLogicalThread(CompletionLocation location, bool optimize)
     {
         using var host = new SimulationHost(Start);
         MethodInfo probe = Method("FrameworkContinuationsCompletedWhereTheCallerRuns", optimize);
-        Func<bool> onSimulationThread = () => host.Scheduler.IsSimulationThread;
+        Func<bool> onLogicalThread = () => host.Scheduler.IsSimulationThread;
         SimulationTaskScheduler lane = host.NodeTaskScheduler("node");
 
         string log = location switch
         {
-            "root" => host.RunToCompletion<string>(probe, RunInline, onSimulationThread),
-            "lane" => Completed<string>(host.Invoke(probe, RunInline, onSimulationThread)),
-            "lane task" => Completed<string>(host.Invoke(
+            CompletionLocation.Root => host.RunToCompletion<string>(probe, RunInline, WhenCompleted, PhysicalThread, onLogicalThread),
+            CompletionLocation.Lane => Completed<string>(host.Invoke(probe, RunInline, WhenCompleted, PhysicalThread, onLogicalThread)),
+            CompletionLocation.LaneTask => Completed<string>(host.Invoke(
                 probe,
                 new Func<Action, Task>(body => Task.Factory.StartNew(body, CancellationToken.None, TaskCreationOptions.None, lane)),
-                onSimulationThread)),
-            _ => Completed<string>(host.Invoke(probe, new Func<Action, Task>(body => new Task(body)), onSimulationThread)),
+                WhenCompleted,
+                PhysicalThread,
+                onLogicalThread)),
+            CompletionLocation.UninstrumentedTask => Completed<string>(host.Invoke(
+                probe,
+                new Func<Action, Task>(body => new Task(body)),
+                WhenCompleted,
+                PhysicalThread,
+                onLogicalThread)),
+            _ => throw new ArgumentOutOfRangeException(nameof(location), location, null),
         };
 
-        string bcl = await ((Task<string>)_bcl.Value.Method("FrameworkContinuationsCompletedWhereTheCallerRuns")
-            .Invoke(null, [RunInline, new Func<bool>(() => true)])!).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
-        Assert.Equal(bcl, log);
-        Assert.Equal("1:True,2:True,9:True|1,2,9", log);
+        Assert.Equal("1:inline:True,2:inline:True,9:inline:True|1,2,9", log);
     }
+
+    // The BCL, on a thread-pool thread, runs the operator's bare continuations inline in the call which completes its
+    // source; under a synchronization context it queues them to the thread pool instead, which the probe reports.
+    [Fact]
+    public async Task OnAThreadPoolThreadTheBclRunsFrameworkContinuationsInline()
+    {
+        MethodInfo probe = _bcl.Value.Method("FrameworkContinuationsCompletedWhereTheCallerRuns");
+        Func<Action, Task> underAContext = body =>
+        {
+            SynchronizationContext? previous = SynchronizationContext.Current;
+            SynchronizationContext.SetSynchronizationContext(new DerivedSynchronizationContext());
+            try
+            {
+                body();
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previous);
+            }
+
+            return Task.CompletedTask;
+        };
+
+        Assert.Equal("1:inline:True,2:inline:True,9:inline:True|1,2,9", await OnAThreadPoolThread(probe, RunInline));
+        Assert.StartsWith("not inline|", await OnAThreadPoolThread(probe, underAContext), StringComparison.Ordinal);
+    }
+
+    // Clog's pattern: rewritten work started fire-and-forget from the cluster's lane completes, on the logical thread, a
+    // framework operator's source in its synchronous prefix, then awaits the operator and a WaitAsync.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void RewrittenWorkStartedFireAndForgetOnTheClusterLaneStaysOnTheLogicalThread(bool optimize)
+    {
+        using var host = new SimulationHost(Start);
+        var reports = new List<string>();
+
+        host.InvokeOnClusterLane(
+            Method("StartedFireAndForgetOnALane", optimize),
+            new Action<string>(reports.Add),
+            new Func<bool>(() => host.Scheduler.IsSimulationThread));
+
+        Assert.Equal("1:True,9:True|1,9|True", Assert.Single(reports));
+    }
+
     [Fact]
     public void ATaskWhichUninstrumentedCodeConstructsRunsOnTheCoordinatorsScheduler()
     {
@@ -695,6 +815,29 @@ public sealed class TaskSchedulingConformanceTests : IDisposable
         body();
         return Task.CompletedTask;
     };
+
+    private static readonly Func<int> PhysicalThread = () => Environment.CurrentManagedThreadId;
+
+    // Registers a bare continuation, as the BCL's ConfigureAwait(false) await does, from code which is not rewritten.
+    private static readonly Action<Task, Action> WhenCompleted =
+        (task, continuation) => task.ConfigureAwait(false).GetAwaiter().UnsafeOnCompleted(continuation);
+
+    // Runs the uninstrumented probe on a thread-pool thread, whose own thread it reports as the logical one.
+    private static async Task<string> OnAThreadPoolThread(MethodInfo probe, Func<Action, Task> run)
+    {
+        int runner = 0;
+        Func<bool> onRunner = () => Environment.CurrentManagedThreadId == runner;
+        return await Task.Run(
+                () =>
+                {
+                    runner = Environment.CurrentManagedThreadId;
+                    return (Task<string>)probe.Invoke(null, [run, WhenCompleted, PhysicalThread, onRunner])!;
+                },
+                TestContext.Current.CancellationToken)
+            .WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+    }
+
+    private sealed class DerivedSynchronizationContext : SynchronizationContext;
 
     private static T Completed<T>(object? task)
     {

@@ -326,11 +326,6 @@ internal static class ConcurrencyEscapeAudit
         Add("System.Threading.Tasks.ParallelOptions", EscapeReason.SchedulerValue,
             ".ctor()");
 
-        Add("System.Threading.Tasks.Sources.ManualResetValueTaskSourceCore`1", EscapeReason.ValueTaskSource,
-            "OnCompleted(System.Action`1<System.Object>,System.Object,System.Int16,System.Threading.Tasks.Sources.ValueTaskSourceOnCompletedFlags)",
-            "SetException(System.Exception)",
-            "SetResult(!0)");
-
         Add("System.Threading.Tasks.TaskScheduler", EscapeReason.SchedulerValue,
             "get_Current()");
 

@@ -21,6 +21,7 @@ public sealed class ContinuationRedirectRuleGoldenTests
         using System.Collections.Generic;
         using System.Threading;
         using System.Threading.Tasks;
+        using System.Threading.Tasks.Sources;
 
         namespace Fx
         {
@@ -135,6 +136,16 @@ public sealed class ContinuationRedirectRuleGoldenTests
 
                 public void Resolve() => SetResult(1);
             }
+
+            // A value-task source completes its core, a field, in place.
+            public sealed class CoreSource
+            {
+                private ManualResetValueTaskSourceCore<int> _core;
+
+                public void Resolve() => _core.SetResult(1);
+
+                public void Fail(Exception e) => _core.SetException(e);
+            }
         }
         """;
 
@@ -180,7 +191,7 @@ public sealed class ContinuationRedirectRuleGoldenTests
                 .Distinct()
                 .Order(StringComparer.Ordinal),
         ];
-        Assert.Equal(72, expectedRules.Length);
+        Assert.Equal(74, expectedRules.Length);
         Assert.Equal(expectedRules, appliedRules);
 
         using ModuleDefinition module = context.LoadModule(outputPath);
@@ -210,6 +221,11 @@ public sealed class ContinuationRedirectRuleGoldenTests
         Assert.Equal(
             "System.Threading.Tasks.TaskCompletionSource`1<System.Int32>",
             module.GetType("Fx.DerivedSource").BaseType.FullName);
+        Assert.DoesNotContain(calls, call => call.Name is "SetResult" or "SetException"
+            && call.DeclaringType.FullName.StartsWith("System.Threading.Tasks.Sources.ManualResetValueTaskSourceCore", StringComparison.Ordinal));
+        Assert.True(CecilInspect.CallsAnyContaining(
+            CecilInspect.GetMethod(module, "Fx.CoreSource", "Resolve"),
+            "Clockwork.Shims.System.Threading.Tasks.Sources.ControlledManualResetValueTaskSourceCore::SetResult<System.Int32>"));
         Assert.True(CecilInspect.CallsAnyContaining(
             CecilInspect.GetMethod(module, "Fx.DerivedSource", "Resolve"),
             "Clockwork.Shims.System.Threading.Tasks.ControlledTaskCompletionSource::SetResult<System.Int32>"));

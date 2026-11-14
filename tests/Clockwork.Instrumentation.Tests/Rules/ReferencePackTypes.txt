@@ -1275,6 +1275,11 @@ System.Threading.Tasks.Parallel
 System.Threading.Tasks.ParallelLoopResult
 System.Threading.Tasks.ParallelLoopState
 System.Threading.Tasks.ParallelOptions
+System.Threading.Tasks.Sources.IValueTaskSource
+System.Threading.Tasks.Sources.IValueTaskSource`1
+System.Threading.Tasks.Sources.ManualResetValueTaskSourceCore`1
+System.Threading.Tasks.Sources.ValueTaskSourceOnCompletedFlags
+System.Threading.Tasks.Sources.ValueTaskSourceStatus
 System.Threading.Tasks.Task
 System.Threading.Tasks.TaskAsyncEnumerableExtensions
 System.Threading.Tasks.TaskCanceledException

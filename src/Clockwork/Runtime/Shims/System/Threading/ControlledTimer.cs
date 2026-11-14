@@ -378,7 +378,7 @@ internal sealed class ShimTimerRegistration
             _disposeSignal = null;
         }
 
-        if (_disposeCompletion is { } completion && completion.TrySetResult())
+        if (_disposeCompletion is { } completion && SimulationCompletion.TrySetResult(completion, "System.Threading.Timer.DisposeAsync"))
         {
             // Callbacks which ran before disposal completed happen before an await of DisposeAsync resumes.
             RaceSynchronization.Signal(completion.Task);

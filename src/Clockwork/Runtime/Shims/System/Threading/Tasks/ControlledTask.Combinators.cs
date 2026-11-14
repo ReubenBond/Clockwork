@@ -232,16 +232,16 @@ public static partial class ControlledTask
             {
                 if (task.Status != TaskStatus.RanToCompletion)
                 {
-                    promise.TrySetFromTask(task.Unwrap());
+                    SimulationCompletion.TrySetFromTask(promise, task.Unwrap(), UnwrapApi);
                 }
                 else if (task.Result is Task inner)
                 {
-                    promise.TrySetFromTask(inner);
+                    SimulationCompletion.TrySetFromTask(promise, inner, UnwrapApi);
                 }
                 else
                 {
                     // The BCL's unwrap promise cancels with the default token when the inner task is null.
-                    promise.TrySetCanceled(default);
+                    SimulationCompletion.TrySetCanceled(promise, default, UnwrapApi);
                 }
             },
             UnwrapApi);
@@ -276,15 +276,15 @@ public static partial class ControlledTask
                 if (task.Status != TaskStatus.RanToCompletion)
                 {
                     // The outer task has completed, so the BCL proxy transfers its fault or cancellation synchronously.
-                    promise.TrySetFromTask(task.Unwrap());
+                    SimulationCompletion.TrySetFromTask(promise, task.Unwrap(), UnwrapApi);
                 }
                 else if (task.Result is Task<TResult> inner)
                 {
-                    promise.TrySetFromTask(inner);
+                    SimulationCompletion.TrySetFromTask(promise, inner, UnwrapApi);
                 }
                 else
                 {
-                    promise.TrySetCanceled(default);
+                    SimulationCompletion.TrySetCanceled(promise, default, UnwrapApi);
                 }
             },
             UnwrapApi);
@@ -315,7 +315,7 @@ public static partial class ControlledTask
         }
 
         var promise = new TaskCompletionSource();
-        CompleteWhenReady(order.Observe, () => promise.TrySetFromTask(Task.WhenAll(order.Completed)), WhenAllApi);
+        CompleteWhenReady(order.Observe, () => SimulationCompletion.TrySetFromTask(promise, Task.WhenAll(order.Completed), WhenAllApi), WhenAllApi);
         return Track(promise.Task, copy);
     }
 
@@ -338,7 +338,7 @@ public static partial class ControlledTask
         }
 
         var promise = new TaskCompletionSource<TResult[]>();
-        CompleteWhenReady(progress.Observe, () => promise.TrySetFromTask(Task.WhenAll(copy)), WhenAllApi);
+        CompleteWhenReady(progress.Observe, () => SimulationCompletion.TrySetFromTask(promise, Task.WhenAll(copy), WhenAllApi), WhenAllApi);
         return Track(promise.Task, copy);
     }
 
@@ -424,7 +424,7 @@ public static partial class ControlledTask
         var promise = new TaskCompletionSource<TTask>();
         CompleteWhenReady(
             () => (winner = FirstCompleted(tasks)) is not null,
-            () => promise.TrySetResult(winner!),
+            () => SimulationCompletion.TrySetResult(promise, winner!, WhenAnyApi),
             WhenAnyApi);
         return TrackWinner(promise.Task);
     }

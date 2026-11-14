@@ -87,7 +87,8 @@ public sealed class PlinqConformanceTests : IDisposable
             ProbeType,
             Source,
             rule => rule.Id.StartsWith("clockwork.plinq.", StringComparison.Ordinal));
-        using var host = new SimulationHost(Start);
+        // The guard is off: the escape this test pins runs the query on the thread pool.
+        using var host = new SimulationHost(Start, allowThreadPoolEscapes: true);
         var observed = new ConcurrentQueue<bool>();
 
         // An array is range-partitioned, so the worker tasks of three of the four partitions each run their own range.

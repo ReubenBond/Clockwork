@@ -116,6 +116,77 @@ public sealed class TaskCompletionRaceEdgeTests
         Assert.Null(scheduler.FirstRace);
     }
 
+    // SetFromTask acquires the completed task's edges before it completes the source, so a framework continuation which
+    // runs inline inside the completion is ordered after the writes which preceded that task's completion.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SetFromTaskOrdersAnInlineFrameworkContinuationAfterTheCompletedTask(bool tryForm)
+    {
+        var antecedent = new TaskCompletionSource<int>();
+        var source = new TaskCompletionSource<int>();
+        bool read = false;
+        using SimulationScheduler scheduler = SchedulerTestHarness.NewScheduler();
+        scheduler.Schedule("producer", () =>
+        {
+            RaceInstrumentation.WriteStatic(Location, "producer", 1, null, -1);
+            ControlledTaskCompletionSource.SetResult(antecedent, 1);
+        });
+        scheduler.Drain(TestContext.Current.CancellationToken);
+        scheduler.Schedule("forwarder", () =>
+        {
+            source.Task.ConfigureAwait(false).GetAwaiter().UnsafeOnCompleted(() =>
+            {
+                Read();
+                read = true;
+            });
+            if (tryForm)
+            {
+                Assert.True(ControlledTaskCompletionSource.TrySetFromTask(source, antecedent.Task));
+            }
+            else
+            {
+                ControlledTaskCompletionSource.SetFromTask(source, antecedent.Task);
+            }
+
+            Assert.True(read);
+        });
+        scheduler.Drain(TestContext.Current.CancellationToken);
+
+        Assert.Null(scheduler.FirstRace);
+    }
+
+    // A documented limitation: a task which uninstrumented code completes publishes no release edge. A framework method
+    // awaits a task which rewritten code completes, and completes its own task inline inside that completion; rewritten
+    // code which awaits the framework method's task is not ordered after the completer's writes, so the detector reports
+    // a race that is not one.
+    [Fact]
+    public void ATaskWhichAFrameworkAwaitCompletesPublishesNoEdge()
+    {
+        var antecedent = new TaskCompletionSource<int>();
+        Task? forwarded = null;
+        using SimulationScheduler scheduler = SchedulerTestHarness.NewScheduler();
+        scheduler.Schedule("producer", () =>
+        {
+            forwarded = ForwardAsync(antecedent.Task);
+            RaceInstrumentation.WriteStatic(Location, "producer", 1, null, -1);
+            ControlledTaskCompletionSource.SetResult(antecedent, 1);
+            Assert.True(forwarded.IsCompleted);
+        });
+        scheduler.Drain(TestContext.Current.CancellationToken);
+        scheduler.Schedule("consumer", () =>
+        {
+            new ControlledTaskAwaiter(forwarded!).GetResult();
+            Read();
+        });
+        scheduler.Drain(TestContext.Current.CancellationToken);
+
+        RaceReport race = Assert.IsType<RaceReport>(scheduler.FirstRace);
+        Assert.Equal(Location, race.FirstAccess.Location.Member);
+
+        static async Task ForwardAsync(Task task) => await task.ConfigureAwait(false);
+    }
+
     [Fact]
     public void TimerCallbackHappensBeforeTheAwaitOfDisposeAsync()
     {

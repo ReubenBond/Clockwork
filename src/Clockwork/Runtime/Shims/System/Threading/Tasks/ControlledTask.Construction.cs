@@ -33,8 +33,9 @@ public static partial class ControlledTask
     private const string TaskConstructorApi = "System.Threading.Tasks.Task..ctor";
     private const string GenericTaskConstructorApi = "System.Threading.Tasks.Task`1..ctor";
 
-    // The options which the controlled constructors add to every task they construct.
-    private const TaskCreationOptions ConstructorOptions = TaskCreationOptions.HideScheduler | TaskCreationOptions.DenyChildAttach;
+    // The options which the controlled constructors add to every task they construct, and with which Clockwork's own
+    // tasks run code which must see the default scheduler (see SimulationCompletion).
+    internal const TaskCreationOptions ConstructorOptions = TaskCreationOptions.HideScheduler | TaskCreationOptions.DenyChildAttach;
 
     // The constructor options each constructed task's creator did not pass itself.
     private static readonly ConditionalWeakTable<Task, StrongBox<TaskCreationOptions>> AddedByConstructor = [];
@@ -243,7 +244,7 @@ public static partial class ControlledTask
     /// <returns>The task's creation options.</returns>
     public static TaskCreationOptions CreationOptions(Task task)
     {
-        _ = SimulationRuntimeDispatch.RequireSimulationThreadIfActive("System.Threading.Tasks.Task", "get_CreationOptions");
+        SimulationRuntimeDispatch.RequireSimulationThreadIfActive("System.Threading.Tasks.Task", "get_CreationOptions");
 
         // An instance getter: a null receiver fails with the runtime's NullReferenceException.
         TaskCreationOptions options = task.CreationOptions;

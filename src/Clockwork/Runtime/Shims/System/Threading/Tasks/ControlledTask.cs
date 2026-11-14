@@ -34,6 +34,9 @@ namespace Clockwork.Shims.System.Threading.Tasks;
 /// </summary>
 public static partial class ControlledTask
 {
+    private const string TaskRunApi = "System.Threading.Tasks.Task.Run";
+    private const string WaitAsyncApi = "System.Threading.Tasks.Task.WaitAsync";
+
     private const string StartApi = "System.Threading.Tasks.Task.Start";
     private const string RunSynchronouslyApi = "System.Threading.Tasks.Task.RunSynchronously";
 
@@ -324,7 +327,7 @@ public static partial class ControlledTask
     /// <returns>A task that completes when the work does.</returns>
     public static Task Run(Action action, CancellationToken cancellationToken)
     {
-        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.Run");
+        SimulationRuntimeDispatch.RequireActiveSimulation(TaskRunApi);
         ArgumentNullException.ThrowIfNull(action);
         ExecutionContext? context = ExecutionContext.Capture();
         var tcs = new TaskCompletionSource();
@@ -335,7 +338,7 @@ public static partial class ControlledTask
                 {
                     if (cancellationToken.IsCancellationRequested)
                     {
-                        tcs.TrySetCanceled(cancellationToken);
+                        SimulationCompletion.TrySetCanceled(tcs, cancellationToken, TaskRunApi);
                         PublishCompletion(tcs.Task);
                         return;
                     }
@@ -343,21 +346,21 @@ public static partial class ControlledTask
                     try
                     {
                         action();
-                        tcs.TrySetResult();
+                        SimulationCompletion.TrySetResult(tcs, TaskRunApi);
                         PublishCompletion(tcs.Task);
                     }
                     catch (OperationCanceledException oce)
                     {
-                        tcs.TrySetCanceled(oce.CancellationToken);
+                        SimulationCompletion.TrySetCanceled(tcs, oce.CancellationToken, TaskRunApi);
                         PublishCompletion(tcs.Task);
                     }
                     catch (Exception ex)
                     {
-                        tcs.TrySetException(ex);
+                        SimulationCompletion.TrySetException(tcs, ex, TaskRunApi);
                         PublishCompletion(tcs.Task);
                     }
                 }),
-            "System.Threading.Tasks.Task.Run");
+            TaskRunApi);
         return tcs.Task;
     }
 
@@ -374,7 +377,7 @@ public static partial class ControlledTask
     /// <returns>A task with the function's result.</returns>
     public static Task<TResult> Run<TResult>(Func<TResult> function, CancellationToken cancellationToken)
     {
-        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.Run");
+        SimulationRuntimeDispatch.RequireActiveSimulation(TaskRunApi);
         ArgumentNullException.ThrowIfNull(function);
         ExecutionContext? context = ExecutionContext.Capture();
         var tcs = new TaskCompletionSource<TResult>();
@@ -385,28 +388,29 @@ public static partial class ControlledTask
                 {
                     if (cancellationToken.IsCancellationRequested)
                     {
-                        tcs.TrySetCanceled(cancellationToken);
+                        SimulationCompletion.TrySetCanceled(tcs, cancellationToken, TaskRunApi);
                         PublishCompletion(tcs.Task);
                         return;
                     }
 
                     try
                     {
-                        tcs.TrySetResult(function());
+                        TResult result = function();
+                        SimulationCompletion.TrySetResult(tcs, result, TaskRunApi);
                         PublishCompletion(tcs.Task);
                     }
                     catch (OperationCanceledException oce)
                     {
-                        tcs.TrySetCanceled(oce.CancellationToken);
+                        SimulationCompletion.TrySetCanceled(tcs, oce.CancellationToken, TaskRunApi);
                         PublishCompletion(tcs.Task);
                     }
                     catch (Exception ex)
                     {
-                        tcs.TrySetException(ex);
+                        SimulationCompletion.TrySetException(tcs, ex, TaskRunApi);
                         PublishCompletion(tcs.Task);
                     }
                 }),
-            "System.Threading.Tasks.Task.Run");
+            TaskRunApi);
         return tcs.Task;
     }
 
@@ -425,7 +429,7 @@ public static partial class ControlledTask
     /// <returns>A task representing the unwrapped inner task.</returns>
     public static Task Run(Func<Task> function, CancellationToken cancellationToken)
     {
-        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.Run");
+        SimulationRuntimeDispatch.RequireActiveSimulation(TaskRunApi);
         ArgumentNullException.ThrowIfNull(function);
         ExecutionContext? context = ExecutionContext.Capture();
         var tcs = new TaskCompletionSource();
@@ -436,7 +440,7 @@ public static partial class ControlledTask
                 {
                     if (cancellationToken.IsCancellationRequested)
                     {
-                        tcs.TrySetCanceled(cancellationToken);
+                        SimulationCompletion.TrySetCanceled(tcs, cancellationToken, TaskRunApi);
                         PublishCompletion(tcs.Task);
                         return;
                     }
@@ -448,32 +452,32 @@ public static partial class ControlledTask
                     }
                     catch (OperationCanceledException oce)
                     {
-                        tcs.TrySetCanceled(oce.CancellationToken);
+                        SimulationCompletion.TrySetCanceled(tcs, oce.CancellationToken, TaskRunApi);
                         PublishCompletion(tcs.Task);
                         return;
                     }
                     catch (Exception ex)
                     {
-                        tcs.TrySetException(ex);
+                        SimulationCompletion.TrySetException(tcs, ex, TaskRunApi);
                         PublishCompletion(tcs.Task);
                         return;
                     }
 
                     if (inner is null)
                     {
-                        tcs.TrySetException(new InvalidOperationException(
-                            "Task.Run(Func<Task>) delegate returned a null task."));
+                        SimulationCompletion.TrySetException(tcs, new InvalidOperationException(
+                            "Task.Run(Func<Task>) delegate returned a null task."), TaskRunApi);
                         PublishCompletion(tcs.Task);
                         return;
                     }
 
                     SimulationTaskRuntime.ScheduleContinuation(
                         inner,
-                        () => PropagateTo(inner, tcs),
-                        "System.Threading.Tasks.Task.Run",
+                        () => PropagateTo(inner, tcs, TaskRunApi),
+                        TaskRunApi,
                         flowExecutionContext: false);
                 }),
-            "System.Threading.Tasks.Task.Run");
+            TaskRunApi);
         return tcs.Task;
     }
 
@@ -490,7 +494,7 @@ public static partial class ControlledTask
     /// <returns>A task representing the unwrapped inner task's result.</returns>
     public static Task<TResult> Run<TResult>(Func<Task<TResult>> function, CancellationToken cancellationToken)
     {
-        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.Run");
+        SimulationRuntimeDispatch.RequireActiveSimulation(TaskRunApi);
         ArgumentNullException.ThrowIfNull(function);
         ExecutionContext? context = ExecutionContext.Capture();
         var tcs = new TaskCompletionSource<TResult>();
@@ -501,7 +505,7 @@ public static partial class ControlledTask
                 {
                     if (cancellationToken.IsCancellationRequested)
                     {
-                        tcs.TrySetCanceled(cancellationToken);
+                        SimulationCompletion.TrySetCanceled(tcs, cancellationToken, TaskRunApi);
                         PublishCompletion(tcs.Task);
                         return;
                     }
@@ -513,32 +517,32 @@ public static partial class ControlledTask
                     }
                     catch (OperationCanceledException oce)
                     {
-                        tcs.TrySetCanceled(oce.CancellationToken);
+                        SimulationCompletion.TrySetCanceled(tcs, oce.CancellationToken, TaskRunApi);
                         PublishCompletion(tcs.Task);
                         return;
                     }
                     catch (Exception ex)
                     {
-                        tcs.TrySetException(ex);
+                        SimulationCompletion.TrySetException(tcs, ex, TaskRunApi);
                         PublishCompletion(tcs.Task);
                         return;
                     }
 
                     if (inner is null)
                     {
-                        tcs.TrySetException(new InvalidOperationException(
-                            "Task.Run(Func<Task<TResult>>) delegate returned a null task."));
+                        SimulationCompletion.TrySetException(tcs, new InvalidOperationException(
+                            "Task.Run(Func<Task<TResult>>) delegate returned a null task."), TaskRunApi);
                         PublishCompletion(tcs.Task);
                         return;
                     }
 
                     SimulationTaskRuntime.ScheduleContinuation(
                         inner,
-                        () => PropagateTo(inner, tcs),
-                        "System.Threading.Tasks.Task.Run",
+                        () => PropagateTo(inner, tcs, TaskRunApi),
+                        TaskRunApi,
                         flowExecutionContext: false);
                 }),
-            "System.Threading.Tasks.Task.Run");
+            TaskRunApi);
         return tcs.Task;
     }
 
@@ -578,9 +582,9 @@ public static partial class ControlledTask
         var race = new SimulationTaskCompletionRace(
             task,
             timeout,
-            () => PropagateTo(task, completion),
-            () => completion.TrySetException(new TimeoutException()),
-            () => completion.TrySetCanceled(cancellationToken),
+            () => PropagateTo(task, completion, WaitAsyncApi),
+            () => SimulationCompletion.TrySetException(completion, new TimeoutException(), WaitAsyncApi),
+            () => SimulationCompletion.TrySetCanceled(completion, cancellationToken, WaitAsyncApi),
             cancellationToken);
         race.Start();
         return completion.Task;
@@ -610,9 +614,9 @@ public static partial class ControlledTask
         var race = new SimulationTaskCompletionRace(
             task,
             timeout,
-            () => PropagateTo(task, completion),
-            () => completion.TrySetException(new TimeoutException()),
-            () => completion.TrySetCanceled(cancellationToken),
+            () => PropagateTo(task, completion, WaitAsyncApi),
+            () => SimulationCompletion.TrySetException(completion, new TimeoutException(), WaitAsyncApi),
+            () => SimulationCompletion.TrySetCanceled(completion, cancellationToken, WaitAsyncApi),
             cancellationToken);
         race.Start();
         return completion.Task;
@@ -651,38 +655,38 @@ public static partial class ControlledTask
     }
 
     /// <summary>Copies a completed antecedent's terminal status (success/fault/cancel) onto a non-generic source.</summary>
-    private static void PropagateTo(Task inner, TaskCompletionSource tcs)
+    private static void PropagateTo(Task inner, TaskCompletionSource tcs, string apiName)
     {
         if (inner.IsCanceled)
         {
-            tcs.TrySetCanceled(GetCancellationToken(inner));
+            SimulationCompletion.TrySetCanceled(tcs, GetCancellationToken(inner), apiName);
         }
         else if (inner.IsFaulted)
         {
-            tcs.TrySetException(inner.Exception!.InnerExceptions);
+            SimulationCompletion.TrySetException(tcs, inner.Exception!.InnerExceptions, apiName);
         }
         else
         {
-            tcs.TrySetResult();
+            SimulationCompletion.TrySetResult(tcs, apiName);
         }
 
         PublishCompletion(tcs.Task);
     }
 
     /// <summary>Copies a completed antecedent's terminal status (success/fault/cancel) onto a generic source.</summary>
-    private static void PropagateTo<TResult>(Task<TResult> inner, TaskCompletionSource<TResult> tcs)
+    private static void PropagateTo<TResult>(Task<TResult> inner, TaskCompletionSource<TResult> tcs, string apiName)
     {
         if (inner.IsCanceled)
         {
-            tcs.TrySetCanceled(GetCancellationToken(inner));
+            SimulationCompletion.TrySetCanceled(tcs, GetCancellationToken(inner), apiName);
         }
         else if (inner.IsFaulted)
         {
-            tcs.TrySetException(inner.Exception!.InnerExceptions);
+            SimulationCompletion.TrySetException(tcs, inner.Exception!.InnerExceptions, apiName);
         }
         else
         {
-            tcs.TrySetResult(inner.Result);
+            SimulationCompletion.TrySetResult(tcs, inner.Result, apiName);
         }
 
         PublishCompletion(tcs.Task);

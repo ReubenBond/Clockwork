@@ -547,13 +547,13 @@ public static partial class ControlledTask
         switch (antecedentStatus)
         {
             case TaskStatus.RanToCompletion:
-                gate.TrySetResult();
+                SimulationCompletion.TrySetResult(gate, ContinueWithApi);
                 break;
             case TaskStatus.Canceled:
-                gate.TrySetCanceled();
+                SimulationCompletion.TrySetCanceled(gate, default, ContinueWithApi);
                 break;
             default:
-                gate.TrySetException(GateFault);
+                SimulationCompletion.TrySetException(gate, GateFault, ContinueWithApi);
 
                 // The sentinel fault is Clockwork's own: observing it keeps the gate from reporting it as unobserved.
                 _ = gate.Task.Exception;

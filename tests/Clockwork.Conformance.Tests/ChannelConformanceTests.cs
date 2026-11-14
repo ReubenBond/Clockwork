@@ -755,7 +755,10 @@ public sealed class ChannelConformanceTests : IDisposable
     public async Task ScenarioHasTheBclOutcome(string scenario)
     {
         string controlled;
-        using (var host = new SimulationHost(Start))
+
+        // A built-in channel completes a wait which its token cancels on the thread pool (#59).
+        bool cancelsAPendingWait = scenario.StartsWith("combine/", StringComparison.Ordinal) && scenario.EndsWith("/pending", StringComparison.Ordinal);
+        using (var host = new SimulationHost(Start, allowThreadPoolEscapes: cancelsAPendingWait))
         {
             controlled = Completed((Task<string>)host.Invoke(Method("Scenario"), scenario)!);
         }
@@ -843,7 +846,8 @@ public sealed class ChannelConformanceTests : IDisposable
     // An escaped step completes on the thread pool after the drive returns, so it is joined before the host is disposed.
     private static bool[] ReportThreads(MethodInfo escape, string member, bool escaped)
     {
-        using var host = new SimulationHost(Start);
+        // The guard is off: the escape this test pins runs the step on the thread pool.
+        using var host = new SimulationHost(Start, allowThreadPoolEscapes: true);
         var observed = new ConcurrentQueue<bool>();
 
         object? step = host.Invoke(escape, member, Report(host, observed), !escaped);

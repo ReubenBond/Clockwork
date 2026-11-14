@@ -1,15 +1,33 @@
+using Clockwork.Runtime.Execution;
+
 namespace Clockwork.Runtime.Tasks;
 
 /// <summary>
+/// <para>
 /// Shared lifecycle for a waiter owned by a simulated synchronization primitive.
 /// The owning primitive serializes queue mutation; this type owns completion and
 /// detaches cancellation and deadline registrations when the waiter is claimed.
+/// </para>
+/// <para>
+/// A waiter whose task the BCL completes with <see cref="TaskCreationOptions.RunContinuationsAsynchronously"/> (the task
+/// <c>SemaphoreSlim.WaitAsync</c> returns) continues asynchronously: its outcome is fixed when it is claimed, and a
+/// controlled operation of its own completes its task, so no continuation runs inside the call which releases it, as in
+/// the BCL. Any other waiter's task completes inside that call. Either way it completes through
+/// <see cref="SimulationCompletion"/>.
+/// </para>
 /// </summary>
-internal class SimulationWaiter
+/// <param name="asynchronousApi">
+/// The API whose task continues asynchronously, for a waiter whose task completes in a controlled operation of its own;
+/// otherwise <see langword="null"/>.
+/// </param>
+internal class SimulationWaiter(string? asynchronousApi = null)
 {
+    private const string Api = "System.Threading.Tasks.TaskCompletionSource`1";
+
     private readonly TaskCompletionSource<bool> _completion = new();
     private CancellationTokenRegistration _cancellationRegistration;
     private ISimulationTimer? _deadline;
+    private readonly string? _asynchronousApi = asynchronousApi;
     private bool _pending = true;
 
     /// <summary>Gets the task completed by the first terminal waiter outcome.</summary>
@@ -162,8 +180,6 @@ internal class SimulationWaiter
     /// <summary>
     /// Resources detached by the first terminal outcome. Complete outside the owning
     /// primitive's lock so registration disposal and continuations cannot re-enter it.
-    /// A waiter's task may be returned to rewritten code (<c>SemaphoreSlim.WaitAsync</c>, say), so each outcome
-    /// completes it as on a thread-pool thread (see <see cref="ThreadPoolLocation"/>).
     /// </summary>
     internal readonly struct Claim(
         SimulationWaiter waiter,
@@ -176,29 +192,50 @@ internal class SimulationWaiter
 
         public Task<bool> Task => _waiter.Task;
 
-        public void Complete(bool result)
-        {
-            Cleanup();
-            _ = ThreadPoolLocation.Run(
-                (_waiter._completion, result),
-                static outcome => outcome._completion.TrySetResult(outcome.result));
-        }
+        public void Complete(bool result) =>
+            Resolve(result, static (completion, result) => completion.TrySetResult(result));
 
-        public void Cancel(CancellationToken cancellationToken)
-        {
-            Cleanup();
-            _ = ThreadPoolLocation.Run(
-                (_waiter._completion, cancellationToken),
-                static outcome => outcome._completion.TrySetCanceled(outcome.cancellationToken));
-        }
+        public void Cancel(CancellationToken cancellationToken) =>
+            Resolve(cancellationToken, static (completion, cancellationToken) => completion.TrySetCanceled(cancellationToken));
 
         public void Fault(Exception exception)
         {
             ArgumentNullException.ThrowIfNull(exception);
+            Resolve(exception, static (completion, exception) => completion.TrySetException(exception));
+        }
+
+        private static bool IsSimulationThread() =>
+            SimulationExecutionContext.Current is { Runtime.Scheduler.IsSimulationThread: true };
+
+        // The registrations are released inside the completion, so a completion which fails the run does so first. A
+        // waiter which continues asynchronously is delivered by a controlled operation queued from the logical thread; a
+        // cancellation which a thread outside the simulation makes completes it there, where the BCL would too.
+        private void Resolve<TOutcome>(
+            TOutcome outcome,
+            [CompletionCallback] Func<TaskCompletionSource<bool>, TOutcome, bool> complete)
+        {
+            if (_waiter._asynchronousApi is not { } asynchronousApi || !IsSimulationThread())
+            {
+                SimulationCompletion.Run(
+                    (claim: this, outcome, complete),
+                    static completion =>
+                    {
+                        completion.claim.Cleanup();
+                        completion.complete(completion.claim._waiter._completion, completion.outcome);
+                    },
+                    Api);
+                return;
+            }
+
             Cleanup();
-            _ = ThreadPoolLocation.Run(
-                (_waiter._completion, exception),
-                static outcome => outcome._completion.TrySetException(outcome.exception));
+            TaskCompletionSource<bool> source = _waiter._completion;
+            SimulationTaskRuntime.QueueWork(
+                () => SimulationCompletion.Run(
+                    (source, outcome, complete),
+                    static completion => completion.complete(completion.source, completion.outcome),
+                    Api),
+                asynchronousApi,
+                flowExecutionContext: false);
         }
 
         private void Cleanup()

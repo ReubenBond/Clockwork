@@ -56,6 +56,8 @@ public static class InstrumentedApiInventory
         Api("System.Threading.Tasks.TaskCompletionSource`1", "TrySetFromTask"),
         Api("System.Threading.Tasks.TaskCompletionSource", ".ctor"),
         Api("System.Threading.Tasks.TaskCompletionSource`1", ".ctor"),
+        Api("System.Threading.Tasks.Sources.ManualResetValueTaskSourceCore`1", "SetResult"),
+        Api("System.Threading.Tasks.Sources.ManualResetValueTaskSourceCore`1", "SetException"),
         Api("System.Threading.Tasks.ValueTask", "AsTask"),
         Api("System.Threading.Tasks.ValueTask", "Preserve"),
         Api("System.Threading.Tasks.ValueTask`1", "AsTask"),

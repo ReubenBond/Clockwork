@@ -107,7 +107,7 @@ public static class ControlledValueTask
             () => valueTask.IsCompleted,
             () =>
             {
-                promise.TrySetFromTask(valueTask.AsTask());
+                SimulationCompletion.TrySetFromTask(promise, valueTask.AsTask(), AsTaskApi);
                 RaceSynchronization.Signal(promise.Task);
             },
             apiName);
@@ -126,7 +126,7 @@ public static class ControlledValueTask
             () => valueTask.IsCompleted,
             () =>
             {
-                promise.TrySetFromTask(valueTask.AsTask());
+                SimulationCompletion.TrySetFromTask(promise, valueTask.AsTask(), GenericAsTaskApi);
                 RaceSynchronization.Signal(promise.Task);
             },
             apiName);

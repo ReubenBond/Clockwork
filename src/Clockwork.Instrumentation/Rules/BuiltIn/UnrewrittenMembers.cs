@@ -1345,6 +1345,20 @@ internal static class UnrewrittenMembers
             "get_CurrentId()",
             "get_Id()");
 
+        Add("System.Threading.Tasks.Sources.ManualResetValueTaskSourceCore`1", UnrewrittenReason.Value,
+            "get_RunContinuationsAsynchronously()",
+            "set_RunContinuationsAsynchronously(System.Boolean)",
+            "get_Version()",
+            "GetResult(System.Int16)",
+            "GetStatus(System.Int16)",
+            "Reset()");
+
+        // The controlled awaiters observe a value-task source through GetStatus rather than register on it; a
+        // continuation which uninstrumented code registers follows the BCL's dispatch, which the completion shims run on
+        // the logical thread unless the core runs continuations asynchronously.
+        Add("System.Threading.Tasks.Sources.ManualResetValueTaskSourceCore`1", UnrewrittenReason.Schedules,
+            "OnCompleted(System.Action`1<System.Object>,System.Object,System.Int16,System.Threading.Tasks.Sources.ValueTaskSourceOnCompletedFlags)");
+
         Add("System.Threading.Tasks.TaskCompletionSource", UnrewrittenReason.Value,
             ".ctor()",
             ".ctor(System.Object)",

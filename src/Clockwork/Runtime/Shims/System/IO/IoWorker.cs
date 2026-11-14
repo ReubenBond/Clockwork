@@ -38,22 +38,23 @@ internal static class IoWorker
             {
                 if (cancellationToken.IsCancellationRequested)
                 {
-                    completion.TrySetCanceled(cancellationToken);
+                    SimulationCompletion.TrySetCanceled(completion, cancellationToken, apiName);
                 }
                 else
                 {
                     try
                     {
-                        completion.TrySetResult(body());
+                        TResult result = body();
+                        SimulationCompletion.TrySetResult(completion, result, apiName);
                     }
                     catch (OperationCanceledException exception)
                         when (cancellationToken.IsCancellationRequested && exception.CancellationToken == cancellationToken)
                     {
-                        completion.TrySetCanceled(cancellationToken);
+                        SimulationCompletion.TrySetCanceled(completion, cancellationToken, apiName);
                     }
                     catch (Exception exception)
                     {
-                        completion.TrySetException(exception);
+                        SimulationCompletion.TrySetException(completion, exception, apiName);
                     }
                 }
 

@@ -488,7 +488,8 @@ public sealed class StreamConformanceTests : IDisposable
             ProbeType,
             Source,
             rule => rule.Id.StartsWith("clockwork.io.", StringComparison.Ordinal));
-        using var host = new SimulationHost(Start);
+        // The guard is off: the escape this test pins queues the read to the thread pool.
+        using var host = new SimulationHost(Start, allowThreadPoolEscapes: true);
         var observed = new ConcurrentQueue<bool>();
 
         _ = host.Invoke(escaping.Method("ReadOnce"), (Action)(() => observed.Enqueue(host.Scheduler.IsSimulationThread)));

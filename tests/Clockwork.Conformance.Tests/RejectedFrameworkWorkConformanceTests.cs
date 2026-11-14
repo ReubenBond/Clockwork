@@ -196,7 +196,8 @@ public sealed class RejectedFrameworkWorkConformanceTests : IDisposable
             ProbeType,
             Source,
             rule => rule.Id.StartsWith(rulePrefix, StringComparison.Ordinal));
-        using var host = new SimulationHost(Start);
+        // The guard is off: the escape this test pins runs the work on the thread pool.
+        using var host = new SimulationHost(Start, allowThreadPoolEscapes: true);
         var observed = new ConcurrentQueue<bool>();
 
         host.Invoke(escaping.Method("Begin"), entryPoint, (Action)(() => observed.Enqueue(host.Scheduler.IsSimulationThread)));

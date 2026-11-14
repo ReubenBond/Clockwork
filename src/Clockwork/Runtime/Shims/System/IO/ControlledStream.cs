@@ -627,15 +627,15 @@ public static class ControlledStream
             try
             {
                 int result = isRead ? EndRead(stream, asyncResult) : EndWriteReturningZero(stream, asyncResult);
-                completion.TrySetResult(result);
+                SimulationCompletion.TrySetResult(completion, result, isRead ? ReadAsyncApi : WriteAsyncApi);
             }
             catch (OperationCanceledException exception)
             {
-                completion.TrySetCanceled(exception.CancellationToken);
+                SimulationCompletion.TrySetCanceled(completion, exception.CancellationToken, isRead ? ReadAsyncApi : WriteAsyncApi);
             }
             catch (Exception exception)
             {
-                completion.TrySetException(exception);
+                SimulationCompletion.TrySetException(completion, exception, isRead ? ReadAsyncApi : WriteAsyncApi);
             }
 
             RaceSynchronization.Signal(completion.Task);
@@ -810,11 +810,11 @@ public static class ControlledStream
 
             if (failure is null)
             {
-                _completion.TrySetResult(result);
+                SimulationCompletion.TrySetResult(_completion, result, IsRead ? ReadAsyncApi : WriteAsyncApi);
             }
             else
             {
-                _completion.TrySetException(failure);
+                SimulationCompletion.TrySetException(_completion, failure, IsRead ? ReadAsyncApi : WriteAsyncApi);
             }
 
             RaceSynchronization.Signal(_completion.Task);

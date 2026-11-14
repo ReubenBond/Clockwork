@@ -185,6 +185,9 @@ public static class BuiltInRuleSets
     // Cecil full names for the TaskCompletionSource completion members. The generic source's members are
     // non-generic members of the closed generic type (`!0` target), bound to the shim's TResult from the receiver.
     private const string TaskCompletionSourceShim = "Clockwork.Shims.System.Threading.Tasks.ControlledTaskCompletionSource";
+    private const string ValueTaskSourceCoreShim = "Clockwork.Shims.System.Threading.Tasks.Sources.ControlledManualResetValueTaskSourceCore";
+    private const string ValueTaskSourceCoreType = "System.Threading.Tasks.Sources.ManualResetValueTaskSourceCore`1";
+    private const string ValueTaskSourceCoreRefDecl = "System.Threading.Tasks.Sources.ManualResetValueTaskSourceCore`1<TResult>&";
     private const string TaskCompletionSourceType = "System.Threading.Tasks.TaskCompletionSource";
     private const string TaskCompletionSourceTType = "System.Threading.Tasks.TaskCompletionSource`1";
     private const string TaskCompletionSourceTDecl = "System.Threading.Tasks.TaskCompletionSource`1<TResult>";
@@ -870,6 +873,16 @@ public static class BuiltInRuleSets
         // source through the same member and publish a race-detection release edge on its task. ----
         CompletionSourceRules(builder, "clockwork.tasks.completionsource", TaskCompletionSourceType, TaskCompletionSourceType, [], [], Task, Task);
         CompletionSourceRules(builder, "clockwork.tasks.completionsource.generic", TaskCompletionSourceTType, TaskCompletionSourceTDecl, [TypeArg0], [TResultDecl], TaskTypeArg0, TaskTDecl);
+
+        // ManualResetValueTaskSourceCore<TResult>'s completion members -> shims which complete the core as the completion
+        // shims complete a source, so a continuation which the core runs inline (or a task over it which the BCL completes)
+        // runs on the logical thread. The receiver is a value type, usually a field, so the shim takes it by reference.
+        TaskRule(builder, BuiltInRuleFamily.TaskCompletionSource, "clockwork.tasks.valuetasksourcecore.setresult",
+            MemberSignature.Method(ValueTaskSourceCoreType, "SetResult", TypeArg0),
+            Shim(ValueTaskSourceCoreShim, "SetResult", ValueTaskSourceCoreRefDecl, TResultDecl));
+        TaskRule(builder, BuiltInRuleFamily.TaskCompletionSource, "clockwork.tasks.valuetasksourcecore.setexception",
+            MemberSignature.Method(ValueTaskSourceCoreType, "SetException", ExceptionTypeName),
+            Shim(ValueTaskSourceCoreShim, "SetException", ValueTaskSourceCoreRefDecl, ExceptionTypeName));
 
         // The constructors which take creation options redirect to factories which reject AttachedToParent inside a
         // simulation, as the Task constructors do: Clockwork's controlled tasks do not model parent and child tasks.

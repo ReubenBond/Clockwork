@@ -13,6 +13,8 @@ namespace Clockwork.Shims.System.Threading.Tasks;
 
 public static partial class ControlledParallel
 {
+    private const string LoopApi = "System.Threading.Tasks.Parallel";
+
     /// <summary>
     /// The deterministic worker pool behind every controlled <see cref="Parallel"/> loop, whose contract is the Parallel
     /// loops section of docs/compatibility.md. Each worker takes an
@@ -140,7 +142,7 @@ public static partial class ControlledParallel
             (_exceptions ??= []).Add(exception);
             try
             {
-                InternalCancellation.Cancel();
+                SimulationCompletion.Cancel(InternalCancellation, LoopApi);
             }
             catch (AggregateException callbackFaults)
             {
@@ -181,7 +183,7 @@ public static partial class ControlledParallel
         private void OnExternalCancellation()
         {
             ExternalCancellationObserved = true;
-            InternalCancellation.Cancel();
+            SimulationCompletion.Cancel(InternalCancellation, LoopApi);
         }
 
         private void QueueWorkerIfDopAvailable()
@@ -310,18 +312,24 @@ public static partial class ControlledParallel
                 RecordException(exception);
             }
 
-            if (ExternalCancellationToken.IsCancellationRequested)
-            {
-                _completion.SetCanceled(ExternalCancellationToken);
-            }
-            else if (_exceptions is null)
-            {
-                _completion.SetResult();
-            }
-            else
-            {
-                _completion.SetException(_exceptions);
-            }
+            SimulationCompletion.Run(
+                (source: _completion, canceledBy: ExternalCancellationToken, exceptions: _exceptions),
+                static completion =>
+                {
+                    if (completion.canceledBy.IsCancellationRequested)
+                    {
+                        completion.source.SetCanceled(completion.canceledBy);
+                    }
+                    else if (completion.exceptions is null)
+                    {
+                        completion.source.SetResult();
+                    }
+                    else
+                    {
+                        completion.source.SetException(completion.exceptions);
+                    }
+                },
+                LoopApi);
 
             RaceSynchronization.Signal(_completion.Task);
         }

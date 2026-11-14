@@ -10,6 +10,10 @@ namespace Clockwork.Conformance.Tests;
 /// active) and returns the result, unwrapping reflection exceptions so tests can assert on the real
 /// shim exception types.
 /// <para>
+/// The host watches its simulation with <see cref="ThreadPoolEscapeGuard"/> and fails the test, when it is disposed, if
+/// the simulation's logical thread queued work to the real thread pool. A test which pins such an escape opts out.
+/// </para>
+/// <para>
 /// Each drive of the cluster runs on a thread of its own under a watchdog. A probe which blocks the simulation's logical
 /// thread in a real wait never hands control back to the scheduler, so the drive never returns; the watchdog fails the
 /// test with a message once the drive outlasts its bound, rather than leaving it to CI's job timeout.
@@ -24,6 +28,7 @@ internal sealed class SimulationHost : IDisposable
     private readonly Dictionary<string, SimulationNode> _nodes = new(StringComparer.Ordinal);
     private readonly string _defaultAddress;
     private readonly TimeSpan _hangBound;
+    private readonly bool _allowThreadPoolEscapes;
 
     // Set once a drive outlasts the watchdog: its thread still holds the cluster, so disposing the cluster would hang too.
     private bool _hung;
@@ -34,11 +39,13 @@ internal sealed class SimulationHost : IDisposable
         TimeZoneInfo? timeZone = null,
         IReadOnlyList<string>? nodeAddresses = null,
         int? processorCount = null,
-        TimeSpan? hangBound = null)
+        TimeSpan? hangBound = null,
+        bool allowThreadPoolEscapes = false)
     {
         IReadOnlyList<string> addresses = nodeAddresses ?? ["node"];
         _defaultAddress = addresses[0];
         _hangBound = hangBound ?? DefaultHangBound;
+        _allowThreadPoolEscapes = allowThreadPoolEscapes;
 
         _cluster = new SimulationCluster(
             seed,
@@ -50,6 +57,8 @@ internal sealed class SimulationHost : IDisposable
         {
             _nodes[address] = _cluster.AddNode(address);
         }
+
+        ThreadPoolEscapeGuard.Watch(_cluster.Scheduler);
     }
 
     /// <summary>Gets the scheduler which runs the cluster's controlled operations.</summary>
@@ -90,6 +99,23 @@ internal sealed class SimulationHost : IDisposable
         }
 
         return result;
+    }
+
+    /// <summary>Runs uninstrumented <paramref name="work"/> as work of the default node's lane.</summary>
+    public void InvokeAction(Action work)
+    {
+        _nodes[_defaultAddress].Context.SchedulerLane.EnqueueAfter(work, TimeSpan.Zero);
+        RunUntilIdle();
+    }
+
+    /// <summary>
+    /// Starts the probe fire-and-forget as work of the cluster's own lane, as Clog starts its system under test, and runs
+    /// the simulation until it is idle. The probe reports its outcome through its arguments.
+    /// </summary>
+    public void InvokeOnClusterLane(MethodInfo method, params object?[] args)
+    {
+        _cluster.SchedulerLane.Enqueue(() => _ = method.Invoke(null, args.Length == 0 ? null : args));
+        RunUntilIdle();
     }
 
     /// <summary>
@@ -166,6 +192,14 @@ internal sealed class SimulationHost : IDisposable
         if (!_hung)
         {
             _cluster.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
+
+        IReadOnlyCollection<string> escapes = ThreadPoolEscapeGuard.Unwatch(_cluster.Scheduler);
+        if (!_allowThreadPoolEscapes && escapes.Count > 0)
+        {
+            Assert.Fail(
+                $"The simulation's logical thread queued {escapes.Count} work item(s) to the real thread pool. The first was " +
+                $"queued at:{Environment.NewLine}{escapes.First()}");
         }
     }
 

@@ -1377,7 +1377,8 @@ public sealed class ParallelLoopConformanceTests : IDisposable
     // Reports, for each body, whether it ran on the simulation's logical thread.
     private static bool[] ReportThreads(MethodInfo method, bool forAsync, bool controlled)
     {
-        using var host = new SimulationHost(Start);
+        // The guard is off for an uncontrolled loop, whose escape runs the bodies on the thread pool.
+        using var host = new SimulationHost(Start, allowThreadPoolEscapes: !controlled);
         var observed = new ConcurrentQueue<bool>();
         var loop = (Task)host.Invoke(method, forAsync, 3, new Action(() => observed.Enqueue(host.Scheduler.IsSimulationThread)))!;
 

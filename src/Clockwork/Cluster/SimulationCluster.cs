@@ -5,6 +5,7 @@ using Clockwork.Runtime.Random;
 using Clockwork.Runtime.Scheduling;
 using Clockwork.Runtime.Shims;
 using Microsoft.Extensions.Logging;
+using Clockwork.Runtime.Tasks;
 
 namespace Clockwork;
 
@@ -16,6 +17,8 @@ namespace Clockwork;
 [DebuggerDisplay("{DebuggerDisplay,nq}")]
 public sealed partial class SimulationCluster : IAsyncDisposable
 {
+    private const string TeardownApi = "Clockwork.SimulationCluster.TeardownCancellationToken";
+
     private const int DisposalMaxIterations = 1_000_000;
 
     private readonly SortedDictionary<string, SimulationNode> _nodes = new(StringComparer.Ordinal);
@@ -768,7 +771,7 @@ public sealed partial class SimulationCluster : IAsyncDisposable
     {
         if (_callerCancellation.IsCancellationRequested && !_teardownCts.IsCancellationRequested)
         {
-            _teardownCts.Cancel();
+            SimulationCompletion.Cancel(_teardownCts, TeardownApi);
         }
     }
 
@@ -786,7 +789,7 @@ public sealed partial class SimulationCluster : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(cts);
         try
         {
-            cts.Cancel();
+            SimulationCompletion.Cancel(cts, TeardownApi);
         }
         catch (ObjectDisposedException)
         {

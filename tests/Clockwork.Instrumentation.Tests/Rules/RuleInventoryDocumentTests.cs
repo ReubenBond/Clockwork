@@ -162,7 +162,12 @@ public sealed class RuleInventoryDocumentTests
                 .Order(StringComparer.Ordinal),
         ];
 
-        string[] framework = [.. Completions(typeof(TaskCompletionSource)), .. Completions(typeof(TaskCompletionSource<>))];
+        string[] framework =
+        [
+            .. Completions(typeof(TaskCompletionSource)),
+            .. Completions(typeof(TaskCompletionSource<>)),
+            .. Completions(typeof(System.Threading.Tasks.Sources.ManualResetValueTaskSourceCore<>)),
+        ];
         string[] classified =
         [
             .. BuiltInRuleSets.ControlledTasksInventory
@@ -172,7 +177,7 @@ public sealed class RuleInventoryDocumentTests
                 .Order(StringComparer.Ordinal),
         ];
 
-        Assert.Equal(24, framework.Length);
+        Assert.Equal(26, framework.Length);
         Assert.Equal(framework.Order(StringComparer.Ordinal), classified);
         Assert.DoesNotContain(
             BuiltInRuleSets.ControlledTasksInventory,

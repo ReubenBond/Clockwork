@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using System.Threading.Tasks.Sources;
 using Clockwork.Runtime.Racing;
 using Clockwork.Runtime.Shims;
+using Clockwork.Runtime.Tasks;
 
 namespace Clockwork.Shims.System.Threading.Tasks;
 
@@ -229,7 +230,11 @@ public static partial class ControlledTask
                     else
                     {
                         Current = available;
-                        _promise.SetResult(true);
+                        SimulationCompletion.Run(
+                            ref _promise,
+                            true,
+                            static (ref ManualResetValueTaskSourceCore<bool> promise, bool result) => promise.SetResult(result),
+                            WhenEachApi);
                     }
                 },
                 WhenEachApi);
@@ -292,7 +297,11 @@ public static partial class ControlledTask
         private void Complete(Exception exception)
         {
             End();
-            _promise.SetException(exception);
+            SimulationCompletion.Run(
+                ref _promise,
+                exception,
+                static (ref ManualResetValueTaskSourceCore<bool> promise, Exception exception) => promise.SetException(exception),
+                WhenEachApi);
         }
 
         // An ended iterator's Current is default, and the tasks it claimed need no further observation.
