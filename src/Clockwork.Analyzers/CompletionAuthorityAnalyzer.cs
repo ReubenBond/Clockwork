@@ -19,7 +19,8 @@ namespace Clockwork.Analyzers;
 /// <c>TaskCompletionSource&lt;TResult&gt;</c>'s <c>Set*</c> and <c>TrySet*</c>,
 /// <c>ManualResetValueTaskSourceCore&lt;TResult&gt;</c>'s <c>SetResult</c> and <c>SetException</c>, and
 /// <c>CancellationTokenSource</c>'s <c>Cancel</c>, <c>CancelAsync</c>, and <c>CancelAfter</c>) unless it is inside
-/// <c>SimulationCompletion</c>, or directly inside a lambda, or is a method group, passed to a parameter marked
+/// <c>SimulationCompletion</c> outside a lambda or local function, or directly inside a synchronous lambda, or is a
+/// method group, passed to a parameter marked
 /// <c>Clockwork.Runtime.Tasks.CompletionCallbackAttribute</c>, which runs only through <c>SimulationCompletion</c>. Outside
 /// <c>SimulationCompletion</c>, such a parameter may only be passed on to another such parameter. The rule is active
 /// only in the assembly which defines <c>SimulationCompletion</c>.
@@ -147,15 +148,19 @@ public sealed class CompletionAuthorityAnalyzer : DiagnosticAnalyzer
             return parent is IArgumentOperation { Parameter: { } parameter } && IsCallbackParameter(parameter);
         }
 
-        // A completion member may be used directly inside a lambda passed as a completion callback, or anywhere in
-        // SimulationCompletion outside a lambda.
+        // A completion member may be used directly inside a synchronous lambda passed as a completion callback, or
+        // anywhere in SimulationCompletion outside a lambda or local function. An async lambda runs everything after its
+        // first await outside the completion, and a local function may be invoked from anywhere it escapes to.
         bool IsAuthorized(IOperation use, ISymbol containingSymbol)
         {
             for (IOperation? operation = use.Parent; operation is not null; operation = operation.Parent)
             {
-                if (operation is IAnonymousFunctionOperation function)
+                switch (operation)
                 {
-                    return IsPassedAsCompletionCallback(function);
+                    case IAnonymousFunctionOperation function:
+                        return !function.Symbol.IsAsync && IsPassedAsCompletionCallback(function);
+                    case ILocalFunctionOperation:
+                        return false;
                 }
             }
 

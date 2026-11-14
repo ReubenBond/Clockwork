@@ -70,6 +70,15 @@ public sealed class CompletionAuthorityAnalyzerTests
         Assert.Single(await AnalyzeAsync(Probe(
             "SimulationCompletion.Run(new TaskCompletionSource(), static source => { Action later = () => source.SetResult(); later(); });")));
 
+    // Everything after an async callback's first await, or a local function's body wherever it escapes to, runs outside
+    // the completion.
+    [Theory]
+    [InlineData("SimulationCompletion.Run(new TaskCompletionSource(), static async source => { await Task.Yield(); source.SetResult(); });")]
+    [InlineData("SimulationCompletion.Run(new TaskCompletionSource(), static source => { async Task Later() { await Task.Yield(); source.SetResult(); } _ = Later(); });")]
+    [InlineData("Action? escaped = null; SimulationCompletion.Run(new TaskCompletionSource(), source => { void Complete() => source.SetResult(); escaped = Complete; }); escaped!();")]
+    public async Task ACompletionInAnAsyncCallbackOrALocalFunctionIsReported(string statement) =>
+        Assert.Single(await AnalyzeAsync(Probe(statement)));
+
     [Fact]
     public async Task AnAttributeOfTheSameSimpleNameInAnotherNamespaceAuthorizesNothing() =>
         Assert.Single(await AnalyzeAsync(Authority + """
