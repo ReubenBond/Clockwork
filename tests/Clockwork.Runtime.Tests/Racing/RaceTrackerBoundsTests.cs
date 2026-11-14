@@ -227,9 +227,9 @@ public sealed class RaceTrackerBoundsTests
             new RaceSourceLocation("reader", 1, null, -1),
             []);
 
-    // The slots a run started count its work, not what it retains.
+    // The slots a run started and its sweeps count its work, not what it retains.
     private static void AssertSameRetainedState(RaceTrackerStatistics shortRun, RaceTrackerStatistics longRun) =>
-        Assert.Equal(shortRun with { SlotsStarted = 0 }, longRun with { SlotsStarted = 0 });
+        Assert.Equal(shortRun with { SlotsStarted = 0, Sweeps = 0 }, longRun with { SlotsStarted = 0, Sweeps = 0 });
 
     private static void AssertRacesWithTheEarlyRead(RaceReport? race)
     {

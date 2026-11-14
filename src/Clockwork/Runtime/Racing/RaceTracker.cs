@@ -80,6 +80,7 @@ internal sealed class RaceTracker
     private int _objectLocations;
     private int _retainedAccesses;
     private int _peakSlots;
+    private int _sweeps;
     private int _largestClock;
 
     public RaceTracker(int minimumSweepThreshold = DefaultMinimumSweepThreshold)
@@ -92,7 +93,7 @@ internal sealed class RaceTracker
 
     /// <summary>Gets the size of the tracker's retained state.</summary>
     public RaceTrackerStatistics Statistics =>
-        new(_operations.Count, _slots.Count, _peakSlots, _nextSlotId, _largestClock, _locations, _retainedAccesses);
+        new(_operations.Count, _slots.Count, _peakSlots, _nextSlotId, _largestClock, _locations, _retainedAccesses, _sweeps);
 
     /// <summary>Registers <paramref name="operation"/>, ordered after its <paramref name="parent"/>'s events so far.</summary>
     public void RegisterOperation(SimulationOperation operation, SimulationOperation? parent)
@@ -697,6 +698,7 @@ internal sealed class RaceTracker
     private void SweepCollectedObjects()
     {
         int live = 0;
+        bool released = false;
         for (int index = 0; index < _trackedObjects.Count; index++)
         {
             TrackedObject tracked = _trackedObjects[index];
@@ -713,6 +715,12 @@ internal sealed class RaceTracker
 
             _locations -= tracked.Locations.Count;
             _objectLocations -= tracked.Locations.Count;
+            released = true;
+        }
+
+        if (released)
+        {
+            _sweeps++;
         }
 
         _trackedObjects.RemoveRange(live, _trackedObjects.Count - live);
@@ -1035,6 +1043,7 @@ internal sealed class RaceTracker
 /// <param name="LargestClock">The most components any clock has held.</param>
 /// <param name="Locations">The tracked locations: every static field and the locations of live objects.</param>
 /// <param name="RetainedAccesses">The accesses locations keep: their last writes and unordered reads.</param>
+/// <param name="Sweeps">The sweeps which released the locations of collected objects.</param>
 internal readonly record struct RaceTrackerStatistics(
     int Operations,
     int Slots,
@@ -1042,4 +1051,5 @@ internal readonly record struct RaceTrackerStatistics(
     long SlotsStarted,
     int LargestClock,
     int Locations,
-    int RetainedAccesses);
+    int RetainedAccesses,
+    int Sweeps);
