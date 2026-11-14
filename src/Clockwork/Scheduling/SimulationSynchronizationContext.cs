@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Runtime.ExceptionServices;
 using Clockwork.Runtime;
+using Clockwork.Runtime.Scheduling;
 
 namespace Clockwork;
 
@@ -9,6 +10,18 @@ namespace Clockwork;
 /// </summary>
 public sealed class SimulationSynchronizationContext(SimulationSchedulerLane schedulerLane) : SynchronizationContext
 {
+    // The lane whose work the calling thread is executing: set while the lane runs one of its items, or while this
+    // context is installed with Install. Which context is current says nothing about it: a completion which Clockwork
+    // makes for simulation code runs with no context current, inside the lane's work (see SimulationCompletion).
+    [ThreadStatic]
+    private static SimulationSchedulerLane? t_executingLane;
+
+    internal static SimulationSchedulerLane? ExecutingLane
+    {
+        get => t_executingLane;
+        set => t_executingLane = value;
+    }
+
     /// <inheritdoc />
     public override void Post(SendOrPostCallback d, object? state)
     {
@@ -22,12 +35,12 @@ public sealed class SimulationSynchronizationContext(SimulationSchedulerLane sch
     /// There are two supported cases:
     /// </para>
     /// <para>
-    /// 1. The calling thread is already running <em>on</em> this context's owning simulated
-    /// operation - either because <see cref="SynchronizationContext.Current"/> is this context
-    /// (or another instance backed by the same <see cref="SimulationSchedulerLane"/>), or because
-    /// <see cref="TaskScheduler.Current"/> is a <see cref="SimulationTaskScheduler"/> backed by the
-    /// same queue. In that case <paramref name="d"/> runs immediately, inline, on the calling
-    /// thread - it is already safe because nothing else can be running concurrently with it.
+    /// 1. The calling thread is executing this context's lane's work: one of the lane's items (a posted callback, a
+    /// task on its <see cref="SimulationTaskScheduler"/>, or the root task of <c>SimulationCluster.RunToCompletion</c>),
+    /// or code inside <see cref="Install"/> of a context backed by the same <see cref="SimulationSchedulerLane"/>.
+    /// Ownership is a fact about execution, not about which context is current, so it holds inside a completion which
+    /// Clockwork runs with no context current. In that case <paramref name="d"/> runs immediately, inline, on the
+    /// calling thread - it is already safe because nothing else can be running concurrently with it.
     /// </para>
     /// <para>
     /// 2. The calling thread is not on the owning operation, but no other thread currently holds
@@ -50,7 +63,9 @@ public sealed class SimulationSynchronizationContext(SimulationSchedulerLane sch
     /// simulation work on this queue - this throws <see cref="InvalidOperationException"/> rather
     /// than attempting a real-time cross-thread wait (which nothing in the simulation would ever
     /// satisfy, since nothing pumps the queue autonomously). This is a real usage error: simulation
-    /// code must not touch a queue from more than one thread at a time.
+    /// code must not touch a queue from more than one thread at a time. Pumping from simulation work of another lane, or
+    /// from a controlled operation, cannot drive the scheduler either: the scheduler's
+    /// <see cref="Runtime.Scheduling.SimulationSchedulerException"/> ends the pump at once and fails the run.
     /// </para>
     /// </summary>
     /// <inheritdoc />
@@ -67,20 +82,8 @@ public sealed class SimulationSynchronizationContext(SimulationSchedulerLane sch
         ScheduleAndPumpUntilExecuted(d, state);
     }
 
-    /// <summary>
-    /// Determines whether the calling thread is already executing within the simulated operation
-    /// that owns this context's underlying queue, per the two cases described on <see cref="Send"/>.
-    /// </summary>
-    private bool IsOnOwningExecutionContext()
-    {
-        var current = Current;
-        if (current is not null && IsSameScheduler(current))
-        {
-            return true;
-        }
-
-        return TaskScheduler.Current is SimulationTaskScheduler simScheduler && simScheduler.IsSameScheduler(this);
-    }
+    /// <summary>Determines whether the calling thread is executing this context's lane's work.</summary>
+    private bool IsOnOwningExecutionContext() => ReferenceEquals(t_executingLane, schedulerLane);
 
     /// <summary>
     /// Schedules <paramref name="d"/> onto the queue and pumps the queue on the calling thread
@@ -145,6 +148,17 @@ public sealed class SimulationSynchronizationContext(SimulationSchedulerLane sch
                 // No later step can succeed in this process, so the pump stops rather than retry.
                 throw;
             }
+            catch (SimulationSchedulerException exception)
+            {
+                // The calling thread cannot drive the scheduler (it is running a controlled operation, or another thread
+                // drives it), so no retry can succeed. Fail the run as well as the call, in case the caller swallows it.
+                if (SimulationScheduler.TryGetExecutingOperation(out SimulationScheduler? scheduler, out _))
+                {
+                    scheduler.ReportUnhandledCallbackException(exception);
+                }
+
+                throw;
+            }
             catch (Exception ex)
             {
                 if (schedulerLane.IsDetached)
@@ -199,13 +213,11 @@ public sealed class SimulationSynchronizationContext(SimulationSchedulerLane sch
     public bool IsSameScheduler(SynchronizationContext syncCtx) => ReferenceEquals(syncCtx, this) || syncCtx is SimulationSynchronizationContext simSyncCtx && simSyncCtx.UnderlyingScheduler.Equals(UnderlyingScheduler);
 
     /// <summary>
-    /// Installs this synchronization context on the current thread and returns a scope
-    /// that restores the previous context when disposed.
-    /// If the current context is already this instance, or if the current TaskScheduler
-    /// is a SimulationTaskScheduler sharing the same underlying queue, returns an empty
-    /// scope (no-op) to avoid redundant context switching.
+    /// Installs this synchronization context on the current thread, and makes the thread execute this context's lane's
+    /// work (see <see cref="Send"/>), until the returned scope is disposed. The lane runs each of its items inside this
+    /// scope. If the thread is already executing the lane's work, returns an empty scope (no-op).
     /// </summary>
-    /// <returns>A disposable scope that restores the previous synchronization context when disposed.</returns>
+    /// <returns>A disposable scope that restores the previous synchronization context and lane when disposed.</returns>
     public IDisposable Install()
     {
         if (IsOnOwningExecutionContext())
@@ -214,8 +226,10 @@ public sealed class SimulationSynchronizationContext(SimulationSchedulerLane sch
         }
 
         var previous = Current;
+        var previousLane = t_executingLane;
         SetSynchronizationContext(this);
-        return new SynchronizationContextScope(previous);
+        t_executingLane = schedulerLane;
+        return new SynchronizationContextScope(previous, previousLane);
     }
 
     private sealed class ScheduledSyncContextItem(SendOrPostCallback callback, object? state) : ScheduledItem
