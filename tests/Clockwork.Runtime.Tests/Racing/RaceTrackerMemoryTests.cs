@@ -14,7 +14,8 @@ public sealed class RaceTrackerMemoryIsolation;
 /// The race detector's memory, measured directly on a chain whose every link forks a helper, which increments a counter
 /// under a lock and then reads a field of a fresh object: the shape whose clocks once grew by one entry per link. Each
 /// link allocates the same number of bytes however long the chain has run, and the heap the detector retains after a
-/// full collection is the same after 10³ links as after 10⁴. The run collects its young garbage every hundred links,
+/// full collection is the same after 10³ links as after 10⁴ and 6·10⁴. On the steady path, an access allocates nothing
+/// and a lock section only the array of the locks its holder holds. The run collects its young garbage every hundred links,
 /// as a run which allocates does, so the detector can release the locations of the objects it drops.
 /// </summary>
 [Collection(nameof(RaceTrackerMemoryIsolation))]
@@ -26,12 +27,74 @@ public sealed class RaceTrackerMemoryTests
         // A first run warms up code and statics, whose allocations are not the detector's.
         _ = Measure(links: 1_000);
         Measurement shortRun = Measure(links: 1_000);
-        Measurement longRun = Measure(links: 10_000);
+        foreach (int links in new[] { 10_000, 60_000 })
+        {
+            Measurement longRun = Measure(links);
 
-        // The first window follows warm-up of the detector's tables; the last ends the run.
-        Assert.InRange(longRun.LateBytesPerLink, 0, (longRun.EarlyBytesPerLink * 1.1) + 16);
-        Assert.InRange(longRun.RetainedBytes, 0, shortRun.RetainedBytes + (64 * 1024));
-        Assert.Equal(shortRun.Statistics.LargestClock, longRun.Statistics.LargestClock);
+            // The first window follows warm-up of the detector's tables; the last ends the run.
+            Assert.InRange(longRun.LateBytesPerLink, 0, (longRun.EarlyBytesPerLink * 1.1) + 16);
+            Assert.InRange(longRun.RetainedBytes, 0, shortRun.RetainedBytes + (64 * 1024));
+            Assert.Equal(shortRun.Statistics.LargestClock, longRun.Statistics.LargestClock);
+        }
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(17)]
+    public void SteadyAccessesAllocateNothingAndLockSectionsOnlyTheirHeldLockIds(int clockSize)
+    {
+        const int Iterations = 1_000;
+        using SimulationScheduler scheduler = SchedulerTestHarness.NewScheduler();
+        var tracker = new RaceTracker();
+        SimulationOperation operation = scheduler.Register("steady", static () => { });
+        tracker.RegisterOperation(operation, parent: null);
+        var signal = new object();
+        for (int index = 1; index < clockSize; index++)
+        {
+            SimulationOperation signaler = scheduler.Register("signaler", static () => { });
+            tracker.RegisterOperation(signaler, parent: null);
+            tracker.SignalSynchronization(signaler, signal);
+        }
+
+        tracker.WaitSynchronization(operation, signal);
+        Assert.Equal(clockSize, tracker.ClockSize(operation));
+        RaceTracker.LocationState location =
+            tracker.ResolveLocation(RaceMemoryLocationKind.StaticField, null, "Steady::Value", null)!;
+        var source = new RaceSourceLocation("steady", 1, null, -1);
+        var gate = new object();
+
+        void Accesses()
+        {
+            tracker.RecordAccess(operation, RaceAccessKind.Read, location, source, []);
+            tracker.RecordAccess(operation, RaceAccessKind.Write, location, source, []);
+        }
+
+        void LockSection()
+        {
+            tracker.EnterExclusive(operation, gate);
+            tracker.ExitExclusive(operation, gate);
+        }
+
+        Assert.Equal(0, BytesPer(Accesses));
+
+        // The entry allocates the holder's sorted array of held lock ids: one id.
+        Assert.Equal(32, BytesPer(LockSection));
+
+        static double BytesPer(Action step)
+        {
+            for (int index = 0; index < Iterations; index++)
+            {
+                step();
+            }
+
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            for (int index = 0; index < Iterations; index++)
+            {
+                step();
+            }
+
+            return (GC.GetAllocatedBytesForCurrentThread() - before) / (double)Iterations;
+        }
     }
 
     private static Measurement Measure(int links)

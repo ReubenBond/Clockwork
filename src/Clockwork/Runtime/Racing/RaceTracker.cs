@@ -501,7 +501,7 @@ internal sealed class RaceTracker
     }
 
     // Drops the kept reads the reader's clock covers, and returns a record for the new read: the reader's own earlier
-    // read, which its clock always covers, is reused.
+    // read, which its clock always covers, or else a read record the location released, is reused.
     private TrackedAccess KeepRead(LocationState location, OperationState state)
     {
         TrackedAccess? own = null;
@@ -521,6 +521,10 @@ internal sealed class RaceTracker
             {
                 own = read;
             }
+            else
+            {
+                location.SpareRead ??= read;
+            }
         }
 
         Array.Clear(readers, kept, location.ReaderCount - kept);
@@ -530,7 +534,9 @@ internal sealed class RaceTracker
             Array.Resize(ref location.Readers, Math.Max(2, 2 * kept));
         }
 
-        TrackedAccess access = own ?? new TrackedAccess(location);
+        TrackedAccess? spare = location.SpareRead;
+        location.SpareRead = null;
+        TrackedAccess access = own ?? spare ?? new TrackedAccess(location);
         location.Readers[location.ReaderCount++] = access;
         return access;
     }
@@ -548,6 +554,11 @@ internal sealed class RaceTracker
         for (int index = 0; index < location.ReaderCount; index++)
         {
             Release(location.Readers[index]);
+        }
+
+        if (location.ReaderCount != 0)
+        {
+            location.SpareRead ??= location.Readers[0];
         }
 
         Array.Clear(location.Readers, 0, location.ReaderCount);
@@ -851,6 +862,9 @@ internal sealed class RaceTracker
         public TrackedAccess[] Readers = [];
 
         public int ReaderCount;
+
+        // A read record the location has released, which no kept access or report refers to, for its next read.
+        public TrackedAccess? SpareRead;
     }
 
     /// <summary>One kept access. A location reuses the record of an access it drops for the access which replaces it.</summary>
