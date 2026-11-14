@@ -46,13 +46,16 @@ public static class SimulationRuntimeDispatch
     /// </summary>
     /// <param name="api">The controlled API's declaring type.</param>
     /// <param name="member">The controlled API's member name.</param>
-    internal static void RequireSimulationThreadIfActive(string api, string member)
+    /// <returns>Whether a simulation's ambient context is present.</returns>
+    internal static bool RequireSimulationThreadIfActive(string api, string member)
     {
         SimulationExecutionContext.TryGetCurrentRuntime(out SimulationRuntimeIdentity? runtime);
         if (runtime is { Scheduler.IsSimulationThread: false })
         {
             ThrowThreadAffinityViolation(runtime, $"{api}.{member}");
         }
+
+        return runtime is not null;
     }
 
     /// <summary>

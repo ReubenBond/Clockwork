@@ -155,4 +155,102 @@ public sealed class SimulationClusterRunToCompletionTests
         Assert.Equal(2, adaptiveValue);
     }
 
+    // A completion which Clockwork makes for rewritten code - cancelling a token, or releasing a semaphore which a
+    // WaitAsync waits on - before the root's first await or in the cluster lane's work, where the cluster's
+    // SimulationSynchronizationContext (and in the root its SimulationTaskScheduler) is current, runs a framework
+    // continuation of the task it completes inline on the logical thread, as on a thread-pool thread, as the BCL does on
+    // one, rather than on the real thread pool.
+    [Theory]
+    [InlineData("cancel", true)]
+    [InlineData("cancel", false)]
+    [InlineData("release", true)]
+    [InlineData("release", false)]
+    public async Task ControlledCompletionsRunFrameworkContinuationsInline(string completion, bool inRoot)
+    {
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
+        Func<Task<bool>> complete = completion == "cancel"
+            ? () => CancelWhileWaiting(ControlledCancellationTokenSource.Cancel)
+            : () => ReleaseWhileWaiting(
+                () => ControlledSemaphoreSlim.Create(0),
+                ControlledSemaphoreSlim.WaitAsync,
+                semaphore => ControlledSemaphoreSlim.Release(semaphore));
+
+        bool inline;
+        if (inRoot)
+        {
+            inline = cluster.RunToCompletion(complete, TestContext.Current.CancellationToken);
+        }
+        else
+        {
+            Task<bool>? waiting = null;
+            cluster.SchedulerLane.Enqueue(() => waiting = complete());
+            cluster.RunUntilIdle(TestContext.Current.CancellationToken);
+            inline = await waiting!.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        }
+
+        Assert.True(inline);
+        if (completion == "cancel")
+        {
+            // On a thread-pool thread the BCL runs the continuation inline in Cancel too. (Its SemaphoreSlim runs a
+            // WaitAsync's continuations asynchronously, on the thread pool, which a simulation runs on its logical thread.)
+            Assert.True(await Task.Run(() => CancelWhileWaiting(source => source.Cancel()), TestContext.Current.CancellationToken));
+        }
+    }
+
+    // A documented deviation: code which runs inside such a completion, as a callback which Cancel runs does, sees no
+    // synchronization context, where the BCL runs it under the canceller's.
+    [Fact]
+    public async Task CodeInsideAControlledCompletionRunsWithoutTheLanesContext()
+    {
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
+        SynchronizationContext? canceller = null;
+        SynchronizationContext? callback = new();
+        cluster.SchedulerLane.Enqueue(() =>
+        {
+            using var source = new CancellationTokenSource();
+            using CancellationTokenRegistration registration = source.Token.Register(() => callback = SynchronizationContext.Current);
+            canceller = SynchronizationContext.Current;
+            ControlledCancellationTokenSource.Cancel(source);
+        });
+        cluster.RunUntilIdle(TestContext.Current.CancellationToken);
+
+        Assert.IsType<SimulationSynchronizationContext>(canceller);
+        Assert.Null(callback);
+    }
+
+    private static Task<bool> CancelWhileWaiting(Action<CancellationTokenSource> cancel)
+    {
+        using var source = new CancellationTokenSource();
+        Task<bool> waiting = ResumedOnTheCompletingThreadAsync(
+            async () => await new TaskCompletionSource().Task.WaitAsync(source.Token).ConfigureAwait(false));
+        cancel(source);
+        return waiting;
+    }
+
+    private static Task<bool> ReleaseWhileWaiting(
+        Func<SemaphoreSlim> create,
+        Func<SemaphoreSlim, Task> wait,
+        Action<SemaphoreSlim> release)
+    {
+        using SemaphoreSlim semaphore = create();
+        Task<bool> waiting = ResumedOnTheCompletingThreadAsync(async () => await wait(semaphore).ConfigureAwait(false));
+        release(semaphore);
+        return waiting;
+    }
+
+    // A framework await: ConfigureAwait(false) registers a bare continuation, which the BCL runs inline in the call which
+    // completes the task only where that call runs as on a thread-pool thread.
+    private static async Task<bool> ResumedOnTheCompletingThreadAsync(Func<Task> wait)
+    {
+        int thread = Environment.CurrentManagedThreadId;
+        try
+        {
+            await wait().ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+
+        return Environment.CurrentManagedThreadId == thread;
+    }
 }

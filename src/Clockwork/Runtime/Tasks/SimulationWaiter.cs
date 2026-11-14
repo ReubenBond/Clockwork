@@ -162,6 +162,8 @@ internal class SimulationWaiter
     /// <summary>
     /// Resources detached by the first terminal outcome. Complete outside the owning
     /// primitive's lock so registration disposal and continuations cannot re-enter it.
+    /// A waiter's task may be returned to rewritten code (<c>SemaphoreSlim.WaitAsync</c>, say), so each outcome
+    /// completes it as on a thread-pool thread (see <see cref="ThreadPoolLocation"/>).
     /// </summary>
     internal readonly struct Claim(
         SimulationWaiter waiter,
@@ -177,20 +179,26 @@ internal class SimulationWaiter
         public void Complete(bool result)
         {
             Cleanup();
-            _waiter._completion.TrySetResult(result);
+            _ = ThreadPoolLocation.Run(
+                (_waiter._completion, result),
+                static outcome => outcome._completion.TrySetResult(outcome.result));
         }
 
         public void Cancel(CancellationToken cancellationToken)
         {
             Cleanup();
-            _waiter._completion.TrySetCanceled(cancellationToken);
+            _ = ThreadPoolLocation.Run(
+                (_waiter._completion, cancellationToken),
+                static outcome => outcome._completion.TrySetCanceled(outcome.cancellationToken));
         }
 
         public void Fault(Exception exception)
         {
             ArgumentNullException.ThrowIfNull(exception);
             Cleanup();
-            _waiter._completion.TrySetException(exception);
+            _ = ThreadPoolLocation.Run(
+                (_waiter._completion, exception),
+                static outcome => outcome._completion.TrySetException(outcome.exception));
         }
 
         private void Cleanup()

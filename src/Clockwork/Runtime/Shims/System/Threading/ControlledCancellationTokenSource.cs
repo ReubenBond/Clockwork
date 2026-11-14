@@ -57,22 +57,42 @@ public static class ControlledCancellationTokenSource
         CancelAfterCore(snapshot, source, ValidateTimeSpan(delay, nameof(delay)));
     }
 
-    /// <summary>Cancels synchronously and disables any pending virtual cancellation timer.</summary>
+    /// <summary>
+    /// Cancels synchronously and disables any pending virtual cancellation timer. The callbacks run as on a thread-pool
+    /// thread (see <see cref="ThreadPoolLocation"/>), so the BCL runs a framework continuation of a task they cancel
+    /// inline on the logical thread.
+    /// </summary>
     public static void Cancel(CancellationTokenSource source)
     {
         RequireRuntime("Cancel");
         ArgumentNullException.ThrowIfNull(source);
         DisableTimer(source);
-        source.Cancel();
+        _ = ThreadPoolLocation.Run(
+            source,
+            static source =>
+            {
+                source.Cancel();
+                return true;
+            });
     }
 
-    /// <summary>Cancels synchronously and disables any pending virtual cancellation timer.</summary>
+    /// <summary>
+    /// Cancels synchronously and disables any pending virtual cancellation timer. The callbacks run as on a thread-pool
+    /// thread (see <see cref="ThreadPoolLocation"/>), so the BCL runs a framework continuation of a task they cancel
+    /// inline on the logical thread.
+    /// </summary>
     public static void Cancel(CancellationTokenSource source, bool throwOnFirstException)
     {
         RequireRuntime("Cancel");
         ArgumentNullException.ThrowIfNull(source);
         DisableTimer(source);
-        source.Cancel(throwOnFirstException);
+        _ = ThreadPoolLocation.Run(
+            (source, throwOnFirstException),
+            static cancellation =>
+            {
+                cancellation.source.Cancel(cancellation.throwOnFirstException);
+                return true;
+            });
     }
 
     /// <summary>Queues cancellation as controlled work instead of using the physical thread pool.</summary>
