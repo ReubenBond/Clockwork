@@ -498,6 +498,45 @@ public sealed class RaceDetectionTests
         Assert.Null(tracker.Tracker.FirstRace);
     }
 
+    // An inner exit of a recursive hold releases nothing while the hold lasts, so a concurrent holder of the flow does not
+    // acquire the holder's accesses through it.
+    [Fact]
+    public void InnerExitOfARecursiveHoldPublishesNothingToAConcurrentHolder()
+    {
+        using var tracker = new TrackerHarness();
+        SimulationOperation holder = tracker.Start();
+        SimulationOperation concurrent = tracker.Fork(holder);
+
+        tracker.Tracker.EnterExclusive(holder, tracker.Lock);
+        tracker.Tracker.EnterExclusive(holder, tracker.Lock);
+        tracker.Write(holder, "Fx.State::Value");
+        tracker.Tracker.ExitExclusive(holder, tracker.Lock);
+        tracker.Tracker.EnterExclusive(concurrent, tracker.Lock);
+
+        Assert.NotNull(tracker.Read(concurrent, "Fx.State::Value"));
+    }
+
+    // Once the flow's hold ends, its releases, held back while it lasted, reach the next acquisition.
+    [Fact]
+    public void ReleasesHeldBackDuringAHoldReachTheNextAcquisition()
+    {
+        using var tracker = new TrackerHarness();
+        SimulationOperation holder = tracker.Start();
+        SimulationOperation concurrent = tracker.Fork(holder);
+        SimulationOperation next = tracker.Start();
+
+        tracker.Tracker.EnterExclusive(holder, tracker.Lock);
+        tracker.Tracker.EnterExclusive(concurrent, tracker.Lock);
+        tracker.Write(concurrent, "Fx.State::Second");
+        tracker.Tracker.ExitExclusive(concurrent, tracker.Lock);
+        tracker.Write(holder, "Fx.State::First");
+        tracker.Tracker.ExitExclusive(holder, tracker.Lock);
+        tracker.Tracker.EnterExclusive(next, tracker.Lock);
+
+        Assert.Null(tracker.Read(next, "Fx.State::First"));
+        Assert.Null(tracker.Read(next, "Fx.State::Second"));
+    }
+
     // A flow which re-enters its lock after the operation holding it ended acquires that operation's clock, as a thread
     // re-entering a lock it holds follows its own earlier accesses.
     [Fact]

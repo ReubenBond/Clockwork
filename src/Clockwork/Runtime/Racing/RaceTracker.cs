@@ -14,7 +14,9 @@ namespace Clockwork.Runtime.Racing;
 /// and a resource signal to the wait it resolves. Two accesses to one location race when at least one is a write and
 /// neither happens before the other. Every recorded lock is exclusive and every release of it publishes an edge, so two
 /// accesses under a common lock are ordered, unless two operations held the lock at once as one flow (see
-/// <see cref="EnterExclusive"/>), in which case they race; the locks an access holds only label reports.
+/// <see cref="EnterExclusive"/>), in which case they race; the locks an access holds only label reports. A release
+/// takes effect when the flow's hold ends (see <see cref="ExitExclusive"/>), so a concurrent holder never acquires the
+/// other's accesses through an inner exit.
 /// </para>
 /// <para>
 /// Clock components are keyed by clock slot rather than by operation. An operation takes its slot at its first event:
@@ -135,8 +137,8 @@ internal sealed class RaceTracker
 
         foreach ((LockState held, _) in state.Held)
         {
-            Publish(held, state, state.Clock.Epochs[state.SlotId]);
             held.Holders.Remove(state);
+            Publish(held, state, state.Clock.Epochs[state.SlotId]);
         }
 
         state.Held.Clear();
@@ -298,7 +300,9 @@ internal sealed class RaceTracker
     /// <summary>
     /// Records an exit of an exclusive lock by the flow holding it, which publishes the exiting operation's clock: by the
     /// operation which entered it, or by another operation of its flow, after the entering one has ended or while it
-    /// still holds the lock.
+    /// still holds the lock. While a running operation still holds the lock, an exit (an inner exit of a recursive hold,
+    /// or one holder's of two) publishes to the next acquisition only once the flow's hold ends, so a concurrent holder
+    /// acquires only the releases from before the hold began.
     /// </summary>
     public void ExitExclusive(SimulationOperation operation, object synchronization)
     {
@@ -310,7 +314,7 @@ internal sealed class RaceTracker
             return;
         }
 
-        Publish(lockState, state, Tick(state));
+        long epoch = Tick(state);
         lockState.Recursion--;
         OperationState? holder = state.IndexOfHeld(lockState) >= 0
             ? state
@@ -330,6 +334,8 @@ internal sealed class RaceTracker
                 holder.Held[held] = (lockState, recursion);
             }
         }
+
+        Publish(lockState, state, epoch);
     }
 
     public void SignalSynchronization(SimulationOperation operation, object synchronization)
@@ -458,24 +464,63 @@ internal sealed class RaceTracker
         }
     }
 
-    // Publishes the clock of the event at epoch in state's slot to the lock's next acquisition. A clock which covers the
-    // previous release's event replaces its clock; otherwise the two are joined, and no single event's coverage implies
-    // the joined clock.
+    // Publishes the clock of the event at epoch in state's slot. While a running operation holds the lock, it is held
+    // back as pending; once none does, it and anything pending become the release clock the next acquisition takes.
     private void Publish(LockState lockState, OperationState state, long epoch)
     {
-        bool coversPrevious = lockState.Release is null ||
-            Covers(state.Clock, lockState.ReleaseSlotId, lockState.ReleaseEpoch);
-        if (lockState.Release is null || coversPrevious)
+        if (lockState.Holders.Count != 0)
         {
-            lockState.Release = CopyDeciding(state.Clock, lockState.Release);
+            PublishInto(
+                ref lockState.Pending,
+                ref lockState.PendingSlotId,
+                ref lockState.PendingEpoch,
+                !lockState.HasPending,
+                state,
+                epoch);
+            lockState.HasPending = true;
+            return;
+        }
+
+        PublishInto(
+            ref lockState.Release,
+            ref lockState.ReleaseSlotId,
+            ref lockState.ReleaseEpoch,
+            lockState.Release is null,
+            state,
+            epoch);
+        if (lockState.HasPending)
+        {
+            lockState.HasPending = false;
+            if (!Covers(state.Clock, lockState.PendingSlotId, lockState.PendingEpoch))
+            {
+                MergeDeciding(lockState.Release!, lockState.Pending!);
+                lockState.ReleaseSlotId = 0;
+            }
+        }
+    }
+
+    // A clock which covers the previous publication's event replaces its clock, in place; otherwise the two are joined,
+    // and no single event's coverage implies the joined clock.
+    private void PublishInto(
+        ref Clock? clock,
+        ref long publishedSlotId,
+        ref long publishedEpoch,
+        bool isEmpty,
+        OperationState state,
+        long epoch)
+    {
+        bool coversPrevious = isEmpty || Covers(state.Clock, publishedSlotId, publishedEpoch);
+        if (clock is null || coversPrevious)
+        {
+            clock = CopyDeciding(state.Clock, clock);
         }
         else
         {
-            MergeDeciding(lockState.Release, state.Clock);
+            MergeDeciding(clock, state.Clock);
         }
 
-        lockState.ReleaseSlotId = coversPrevious ? state.SlotId : 0;
-        lockState.ReleaseEpoch = epoch;
+        publishedSlotId = coversPrevious ? state.SlotId : 0;
+        publishedEpoch = epoch;
     }
 
     private static bool HappensBefore(TrackedAccess previous, Clock current) =>
@@ -963,6 +1008,13 @@ internal sealed class RaceTracker
         public Clock? Release;
         public long ReleaseSlotId;
         public long ReleaseEpoch;
+
+        // The clock exits published while a running operation still held the lock, likewise, held back until none does;
+        // the clock object is kept for reuse while nothing is pending.
+        public Clock? Pending;
+        public long PendingSlotId;
+        public long PendingEpoch;
+        public bool HasPending;
     }
 
     private sealed class TrackedObject(long id, object target)

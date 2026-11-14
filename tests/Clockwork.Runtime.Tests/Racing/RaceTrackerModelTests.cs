@@ -402,7 +402,9 @@ public sealed class RaceTrackerModelTests
         // The operation forks a child and enters a lock, and the child, running as the operation's flow, enters it too and
         // accesses the locations it guards before both exit, the operation first. The child acquires the releases by
         // other flows before the operation's hold; the operation records nothing between the fork and its exit, so
-        // whether the child's exit replaces or joins its release changes no verdict.
+        // whether the child's exit replaces or joins its release changes no verdict. The oracle publishes every exit,
+        // inner exits of a recursive hold included, which hides a race only from a concurrent holder of the flow; the
+        // step makes no inner exit, and RaceDetectionTests covers that case directly.
         private void ConcurrentHolder(SimulationOperation operation, int first, int second)
         {
             object synchronization = _locks[first % _locks.Length];
