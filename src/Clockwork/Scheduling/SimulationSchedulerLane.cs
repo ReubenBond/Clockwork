@@ -59,6 +59,8 @@ public sealed class SimulationSchedulerLane
 
     internal SimulationScheduler Scheduler => _scheduler;
 
+    internal SimulationNodeIdentity? Node => _node;
+
     internal bool IsDetached => _detached;
 
     internal bool HasPendingWork =>

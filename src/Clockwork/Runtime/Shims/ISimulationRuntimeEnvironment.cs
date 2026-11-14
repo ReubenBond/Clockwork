@@ -5,8 +5,8 @@ namespace Clockwork.Runtime.Shims;
 /// <summary>
 /// <para>
 /// The deterministic services a simulation host provides to the BCL shims: virtual time, virtual
-/// high-resolution timestamps and tick counts, deterministic random streams, deterministic identity
-/// bytes for GUID generation and deterministic non-cryptographic bytes for controlled
+/// high-resolution timestamps and tick counts, the simulated processor count, deterministic random streams,
+/// deterministic identity bytes for GUID generation and deterministic non-cryptographic bytes for controlled
 /// <see cref="System.Security.Cryptography.RandomNumberGenerator"/> APIs. A host installs one environment
 /// in each runtime before activation; the shims resolve it from the ambient
 /// <see cref="SimulationExecutionContext"/> and dispatch to it, passing the currently-active
@@ -31,6 +31,16 @@ public interface ISimulationRuntimeEnvironment
     /// <param name="node">The active node identity, or <see langword="null"/> for cluster-level execution.</param>
     /// <returns>The deterministic local time zone.</returns>
     TimeZoneInfo GetLocalTimeZone(SimulationNodeIdentity? node);
+
+    /// <summary>
+    /// Gets the simulated processor count the given node observes as <see cref="Environment.ProcessorCount"/>, and
+    /// which sizes the work the BCL sizes by it (a <c>Parallel</c> loop's default degree of parallelism, a
+    /// <c>Partitioner</c>'s range size). It is fixed for the life of the runtime and independent of the host, so a
+    /// seed replays on any machine.
+    /// </summary>
+    /// <param name="node">The active node identity, or <see langword="null"/> for cluster-level execution.</param>
+    /// <returns>The simulated processor count, which is positive.</returns>
+    int GetProcessorCount(SimulationNodeIdentity? node);
 
     /// <summary>
     /// Gets the current virtual high-resolution timestamp (in units of <see cref="System.Diagnostics.Stopwatch.Frequency"/>)

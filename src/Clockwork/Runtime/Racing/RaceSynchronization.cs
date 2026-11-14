@@ -48,13 +48,32 @@ public static class RaceSynchronization
         {
             if (synchronization is Task task)
             {
-                ConsumeTask(scheduler, task, new HashSet<Task>(ReferenceEqualityComparer.Instance));
+                ConsumeTask(scheduler, task);
             }
             else
             {
                 scheduler.WaitRaceSynchronization(synchronization);
             }
         }
+    }
+
+    private static void ConsumeTask(SimulationScheduler scheduler, Task task)
+    {
+        IReadOnlyList<Task> dependencies = RaceTaskDependencies.Resolve(task);
+        if (dependencies.Count == 0)
+        {
+            // A task without dependencies is a leaf of the traversal, so it needs no visited set.
+            scheduler.WaitRaceSynchronization(task);
+            return;
+        }
+
+        HashSet<Task> visited = new(ReferenceEqualityComparer.Instance) { task };
+        foreach (Task dependency in dependencies)
+        {
+            ConsumeTask(scheduler, dependency, visited);
+        }
+
+        scheduler.WaitRaceSynchronization(task);
     }
 
     private static void ConsumeTask(

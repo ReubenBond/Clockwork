@@ -42,6 +42,12 @@ public sealed record ScheduleExplorationOptions
     public int MaxFailures { get; init; } = 1;
 
     /// <summary>
+    /// Gets the simulated processor count every iteration's runtime uses (see
+    /// <see cref="ReplayRecordingOptions.ProcessorCount"/>). Defaults to 4.
+    /// </summary>
+    public int ProcessorCount { get; init; } = Shims.SimulationRuntimeEnvironment.DefaultProcessorCount;
+
+    /// <summary>
     /// Gets an optional wall-clock safety bound. It is checked only between iterations, so an
     /// iteration and its artifact are never truncated by this bound.
     /// </summary>
@@ -186,6 +192,7 @@ public static class ScheduleExplorer
                         SchedulingPolicy = ReplaySchedulingPolicy.SeededRandom,
                         ScheduleSeed = scheduleSeed,
                         MaxSteps = configuration.MaxStepsPerIteration,
+                        ProcessorCount = configuration.ProcessorCount,
                         Instrumentation = configuration.Instrumentation,
                     },
                     cancellationToken);

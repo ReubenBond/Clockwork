@@ -94,16 +94,31 @@ public static class SimulationTaskRuntime
     /// <param name="isReady">The readiness predicate.</param>
     /// <param name="work">The work to run once ready.</param>
     /// <param name="apiName">The controlled API, for diagnostics.</param>
-    internal static void ScheduleWhenReady(Func<bool> isReady, Action work, string apiName)
+    internal static void ScheduleWhenReady(Func<bool> isReady, Action work, string apiName) =>
+        ScheduleWhenReady(SimulationRuntimeDispatch.RequireActiveSimulation(apiName), isReady, work, apiName);
+
+    /// <summary>
+    /// Schedules <paramref name="work"/> as a controlled operation under <paramref name="snapshot"/>, and so on its
+    /// node, once <paramref name="isReady"/> holds; see <see cref="ScheduleWhenReady(Func{bool}, Action, string)"/>.
+    /// </summary>
+    /// <param name="snapshot">The snapshot the work runs under.</param>
+    /// <param name="isReady">The readiness predicate.</param>
+    /// <param name="work">The work to run once ready.</param>
+    /// <param name="apiName">The controlled API, for diagnostics.</param>
+    internal static void ScheduleWhenReady(
+        SimulationExecutionSnapshot snapshot,
+        Func<bool> isReady,
+        Action work,
+        string apiName)
     {
-        var (scheduler, node) = RequireScheduler(apiName);
+        ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(isReady);
         ArgumentNullException.ThrowIfNull(work);
-        SimulationExecutionSnapshot snapshot = SimulationRuntimeDispatch.RequireActiveSimulation(apiName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(apiName);
         var predecessor = new object();
         RaceSynchronization.Signal(predecessor);
-        _ = scheduler.ScheduleWhenReady(
-            node,
+        _ = snapshot.Runtime.Scheduler.ScheduleWhenReady(
+            snapshot.Node,
             isReady,
             () =>
             {
@@ -315,7 +330,7 @@ public static class SimulationTaskRuntime
         RunWithCapturedExecutionContext(context, work);
     }
 
-    private static void RunInSimulationSnapshot(
+    internal static void RunInSimulationSnapshot(
         SimulationExecutionSnapshot snapshot,
         long strandId,
         Action work)

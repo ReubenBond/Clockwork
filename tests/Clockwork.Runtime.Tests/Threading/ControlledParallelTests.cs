@@ -7,11 +7,11 @@ using Clockwork.Runtime.Threading;
 namespace Clockwork.Runtime.Tests.Threading;
 
 /// <summary>
-/// Tests for the controlled <see cref="ControlledParallel"/> shims: <c>Invoke</c> / <c>For</c> /
-/// <c>ForEach</c> decompose their work into controlled operations on the coordinator and drain the
-/// deterministic loop until every branch has completed, so all iterations run on the single logical thread;
-/// body faults are aggregated into an <see cref="AggregateException"/>; a cancelled options token is
-/// observed; and the loop-state / TLocal / Partitioner overloads are rejected precisely.
+/// Tests for the controlled <see cref="ControlledParallel"/> shims: <c>Invoke</c> / <c>For</c> / <c>ForEach</c> run
+/// their iterations on controlled workers on the coordinator and pump the deterministic loop until every worker has
+/// finished, so all iterations run on the single logical thread; body faults are aggregated into an
+/// <see cref="AggregateException"/>; the options token is observed; argument and cancellation checks happen in the BCL's
+/// order; and the loop-state / TLocal overloads are rejected precisely.
 /// </summary>
 public sealed class ControlledParallelTests
 {
@@ -148,6 +148,43 @@ public sealed class ControlledParallelTests
     }
 
     [Fact]
+    public void ForChecksItsRangeBeforeTheTokenAndForEachChecksTheTokenFirstAsTheBclDoes()
+    {
+        var coordinator = new SimulationSchedulerTestHost();
+        var options = new ParallelOptions { CancellationToken = new CancellationToken(canceled: true) };
+        (bool ForCompleted, Type? ForEachThrew) bcl = (
+            Parallel.For(3, 3, options, _ => { }).IsCompleted,
+            Record.Exception(() => Parallel.ForEach(Array.Empty<int>(), options, _ => { }))?.GetType());
+        (bool ForCompleted, Type? ForEachThrew) controlled = default;
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+            controlled = (
+                ControlledParallel.For(3, 3, options, _ => { }).IsCompleted,
+                Record.Exception(() => ControlledParallel.ForEach(Array.Empty<int>(), options, _ => { }))?.GetType()));
+
+        Assert.Equal((true, typeof(OperationCanceledException)), bcl);
+        Assert.Equal(bcl, controlled);
+    }
+
+    [Fact]
+    public void ForEachAsyncReportsAFailingSourceThroughItsTaskAsTheBclDoes()
+    {
+        var coordinator = new SimulationSchedulerTestHost();
+        Task bclLoop = Parallel.ForEachAsync(new ThrowingEnumerable(), (_, _) => default);
+        (bool Faulted, Type? Fault) bcl = (bclLoop.IsFaulted, bclLoop.Exception?.InnerException?.GetType());
+        (bool Faulted, Type? Fault) controlled = default;
+
+        TaskTestHarness.RunInSimulation(coordinator, () =>
+        {
+            Task loop = ControlledParallel.ForEachAsync(new ThrowingEnumerable(), (_, _) => default);
+            controlled = (loop.IsFaulted, loop.Exception?.InnerException?.GetType());
+        });
+
+        Assert.Equal((true, typeof(NotSupportedException)), bcl);
+        Assert.Equal(bcl, controlled);
+    }
+
+    [Fact]
     public void RejectUnsupportedThrows()
     {
         var coordinator = new SimulationSchedulerTestHost();
@@ -183,6 +220,13 @@ public sealed class ControlledParallelTests
     {
         Actions,
         OptionsAndActions,
+    }
+
+    private sealed class ThrowingEnumerable : IEnumerable<int>
+    {
+        public IEnumerator<int> GetEnumerator() => throw new NotSupportedException();
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
     [Theory]

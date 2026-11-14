@@ -431,7 +431,7 @@ public static partial class ControlledTask
 
     /// <summary>
     /// Schedules <paramref name="complete"/> as a controlled operation once <paramref name="isReady"/> holds; see
-    /// <see cref="SimulationTaskRuntime.ScheduleWhenReady"/> for the predicate's contract.
+    /// <see cref="SimulationTaskRuntime.ScheduleWhenReady(Func{bool}, Action, string)"/> for the predicate's contract.
     /// </summary>
     private static void CompleteWhenReady(Func<bool> isReady, Action complete, string apiName) =>
         SimulationTaskRuntime.ScheduleWhenReady(isReady, complete, apiName);

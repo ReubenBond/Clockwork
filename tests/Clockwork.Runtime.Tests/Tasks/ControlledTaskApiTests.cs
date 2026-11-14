@@ -110,7 +110,9 @@ public sealed class ControlledTaskApiTests
             var boom = new InvalidTimeZoneException("boom");
             coordinator.Scheduler.Schedule(() => tcs.SetException(boom));
 
+#pragma warning disable xUnit1051 // The overload without a token is the subject under test.
             var ex = Assert.Throws<AggregateException>(() => ControlledTask.Wait(tcs.Task));
+#pragma warning restore xUnit1051
             Assert.Same(boom, ex.InnerException);
         });
     }
@@ -139,7 +141,9 @@ public sealed class ControlledTaskApiTests
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
             var tcs = new TaskCompletionSource();
+#pragma warning disable xUnit1051 // The overload without a token is the subject under test.
             Assert.Throws<SimulationSynchronousWaitDeadlockException>(() => ControlledTask.Wait(tcs.Task));
+#pragma warning restore xUnit1051
         });
     }
 
@@ -1091,7 +1095,9 @@ public sealed class ControlledTaskApiTests
         {
             Task[] tasks = [null!, Task.CompletedTask];
 
+#pragma warning disable xUnit1051 // The overload without a token is the subject under test.
             var error = Assert.Throws<ArgumentException>(() => ControlledTask.WaitAll(tasks));
+#pragma warning restore xUnit1051
 
             Assert.Equal("tasks", error.ParamName);
             Assert.True(tasks[1].IsCompletedSuccessfully);
@@ -1107,7 +1113,9 @@ public sealed class ControlledTaskApiTests
         {
             Task[] tasks = [null!, Task.CompletedTask];
 
+#pragma warning disable xUnit1051 // The overload without a token is the subject under test.
             var error = Assert.Throws<ArgumentException>(() => ControlledTask.WaitAny(tasks));
+#pragma warning restore xUnit1051
 
             Assert.Equal("tasks", error.ParamName);
             Assert.True(tasks[1].IsCompletedSuccessfully);
@@ -1364,11 +1372,15 @@ public sealed class ControlledTaskApiTests
             {
                 if (waitAll)
                 {
+#pragma warning disable xUnit1051 // The overload without a token is the subject under test.
                     ControlledTask.WaitAll(tasks);
+#pragma warning restore xUnit1051
                 }
                 else
                 {
+#pragma warning disable xUnit1051 // The overload without a token is the subject under test.
                     _ = ControlledTask.WaitAny(tasks);
+#pragma warning restore xUnit1051
                 }
             });
 

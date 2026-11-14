@@ -4,6 +4,7 @@ using Clockwork.Runtime.Exploration;
 using Clockwork.Runtime.Random;
 using Clockwork.Runtime.Replay;
 using Clockwork.Runtime.Scheduling;
+using Clockwork.Runtime.Shims;
 
 namespace Clockwork.Testing;
 
@@ -55,6 +56,13 @@ public sealed record ReplayTestConfiguration
 
     /// <summary>Gets the controlled step bound for each execution.</summary>
     public int MaxSteps { get; init; } = 1_000_000;
+
+    /// <summary>
+    /// Gets an explicit simulated processor count for recorded runs (see
+    /// <see cref="ReplayRecordingOptions.ProcessorCount"/>), or <see langword="null"/> for the default. When set, an
+    /// environment-selected replay also requires the artifact to have recorded this count.
+    /// </summary>
+    public int? ProcessorCount { get; init; }
 
     /// <summary>Gets whether successful recordings should also be written.</summary>
     public bool RecordSuccessfulRuns { get; init; }
@@ -238,8 +246,15 @@ public sealed class ReplayTestFixture
         ArgumentException.ThrowIfNullOrEmpty(configuration.TestClassName);
         ArgumentException.ThrowIfNullOrEmpty(configuration.TestMethodName);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(configuration.MaxSteps);
+        if (configuration.ProcessorCount is { } processorCount)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(processorCount, nameof(configuration));
+        }
+
         _configuration = configuration;
     }
+
+    private int ProcessorCount => _configuration.ProcessorCount ?? SimulationRuntimeEnvironment.DefaultProcessorCount;
 
     /// <summary>Gets the stable seed derived by the existing simulation test-identity helper.</summary>
     public int TestIdentitySeed => SimulationSeed.FromStrings(
@@ -261,6 +276,7 @@ public sealed class ReplayTestFixture
                 ReplayCompatibilityRequirements.Current() with
                 {
                     Instrumentation = _configuration.Instrumentation,
+                    ProcessorCount = _configuration.ProcessorCount,
                 },
                 scenario,
                 _configuration.MaxSteps,
@@ -283,6 +299,7 @@ public sealed class ReplayTestFixture
                 SchedulingPolicy = ReplaySchedulingPolicy.SeededRandom,
                 ScheduleSeed = scheduleSeed,
                 MaxSteps = _configuration.MaxSteps,
+                ProcessorCount = ProcessorCount,
                 Instrumentation = _configuration.Instrumentation,
             },
             scenario,
@@ -354,6 +371,7 @@ public sealed class ReplayTestFixture
                 MaxIterations = maxIterations,
                 MaxFailures = maxFailures,
                 MaxStepsPerIteration = _configuration.MaxSteps,
+                ProcessorCount = ProcessorCount,
                 TimeLimit = timeLimit,
                 Instrumentation = _configuration.Instrumentation,
             },

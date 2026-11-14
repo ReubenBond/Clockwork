@@ -46,6 +46,12 @@ public sealed record ReplayRecordingOptions
     /// <summary>Gets the maximum number of controlled operation steps.</summary>
     public int MaxSteps { get; init; } = 1_000_000;
 
+    /// <summary>
+    /// Gets the simulated processor count the run's runtime uses (see <see cref="SimulationCluster.ProcessorCount"/>).
+    /// Defaults to 4. The artifact records it, and replay runs with the recorded value.
+    /// </summary>
+    public int ProcessorCount { get; init; } = SimulationRuntimeEnvironment.DefaultProcessorCount;
+
     /// <summary>Gets the instrumentation closure identity, when applicable.</summary>
     public ReplayInstrumentationIdentity? Instrumentation { get; init; }
 
@@ -132,7 +138,7 @@ public static class ReplayRunner
         int scheduleSeed = GetScheduleSeed(configuration);
         var decisionLog = new SimulationDecisionLog();
         var listener = new ReplayOperationListener(configuration.IncludeDiagnosticMessages);
-        using SimulationScheduler scheduler = CreateScheduler(configuration.SimulationSeed, listener);
+        using SimulationScheduler scheduler = CreateScheduler(configuration.SimulationSeed, configuration.ProcessorCount, listener);
         scheduler.SchedulingStrategy = CreateStrategy(configuration.SchedulingPolicy, scheduleSeed);
         scheduler.DecisionLog = decisionLog;
 
@@ -209,7 +215,7 @@ public static class ReplayRunner
         int scheduleSeed = GetScheduleSeed(configuration);
         var decisionLog = new SimulationDecisionLog();
         var listener = new ReplayOperationListener(configuration.IncludeDiagnosticMessages);
-        SimulationCluster cluster = CreateCluster(configuration.SimulationSeed, listener);
+        SimulationCluster cluster = CreateCluster(configuration.SimulationSeed, configuration.ProcessorCount, listener);
         try
         {
             SimulationScheduler scheduler = cluster.Scheduler;
@@ -262,10 +268,11 @@ public static class ReplayRunner
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxSteps);
         ReplayCompatibility.Validate(artifact, requirements);
         ValidateExecutionHost(artifact, expectCluster: false, expectEntryTask: false);
+        int processorCount = ReplayCompatibility.GetProcessorCount(artifact);
 
         var records = artifact.Decisions.Select(static decision => decision.ToRecord()).ToArray();
         var listener = new ReplayOperationListener(includeDiagnosticMessages: false);
-        using SimulationScheduler scheduler = CreateScheduler(artifact.SimulationSeed, listener);
+        using SimulationScheduler scheduler = CreateScheduler(artifact.SimulationSeed, processorCount, listener);
         scheduler.SchedulingStrategy = SimulationSchedulingStrategies.Replay(records);
         scheduler.ReplayValidator = new SimulationDecisionReplayValidator(
             new SimulationInMemoryDecisionReplayReader(records));
@@ -292,6 +299,7 @@ public static class ReplayRunner
             SchedulingPolicy = ParsePolicy(artifact.Scheduler.Strategy),
             ScheduleSeed = artifact.Scheduler.ScheduleSeed,
             MaxSteps = maxSteps,
+            ProcessorCount = processorCount,
             Instrumentation = artifact.Instrumentation,
         };
         ReplayArtifact replayArtifact = CreateArtifact(
@@ -364,10 +372,11 @@ public static class ReplayRunner
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxSteps);
         ReplayCompatibility.Validate(artifact, requirements);
         ValidateExecutionHost(artifact, expectCluster: true, expectEntryTask: isEntryTask);
+        int processorCount = ReplayCompatibility.GetProcessorCount(artifact);
 
         var records = artifact.Decisions.Select(static decision => decision.ToRecord()).ToArray();
         var listener = new ReplayOperationListener(includeDiagnosticMessages: false);
-        SimulationCluster cluster = CreateCluster(artifact.SimulationSeed, listener);
+        SimulationCluster cluster = CreateCluster(artifact.SimulationSeed, processorCount, listener);
         try
         {
             SimulationScheduler scheduler = cluster.Scheduler;
@@ -393,6 +402,7 @@ public static class ReplayRunner
                 SchedulingPolicy = ParsePolicy(artifact.Scheduler.Strategy),
                 ScheduleSeed = artifact.Scheduler.ScheduleSeed,
                 MaxSteps = maxSteps,
+                ProcessorCount = processorCount,
                 Instrumentation = artifact.Instrumentation,
             };
             ReplayArtifact replayArtifact = CreateArtifact(
@@ -425,17 +435,24 @@ public static class ReplayRunner
         }
     }
 
-    private static SimulationScheduler CreateScheduler(int seed, ISimulationOperationListener listener)
+    private static SimulationScheduler CreateScheduler(int seed, int processorCount, ISimulationOperationListener listener)
     {
         var runtime = new SimulationRuntimeIdentity(Guid.NewGuid(), seed, "replay-run");
-        return new SimulationScheduler(runtime, listener);
+        return new SimulationScheduler(
+            runtime,
+            new SimulationSeedAuthority(seed),
+            DateTimeOffset.UnixEpoch,
+            TimeZoneInfo.Utc,
+            listener,
+            processorCount);
     }
 
-    private static SimulationCluster CreateCluster(int seed, ISimulationOperationListener listener) =>
+    private static SimulationCluster CreateCluster(int seed, int processorCount, ISimulationOperationListener listener) =>
         new(
             seed,
             DateTimeOffset.UnixEpoch,
             TimeZoneInfo.Utc,
+            processorCount,
             listener,
             CancellationToken.None);
 
@@ -587,6 +604,7 @@ public static class ReplayRunner
         var schedulerOptions = new SortedDictionary<string, string>(StringComparer.Ordinal)
         {
             ["maxSteps"] = configuration.MaxSteps.ToString(CultureInfo.InvariantCulture),
+            [ReplayCompatibility.ProcessorCountOption] = configuration.ProcessorCount.ToString(CultureInfo.InvariantCulture),
             ["resourceWaiters"] = configuration.SchedulingPolicy == ReplaySchedulingPolicy.SeededRandom
                 ? "seeded-random"
                 : "fifo",
@@ -932,6 +950,7 @@ public static class ReplayRunner
     private static void ValidateConfiguration(ReplayRecordingOptions configuration)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(configuration.MaxSteps);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(configuration.ProcessorCount);
         if (configuration.SchedulingPolicy != ReplaySchedulingPolicy.SeededRandom &&
             configuration.ScheduleSeed is not null)
         {

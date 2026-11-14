@@ -33,6 +33,7 @@ public static class ControlledValueTask
     private const string PreserveApi = "System.Threading.Tasks.ValueTask.Preserve";
     private const string GenericAsTaskApi = "System.Threading.Tasks.ValueTask`1.AsTask";
     private const string GenericPreserveApi = "System.Threading.Tasks.ValueTask`1.Preserve";
+    private const string GenericResultApi = "System.Threading.Tasks.ValueTask`1.get_Result";
 
     /// <summary>Controlled <c>ValueTask.AsTask()</c>.</summary>
     /// <param name="valueTask">The value task to convert; it is consumed.</param>
@@ -74,6 +75,26 @@ public static class ControlledValueTask
         return Fields<TResult>.Object(ref copy) is null ? copy : new ValueTask<TResult>(AsTaskCore(copy, GenericPreserveApi));
     }
 
+    /// <summary>
+    /// Controlled <c>ValueTask&lt;TResult&gt;.Result</c>: pumps the coordinator until the value task completes, as a
+    /// controlled synchronous wait does, instead of blocking the simulation's logical thread, then returns the BCL's
+    /// result or throws its exception.
+    /// </summary>
+    /// <typeparam name="TResult">The result type.</typeparam>
+    /// <param name="valueTask">The value task to read; it is consumed.</param>
+    /// <returns>The value task's result.</returns>
+    public static TResult Result<TResult>(in ValueTask<TResult> valueTask)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation(GenericResultApi);
+        if (!valueTask.IsCompleted)
+        {
+            SimulationTaskRuntime.DrainUntilCompleted(valueTask, GenericResultApi);
+        }
+
+        WaitCompletion(valueTask);
+        return valueTask.Result;
+    }
+
     private static Task AsTaskCore(ValueTask valueTask, string apiName)
     {
         if (Fields.Object(ref valueTask) is not IValueTaskSource || valueTask.IsCompleted)
@@ -110,6 +131,50 @@ public static class ControlledValueTask
             },
             apiName);
         return promise.Task;
+    }
+
+    /// <summary>
+    /// Publishes the happens-before edge from a completed value task to its awaiters, keyed on the task or source it
+    /// wraps. A value task which completed synchronously wraps nothing and needs no edge: its awaiter runs after it in
+    /// the same operation.
+    /// </summary>
+    /// <param name="valueTask">The completed value task.</param>
+    internal static void SignalCompletion(ValueTask valueTask)
+    {
+        if (Fields.Object(ref valueTask) is { } completion)
+        {
+            RaceSynchronization.Signal(completion);
+        }
+    }
+
+    /// <inheritdoc cref="SignalCompletion(ValueTask)"/>
+    /// <typeparam name="TResult">The result type.</typeparam>
+    internal static void SignalCompletion<TResult>(ValueTask<TResult> valueTask)
+    {
+        if (Fields<TResult>.Object(ref valueTask) is { } completion)
+        {
+            RaceSynchronization.Signal(completion);
+        }
+    }
+
+    /// <summary>Consumes the happens-before edge <see cref="SignalCompletion(ValueTask)"/> published.</summary>
+    /// <param name="valueTask">The completed value task being awaited.</param>
+    internal static void WaitCompletion(ValueTask valueTask)
+    {
+        if (Fields.Object(ref valueTask) is { } completion)
+        {
+            RaceSynchronization.Wait(completion);
+        }
+    }
+
+    /// <inheritdoc cref="WaitCompletion(ValueTask)"/>
+    /// <typeparam name="TResult">The result type.</typeparam>
+    internal static void WaitCompletion<TResult>(ValueTask<TResult> valueTask)
+    {
+        if (Fields<TResult>.Object(ref valueTask) is { } completion)
+        {
+            RaceSynchronization.Wait(completion);
+        }
     }
 
     /// <summary>

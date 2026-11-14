@@ -1,6 +1,7 @@
 using System.Threading;
 using System.Threading.Tasks;
 using Clockwork.Runtime.Shims;
+using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Racing;
 
 namespace Clockwork.Shims.System.Threading.Tasks;
@@ -171,19 +172,18 @@ public static partial class ControlledTaskFactory
         ArgumentNullException.ThrowIfNull(action);
         ArgumentNullException.ThrowIfNull(scheduler);
         RejectUnsupportedOptions(creationOptions);
-        RejectUnsupportedScheduler(scheduler);
+        SimulationExecutionSnapshot target = ResolveTarget(scheduler);
         if (cancellationToken.IsCancellationRequested)
         {
             return Task.FromCanceled(cancellationToken);
         }
 
-        ExecutionContext? context = ExecutionContext.Capture();
         var tcs = new TaskCompletionSource(asyncState);
-        SimulationTaskRuntime.QueueWork(
-            () => SimulationTaskRuntime.RunWithCapturedExecutionContext(
-                context,
-                () => RunAction(action, tcs, cancellationToken)),
-            "System.Threading.Tasks.TaskFactory.StartNew");
+        SimulationTaskRuntime.QueueCapturedWork(
+            target,
+            ExecutionContext.Capture(),
+            () => RunAction(action, tcs, cancellationToken),
+            StartNewApi);
         return tcs.Task;
     }
 
@@ -459,24 +459,24 @@ public static partial class ControlledTaskFactory
         ArgumentNullException.ThrowIfNull(function);
         ArgumentNullException.ThrowIfNull(scheduler);
         RejectUnsupportedOptions(creationOptions);
-        RejectUnsupportedScheduler(scheduler);
+        SimulationExecutionSnapshot target = ResolveTarget(scheduler);
         if (cancellationToken.IsCancellationRequested)
         {
             return Task.FromCanceled<TResult>(cancellationToken);
         }
 
-        ExecutionContext? context = ExecutionContext.Capture();
         var tcs = new TaskCompletionSource<TResult>(asyncState);
-        SimulationTaskRuntime.QueueWork(
-            () => SimulationTaskRuntime.RunWithCapturedExecutionContext(
-                context,
-                () => RunFunc(function, tcs, cancellationToken)),
-            "System.Threading.Tasks.TaskFactory.StartNew");
+        SimulationTaskRuntime.QueueCapturedWork(
+            target,
+            ExecutionContext.Capture(),
+            () => RunFunc(function, tcs, cancellationToken),
+            StartNewApi);
         return tcs.Task;
     }
 
-    private static void RequireActive() =>
-        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.TaskFactory.StartNew");
+    private const string StartNewApi = "System.Threading.Tasks.TaskFactory.StartNew";
+
+    private static void RequireActive() => SimulationRuntimeDispatch.RequireActiveSimulation(StartNewApi);
 
     private static void RunAction(Action action, TaskCompletionSource tcs, CancellationToken cancellationToken)
     {
@@ -558,17 +558,12 @@ public static partial class ControlledTaskFactory
         }
     }
 
-    private static void RejectUnsupportedScheduler(TaskScheduler scheduler)
-    {
-        if (!ReferenceEquals(scheduler, TaskScheduler.Default))
-        {
-            throw new SimulationApiException(
-                SimulationApiCategory.Task,
-                "System.Threading.Tasks.TaskFactory.StartNew",
-                "a custom TaskScheduler is not supported inside a simulation because executing it would escape " +
-                "Clockwork's controlled logical strand. Use TaskScheduler.Default or a factory without a custom scheduler.");
-        }
-    }
+    private static SimulationExecutionSnapshot ResolveTarget(TaskScheduler scheduler) =>
+        ControlledTaskScheduler.ResolveTarget(
+            scheduler,
+            SimulationRuntimeDispatch.RequireActiveSimulation(StartNewApi),
+            SimulationApiCategory.Task,
+            StartNewApi);
 
 #pragma warning restore CA1068
 }

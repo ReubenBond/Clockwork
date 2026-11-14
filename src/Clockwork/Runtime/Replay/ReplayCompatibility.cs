@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection;
 using System.Runtime.InteropServices;
 
@@ -14,6 +15,12 @@ public sealed record ReplayCompatibilityRequirements
 
     /// <summary>Gets the expected instrumentation identity, when instrumented execution is required.</summary>
     public ReplayInstrumentationIdentity? Instrumentation { get; init; }
+
+    /// <summary>
+    /// Gets the simulated processor count the replay expects the artifact to have recorded, or <see langword="null"/>
+    /// to accept the recorded value. Replay always runs with the recorded value.
+    /// </summary>
+    public int? ProcessorCount { get; init; }
 
     /// <summary>Captures requirements for the current Clockwork runtime without instrumentation.</summary>
     public static ReplayCompatibilityRequirements Current() => new()
@@ -36,6 +43,9 @@ public sealed class ReplayCompatibilityException : InvalidOperationException
 /// <summary>Captures and validates deterministic replay compatibility metadata.</summary>
 public static class ReplayCompatibility
 {
+    /// <summary>The scheduler option which records the run's simulated processor count.</summary>
+    internal const string ProcessorCountOption = "processorCount";
+
     /// <summary>Gets the current major/minor runtime compatibility identifier.</summary>
     public static string CurrentRuntimeCompatibility =>
         FormattableString.Invariant($".NETCoreApp,Version=v{Environment.Version.Major}.{Environment.Version.Minor}");
@@ -81,6 +91,14 @@ public static class ReplayCompatibility
             "Clockwork runtime version",
             artifact.Environment.ClockworkVersion,
             requirements.ClockworkVersion);
+        if (requirements.ProcessorCount is { } processorCount)
+        {
+            artifact.Scheduler.Options.TryGetValue(ProcessorCountOption, out string? recordedProcessorCount);
+            RequireEqual(
+                "simulated processor count",
+                recordedProcessorCount,
+                processorCount.ToString(CultureInfo.InvariantCulture));
+        }
 
         if (artifact.Instrumentation is null && requirements.Instrumentation is null)
         {
@@ -120,6 +138,27 @@ public static class ReplayCompatibility
                 recordedAssembly.RuntimeCompatibility,
                 expectedAssembly.RuntimeCompatibility);
         }
+    }
+
+    /// <summary>
+    /// Gets the simulated processor count an artifact recorded, which its replay runs with: the program observes it as
+    /// <see cref="Environment.ProcessorCount"/> and sizes parallel work by it, so a replay with another value diverges.
+    /// </summary>
+    /// <param name="artifact">The artifact.</param>
+    /// <returns>The recorded simulated processor count.</returns>
+    /// <exception cref="ReplayCompatibilityException">The artifact records no valid processor count.</exception>
+    public static int GetProcessorCount(ReplayArtifact artifact)
+    {
+        ArgumentNullException.ThrowIfNull(artifact);
+        if (!artifact.Scheduler.Options.TryGetValue(ProcessorCountOption, out string? recorded) ||
+            !int.TryParse(recorded, NumberStyles.None, CultureInfo.InvariantCulture, out int processorCount) ||
+            processorCount <= 0)
+        {
+            throw new ReplayCompatibilityException(
+                $"The artifact records no valid simulated processor count: '{ProcessorCountOption}' is '{recorded ?? "<none>"}'.");
+        }
+
+        return processorCount;
     }
 
     private static string GetOperatingSystem()

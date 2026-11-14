@@ -1,6 +1,7 @@
 using System.Threading;
 using System.Threading.Tasks;
 using Clockwork.Runtime;
+using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Racing;
 using Clockwork.Runtime.Shims;
 
@@ -562,7 +563,11 @@ public static partial class ControlledTaskFactory
         ArgumentNullException.ThrowIfNull(tasks);
         ArgumentNullException.ThrowIfNull(scheduler);
         TAntecedent[] copy = CopyNonEmptyNonNull(tasks);
-        ControlledTask.RejectUnpreservableContinuation(continuationOptions, scheduler, apiName);
+        SimulationExecutionSnapshot target = ControlledTask.RejectUnpreservableContinuation(
+            continuationOptions,
+            scheduler,
+            SimulationRuntimeDispatch.RequireActiveSimulation(apiName),
+            apiName);
         if (IsCanceledEagerly(cancellationToken, continuationOptions))
         {
             return canceledTask(CreationOptions(continuationOptions), cancellationToken);
@@ -570,6 +575,7 @@ public static partial class ControlledTaskFactory
 
         int next = 0;
         return ControlledTask.ContinueGate(
+            target,
             () =>
             {
                 // Antecedents only ever become complete, so each check resumes from the first not yet observed complete.
@@ -623,7 +629,11 @@ public static partial class ControlledTaskFactory
 
         ArgumentNullException.ThrowIfNull(scheduler);
         TAntecedent[] copy = CopyNonEmptyNonNull(tasks);
-        ControlledTask.RejectUnpreservableContinuation(continuationOptions, scheduler, apiName);
+        SimulationExecutionSnapshot target = ControlledTask.RejectUnpreservableContinuation(
+            continuationOptions,
+            scheduler,
+            SimulationRuntimeDispatch.RequireActiveSimulation(apiName),
+            apiName);
         if (IsCanceledEagerly(cancellationToken, continuationOptions))
         {
             return canceledTask(CreationOptions(continuationOptions), cancellationToken);
@@ -632,6 +642,7 @@ public static partial class ControlledTaskFactory
         // Every antecedent is pending until the winner is observed, so each check costs O(pending).
         TAntecedent? winner = null;
         return ControlledTask.ContinueGate(
+            target,
             () => (winner ??= FirstCompleted(copy)) is not null,
             () =>
             {

@@ -39,6 +39,10 @@ public sealed partial class SimulationCluster : IAsyncDisposable
     /// Optional local time zone the deterministic <c>DateTime.Now</c>/<c>Today</c> shims observe.
     /// Defaults to <see cref="TimeZoneInfo.Utc"/> so local and UTC time coincide deterministically.
     /// </param>
+    /// <param name="processorCount">
+    /// Optional simulated processor count every node observes as <see cref="Environment.ProcessorCount"/>, and which
+    /// sizes the work the BCL sizes by it. Defaults to 4; see <see cref="ProcessorCount"/>.
+    /// </param>
     /// <param name="cancellationToken">
     /// Optional cancellation token which tears the cluster down: once it is cancelled, the next step of a cluster drive
     /// method (<c>RunUntil</c>, <c>RunUntilIdle</c>, <c>RunFor</c>, <c>RunToCompletion</c>) cancels
@@ -51,8 +55,9 @@ public sealed partial class SimulationCluster : IAsyncDisposable
         int seed,
         DateTimeOffset? startDateTime = null,
         TimeZoneInfo? simulationTimeZone = null,
+        int? processorCount = null,
         CancellationToken cancellationToken = default)
-        : this(seed, startDateTime, simulationTimeZone, operationListener: null, cancellationToken)
+        : this(seed, startDateTime, simulationTimeZone, processorCount, operationListener: null, cancellationToken)
     {
     }
 
@@ -60,9 +65,12 @@ public sealed partial class SimulationCluster : IAsyncDisposable
         int seed,
         DateTimeOffset? startDateTime,
         TimeZoneInfo? simulationTimeZone,
+        int? processorCount,
         ISimulationOperationListener? operationListener,
         CancellationToken cancellationToken)
     {
+        ProcessorCount = processorCount ?? SimulationRuntimeEnvironment.DefaultProcessorCount;
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(ProcessorCount, nameof(processorCount));
         _teardownCts = new CancellationTokenSource();
         _callerCancellation = cancellationToken;
         _simulationThreadId = Environment.CurrentManagedThreadId;
@@ -82,7 +90,8 @@ public sealed partial class SimulationCluster : IAsyncDisposable
             SeedAuthority,
             simulationStartDateTime,
             SimulationTimeZone,
-            operationListener);
+            operationListener,
+            ProcessorCount);
         Guard = new SingleThreadedGuard(
             () => Scheduler.IsSimulationThread || Environment.CurrentManagedThreadId == _simulationThreadId
                 ? SimulationScheduler.SimulationLogicalThreadOwnerId
@@ -143,6 +152,16 @@ public sealed partial class SimulationCluster : IAsyncDisposable
     /// time coincide deterministically regardless of the host machine's zone.
     /// </summary>
     public TimeZoneInfo SimulationTimeZone { get; }
+
+    /// <summary>
+    /// Gets the simulated processor count every node in this cluster observes as <see cref="Environment.ProcessorCount"/>.
+    /// It sizes the work the BCL sizes by the processor count: a <c>Parallel</c> loop without a degree-of-parallelism
+    /// limit runs this many workers, and <c>Partitioner.Create(fromInclusive, toExclusive)</c> sizes its ranges from it.
+    /// Defaults to 4: big enough that such work runs on several workers whose interleavings the scheduler explores,
+    /// small enough to keep the schedule space and the cost of each run bounded, and the same on every host, so a seed
+    /// replays on any machine. Set it to model a production machine's processor count.
+    /// </summary>
+    public int ProcessorCount { get; }
 
     /// <summary>
     /// Gets the deterministic runtime environment the BCL shims dispatch to while this cluster's

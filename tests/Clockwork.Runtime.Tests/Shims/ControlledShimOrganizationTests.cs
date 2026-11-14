@@ -17,8 +17,12 @@ public sealed partial class ControlledShimOrganizationTests
                 typeof(System.Diagnostics.Stopwatch).Assembly,
                 typeof(System.Threading.Barrier).Assembly,
                 typeof(System.Threading.Tasks.Parallel).Assembly,
+                typeof(System.Collections.Concurrent.Partitioner).Assembly,
                 typeof(RandomNumberGenerator).Assembly,
                 typeof(System.Timers.Timer).Assembly,
+                typeof(System.Threading.Channels.ChannelReader<>).Assembly,
+                typeof(System.Linq.ParallelEnumerable).Assembly,
+                typeof(System.Collections.Concurrent.BlockingCollection<>).Assembly,
             }
             .Distinct()
             .SelectMany(assembly => assembly.GetTypes()),

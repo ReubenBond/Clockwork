@@ -36,9 +36,22 @@ namespace Clockwork.Runtime.Shims;
 /// GUID generation never perturbs application randomness.
 /// </description></item>
 /// </list>
+/// <para>
+/// <b>Processor count.</b> <see cref="GetProcessorCount"/> returns one simulated processor count for every node,
+/// fixed when the runtime is created (see <see cref="DefaultProcessorCount"/>).
+/// </para>
 /// </summary>
 public sealed class SimulationRuntimeEnvironment : ISimulationRuntimeEnvironment
 {
+    /// <summary>
+    /// The simulated processor count a runtime uses unless its host configures another: 4. It is big enough that the
+    /// work the BCL sizes by <see cref="Environment.ProcessorCount"/> (a <c>Parallel</c> loop's default degree of
+    /// parallelism, a <c>Partitioner</c>'s range size) runs on several workers whose interleavings the scheduler
+    /// explores; small enough to keep the schedule space and the cost of each run bounded; and the same on every host,
+    /// so a seed replays on any machine.
+    /// </summary>
+    internal const int DefaultProcessorCount = 4;
+
     /// <summary>The stable site-id prefix for the per-node shared random stream.</summary>
     private const string SharedRandomSite = "clockwork.random.shared/";
 
@@ -58,6 +71,7 @@ public sealed class SimulationRuntimeEnvironment : ISimulationRuntimeEnvironment
     private readonly Func<DateTimeOffset> _utcNowProvider;
     private readonly TimeZoneInfo _localTimeZone;
     private readonly DateTimeOffset _origin;
+    private readonly int _processorCount;
     private readonly ConcurrentDictionary<string, NodeStreams> _nodeStreams = new(StringComparer.Ordinal);
 
     /// <summary>Initializes a new instance of the <see cref="SimulationRuntimeEnvironment"/> class.</summary>
@@ -68,20 +82,25 @@ public sealed class SimulationRuntimeEnvironment : ISimulationRuntimeEnvironment
     /// The fixed virtual origin that <see cref="GetTickCount64"/> and <see cref="GetTimestamp"/> are
     /// measured from. Must be less than or equal to every instant the clock will return.
     /// </param>
+    /// <param name="processorCount">The simulated processor count every node observes; must be positive.</param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="processorCount"/> is zero or negative.</exception>
     public SimulationRuntimeEnvironment(
         SimulationSeedAuthority seedAuthority,
         Func<DateTimeOffset> utcNowProvider,
         TimeZoneInfo localTimeZone,
-        DateTimeOffset origin)
+        DateTimeOffset origin,
+        int processorCount)
     {
         ArgumentNullException.ThrowIfNull(seedAuthority);
         ArgumentNullException.ThrowIfNull(utcNowProvider);
         ArgumentNullException.ThrowIfNull(localTimeZone);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(processorCount);
 
         _seedAuthority = seedAuthority;
         _utcNowProvider = utcNowProvider;
         _localTimeZone = localTimeZone;
         _origin = origin;
+        _processorCount = processorCount;
     }
 
     /// <inheritdoc/>
@@ -89,6 +108,9 @@ public sealed class SimulationRuntimeEnvironment : ISimulationRuntimeEnvironment
 
     /// <inheritdoc/>
     public TimeZoneInfo GetLocalTimeZone(SimulationNodeIdentity? node) => _localTimeZone;
+
+    /// <inheritdoc/>
+    public int GetProcessorCount(SimulationNodeIdentity? node) => _processorCount;
 
     /// <inheritdoc/>
     public long GetTimestamp(SimulationNodeIdentity? node)

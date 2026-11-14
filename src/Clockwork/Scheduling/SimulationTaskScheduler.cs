@@ -25,6 +25,8 @@ public sealed class SimulationTaskScheduler(SimulationSchedulerLane schedulerLan
     /// </summary>
     public object UnderlyingScheduler => schedulerLane;
 
+    internal SimulationSchedulerLane Lane => schedulerLane;
+
     /// <summary>
     /// Checks if this scheduler shares the same underlying queue as a synchronization context.
     /// </summary>
@@ -40,6 +42,9 @@ public sealed class SimulationTaskScheduler(SimulationSchedulerLane schedulerLan
 
         internal override string Description => "Scheduled task";
 
-        internal override void Invoke() => scheduler.TryExecuteTask(task);
+        // Each queued task is an independently scheduled unit of work, so it runs as a fresh strand.
+        internal override void Invoke() =>
+            Runtime.Threading.SimulationSynchronizationFlow.RunAsNewStrand(
+                () => Shims.System.Threading.Tasks.ControlledTaskScheduler.ExecuteAsCurrentStrand(scheduler.TryExecuteTask, task));
     }
 }

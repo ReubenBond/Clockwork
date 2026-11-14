@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Clockwork.Runtime.Shims;
+using Clockwork.Shims.System.Threading.Tasks;
 
 namespace Clockwork.Shims.System.Runtime.CompilerServices;
 
@@ -68,6 +69,7 @@ public readonly struct ControlledConfiguredValueTaskAwaiter : ICriticalNotifyCom
             SimulationTaskRuntime.DrainUntilCompleted(_valueTask, ApiName);
         }
 
+        ControlledValueTask.WaitCompletion(_valueTask);
         _valueTask.GetAwaiter().GetResult();
     }
 
@@ -149,6 +151,7 @@ public readonly struct ControlledConfiguredValueTaskAwaiter<TResult> : ICritical
             SimulationTaskRuntime.DrainUntilCompleted(_valueTask, ApiName);
         }
 
+        ControlledValueTask.WaitCompletion(_valueTask);
         return _valueTask.GetAwaiter().GetResult();
     }
 

@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Threading.Tasks;
+using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Racing;
 using Clockwork.Runtime.Shims;
 using Clockwork.Shims.System.Runtime.CompilerServices;
@@ -21,8 +22,9 @@ namespace Clockwork.Shims.System.Threading.Tasks;
 /// (<see cref="WhenAll(Task[])"/>, <see cref="WhenAny(Task[])"/>, <see cref="WhenEach(Task[])"/>, <see cref="Unwrap(Task{Task})"/>) and
 /// <see cref="ContinueWith(Task, Action{Task})"/> instead observe their antecedents' completion through readiness
 /// waits on the coordinator, as the controlled awaiters do, and complete their results on controlled operations.
-/// Synchronous waits (<see cref="Wait"/>, <see cref="Result{TResult}"/>, <see cref="WaitAll"/>,
-/// <see cref="WaitAny"/>) pump the coordinator instead of blocking a physical thread, then delegate to
+/// Synchronous waits (<see cref="Wait(Task)"/>, <see cref="Result{TResult}"/>, <see cref="WaitAll(Task[])"/>,
+/// <see cref="WaitAny(Task[])"/>, and their timed and cancellable overloads, whose timeouts elapse in virtual time) pump
+/// the coordinator instead of blocking a physical thread, then delegate to
 /// the real API to reproduce its exact completion/exception semantics. <see cref="Run(Action)"/> and
 /// its overloads queue their body as a fresh controlled operation on the coordinator, so
 /// the work runs on the single logical thread interleaved with everything else instead of on an
@@ -32,6 +34,9 @@ namespace Clockwork.Shims.System.Threading.Tasks;
 /// </summary>
 public static partial class ControlledTask
 {
+    private const string StartApi = "System.Threading.Tasks.Task.Start";
+    private const string RunSynchronouslyApi = "System.Threading.Tasks.Task.RunSynchronously";
+
     /// <summary>Controlled <c>Task.Yield()</c>: returns an awaitable that always suspends and resumes via the coordinator.</summary>
     /// <returns>A <see cref="ControlledYieldAwaitable"/>.</returns>
     public static ControlledYieldAwaitable Yield() =>
@@ -45,14 +50,8 @@ public static partial class ControlledTask
     /// <param name="task">The task to wait for.</param>
     public static void Wait(Task task)
     {
-        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.Wait");
-        ArgumentNullException.ThrowIfNull(task);
-        SimulationTaskRuntime.DrainUntilCompleted(
-            task,
-            "System.Threading.Tasks.Task.Wait",
-            CancellationToken.None);
-        RaceSynchronization.Wait(task);
-        task.Wait();
+        SimulationRuntimeDispatch.RequireActiveSimulation(WaitApi);
+        WaitCore(task, Timeout.Infinite, CancellationToken.None);
     }
 
     /// <summary>
@@ -79,49 +78,81 @@ public static partial class ControlledTask
     /// <param name="tasks">The tasks to wait for.</param>
     public static void WaitAll(params Task[] tasks)
     {
-        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WaitAll");
-        ArgumentNullException.ThrowIfNull(tasks);
-        ValidateNoNullTasks(tasks);
-        SimulationTaskRuntime.DrainUntil(
-            () => AllCompleted(tasks),
-            "System.Threading.Tasks.Task.WaitAll",
-            CancellationToken.None);
-        foreach (Task task in tasks)
-        {
-            RaceSynchronization.Wait(task);
-        }
-
-        Task.WaitAll(tasks);
+        SimulationRuntimeDispatch.RequireActiveSimulation(WaitAllApi);
+        WaitAllCore(tasks, Timeout.Infinite, WaitAllApi, CancellationToken.None);
     }
 
     /// <summary>Controlled <c>Task.WaitAny(Task[])</c>: pumps until at least one completes, then delegates.</summary>
     /// <param name="tasks">The candidate tasks.</param>
-    /// <returns>The index of the first completed task.</returns>
+    /// <returns>The index of the first completed task, or -1 if <paramref name="tasks"/> is empty.</returns>
     public static int WaitAny(params Task[] tasks)
     {
-        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.WaitAny");
-        ArgumentNullException.ThrowIfNull(tasks);
-        ValidateNoNullTasks(tasks);
-        SimulationTaskRuntime.DrainUntil(
-            () => AnyCompleted(tasks),
-            "System.Threading.Tasks.Task.WaitAny",
-            CancellationToken.None);
-        int winner = Task.WaitAny(tasks);
-        RaceSynchronization.Wait(tasks[winner]);
-        return winner;
+        SimulationRuntimeDispatch.RequireActiveSimulation(WaitAnyApi);
+        return WaitAnyCore(tasks, Timeout.Infinite, CancellationToken.None);
     }
 
     /// <summary>
-    /// Controlled <c>task.RunSynchronously()</c>: delegates to the real API, which runs the task's
-    /// delegate inline on the calling (logical) thread - already deterministic.
+    /// Controlled <c>task.RunSynchronously()</c>: runs the task on the calling logical thread through
+    /// <see cref="ControlledTaskScheduler"/>, with the BCL's validation and status transitions.
     /// </summary>
     /// <param name="task">The task to run.</param>
     public static void RunSynchronously(Task task)
     {
-        SimulationRuntimeDispatch.RequireActiveSimulation("System.Threading.Tasks.Task.RunSynchronously");
+        SimulationRuntimeDispatch.RequireActiveSimulation(RunSynchronouslyApi);
         ArgumentNullException.ThrowIfNull(task);
-        task.RunSynchronously();
+        ControlledTaskScheduler.RunInline(task);
     }
+
+    /// <summary>Controlled <c>task.RunSynchronously(TaskScheduler)</c>; see <see cref="RunSynchronously(Task)"/>.</summary>
+    /// <param name="task">The task to run.</param>
+    /// <param name="scheduler">
+    /// The scheduler (see <see cref="ControlledTaskScheduler.ResolveTarget"/>). A <see cref="SimulationTaskScheduler"/>
+    /// never runs a task inline, so, as in the BCL, the task is queued to its lane and the caller waits for it, pumping
+    /// the coordinator.
+    /// </param>
+    public static void RunSynchronously(Task task, TaskScheduler scheduler)
+    {
+        SimulationExecutionSnapshot caller = SimulationRuntimeDispatch.RequireActiveSimulation(RunSynchronouslyApi);
+        ArgumentNullException.ThrowIfNull(task);
+        ArgumentNullException.ThrowIfNull(scheduler);
+        _ = ControlledTaskScheduler.ResolveTarget(scheduler, caller, SimulationApiCategory.Task, RunSynchronouslyApi);
+        if (scheduler is SimulationTaskScheduler lane)
+        {
+            task.Start(lane);
+            SimulationTaskRuntime.DrainUntilCompleted(task, RunSynchronouslyApi, CancellationToken.None);
+            return;
+        }
+
+        ControlledTaskScheduler.RunInline(task);
+    }
+
+    /// <summary>
+    /// Controlled <c>task.Start()</c>: queues the task to <see cref="ControlledTaskScheduler"/>, which runs it as a fresh
+    /// controlled operation, as <c>Task.Run</c> runs its body, with the BCL's validation and status transitions.
+    /// </summary>
+    /// <param name="task">The task to start.</param>
+    public static void Start(Task task)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation(StartApi);
+        ArgumentNullException.ThrowIfNull(task);
+        task.Start(ControlledTaskScheduler.Instance);
+    }
+
+    /// <summary>Controlled <c>task.Start(TaskScheduler)</c>; see <see cref="Start(Task)"/>.</summary>
+    /// <param name="task">The task to start.</param>
+    /// <param name="scheduler">
+    /// The scheduler (see <see cref="ControlledTaskScheduler.ResolveTarget"/>): a <see cref="SimulationTaskScheduler"/>
+    /// runs the task on its lane, and <see cref="TaskScheduler.Default"/> on the coordinator.
+    /// </param>
+    public static void Start(Task task, TaskScheduler scheduler)
+    {
+        SimulationExecutionSnapshot caller = SimulationRuntimeDispatch.RequireActiveSimulation(StartApi);
+        ArgumentNullException.ThrowIfNull(task);
+        ArgumentNullException.ThrowIfNull(scheduler);
+        _ = ControlledTaskScheduler.ResolveTarget(scheduler, caller, SimulationApiCategory.Task, StartApi);
+        task.Start(scheduler is SimulationTaskScheduler lane ? lane : ControlledTaskScheduler.Instance);
+    }
+
 
     /// <summary>Returns a task completed after the requested virtual delay.</summary>
     public static Task Delay(int millisecondsDelay)

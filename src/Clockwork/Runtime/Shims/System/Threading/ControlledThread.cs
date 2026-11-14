@@ -40,6 +40,7 @@ namespace Clockwork.Shims.System.Threading;
 public static class ControlledThread
 {
     private const string StartApi = "System.Threading.Thread.Start";
+    private const string UnsafeStartApi = "System.Threading.Thread.UnsafeStart";
     private const string JoinApi = "System.Threading.Thread.Join";
     private const string SleepApi = "System.Threading.Thread.Sleep";
 
@@ -116,7 +117,7 @@ public static class ControlledThread
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(StartApi);
         ArgumentNullException.ThrowIfNull(instance);
-        StartControlled(instance, parameter: null, parameterSupplied: false);
+        StartControlled(instance, parameter: null, parameterSupplied: false, flowExecutionContext: true, StartApi);
     }
 
     /// <summary>Controlled <c>thread.Start(object)</c>.</summary>
@@ -126,7 +127,29 @@ public static class ControlledThread
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(StartApi);
         ArgumentNullException.ThrowIfNull(instance);
-        StartControlled(instance, parameter, parameterSupplied: true);
+        StartControlled(instance, parameter, parameterSupplied: true, flowExecutionContext: true, StartApi);
+    }
+
+    /// <summary>
+    /// Controlled <c>thread.UnsafeStart()</c>: starts the thread as <see cref="Start(Thread)"/> does, without flowing the
+    /// caller's <see cref="ExecutionContext"/>, so its <see cref="AsyncLocal{T}"/> values do not reach the body.
+    /// </summary>
+    /// <param name="instance">The receiving thread.</param>
+    public static void UnsafeStart(Thread instance)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation(UnsafeStartApi);
+        ArgumentNullException.ThrowIfNull(instance);
+        StartControlled(instance, parameter: null, parameterSupplied: false, flowExecutionContext: false, UnsafeStartApi);
+    }
+
+    /// <summary>Controlled <c>thread.UnsafeStart(object)</c>; see <see cref="UnsafeStart(Thread)"/>.</summary>
+    /// <param name="instance">The receiving thread.</param>
+    /// <param name="parameter">The object passed to a <see cref="ParameterizedThreadStart"/> body.</param>
+    public static void UnsafeStart(Thread instance, object? parameter)
+    {
+        SimulationRuntimeDispatch.RequireActiveSimulation(UnsafeStartApi);
+        ArgumentNullException.ThrowIfNull(instance);
+        StartControlled(instance, parameter, parameterSupplied: true, flowExecutionContext: false, UnsafeStartApi);
     }
 
     /// <summary>Controlled <c>thread.Join()</c>.</summary>
@@ -261,12 +284,17 @@ public static class ControlledThread
             "COM apartment state is an OS-thread concept with no analogue for a controlled operation.");
     }
 
-    private static void StartControlled(Thread instance, object? parameter, bool parameterSupplied)
+    private static void StartControlled(
+        Thread instance,
+        object? parameter,
+        bool parameterSupplied,
+        bool flowExecutionContext,
+        string apiName)
     {
         if (!Registry.TryGetValue(instance, out Registration? registration))
         {
             throw Unsupported(
-                StartApi,
+                apiName,
                 "the thread was not created through the controlled Thread surface, so its body is unknown " +
                 "and cannot be scheduled on the simulation coordinator (starting the real OS thread would " +
                 "escape the single logical thread).");
@@ -284,7 +312,7 @@ public static class ControlledThread
         }
 
         registration.Started = true;
-        SimulationTaskRuntime.QueueWork(() => RunBody(registration, parameter), StartApi);
+        SimulationTaskRuntime.QueueWork(() => RunBody(registration, parameter), apiName, flowExecutionContext);
     }
 
     private static void RunBody(Registration registration, object? parameter)

@@ -125,6 +125,110 @@ public sealed class ClusterReplayRunnerTests
     }
 
     [Fact]
+    public void ArtifactRecordsTheDefaultProcessorCount()
+    {
+        int observed = 0;
+        ReplayExecutionResult recorded = ReplayRunner.RecordCluster(
+            SeededConfiguration(scheduleSeed: 11),
+            cluster => observed = cluster.RuntimeEnvironment.GetProcessorCount(node: null),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(4, observed);
+        Assert.Equal("4", recorded.Artifact.Scheduler.Options["processorCount"]);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ReplayRunsWithTheRecordedProcessorCount(bool cluster)
+    {
+        ReplayRecordingOptions options = SeededConfiguration(scheduleSeed: 13) with { ProcessorCount = 6 };
+        int recordedCount = 0;
+        int replayedCount = 0;
+        ReplayExecutionResult recorded = cluster
+            ? ReplayRunner.RecordCluster(options, c => recordedCount = c.ProcessorCount, TestContext.Current.CancellationToken)
+            : ReplayRunner.Record(options, s => recordedCount = s.Runtime.Environment.GetProcessorCount(null), TestContext.Current.CancellationToken);
+
+        ReplayExecutionResult replayed = cluster
+            ? ReplayRunner.ReplayCluster(
+                recorded.Artifact,
+                ReplayCompatibilityRequirements.Current() with { ProcessorCount = 6 },
+                c => replayedCount = c.RuntimeEnvironment.GetProcessorCount(null),
+                maxSteps: 10_000,
+                cancellationToken: TestContext.Current.CancellationToken)
+            : ReplayRunner.Replay(
+                recorded.Artifact,
+                ReplayCompatibilityRequirements.Current(),
+                s => replayedCount = s.Runtime.Environment.GetProcessorCount(null),
+                maxSteps: 10_000,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal("6", recorded.Artifact.Scheduler.Options["processorCount"]);
+        Assert.Equal(6, recordedCount);
+        Assert.Equal(6, replayedCount);
+        Assert.True(replayed.Reproduced);
+    }
+
+    [Fact]
+    public void ReplayRejectsAProcessorCountOtherThanTheRequiredOne()
+    {
+        ReplayExecutionResult recorded = ReplayRunner.RecordCluster(
+            SeededConfiguration(scheduleSeed: 17) with { ProcessorCount = 6 },
+            static _ => { },
+            TestContext.Current.CancellationToken);
+        bool ran = false;
+
+        ReplayCompatibilityException exception = Assert.Throws<ReplayCompatibilityException>(
+            () => ReplayRunner.ReplayCluster(
+                recorded.Artifact,
+                ReplayCompatibilityRequirements.Current() with { ProcessorCount = 4 },
+                _ => ran = true,
+                maxSteps: 10_000,
+                cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.False(ran);
+        Assert.Contains("simulated processor count mismatch", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("0")]
+    [InlineData("-2")]
+    [InlineData("four")]
+    public void ReplayRejectsAnArtifactWithoutAValidProcessorCount(string? processorCount)
+    {
+        ReplayExecutionResult recorded = ReplayRunner.RecordCluster(
+            SeededConfiguration(scheduleSeed: 19),
+            static _ => { },
+            TestContext.Current.CancellationToken);
+        var options = new SortedDictionary<string, string>(
+            recorded.Artifact.Scheduler.Options.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal),
+            StringComparer.Ordinal);
+        options.Remove("processorCount");
+        if (processorCount is not null)
+        {
+            options["processorCount"] = processorCount;
+        }
+
+        ReplayArtifact artifact = recorded.Artifact with
+        {
+            Scheduler = recorded.Artifact.Scheduler with { Options = options },
+        };
+        bool ran = false;
+
+        ReplayCompatibilityException exception = Assert.Throws<ReplayCompatibilityException>(
+            () => ReplayRunner.ReplayCluster(
+                artifact,
+                ReplayCompatibilityRequirements.Current(),
+                _ => ran = true,
+                maxSteps: 10_000,
+                cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.False(ran);
+        Assert.Contains("processor count", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ExploreClusterCreatesAndDisposesFreshClusterPerIteration()
     {
         var runtimeIds = new List<Guid>();

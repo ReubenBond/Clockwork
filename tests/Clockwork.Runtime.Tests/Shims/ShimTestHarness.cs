@@ -26,8 +26,9 @@ internal static class ShimTestHarness
     public static TestEnvironment CreateEnvironment(
         MutableClock clock,
         int simulationSeed = 12345,
-        TimeZoneInfo? localTimeZone = null) =>
-        new(clock, simulationSeed, localTimeZone ?? TimeZoneInfo.Utc);
+        TimeZoneInfo? localTimeZone = null,
+        int processorCount = SimulationRuntimeEnvironment.DefaultProcessorCount) =>
+        new(clock, simulationSeed, localTimeZone ?? TimeZoneInfo.Utc, processorCount);
 
     /// <summary>
     /// Runs <paramref name="body"/> inside an active simulation with the given environment registered
@@ -44,7 +45,8 @@ internal static class ShimTestHarness
             activeRuntime,
             new SimulationSeedAuthority(environment.SimulationSeed),
             environment.Clock.UtcNow,
-            environment.LocalTimeZone);
+            environment.LocalTimeZone,
+            processorCount: environment.ProcessorCount);
         environment.Clock.Bind(scheduler);
 
         // The test thread is the simulation's controlling thread: it calls controlled APIs and drives the scheduler.
@@ -111,16 +113,19 @@ internal static class ShimTestHarness
         public TestEnvironment(
             MutableClock clock,
             int simulationSeed,
-            TimeZoneInfo localTimeZone)
+            TimeZoneInfo localTimeZone,
+            int processorCount)
         {
             Clock = clock;
             SimulationSeed = simulationSeed;
             LocalTimeZone = localTimeZone;
+            ProcessorCount = processorCount;
             _inner = new SimulationRuntimeEnvironment(
                 new SimulationSeedAuthority(simulationSeed),
                 () => clock.UtcNow,
                 localTimeZone,
-                Origin);
+                Origin,
+                processorCount);
         }
 
         public MutableClock Clock { get; }
@@ -129,9 +134,13 @@ internal static class ShimTestHarness
 
         public TimeZoneInfo LocalTimeZone { get; }
 
+        public int ProcessorCount { get; }
+
         public DateTimeOffset GetUtcNow(SimulationNodeIdentity? node) => _inner.GetUtcNow(node);
 
         public TimeZoneInfo GetLocalTimeZone(SimulationNodeIdentity? node) => _inner.GetLocalTimeZone(node);
+
+        public int GetProcessorCount(SimulationNodeIdentity? node) => _inner.GetProcessorCount(node);
 
         public long GetTimestamp(SimulationNodeIdentity? node) => _inner.GetTimestamp(node);
 

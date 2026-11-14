@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Shims;
+using Clockwork.Shims.System.Threading.Tasks;
 
 namespace Clockwork.Shims.System.Runtime.CompilerServices;
 
@@ -45,11 +46,21 @@ public struct ControlledAsyncValueTaskMethodBuilder
     }
 
     /// <summary>Completes the value task successfully.</summary>
-    public void SetResult() { RequireActive(); _inner.SetResult(); }
+    public void SetResult()
+    {
+        RequireActive();
+        _inner.SetResult();
+        ControlledValueTask.SignalCompletion(_inner.Task);
+    }
 
     /// <summary>Completes the value task in a faulted or cancelled state.</summary>
     /// <param name="exception">The exception to fault (or cancel) the value task with.</param>
-    public void SetException(Exception exception) { RequireActive(); _inner.SetException(exception); }
+    public void SetException(Exception exception)
+    {
+        RequireActive();
+        _inner.SetException(exception);
+        ControlledValueTask.SignalCompletion(_inner.Task);
+    }
 
     /// <summary>Schedules the state machine to resume when the awaiter completes (context-flowing).</summary>
     /// <typeparam name="TAwaiter">The awaiter type.</typeparam>
@@ -126,11 +137,21 @@ public struct ControlledAsyncValueTaskMethodBuilder<TResult>
 
     /// <summary>Completes the value task successfully with the given result.</summary>
     /// <param name="result">The result value.</param>
-    public void SetResult(TResult result) { RequireActive(); _inner.SetResult(result); }
+    public void SetResult(TResult result)
+    {
+        RequireActive();
+        _inner.SetResult(result);
+        ControlledValueTask.SignalCompletion(_inner.Task);
+    }
 
     /// <summary>Completes the value task in a faulted or cancelled state.</summary>
     /// <param name="exception">The exception to fault (or cancel) the value task with.</param>
-    public void SetException(Exception exception) { RequireActive(); _inner.SetException(exception); }
+    public void SetException(Exception exception)
+    {
+        RequireActive();
+        _inner.SetException(exception);
+        ControlledValueTask.SignalCompletion(_inner.Task);
+    }
 
     /// <summary>Schedules the state machine to resume when the awaiter completes (context-flowing).</summary>
     /// <typeparam name="TAwaiter">The awaiter type.</typeparam>

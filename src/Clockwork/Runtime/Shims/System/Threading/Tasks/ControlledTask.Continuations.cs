@@ -1,6 +1,7 @@
 using System.Threading;
 using System.Threading.Tasks;
 using Clockwork.Runtime;
+using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Racing;
 using Clockwork.Runtime.Shims;
 
@@ -434,7 +435,7 @@ public static partial class ControlledTask
         Func<Task, CancellationToken, TaskContinuationOptions, TContinuation> continueGate)
         where TContinuation : Task
     {
-        SimulationRuntimeDispatch.RequireActiveSimulation(apiName);
+        SimulationExecutionSnapshot caller = SimulationRuntimeDispatch.RequireActiveSimulation(apiName);
 
         // The BCL's ContinueWith is an instance method: a null antecedent fails the call itself, with the runtime's
         // NullReferenceException, before any argument is validated.
@@ -443,9 +444,10 @@ public static partial class ControlledTask
         ArgumentNullException.ThrowIfNull(continuation, continuationParameterName);
         ArgumentNullException.ThrowIfNull(scheduler);
         ValidateContinuationOptions(continuationOptions);
-        RejectUnpreservableContinuation(continuationOptions, scheduler, apiName);
+        SimulationExecutionSnapshot target = RejectUnpreservableContinuation(continuationOptions, scheduler, caller, apiName);
 
         return ContinueGate(
+            target,
             () => antecedent.IsCompleted,
             () =>
             {
@@ -463,8 +465,9 @@ public static partial class ControlledTask
     /// caller's execution context and on a fresh logical strand, once the coordinator observes the antecedents ready.
     /// The BCL registers nothing on the antecedents.
     /// </summary>
+    /// <param name="target">The snapshot, and so the node, the continuation runs under.</param>
     /// <param name="isReady">
-    /// Whether the antecedents are ready: a readiness predicate (see <see cref="SimulationTaskRuntime.ScheduleWhenReady"/>)
+    /// Whether the antecedents are ready: a readiness predicate (see <see cref="SimulationTaskRuntime.ScheduleWhenReady(Func{bool}, Action, string)"/>)
     /// which, once it has held, holds again when the controlled operation evaluates it.
     /// </param>
     /// <param name="observe">
@@ -476,6 +479,7 @@ public static partial class ControlledTask
     /// <param name="apiName">The controlled API, for diagnostics.</param>
     /// <param name="continueGate">Creates the continuation of the gate task, with the given token and options.</param>
     internal static TContinuation ContinueGate<TContinuation>(
+        SimulationExecutionSnapshot target,
         Func<bool> isReady,
         Func<TaskStatus> observe,
         CancellationToken cancellationToken,
@@ -503,6 +507,7 @@ public static partial class ControlledTask
         }
 
         SimulationTaskRuntime.ScheduleWhenReady(
+            target,
             () => isReady() || continuationTask.IsCompleted,
             () => SimulationTaskRuntime.RunWithCapturedExecutionContextAsNewStrand(
                 context,
@@ -600,22 +605,23 @@ public static partial class ControlledTask
         }
     }
 
-    internal static void RejectUnpreservableContinuation(
+    /// <summary>
+    /// Rejects the continuation options a continuation on the coordinator cannot preserve, and resolves the scheduler to
+    /// the snapshot the continuation runs under (see <see cref="ControlledTaskScheduler.ResolveTarget"/>).
+    /// </summary>
+    /// <param name="continuationOptions">The continuation's validated options.</param>
+    /// <param name="scheduler">The continuation's scheduler.</param>
+    /// <param name="caller">The caller's simulation snapshot.</param>
+    /// <param name="apiName">The controlled API, for diagnostics.</param>
+    /// <returns>The snapshot the continuation runs under.</returns>
+    internal static SimulationExecutionSnapshot RejectUnpreservableContinuation(
         TaskContinuationOptions continuationOptions,
         TaskScheduler scheduler,
+        SimulationExecutionSnapshot caller,
         string apiName)
     {
-        // TaskScheduler.Default and the simulation's own scheduler both name the coordinator, which runs the
-        // continuation; any other scheduler would run it outside the simulation.
-        if (!ReferenceEquals(scheduler, TaskScheduler.Default) && scheduler is not SimulationTaskScheduler)
-        {
-            throw new SimulationApiException(
-                SimulationApiCategory.Task,
-                apiName,
-                "a custom TaskScheduler is not supported inside a simulation because executing it would escape " +
-                "Clockwork's controlled logical strand. Use TaskScheduler.Default, the simulation's SimulationTaskScheduler, " +
-                "or an overload without a scheduler.");
-        }
+        SimulationExecutionSnapshot target =
+            ControlledTaskScheduler.ResolveTarget(scheduler, caller, SimulationApiCategory.Task, apiName);
 
         if ((continuationOptions & TaskContinuationOptions.LongRunning) != 0)
         {
@@ -634,6 +640,8 @@ public static partial class ControlledTask
                 "TaskContinuationOptions.AttachedToParent attaches the continuation to a parent task, and Clockwork's " +
                 "controlled tasks do not model parent and child tasks.");
         }
+
+        return target;
     }
 }
 

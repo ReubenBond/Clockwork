@@ -129,11 +129,13 @@ public sealed class SimulationScheduler : IDisposable
         SimulationSeedAuthority seedAuthority,
         DateTimeOffset startDateTime,
         TimeZoneInfo localTimeZone,
-        ISimulationOperationListener? listener = null)
+        ISimulationOperationListener? listener = null,
+        int processorCount = SimulationRuntimeEnvironment.DefaultProcessorCount)
     {
         ArgumentNullException.ThrowIfNull(runtime);
         ArgumentNullException.ThrowIfNull(seedAuthority);
         ArgumentNullException.ThrowIfNull(localTimeZone);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(processorCount);
         if (runtime.IsConfigured)
         {
             throw new InvalidOperationException(
@@ -150,7 +152,8 @@ public sealed class SimulationScheduler : IDisposable
                 seedAuthority,
                 () => UtcNow,
                 localTimeZone,
-                startDateTime),
+                startDateTime,
+                processorCount),
             this);
     }
 
