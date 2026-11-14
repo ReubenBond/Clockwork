@@ -235,6 +235,32 @@ public enum BuiltInRuleFamily
     AsyncIO,
 
     /// <summary>
+    /// <see cref="System.ComponentModel.BackgroundWorker"/>.<c>RunWorkerAsync</c> and
+    /// <c>Microsoft.Extensions.Hosting.BackgroundService.StartAsync</c>, which start the application's <c>DoWork</c> handler
+    /// or <c>ExecuteAsync</c> on the thread pool (<c>Task.Factory.StartNew</c> on <c>TaskScheduler.Default</c>, and the real
+    /// <c>Task.Run</c>). Classified <c>Rejected</c>: each type raises or stores the work through private state, so a shim
+    /// cannot run it on the coordinator with the BCL's semantics, and the rewritten call site throws a precise diagnostic.
+    /// </summary>
+    BackgroundWork,
+
+    /// <summary>
+    /// TPL Dataflow: the constructor of every block of <c>System.Threading.Tasks.Dataflow</c>, and the
+    /// <c>DataflowBlock</c> helpers which schedule work or wait (<c>Choose</c>, <c>Receive</c>, <c>ReceiveAsync</c>,
+    /// <c>ReceiveAllAsync</c>, <c>SendAsync</c>, <c>OutputAvailableAsync</c>). Classified <c>Rejected</c>: a block wires
+    /// cancellation and completion propagation through continuations on <c>TaskScheduler.Default</c> whatever its options'
+    /// scheduler, and the helpers time out on real timers, so no scheduler substitution would keep its work on the
+    /// coordinator.
+    /// </summary>
+    Dataflow,
+
+    /// <summary>
+    /// The <see cref="System.Net.WebSockets.WebSocket"/> factories over a caller's stream (<c>CreateFromStream</c> and
+    /// <c>CreateClientWebSocket</c>). Classified <c>Rejected</c>: the framework's protocol implementation sends keep-alive
+    /// pings from a real timer on the thread pool and times out its closing handshake in real time.
+    /// </summary>
+    WebSockets,
+
+    /// <summary>
     /// Process control and abrupt-termination surfaces that cannot be modelled by the deterministic
     /// scheduler: the static <see cref="System.Diagnostics.Process"/> <c>Start</c>, <c>Run</c>, <c>RunAsync</c>,
     /// <c>RunAndCaptureText</c>, <c>RunAndCaptureTextAsync</c>, and <c>StartAndForget</c> families (spawning an

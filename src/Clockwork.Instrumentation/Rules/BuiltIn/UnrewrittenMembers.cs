@@ -41,6 +41,15 @@ internal static class UnrewrittenMembers
             }
         }
 
+        Add("Microsoft.Extensions.Hosting.BackgroundService", UnrewrittenReason.Value,
+            ".ctor()",
+            "Dispose()");
+
+        Add("Microsoft.Extensions.Hosting.BackgroundService", UnrewrittenReason.BackgroundWork,
+            "get_ExecuteTask()",
+            "ExecuteAsync(System.Threading.CancellationToken)",
+            "StopAsync(System.Threading.CancellationToken)");
+
         Add("Microsoft.Win32.SafeHandles.SafeProcessHandle", UnrewrittenReason.Process,
             ".ctor()",
             ".ctor(System.IntPtr,System.Boolean)",
@@ -73,6 +82,30 @@ internal static class UnrewrittenMembers
             "Dispose()",
             "Dispose(System.Boolean)",
             "ToArray()");
+
+        Add("System.ComponentModel.BackgroundWorker", UnrewrittenReason.Value,
+            ".ctor()",
+            "get_WorkerReportsProgress()",
+            "set_WorkerReportsProgress(System.Boolean)",
+            "get_WorkerSupportsCancellation()",
+            "set_WorkerSupportsCancellation(System.Boolean)",
+            "add_DoWork(System.ComponentModel.DoWorkEventHandler)",
+            "remove_DoWork(System.ComponentModel.DoWorkEventHandler)",
+            "add_ProgressChanged(System.ComponentModel.ProgressChangedEventHandler)",
+            "remove_ProgressChanged(System.ComponentModel.ProgressChangedEventHandler)",
+            "add_RunWorkerCompleted(System.ComponentModel.RunWorkerCompletedEventHandler)",
+            "remove_RunWorkerCompleted(System.ComponentModel.RunWorkerCompletedEventHandler)",
+            "Dispose(System.Boolean)");
+
+        Add("System.ComponentModel.BackgroundWorker", UnrewrittenReason.BackgroundWork,
+            "get_CancellationPending()",
+            "get_IsBusy()",
+            "CancelAsync()",
+            "OnDoWork(System.ComponentModel.DoWorkEventArgs)",
+            "OnProgressChanged(System.ComponentModel.ProgressChangedEventArgs)",
+            "OnRunWorkerCompleted(System.ComponentModel.RunWorkerCompletedEventArgs)",
+            "ReportProgress(System.Int32)",
+            "ReportProgress(System.Int32,System.Object)");
 
         Add("System.DateTime", UnrewrittenReason.Value,
             ".ctor(System.DateOnly,System.TimeOnly)",
@@ -938,6 +971,31 @@ internal static class UnrewrittenMembers
             "Zip``3(System.Linq.ParallelQuery`1<!!0>,System.Collections.Generic.IEnumerable`1<!!1>,System.Func`3<!!0,!!1,!!2>)",
             "Zip``3(System.Linq.ParallelQuery`1<!!0>,System.Linq.ParallelQuery`1<!!1>,System.Func`3<!!0,!!1,!!2>)");
 
+        Add("System.Net.WebSockets.WebSocket", UnrewrittenReason.Value,
+            ".ctor()",
+            "get_DefaultKeepAliveInterval()",
+            "CreateClientBuffer(System.Int32,System.Int32)",
+            "CreateServerBuffer(System.Int32)",
+            "IsApplicationTargeting45()",
+            "IsStateTerminal(System.Net.WebSockets.WebSocketState)",
+            "RegisterPrefixes()",
+            "ThrowOnInvalidState(System.Net.WebSockets.WebSocketState,System.Net.WebSockets.WebSocketState[])");
+
+        Add("System.Net.WebSockets.WebSocket", UnrewrittenReason.WebSocket,
+            "get_CloseStatus()",
+            "get_CloseStatusDescription()",
+            "get_State()",
+            "get_SubProtocol()",
+            "Abort()",
+            "CloseAsync(System.Net.WebSockets.WebSocketCloseStatus,System.String,System.Threading.CancellationToken)",
+            "CloseOutputAsync(System.Net.WebSockets.WebSocketCloseStatus,System.String,System.Threading.CancellationToken)",
+            "Dispose()",
+            "ReceiveAsync(System.ArraySegment`1<System.Byte>,System.Threading.CancellationToken)",
+            "ReceiveAsync(System.Memory`1<System.Byte>,System.Threading.CancellationToken)",
+            "SendAsync(System.ArraySegment`1<System.Byte>,System.Net.WebSockets.WebSocketMessageType,System.Boolean,System.Threading.CancellationToken)",
+            "SendAsync(System.ReadOnlyMemory`1<System.Byte>,System.Net.WebSockets.WebSocketMessageType,System.Boolean,System.Threading.CancellationToken)",
+            "SendAsync(System.ReadOnlyMemory`1<System.Byte>,System.Net.WebSockets.WebSocketMessageType,System.Net.WebSockets.WebSocketMessageFlags,System.Threading.CancellationToken)");
+
         Add("System.Random", UnrewrittenReason.Dispatch,
             "GetHexString(System.Int32,System.Boolean)",
             "GetHexString(System.Span`1<System.Char>,System.Boolean)",
@@ -1077,6 +1135,126 @@ internal static class UnrewrittenMembers
 
         Add("System.Threading.SynchronizationContext", UnrewrittenReason.Blocks,
             "WaitHelper(System.IntPtr[],System.Boolean,System.Int32)");
+
+        Add("System.Threading.Tasks.Dataflow.ActionBlock`1", UnrewrittenReason.DataflowBlock,
+            "get_Completion()",
+            "get_InputCount()",
+            "Complete()",
+            "Post(!0)",
+            "ToString()");
+
+        Add("System.Threading.Tasks.Dataflow.BatchBlock`1", UnrewrittenReason.DataflowBlock,
+            "get_BatchSize()",
+            "get_Completion()",
+            "get_OutputCount()",
+            "Complete()",
+            "LinkTo(System.Threading.Tasks.Dataflow.ITargetBlock`1<!0[]>,System.Threading.Tasks.Dataflow.DataflowLinkOptions)",
+            "ToString()",
+            "TriggerBatch()",
+            "TryReceive(System.Predicate`1<!0[]>,!0[]&)",
+            "TryReceiveAll(System.Collections.Generic.IList`1<!0[]>&)");
+
+        Add("System.Threading.Tasks.Dataflow.BatchedJoinBlock`2", UnrewrittenReason.DataflowBlock,
+            "get_BatchSize()",
+            "get_Completion()",
+            "get_OutputCount()",
+            "get_Target1()",
+            "get_Target2()",
+            "Complete()",
+            "LinkTo(System.Threading.Tasks.Dataflow.ITargetBlock`1<System.Tuple`2<System.Collections.Generic.IList`1<!0>,System.Collections.Generic.IList`1<!1>>>,System.Threading.Tasks.Dataflow.DataflowLinkOptions)",
+            "ToString()",
+            "TryReceive(System.Predicate`1<System.Tuple`2<System.Collections.Generic.IList`1<!0>,System.Collections.Generic.IList`1<!1>>>,System.Tuple`2<System.Collections.Generic.IList`1<!0>,System.Collections.Generic.IList`1<!1>>&)",
+            "TryReceiveAll(System.Collections.Generic.IList`1<System.Tuple`2<System.Collections.Generic.IList`1<!0>,System.Collections.Generic.IList`1<!1>>>&)");
+
+        Add("System.Threading.Tasks.Dataflow.BatchedJoinBlock`3", UnrewrittenReason.DataflowBlock,
+            "get_BatchSize()",
+            "get_Completion()",
+            "get_OutputCount()",
+            "get_Target1()",
+            "get_Target2()",
+            "get_Target3()",
+            "Complete()",
+            "LinkTo(System.Threading.Tasks.Dataflow.ITargetBlock`1<System.Tuple`3<System.Collections.Generic.IList`1<!0>,System.Collections.Generic.IList`1<!1>,System.Collections.Generic.IList`1<!2>>>,System.Threading.Tasks.Dataflow.DataflowLinkOptions)",
+            "ToString()",
+            "TryReceive(System.Predicate`1<System.Tuple`3<System.Collections.Generic.IList`1<!0>,System.Collections.Generic.IList`1<!1>,System.Collections.Generic.IList`1<!2>>>,System.Tuple`3<System.Collections.Generic.IList`1<!0>,System.Collections.Generic.IList`1<!1>,System.Collections.Generic.IList`1<!2>>&)",
+            "TryReceiveAll(System.Collections.Generic.IList`1<System.Tuple`3<System.Collections.Generic.IList`1<!0>,System.Collections.Generic.IList`1<!1>,System.Collections.Generic.IList`1<!2>>>&)");
+
+        Add("System.Threading.Tasks.Dataflow.BroadcastBlock`1", UnrewrittenReason.DataflowBlock,
+            "get_Completion()",
+            "Complete()",
+            "LinkTo(System.Threading.Tasks.Dataflow.ITargetBlock`1<!0>,System.Threading.Tasks.Dataflow.DataflowLinkOptions)",
+            "ToString()",
+            "TryReceive(System.Predicate`1<!0>,!0&)");
+
+        Add("System.Threading.Tasks.Dataflow.BufferBlock`1", UnrewrittenReason.DataflowBlock,
+            "get_Completion()",
+            "get_Count()",
+            "Complete()",
+            "LinkTo(System.Threading.Tasks.Dataflow.ITargetBlock`1<!0>,System.Threading.Tasks.Dataflow.DataflowLinkOptions)",
+            "ToString()",
+            "TryReceive(System.Predicate`1<!0>,!0&)",
+            "TryReceiveAll(System.Collections.Generic.IList`1<!0>&)");
+
+        Add("System.Threading.Tasks.Dataflow.DataflowBlock", UnrewrittenReason.DataflowBlock,
+            "AsObservable``1(System.Threading.Tasks.Dataflow.ISourceBlock`1<!!0>)",
+            "AsObserver``1(System.Threading.Tasks.Dataflow.ITargetBlock`1<!!0>)",
+            "Encapsulate``2(System.Threading.Tasks.Dataflow.ITargetBlock`1<!!0>,System.Threading.Tasks.Dataflow.ISourceBlock`1<!!1>)",
+            "LinkTo``1(System.Threading.Tasks.Dataflow.ISourceBlock`1<!!0>,System.Threading.Tasks.Dataflow.ITargetBlock`1<!!0>)",
+            "LinkTo``1(System.Threading.Tasks.Dataflow.ISourceBlock`1<!!0>,System.Threading.Tasks.Dataflow.ITargetBlock`1<!!0>,System.Predicate`1<!!0>)",
+            "LinkTo``1(System.Threading.Tasks.Dataflow.ISourceBlock`1<!!0>,System.Threading.Tasks.Dataflow.ITargetBlock`1<!!0>,System.Threading.Tasks.Dataflow.DataflowLinkOptions,System.Predicate`1<!!0>)",
+            "NullTarget``1()",
+            "Post``1(System.Threading.Tasks.Dataflow.ITargetBlock`1<!!0>,!!0)",
+            "TryReceive``1(System.Threading.Tasks.Dataflow.IReceivableSourceBlock`1<!!0>,!!0&)");
+
+        Add("System.Threading.Tasks.Dataflow.JoinBlock`2", UnrewrittenReason.DataflowBlock,
+            "get_Completion()",
+            "get_OutputCount()",
+            "get_Target1()",
+            "get_Target2()",
+            "Complete()",
+            "LinkTo(System.Threading.Tasks.Dataflow.ITargetBlock`1<System.Tuple`2<!0,!1>>,System.Threading.Tasks.Dataflow.DataflowLinkOptions)",
+            "ToString()",
+            "TryReceive(System.Predicate`1<System.Tuple`2<!0,!1>>,System.Tuple`2<!0,!1>&)",
+            "TryReceiveAll(System.Collections.Generic.IList`1<System.Tuple`2<!0,!1>>&)");
+
+        Add("System.Threading.Tasks.Dataflow.JoinBlock`3", UnrewrittenReason.DataflowBlock,
+            "get_Completion()",
+            "get_OutputCount()",
+            "get_Target1()",
+            "get_Target2()",
+            "get_Target3()",
+            "Complete()",
+            "LinkTo(System.Threading.Tasks.Dataflow.ITargetBlock`1<System.Tuple`3<!0,!1,!2>>,System.Threading.Tasks.Dataflow.DataflowLinkOptions)",
+            "ToString()",
+            "TryReceive(System.Predicate`1<System.Tuple`3<!0,!1,!2>>,System.Tuple`3<!0,!1,!2>&)",
+            "TryReceiveAll(System.Collections.Generic.IList`1<System.Tuple`3<!0,!1,!2>>&)");
+
+        Add("System.Threading.Tasks.Dataflow.TransformBlock`2", UnrewrittenReason.DataflowBlock,
+            "get_Completion()",
+            "get_InputCount()",
+            "get_OutputCount()",
+            "Complete()",
+            "LinkTo(System.Threading.Tasks.Dataflow.ITargetBlock`1<!1>,System.Threading.Tasks.Dataflow.DataflowLinkOptions)",
+            "ToString()",
+            "TryReceive(System.Predicate`1<!1>,!1&)",
+            "TryReceiveAll(System.Collections.Generic.IList`1<!1>&)");
+
+        Add("System.Threading.Tasks.Dataflow.TransformManyBlock`2", UnrewrittenReason.DataflowBlock,
+            "get_Completion()",
+            "get_InputCount()",
+            "get_OutputCount()",
+            "Complete()",
+            "LinkTo(System.Threading.Tasks.Dataflow.ITargetBlock`1<!1>,System.Threading.Tasks.Dataflow.DataflowLinkOptions)",
+            "ToString()",
+            "TryReceive(System.Predicate`1<!1>,!1&)",
+            "TryReceiveAll(System.Collections.Generic.IList`1<!1>&)");
+
+        Add("System.Threading.Tasks.Dataflow.WriteOnceBlock`1", UnrewrittenReason.DataflowBlock,
+            "get_Completion()",
+            "Complete()",
+            "LinkTo(System.Threading.Tasks.Dataflow.ITargetBlock`1<!0>,System.Threading.Tasks.Dataflow.DataflowLinkOptions)",
+            "ToString()",
+            "TryReceive(System.Predicate`1<!0>,!0&)");
 
         Add("System.Threading.Tasks.Task", UnrewrittenReason.Value,
             "get_AsyncState()",

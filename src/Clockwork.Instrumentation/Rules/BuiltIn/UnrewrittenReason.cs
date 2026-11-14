@@ -69,4 +69,13 @@ internal enum UnrewrittenReason
 
     /// <summary>Returns a framework wrapper whose calls to the wrapped instances are framework calls.</summary>
     FrameworkWrapper,
+
+    /// <summary>Operates on a TPL Dataflow block, which rewritten code can create only through the rejected constructors.</summary>
+    DataflowBlock,
+
+    /// <summary>Configures a background worker or service, or observes work which only its rejected start member begins.</summary>
+    BackgroundWork,
+
+    /// <summary>Runs on a WebSocket, which rewritten code cannot create over its own stream.</summary>
+    WebSocket,
 }

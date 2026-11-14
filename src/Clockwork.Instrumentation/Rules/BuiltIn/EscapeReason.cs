@@ -30,4 +30,7 @@ internal enum EscapeReason
 
     /// <summary>Completes synchronously on the caller.</summary>
     CompletesOnCaller,
+
+    /// <summary>Runs framework code on another thread while the caller waits for it.</summary>
+    WaitsForFrameworkWork,
 }

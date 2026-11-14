@@ -291,6 +291,33 @@ public static class BuiltInRuleSets
     private const string ParallelEnumerableShim = "Clockwork.Shims.System.Linq.ControlledParallelEnumerable";
     private const string NonGenericIEnumerable = "System.Collections.IEnumerable";
 
+    // Cecil full names for the background-work, TPL Dataflow, and WebSocket entry points, rejected at the call site.
+    private const string BackgroundWorkerType = "System.ComponentModel.BackgroundWorker";
+    private const string BackgroundWorkerShim = "Clockwork.Shims.System.ComponentModel.ControlledBackgroundWorker";
+    private const string BackgroundServiceType = "Microsoft.Extensions.Hosting.BackgroundService";
+    private const string BackgroundServiceShim = "Clockwork.Shims.Microsoft.Extensions.Hosting.ControlledBackgroundService";
+    private const string DataflowNamespace = "System.Threading.Tasks.Dataflow.";
+    private const string DataflowShim = "Clockwork.Shims.System.Threading.Tasks.Dataflow.ControlledDataflowBlock";
+    private const string WebSocketType = "System.Net.WebSockets.WebSocket";
+    private const string WebSocketShim = "Clockwork.Shims.System.Net.WebSockets.ControlledWebSocket";
+
+    // Every public block of System.Threading.Tasks.Dataflow; ConcurrencyEscapeAuditTests fails on one a runtime adds,
+    // since its constructor reaches TaskScheduler.Default.
+    private static readonly (string Type, string Id)[] DataflowBlockTypes =
+    [
+        ("ActionBlock`1", "actionblock"), ("BatchBlock`1", "batchblock"), ("BatchedJoinBlock`2", "batchedjoinblock2"),
+        ("BatchedJoinBlock`3", "batchedjoinblock3"), ("BroadcastBlock`1", "broadcastblock"), ("BufferBlock`1", "bufferblock"),
+        ("JoinBlock`2", "joinblock2"), ("JoinBlock`3", "joinblock3"), ("TransformBlock`2", "transformblock"),
+        ("TransformManyBlock`2", "transformmanyblock"), ("WriteOnceBlock`1", "writeonceblock"),
+    ];
+
+    // The DataflowBlock helpers which run work on TaskScheduler.Default, block the caller, or time out on a real timer.
+    private static readonly (string Member, string Id)[] DataflowSchedulingHelpers =
+    [
+        ("Choose", "choose"), ("Receive", "receive"), ("ReceiveAsync", "receiveasync"), ("ReceiveAllAsync", "receiveallasync"),
+        ("SendAsync", "sendasync"), ("OutputAvailableAsync", "outputavailableasync"),
+    ];
+
     // Cecil full names for the controlled BlockingCollection<T> surface: members of the open generic type (`!0` target),
     // redirected to generic shims (`T` replacement), receiver first for the instance members.
     private const string BlockingCollectionType = "System.Collections.Concurrent.BlockingCollection`1";
@@ -565,6 +592,9 @@ public static class BuiltInRuleSets
         BuiltInRuleFamily.Plinq,
         BuiltInRuleFamily.BlockingCollection,
         BuiltInRuleFamily.AsyncIO,
+        BuiltInRuleFamily.BackgroundWork,
+        BuiltInRuleFamily.Dataflow,
+        BuiltInRuleFamily.WebSockets,
         BuiltInRuleFamily.Monitor,
         BuiltInRuleFamily.Lock,
         BuiltInRuleFamily.Semaphore,
@@ -1412,6 +1442,39 @@ public static class BuiltInRuleSets
         AsyncIORule(builder, "clockwork.io.textwriter.writelineasync.chararray", TextWriterType, TextWriterShim, "WriteLineAsync", isVirtual: false, CharArray);
         AsyncIORule(builder, "clockwork.io.textwriter.writelineasync.token", TextWriterType, TextWriterShim, "WriteLineAsync", isVirtual: false, CancellationToken);
 
+        // ---- Background work: the members which start a BackgroundWorker's DoWork, or a BackgroundService's ExecuteAsync,
+        // on the thread pool (Task.Factory.StartNew on TaskScheduler.Default, and the real Task.Run). The work is the
+        // application's own, and each type raises or stores it through private state a shim cannot reproduce, so each call
+        // site is rejected. ----
+        CallSiteRejection(builder, BuiltInRuleFamily.BackgroundWork, "clockwork.backgroundworker.runworkerasync",
+            new MemberSignature(BackgroundWorkerType, "RunWorkerAsync"), BackgroundWorkerShim);
+        CallSiteRejection(builder, BuiltInRuleFamily.BackgroundWork, "clockwork.backgroundservice.startasync",
+            MemberSignature.Method(BackgroundServiceType, "StartAsync", CancellationToken), BackgroundServiceShim);
+
+        // ---- TPL Dataflow: every block constructor (any overload, so a new one is rejected too) and the DataflowBlock helpers
+        // which schedule work or wait. A block wires cancellation and completion propagation through continuations on
+        // TaskScheduler.Default whatever its options' scheduler, and the helpers time out on real timers, so controlling
+        // the options' scheduler would not be faithful; each call site is rejected. ----
+        foreach ((string block, string id) in DataflowBlockTypes)
+        {
+            CallSiteRejection(builder, BuiltInRuleFamily.Dataflow, "clockwork.dataflow." + id + ".ctor",
+                new MemberSignature(DataflowNamespace + block, ".ctor"), DataflowShim);
+        }
+
+        foreach ((string helper, string id) in DataflowSchedulingHelpers)
+        {
+            CallSiteRejection(builder, BuiltInRuleFamily.Dataflow, "clockwork.dataflow." + id,
+                new MemberSignature(DataflowNamespace + "DataflowBlock", helper), DataflowShim);
+        }
+
+        // ---- WebSockets over a stream: the framework's protocol implementation sends keep-alive pings from a real timer on
+        // the thread pool and times out its closing handshake in real time, so the factories which run it over a
+        // caller's stream are rejected. ----
+        CallSiteRejection(builder, BuiltInRuleFamily.WebSockets, "clockwork.websocket.createfromstream",
+            new MemberSignature(WebSocketType, "CreateFromStream"), WebSocketShim);
+        CallSiteRejection(builder, BuiltInRuleFamily.WebSockets, "clockwork.websocket.createclientwebsocket",
+            new MemberSignature(WebSocketType, "CreateClientWebSocket"), WebSocketShim);
+
         // ---- Uncontrolled invocation: process control and abrupt host termination. A
         // rewritten assembly must never launch, kill, signal, wait on, reschedule, or terminate a real OS process out from
         // under the simulation, so each of these call sites is rejected with a precise diagnostic naming
@@ -2125,6 +2188,18 @@ public static class BuiltInRuleSets
 
     // Rejects a PLINQ entry point at the call site. The targets return a ParallelQuery, so InjectRejection prepends the
     // throwing RejectUnsupported(string) and keeps the original call for stack balance.
+    // Rejects a call site with a shim's RejectUnsupported(string), which InjectRejection prepends to the original call.
+    private static void CallSiteRejection(
+        ImmutableArray<BuiltInRuleEntry>.Builder builder,
+        BuiltInRuleFamily family,
+        string id,
+        MemberSignature target,
+        string shimType)
+    {
+        builder.Add(new BuiltInRuleEntry(family, RewriteRule.InjectRejection(id, target, Shim(shimType, "RejectUnsupported", String))));
+    }
+
+
     private static void PlinqRejection(
         ImmutableArray<BuiltInRuleEntry>.Builder builder,
         string id,

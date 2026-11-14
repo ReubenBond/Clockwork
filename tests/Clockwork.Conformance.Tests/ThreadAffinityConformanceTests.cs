@@ -91,18 +91,20 @@ public sealed class ThreadAffinityConformanceTests : IDisposable
     }
 
     /// <summary>
-    /// The motivating case: <c>BackgroundService</c> loads from the shared framework, uninstrumented, and its
-    /// <c>StartAsync</c> starts the rewritten <c>ExecuteAsync</c> through the real <c>Task.Run</c>. The escaped thread fails
-    /// at its first controlled call, and although nothing observes the faulted task, the driver surfaces the violation.
+    /// The affinity backstop: <c>BackgroundService</c> loads from the shared framework, uninstrumented, and its
+    /// <c>StartAsync</c> starts the rewritten <c>ExecuteAsync</c> through the real <c>Task.Run</c>. A direct call to it is
+    /// rejected (<c>clockwork.backgroundservice.startasync</c>), so the probe is staged without that rule, as a call through
+    /// <c>IHostedService</c> reaches it. The escaped thread fails at its first controlled call, and although nothing
+    /// observes the faulted task, the driver surfaces the violation.
     /// </summary>
     [Fact]
     public async Task BackgroundServiceExecuteAsyncEscapingToTheThreadPoolFailsTheRun()
     {
-        StagedProbe probe = _fixture.StageControlledTasks(
+        StagedProbe probe = _fixture.StageControlledTasksWithout(
             "Conf.ThreadAffinity.HostedService",
             "Conf.HostedServiceProbe",
             HostedServiceSource,
-            optimize: true);
+            rule => rule.Id == "clockwork.backgroundservice.startasync");
         var cluster = new SimulationCluster(seed: 1, Start);
         Task? executeTask = null;
         cluster.SchedulerLane.Enqueue(() => executeTask = (Task)probe.Method("Start").Invoke(null, null)!);

@@ -38,7 +38,7 @@ internal sealed record EscapeCandidate(string Assembly, MethodDefinition Member,
 }
 
 /// <summary>
-/// Scans the implementation assemblies of the shared framework the tests run on for public members (and protected members
+/// Scans every managed implementation assembly of the shared framework the tests run on for public members (and protected members
 /// of unsealed types) that reach a concurrency escape: thread-pool queueing, <c>TaskScheduler.Default</c> and the members
 /// that schedule onto it, <c>Thread.Start</c>, a real timer, or a compiler-generated async state machine. Reference
 /// assemblies have no method bodies, so the scan reads the implementation; it follows <c>call</c>, <c>callvirt</c>, and
@@ -52,15 +52,30 @@ internal static class ConcurrencyEscapeScanner
 
     private static readonly ConcurrentDictionary<string, Lazy<ImmutableArray<EscapeCandidate>>> Cache = new(StringComparer.Ordinal);
 
-    /// <summary>Gets the directory of the shared framework the tests run on.</summary>
-    public static string FrameworkDirectory { get; } = Path.GetDirectoryName(typeof(object).Assembly.Location)!;
+    /// <summary>
+    /// Gets the directory of the shared framework scanned: the one the tests run on, or the directory named by
+    /// <c>CLOCKWORK_ESCAPE_FRAMEWORK_DIRECTORY</c>, which checks another operating system's implementation assemblies
+    /// (an extracted <c>Microsoft.NETCore.App.Runtime.&lt;rid&gt;</c> pack) against the same reference pack.
+    /// </summary>
+    public static string FrameworkDirectory { get; } =
+        Environment.GetEnvironmentVariable("CLOCKWORK_ESCAPE_FRAMEWORK_DIRECTORY") is { Length: > 0 } directory
+            ? directory
+            : Path.GetDirectoryName(typeof(object).Assembly.Location)!;
 
-    /// <summary>Returns the candidates of every scanned assembly present in the shared framework, ordered by qualified key.</summary>
+    /// <summary>Gets the simple names of the managed assemblies in <see cref="FrameworkDirectory"/>, in ordinal order.</summary>
+    public static ImmutableArray<string> AssemblyNames { get; } =
+    [
+        .. Directory.GetFiles(FrameworkDirectory, "*.dll")
+            .Where(IsManaged)
+            .Select(path => Path.GetFileNameWithoutExtension(path))
+            .Order(StringComparer.Ordinal),
+    ];
+
+    /// <summary>Returns the candidates of every managed assembly of the shared framework, ordered by qualified key.</summary>
     public static ImmutableArray<EscapeCandidate> ScanAll()
     {
-        string[] present = [.. ConcurrencyEscapeAudit.Assemblies.Where(name => File.Exists(Path.Combine(FrameworkDirectory, name + ".dll")))];
-        var results = new ImmutableArray<EscapeCandidate>[present.Length];
-        Parallel.For(0, present.Length, index => results[index] = Scan(present[index]));
+        var results = new ImmutableArray<EscapeCandidate>[AssemblyNames.Length];
+        Parallel.For(0, AssemblyNames.Length, index => results[index] = Scan(AssemblyNames[index]));
         return [.. results.SelectMany(result => result).OrderBy(candidate => candidate.QualifiedKey, StringComparer.Ordinal)];
     }
 
@@ -200,6 +215,13 @@ internal static class ConcurrencyEscapeScanner
         return candidates.ToImmutable();
     }
 
+    // The shared framework directory also holds the runtime's native libraries, which carry no metadata.
+    private static bool IsManaged(string path)
+    {
+        using FileStream stream = File.OpenRead(path);
+        using var reader = new System.Reflection.PortableExecutable.PEReader(stream);
+        return reader.HasMetadata;
+    }
     // A call to another overload of the caller, or to a local function or lambda the compiler generated from a method's
     // body, continues the caller's own work, so it does not count toward the depth; any other call does.
     private static int CallCost(MethodDefinition caller, MethodDefinition callee) =>

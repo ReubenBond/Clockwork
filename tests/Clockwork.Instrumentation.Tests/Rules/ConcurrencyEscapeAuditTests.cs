@@ -10,10 +10,12 @@ namespace Clockwork.Instrumentation.Tests.Rules;
 /// Classifies every framework member which reaches a concurrency escape, as <see cref="ConcurrencyEscapeScanner"/> finds
 /// them in the implementation assemblies of the runtime the tests run on. Only members of the reference pack count,
 /// because those are what an application compiles against. Each must be controlled or rejected by a built-in rule,
-/// listed in <see cref="UnrewrittenMembers"/>, or listed in <see cref="ConcurrencyEscapeAudit"/> with the reason it needs
-/// no rule. The implementation assemblies differ by operating system, so the list covers every platform's candidates.
+/// listed in <see cref="UnrewrittenMembers"/>, or listed in <see cref="ConcurrencyEscapeAudit"/>, by member or by its
+/// whole assembly, with the reason it needs no rule. The implementation assemblies differ by operating system, so the list covers every platform's candidates.
 /// A runtime that adds a candidate fails these tests until it is classified, and a listed member that the reference pack
-/// no longer has, or that a rule now classifies, is stale.
+/// no longer has, or that a rule now classifies, is stale. To check another operating system's implementation assemblies,
+/// set <c>CLOCKWORK_ESCAPE_FRAMEWORK_DIRECTORY</c> to the <c>lib</c> directory of its extracted
+/// <c>Microsoft.NETCore.App.Runtime.&lt;rid&gt;</c> package.
 /// </summary>
 [Collection(ReferencePackGroup.Name)]
 public sealed class ConcurrencyEscapeAuditTests
@@ -26,20 +28,26 @@ public sealed class ConcurrencyEscapeAuditTests
         Audit audit = Result.Value;
         Dictionary<string, AuditedEscape> listed = ConcurrencyEscapeAudit.All.ToDictionary(member => member.QualifiedKey, StringComparer.Ordinal);
         HashSet<string> unrewritten = [.. UnrewrittenMembers.All.Select(member => member.QualifiedKey)];
+        Dictionary<string, AuditedAssembly> assemblies = ConcurrencyEscapeAudit.Assemblies.ToDictionary(assembly => assembly.Name, StringComparer.Ordinal);
         var unclassified = new List<string>();
         var stale = new List<string>();
         foreach ((EscapeCandidate candidate, RuleClassification classification) in audit.Candidates)
         {
             bool byRule = classification.Outcome is not (RuleOutcome.None or RuleOutcome.NewObjOnly);
             bool byUnrewritten = unrewritten.Contains(candidate.QualifiedKey);
-            if (listed.ContainsKey(candidate.QualifiedKey))
+            bool byAssembly = assemblies.TryGetValue(candidate.Assembly, out AuditedAssembly assembly);
+            if (listed.TryGetValue(candidate.QualifiedKey, out AuditedEscape entry))
             {
                 if (byRule || byUnrewritten)
                 {
                     stale.Add($"    {candidate.QualifiedKey} ({(byRule ? classification.ToString() : $"listed in {nameof(UnrewrittenMembers)}")})");
                 }
+                else if (byAssembly && assembly.Reason == entry.Reason)
+                {
+                    stale.Add($"    {candidate.QualifiedKey} (its assembly, {candidate.Assembly}, is classified {entry.Reason})");
+                }
             }
-            else if (!byRule && !byUnrewritten)
+            else if (!byRule && !byUnrewritten && !byAssembly)
             {
                 unclassified.Add(
                     $"    {candidate.QualifiedKey} ({candidate.Assembly}, {candidate.Sink} at depth {candidate.Depth}: " +
@@ -55,11 +63,17 @@ public sealed class ConcurrencyEscapeAuditTests
             .Where(key => !found.Contains(key) && !referenceMembers.Contains(key))
             .Order(StringComparer.Ordinal)
             .Select(key => $"    {key} (not a member of the reference pack)"));
+
+        // The shared framework ships the same managed assemblies on every operating system.
+        stale.AddRange(assemblies.Keys
+            .Except(ConcurrencyEscapeScanner.AssemblyNames, StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .Select(name => $"    assembly {name} (not in the shared framework)"));
         Assert.True(
             unclassified.Count == 0 && stale.Count == 0,
             $"The concurrency-escape scan of '{ConcurrencyEscapeScanner.FrameworkDirectory}' found members the built-in rules " +
             $"do not classify. Give each unclassified member a rule, or list it in {nameof(ConcurrencyEscapeAudit)} with the " +
-            "reason it needs no rule, and remove or correct each stale entry." + Environment.NewLine +
+            "reason it needs no rule (or classify its whole assembly with one reason), and remove or correct each stale entry." + Environment.NewLine +
             "Unclassified:" + Environment.NewLine + string.Join(Environment.NewLine, unclassified) + Environment.NewLine +
             "Stale:" + Environment.NewLine + string.Join(Environment.NewLine, stale));
     }
@@ -96,6 +110,9 @@ public sealed class ConcurrencyEscapeAuditTests
     [InlineData("System.Threading.Timer::.ctor(System.Threading.TimerCallback)", nameof(EscapeSink.Timer))]
     [InlineData("System.Threading.Channels.ChannelReader`1::ReadAllAsync(System.Threading.CancellationToken)", nameof(EscapeSink.AsyncMethod))]
     [InlineData("System.Net.Http.HttpClient::GetStringAsync(System.String)", nameof(EscapeSink.AsyncMethod))]
+    [InlineData("System.ComponentModel.BackgroundWorker::RunWorkerAsync()", nameof(EscapeSink.TaskScheduler))]
+    [InlineData("System.Threading.Tasks.Dataflow.ActionBlock`1::.ctor(System.Action`1<!0>)", nameof(EscapeSink.TaskScheduler))]
+    [InlineData("System.Net.WebSockets.WebSocket::CreateFromStream(System.IO.Stream,System.Net.WebSockets.WebSocketCreationOptions)", nameof(EscapeSink.Timer))]
     public void ScanFindsEveryKindOfEscape(string qualifiedKey, string sink)
     {
         (EscapeCandidate candidate, _) = Assert.Single(Result.Value.Candidates, entry => entry.Candidate.QualifiedKey == qualifiedKey);

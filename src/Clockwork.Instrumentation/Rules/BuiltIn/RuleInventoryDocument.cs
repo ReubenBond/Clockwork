@@ -43,8 +43,12 @@ public static class RuleInventoryDocument
         BuiltInRuleFamily.Channels,
         BuiltInRuleFamily.BlockingCollection,
         BuiltInRuleFamily.AsyncIO,
+        BuiltInRuleFamily.BackgroundWork,
+        BuiltInRuleFamily.Dataflow,
+        BuiltInRuleFamily.WebSockets,
         BuiltInRuleFamily.Semaphore,
         BuiltInRuleFamily.SynchronizationContext,
+        BuiltInRuleFamily.UncontrolledInvocation,
     ];
 
     /// <summary>Renders the full inventory document.</summary>
@@ -219,16 +223,17 @@ public static class RuleInventoryDocument
         Line("# Concurrency entry points: status");
         Line();
         Line(
-            "A test scans the implementation assemblies of the runtime it runs on (" +
-            string.Join(", ", ConcurrencyEscapeAudit.Assemblies.Select(Code)) + ") for the public members, and protected " +
-            "members of unsealed types, of the reference pack which reach a concurrency escape: thread-pool queueing, " +
-            "`TaskScheduler.Default` or a member which schedules onto it (`Task.Run`, `Task.Start`, `TaskFactory.StartNew`), " +
-            "`Thread.Start`, a real timer, or an async method. It follows calls within one assembly, up to " +
-            $"{ConcurrencyEscapeAudit.MaxDepth} deep, not counting a call to another overload or to a local function or " +
-            "lambda compiled from the caller's body. Every member it finds is controlled or rejected by a rule, listed under " +
-            "[Members left as BCL calls](#members-left-as-bcl-calls), or listed under " +
-            "[Audited framework members](#audited-framework-members) with the reason it needs no rule. A runtime which adds " +
-            "or removes such a member fails the test until it is classified.");
+            "A test scans every managed implementation assembly of the shared framework the tests run on for the public " +
+            "members, and protected members of unsealed types, of the reference pack which reach a concurrency escape: " +
+            "thread-pool queueing, `TaskScheduler.Default` or a member which schedules onto it (`Task.Run`, `Task.Start`, " +
+            "`TaskFactory.StartNew`), `Thread.Start`, a real timer, or an async method. It follows calls within one " +
+            $"assembly, up to {ConcurrencyEscapeAudit.MaxDepth} deep, not counting a call to another overload or to a local " +
+            "function or lambda compiled from the caller's body. Every member it finds is controlled or rejected by a rule, " +
+            "listed under [Members left as BCL calls](#members-left-as-bcl-calls), listed under " +
+            "[Audited framework members](#audited-framework-members) with the reason it needs no rule, or declared by an " +
+            "assembly listed under [Audited framework assemblies](#audited-framework-assemblies), whose reason covers its " +
+            "members. The implementation assemblies differ by operating system, so the lists hold the candidates of " +
+            "Windows, Linux, and macOS. A runtime which adds or removes such a member fails the test until it is classified.");
         Line();
         Line("| Entry points | Status under simulation |");
         Line("| --- | --- |");
@@ -277,9 +282,26 @@ public static class RuleInventoryDocument
                     .Order(StringComparer.Ordinal)
                     .Select(Code),
             ];
+            string[] assemblies =
+            [
+                .. ConcurrencyEscapeAudit.Assemblies
+                    .Where(assembly => assembly.Reason == reason)
+                    .Select(assembly => Code(assembly.Name)),
+            ];
+            var entries = new List<string>();
             if (types.Length > 0)
             {
-                Line($"| {string.Join(", ", types)} ([members](#audited-framework-members)) | {Code(reason.ToString())}: {DescribeEscape(reason)} |");
+                entries.Add($"{string.Join(", ", types)} ([members](#audited-framework-members))");
+            }
+
+            if (assemblies.Length > 0)
+            {
+                entries.Add($"the assemblies {string.Join(", ", assemblies)} ([assemblies](#audited-framework-assemblies))");
+            }
+
+            if (entries.Count > 0)
+            {
+                Line($"| {string.Join("; ", entries)} | {Code(reason.ToString())}: {DescribeEscape(reason)} |");
             }
         }
 
@@ -292,6 +314,16 @@ public static class RuleInventoryDocument
             "work which only computes or changes shared state runs unchecked, racing the logical thread. |");
         Line();
 
+        Line("## Audited framework assemblies");
+        Line();
+        Line("| Assembly | Reason | Behavior under simulation |");
+        Line("| --- | --- | --- |");
+        foreach (AuditedAssembly assembly in ConcurrencyEscapeAudit.Assemblies.OrderBy(assembly => assembly.Name, StringComparer.Ordinal))
+        {
+            Line($"| {Code(assembly.Name)} | {Code(assembly.Reason.ToString())} | {assembly.Behavior} |");
+        }
+
+        Line();
         Line("## Audited framework members");
         Line();
         foreach (IGrouping<string, AuditedEscape> typeMembers in ConcurrencyEscapeAudit.All
@@ -340,6 +372,9 @@ public static class RuleInventoryDocument
             "the callback's first controlled call; a callback which only computes or changes shared state runs unchecked.",
         EscapeReason.CompletesOnCaller =>
             "Completes on the caller: the receiver's overrides of the members it awaits complete synchronously.",
+        EscapeReason.WaitsForFrameworkWork =>
+            "Runs framework code, and none of the caller's, on another thread while the calling thread blocks until it " +
+            "finishes, so the call returns the BCL's result on the logical thread with no scheduling point.",
         _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, null),
     };
 
@@ -402,7 +437,8 @@ public static class RuleInventoryDocument
         UnrewrittenReason.CultureOrTimeZone or UnrewrittenReason.HostState or UnrewrittenReason.Process
             or UnrewrittenReason.RealClock or UnrewrittenReason.ProcessWideId or UnrewrittenReason.CurrentThread
             or UnrewrittenReason.IdentityHandle or UnrewrittenReason.ConstructorCall or UnrewrittenReason.Blocks
-            or UnrewrittenReason.Schedules or UnrewrittenReason.ParallelQuery or UnrewrittenReason.FrameworkWrapper => true,
+            or UnrewrittenReason.Schedules or UnrewrittenReason.ParallelQuery or UnrewrittenReason.FrameworkWrapper
+            or UnrewrittenReason.DataflowBlock or UnrewrittenReason.BackgroundWork or UnrewrittenReason.WebSocket => true,
         _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, null),
     };
 
@@ -476,6 +512,19 @@ public static class RuleInventoryDocument
             "type, but its calls to a wrapped instance are framework calls, so they reach that instance's base " +
             "asynchronous members as in the BCL: `Stream.Synchronized` reads and writes through the wrapped stream's " +
             "`BeginRead`/`BeginWrite`, and a broadcasting writer awaits each writer's asynchronous members.",
+        UnrewrittenReason.DataflowBlock =>
+            "Operates on a TPL Dataflow block, which rewritten code cannot create: every block constructor is rejected " +
+            "(`Dataflow` family). A block which uninstrumented code creates and passes to rewritten code runs its work on " +
+            "its options' `TaskScheduler` and its completion propagation on `TaskScheduler.Default`, as in the BCL.",
+        UnrewrittenReason.BackgroundWork =>
+            "Configures a `BackgroundWorker` or `BackgroundService`, raises its events on the caller, or observes or stops " +
+            "work which only the rejected `RunWorkerAsync` and `StartAsync` begin (`BackgroundWork` family). Work which " +
+            "a call through `IHostedService` starts, as a host makes, runs on the thread pool, where the thread-affinity " +
+            "check catches its first controlled call.",
+        UnrewrittenReason.WebSocket =>
+            "Runs on the receiving `WebSocket`: an application's own implementation, a `ClientWebSocket` over an OS " +
+            "connection, or one uninstrumented code creates. The framework's implementation over a caller's stream is " +
+            "created only by the rejected `CreateFromStream` and `CreateClientWebSocket` (`WebSockets` family).",
         _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, null),
     };
 
@@ -682,6 +731,24 @@ public static class RuleInventoryDocument
             "members (`Stream.ReadExactlyAsync`, `ReadAtLeastAsync`, and the overloads which forward to a virtual member) " +
             "run the BCL's algorithm over the controlled virtual members. `DisposeAsync` and the synchronous members run " +
             "on the calling thread and stay BCL calls.",
+        BuiltInRuleFamily.BackgroundWork =>
+            "`BackgroundWorker.RunWorkerAsync` and `BackgroundService.StartAsync` are rejected at the call site with a " +
+            "precise diagnostic: they start the application's `DoWork` handler or `ExecuteAsync` on the thread pool " +
+            "(`Task.Factory.StartNew` on `TaskScheduler.Default`, and the real `Task.Run`), and each type raises or stores " +
+            "that work through private state, so no shim can run it on the coordinator with the BCL's semantics. A call " +
+            "through `IHostedService`, as a host makes, names the interface rather than `BackgroundService.StartAsync`, so it " +
+            "stays a BCL call.",
+        BuiltInRuleFamily.Dataflow =>
+            "Every TPL Dataflow block constructor, and the `DataflowBlock` helpers which schedule work or wait (`Choose`, " +
+            "`Receive`, `ReceiveAsync`, `ReceiveAllAsync`, `SendAsync`, `OutputAvailableAsync`), are rejected at the call " +
+            "site with a precise diagnostic. A block runs its delegates on its options' `TaskScheduler`, but wires " +
+            "cancellation and completion propagation through continuations on `TaskScheduler.Default` whatever that " +
+            "scheduler is, and the helpers time out on real timers, so a scheduler substitution would not keep its work " +
+            "on the coordinator. Use `System.Threading.Channels` with `Task.Run` or `Parallel.ForEachAsync` instead.",
+        BuiltInRuleFamily.WebSockets =>
+            "`WebSocket.CreateFromStream` and `WebSocket.CreateClientWebSocket` are rejected at the call site with a " +
+            "precise diagnostic: the framework's WebSocket protocol over a caller's stream sends keep-alive pings from a " +
+            "real timer on the thread pool and times out its closing handshake in real time.",
         BuiltInRuleFamily.Monitor =>
             "The complete .NET 11 `Monitor` surface is classified: synchronization and C# `lock (object)` " +
             "lowering are controlled with deterministic virtual-time deadlines, while the process-wide " +

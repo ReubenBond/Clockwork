@@ -47,13 +47,14 @@ it does anything else. The exception-hardening guard injected into `catch` block
 simulation state and runs on any thread, so escaped work's own handlers run as written.
 
 The ambient context flows with the `ExecutionContext`, so work which uninstrumented code moves onto a
-real thread carries it there: the real `Task.Run` with which `BackgroundService.StartAsync` starts a
-rewritten `ExecuteAsync` (see the [.NET 11 note](#supported-today)), a timer, thread-pool item, or
+real thread carries it there: the real `Task.Run` with which a host's call to `BackgroundService.StartAsync`
+starts a rewritten `ExecuteAsync` (see the [.NET 11 note](#supported-today)), a timer, thread-pool item, or
 continuation queued by an uninstrumented library, or a `CancellationToken.Register` callback which a
 thread outside the simulation runs by cancelling the token. That work races the coordinator, so it
 fails at its first controlled call. Start it from instrumented code instead, so it runs as a controlled
 operation; for a hosted service, implement `IHostedService` in the system under test rather than
-deriving from the shared framework's `BackgroundService`.
+deriving from the shared framework's `BackgroundService`, whose `StartAsync` rewritten code cannot call: the call
+site is rejected (`BackgroundWork` family).
 
 The scheduler records the first violation, with the escaped thread's stack, and rethrows it from its
 next step on the driving thread whether or not an operation runs, so the run fails even when the escaped
@@ -938,8 +939,9 @@ framework await, and the escaped continuation fails the run at its first control
 
 The status of every concurrency entry point is generated from the rule inventory into [Concurrency entry points:
 status](rule-inventory.md#concurrency-entry-points-status): the rule families which control or reject them, the members
-left as BCL calls with their reasons, and the result of an audit which scans the shared framework for members that
-reach the thread pool, `TaskScheduler.Default`, a new thread, a real timer, or an async method. Anything it does not list
+left as BCL calls with their reasons, and the result of an audit which scans every managed assembly of the shared
+framework, on Windows, Linux, and macOS, for members that reach the thread pool, `TaskScheduler.Default`, a new
+thread, a real timer, or an async method, classified by member or by assembly. Anything it does not list
 runs as a BCL call; work such a call starts on another thread fails the run at its first controlled call (see
 [Thread affinity](#thread-affinity)), and work which only computes or changes shared state runs unchecked.
 
@@ -1099,9 +1101,9 @@ cancels all remaining registrations without invoking user callbacks.
   `Microsoft.Extensions` abstractions (`Logging.Abstractions`, `DependencyInjection.Abstractions`,
   `Options`, `Primitives`, and the other `*.Abstractions` assemblies), and NuGet prunes their packages
   from a `net11.0` project's dependencies, so they load from the shared framework and are not rewritten:
-  `BackgroundService.StartAsync`, for example, starts `ExecuteAsync` through the real `Task.Run`. A
-  rewritten `ExecuteAsync` started that way fails at its first controlled call with
-  `SimulationThreadAffinityException`, and so does the run (see [Thread affinity](#thread-affinity)).
+  `BackgroundService.StartAsync`, for example, starts `ExecuteAsync` through the real `Task.Run`, so a call to it
+  from rewritten code is rejected. A rewritten `ExecuteAsync` which a host starts that way fails at its first
+  controlled call with `SimulationThreadAffinityException`, and so does the run (see [Thread affinity](#thread-affinity)).
 - **Windows, Linux, and macOS** are all supported for the existing kernel; it has no
   platform-specific dependencies (no P/Invoke, no OS-specific I/O).
 - **JIT execution** (the default `dotnet run`/`dotnet test` path) is fully supported.

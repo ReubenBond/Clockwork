@@ -23,6 +23,10 @@ public sealed partial class ControlledShimOrganizationTests
                 typeof(System.Threading.Channels.ChannelReader<>).Assembly,
                 typeof(System.Linq.ParallelEnumerable).Assembly,
                 typeof(System.Collections.Concurrent.BlockingCollection<>).Assembly,
+                typeof(System.ComponentModel.BackgroundWorker).Assembly,
+                typeof(Microsoft.Extensions.Hosting.BackgroundService).Assembly,
+                typeof(System.Threading.Tasks.Dataflow.DataflowBlock).Assembly,
+                typeof(System.Net.WebSockets.WebSocket).Assembly,
             }
             .Distinct()
             .SelectMany(assembly => assembly.GetTypes()),
