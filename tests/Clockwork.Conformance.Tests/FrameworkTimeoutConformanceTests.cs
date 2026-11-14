@@ -256,9 +256,16 @@ public sealed class FrameworkTimeoutConformanceTests : IDisposable
                 }
 
                 // The timeout is shorter than the response, which the BCL cancels once it elapses.
-                public static async Task<string> ATimeoutShorterThanTheResponse()
+                public static Task<string> ATimeoutShorterThanTheResponse() =>
+                    ATimeoutShorterThanTheResponse(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(5));
+
+                // The same, at a scale no host is slow enough for a real timer to reach, within the ten minutes a drive advances.
+                public static Task<string> ALongTimeoutShorterThanTheResponse() =>
+                    ATimeoutShorterThanTheResponse(TimeSpan.FromMinutes(4), TimeSpan.FromMinutes(8));
+
+                private static async Task<string> ATimeoutShorterThanTheResponse(TimeSpan timeout, TimeSpan response)
                 {
-                    using var client = new HttpClient(new DelayedHandler(TimeSpan.FromSeconds(5))) { Timeout = TimeSpan.FromSeconds(1) };
+                    using var client = new HttpClient(new DelayedHandler(response)) { Timeout = timeout };
                     try
                     {
                         return await client.GetStringAsync("http://sim/slow");
@@ -311,10 +318,16 @@ public sealed class FrameworkTimeoutConformanceTests : IDisposable
                 }
 
                 // The close takes longer than the stream's close timeout, which the BCL cancels once it elapses.
-                public static async Task<string> ACloseLongerThanTheTimeout()
+                public static Task<string> ACloseLongerThanTheTimeout() =>
+                    ACloseLongerThanTheTimeout(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(5));
+
+                public static Task<string> ALongCloseTimeoutShorterThanTheClose() =>
+                    ACloseLongerThanTheTimeout(TimeSpan.FromMinutes(4), TimeSpan.FromMinutes(8));
+
+                private static async Task<string> ACloseLongerThanTheTimeout(TimeSpan timeout, TimeSpan close)
                 {
-                    var socket = new RecordingWebSocket(TimeSpan.FromSeconds(5));
-                    await WebSocketStream.Create(socket, WebSocketMessageType.Binary, TimeSpan.FromSeconds(1)).DisposeAsync();
+                    var socket = new RecordingWebSocket(close);
+                    await WebSocketStream.Create(socket, WebSocketMessageType.Binary, timeout).DisposeAsync();
                     return string.Join(",", socket.Log);
                 }
 
@@ -350,12 +363,16 @@ public sealed class FrameworkTimeoutConformanceTests : IDisposable
                 }
 
                 // A stop shorter than the timeout completes; a longer one is cancelled once the timeout elapses.
-                public static async Task<string> StopWithATimeout()
+                public static Task<string> StopWithATimeout() => StopWithATimeout(TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(5));
+
+                public static Task<string> StopWithALongTimeout() => StopWithATimeout(TimeSpan.FromMinutes(4), TimeSpan.FromMinutes(8));
+
+                private static async Task<string> StopWithATimeout(TimeSpan timeout, TimeSpan slowStop)
                 {
                     var quick = new RecordingHost(TimeSpan.FromMilliseconds(10));
-                    await quick.StopAsync(TimeSpan.FromSeconds(1));
-                    var slow = new RecordingHost(TimeSpan.FromSeconds(5));
-                    await slow.StopAsync(TimeSpan.FromSeconds(1));
+                    await quick.StopAsync(timeout);
+                    var slow = new RecordingHost(slowStop);
+                    await slow.StopAsync(timeout);
                     return string.Join(",", quick.Log) + "|" + string.Join(",", slow.Log);
                 }
 
@@ -458,26 +475,26 @@ public sealed class FrameworkTimeoutConformanceTests : IDisposable
         Assert.Equal(apiName, Assert.IsType<SimulationApiException>(rejection).ApiName);
     }
 
-    // Under the BCL the real timer cancels the work once it elapses. Without the rules the work, which takes longer in
-    // virtual time, completes at once in real time, so the real timer never fires: the outcome depends on the host's
-    // speed rather than on simulated time.
+    // Under the BCL the real timer cancels the work once it elapses. Without the rules the real timer never fires before
+    // the work, which takes longer in virtual time but completes at once in real time, so the escaped run completes the
+    // work the BCL cancels. The escaped run's timer is minutes long, so its outcome does not depend on the host's speed.
     [Theory]
-    [InlineData("ATimeoutShorterThanTheResponse", "clockwork.http.", "timed out:True", "GET /slow")]
-    [InlineData("ACloseLongerThanTheTimeout", "clockwork.websocketstream.", "close cancelled,disposed", "closed,disposed")]
-    [InlineData("StopWithATimeout", "clockwork.hosting.", "stopping,stopped|stopping,stop timed out", "stopping,stopped|stopping,stopped")]
-    public async Task WithoutTheRulesARealTimerRacesVirtualTime(string probe, string rulePrefix, string bclOutcome, string escaped)
+    [InlineData("ATimeoutShorterThanTheResponse", "ALongTimeoutShorterThanTheResponse", "clockwork.http.", "timed out:True", "GET /slow")]
+    [InlineData("ACloseLongerThanTheTimeout", "ALongCloseTimeoutShorterThanTheClose", "clockwork.websocketstream.", "close cancelled,disposed", "closed,disposed")]
+    [InlineData("StopWithATimeout", "StopWithALongTimeout", "clockwork.hosting.", "stopping,stopped|stopping,stop timed out", "stopping,stopped|stopping,stopped")]
+    public async Task WithoutTheRulesARealTimerRacesVirtualTime(string probe, string escapingProbe, string rulePrefix, string bclOutcome, string escaped)
     {
         string bcl = await ((Task<string>)_bcl.Value.Method(probe).Invoke(null, null)!)
             .WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
         StagedProbe staged = _fixture.StageControlledTasksWithout(
-            "Conf.FrameworkTimeoutEscape." + probe,
+            "Conf.FrameworkTimeoutEscape." + escapingProbe,
             ProbeType,
             Source,
             rule => rule.Id.StartsWith(rulePrefix, StringComparison.Ordinal));
         using var host = new SimulationHost(Start);
 
         Assert.Equal(bclOutcome, bcl);
-        Assert.Equal(escaped, Completed<string>(host.Invoke(staged.Method(probe))));
+        Assert.Equal(escaped, Completed<string>(host.Invoke(staged.Method(escapingProbe))));
     }
 
     [Theory]
