@@ -757,8 +757,7 @@ public sealed class ChannelConformanceTests : IDisposable
         string controlled;
 
         // A built-in channel completes a wait which its token cancels on the thread pool (#59).
-        bool cancelsAPendingWait = scenario.StartsWith("combine/", StringComparison.Ordinal) && scenario.EndsWith("/pending", StringComparison.Ordinal);
-        using (var host = new SimulationHost(Start, allowThreadPoolEscapes: cancelsAPendingWait))
+        using (var host = new SimulationHost(Start, knownEscapeFrame: "System.Threading.Channels.ChannelUtilities.UnsafeQueueUserWorkItem"))
         {
             controlled = Completed((Task<string>)host.Invoke(Method("Scenario"), scenario)!);
         }
