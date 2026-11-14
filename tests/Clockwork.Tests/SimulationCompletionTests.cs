@@ -83,8 +83,11 @@ public sealed class SimulationCompletionTests
         /// <summary>The controlled <c>TaskCompletionSource.SetResult</c>.</summary>
         SetResult,
 
-        /// <summary>The controlled <c>CancellationTokenSource.Cancel</c>.</summary>
+        /// <summary>The controlled <c>CancellationTokenSource.Cancel</c> of a source whose <c>CancelAfter</c> is armed.</summary>
         Cancel,
+
+        /// <summary>The release of a primitive's waiter which has a deadline.</summary>
+        Waiter,
     }
 
     public static TheoryData<string, CompletionSite> CompletionMembers
@@ -372,35 +375,58 @@ public sealed class SimulationCompletionTests
         Assert.Equal(ReferenceEquals(bcl.Thrown, bcl.Raised), ReferenceEquals(controlled.Thrown, controlled.Raised));
     }
 
-    // Where too little stack remains for the BCL to run its continuations inline, a completion fails the run before it
-    // does anything, even when simulation code catches the exception.
+    // Where less than the completion's headroom remains beyond the BCL's margin, though the BCL's own check still passes,
+    // a completion fails the run before it does anything (the token's timer and the waiter's deadline stay armed), even
+    // when simulation code catches the exception.
     [Theory]
     [InlineData(DeepCompletion.SetResult, CompletionSite.Root)]
     [InlineData(DeepCompletion.SetResult, CompletionSite.Lane)]
     [InlineData(DeepCompletion.Cancel, CompletionSite.Root)]
     [InlineData(DeepCompletion.Cancel, CompletionSite.Lane)]
+    [InlineData(DeepCompletion.Waiter, CompletionSite.Root)]
+    [InlineData(DeepCompletion.Waiter, CompletionSite.Lane)]
     public async Task ACompletionOnAnExhaustedStackFailsTheRunWithoutSideEffects(DeepCompletion completion, CompletionSite site)
     {
         await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
         var source = new TaskCompletionSource();
         using var cancellation = new CancellationTokenSource();
+        var waiter = new SimulationWaiter();
         SimulationApiException? thrown = null;
-        Action body = () => thrown = Assert.Throws<SimulationApiException>(() => AtTheStackLimit(() =>
+        int timersBefore = 0;
+        int timersAfter = 0;
+        Action body = () =>
         {
-            if (completion == DeepCompletion.SetResult)
+            Action complete;
+            switch (completion)
             {
-                ControlledTaskCompletionSource.SetResult(source);
+                case DeepCompletion.SetResult:
+                    complete = () => ControlledTaskCompletionSource.SetResult(source);
+                    break;
+                case DeepCompletion.Cancel:
+                    ControlledCancellationTokenSource.CancelAfter(cancellation, TimeSpan.FromHours(1));
+                    complete = () => ControlledCancellationTokenSource.Cancel(cancellation);
+                    break;
+                case DeepCompletion.Waiter:
+                    SimulationWaiter.AttachDeadline(waiter, TimeSpan.FromHours(1), "test", static _ => { });
+                    Assert.True(waiter.TryClaim(out SimulationWaiter.Claim claim));
+                    complete = () => claim.Complete(true);
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(completion), completion, null);
             }
-            else
-            {
-                ControlledCancellationTokenSource.Cancel(cancellation);
-            }
-        }));
+
+            timersBefore = cluster.Scheduler.CapturePendingTimers().Count;
+            thrown = Assert.Throws<SimulationApiException>(() => WithinTheCompletionHeadroom(complete));
+            timersAfter = cluster.Scheduler.CapturePendingTimers().Count;
+        };
 
         await Assert.ThrowsAsync<SimulationApiException>(() => RunIn(cluster, site, body));
         Assert.NotNull(thrown);
         Assert.False(source.Task.IsCompleted);
         Assert.False(cancellation.IsCancellationRequested);
+        Assert.False(waiter.Task.IsCompleted);
+        Assert.Equal(timersBefore, timersAfter);
+        Assert.Equal(completion is DeepCompletion.SetResult ? 0 : 1, timersBefore);
     }
 
     private static IEnumerable<MethodInfo> CompletionShims() =>
@@ -478,16 +504,27 @@ public sealed class SimulationCompletionTests
         throw new InvalidOperationException($"{error} completed.");
     }
 
+    // Recurses until less than half a completion's headroom remains beyond the BCL's margin, where the BCL's own check
+    // still passes, then runs the action.
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static void AtTheStackLimit(Action action)
+    private static void WithinTheCompletionHeadroom(Action action)
     {
-        if (RuntimeHelpers.TryEnsureSufficientExecutionStack())
+        if (HasStackPast(SimulationCompletion.CompletionStackHeadroom / 2))
         {
-            AtTheStackLimit(action);
+            WithinTheCompletionHeadroom(action);
             return;
         }
 
+        Assert.True(RuntimeHelpers.TryEnsureSufficientExecutionStack());
         action();
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static bool HasStackPast(int bytes)
+    {
+        Span<byte> reserved = stackalloc byte[bytes];
+        reserved[0] = 1;
+        return RuntimeHelpers.TryEnsureSufficientExecutionStack() && reserved[0] == 1;
     }
 
     private static Task RunIn(SimulationCluster cluster, CompletionSite site, Action body) =>

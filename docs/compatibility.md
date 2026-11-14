@@ -701,9 +701,11 @@ Around the completion the BCL's behavior is kept where it differs:
   `CancellationToken.Register(..., useSynchronizationContext: true)` runs inside `Cancel`, as in the BCL. A `Send` made
   from another lane's work or from a controlled operation cannot pump the lane: it throws
   `SimulationSchedulerException` and fails the run.
-- **A nearly exhausted stack fails the run.** Where too little stack remains for the BCL to inline continuations, the
-  completion throws `SimulationApiException` and fails the run before it has any effect, even if simulation code
-  catches the exception: the BCL would queue the continuations to the thread pool there.
+- **A nearly exhausted stack fails the run.** The BCL checks the stack several frames inside a completion and queues
+  the continuations it would inline to the thread pool where too little remains. A completion therefore requires 32 KB
+  beyond the BCL's own margin, and otherwise throws `SimulationApiException` and fails the run before it has any effect,
+  even if simulation code catches the exception. That covers the continuations which the completion itself runs inline;
+  a chain of continuations which complete further tasks inline goes deeper, where the BCL checks only its own margin.
 
 Code which runs inside a completion, such as a callback which `Cancel` runs or a continuation which the BCL runs inline,
 sees no synchronization context and the default scheduler. Uninstrumented code there which yields, starts a task

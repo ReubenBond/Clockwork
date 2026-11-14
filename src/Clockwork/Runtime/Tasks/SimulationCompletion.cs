@@ -32,9 +32,13 @@ namespace Clockwork.Runtime.Tasks;
 /// so its <see cref="AsyncLocal{T}"/> writes persist, as in the BCL.
 /// </para>
 /// <para>
-/// A completion on a nearly exhausted stack fails the run with <see cref="SimulationApiException"/>, through the
-/// scheduler's failure path, before the completion does anything: the BCL would queue its continuations to the thread
-/// pool there, wherever it ran. A caller which has other side effects makes them inside the completion delegate.
+/// The BCL checks the stack (<see cref="RuntimeHelpers.TryEnsureSufficientExecutionStack"/>) several frames inside the
+/// completion, and queues the continuations it would inline to the thread pool where too little remains. A completion
+/// therefore requires <see cref="CompletionStackHeadroom"/> bytes beyond the BCL's own margin before it does anything,
+/// and otherwise fails the run with <see cref="SimulationApiException"/>, through the scheduler's failure path. That
+/// covers the frames down to the BCL's check for the continuations this completion runs; a continuation which completes
+/// further tasks inline goes deeper, and the BCL checks those completions only against its own margin. A caller which
+/// has other side effects makes them inside the completion delegate, so a failed check leaves them undone.
 /// </para>
 /// <para>
 /// Clockwork's code calls the BCL's completion members (<see cref="TaskCompletionSource"/>'s <c>Set*</c> and
@@ -52,6 +56,12 @@ internal static class SimulationCompletion
     /// <param name="target">The variable.</param>
     /// <param name="argument">The argument.</param>
     public delegate void ReferenceAction<TTarget, TArgument>(ref TTarget target, TArgument argument);
+
+    /// <summary>
+    /// The stack, in bytes, which a completion requires beyond the BCL's margin: room for the frames between the
+    /// completion and the BCL's own check, through a task which hides the scheduler, with a wide allowance.
+    /// </summary>
+    internal const int CompletionStackHeadroom = 32 * 1024;
 
     /// <summary>Runs <paramref name="complete"/> as a completion for simulation code.</summary>
     /// <typeparam name="TState">The state <paramref name="complete"/> takes.</typeparam>
@@ -82,7 +92,7 @@ internal static class SimulationCompletion
             return complete(state);
         }
 
-        if (!RuntimeHelpers.TryEnsureSufficientExecutionStack())
+        if (!HasStackForCompletion())
         {
             throw FailRun(runtime, apiName);
         }
@@ -224,6 +234,23 @@ internal static class SimulationCompletion
     /// <param name="apiName">The API which cancels, for diagnostics.</param>
     public static void Cancel(CancellationTokenSource source, string apiName) =>
         Run(source, static source => source.Cancel(), apiName);
+
+    /// <summary>
+    /// Gets whether <see cref="CompletionStackHeadroom"/> bytes remain beyond the BCL's margin. The BCL's check passes first,
+    /// so the headroom reserved on the stack to check again past it cannot exhaust the stack.
+    /// </summary>
+    /// <returns>Whether a completion has room to run the continuations it completes inline.</returns>
+    internal static bool HasStackForCompletion() =>
+        RuntimeHelpers.TryEnsureSufficientExecutionStack() && HasStackPastHeadroom();
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    [SkipLocalsInit]
+    private static unsafe bool HasStackPastHeadroom()
+    {
+        byte* headroom = stackalloc byte[CompletionStackHeadroom];
+        headroom[0] = 0;
+        return RuntimeHelpers.TryEnsureSufficientExecutionStack();
+    }
 
     private static TResult Complete<TState, TResult>(TState state, Func<TState, TResult> complete)
     {
