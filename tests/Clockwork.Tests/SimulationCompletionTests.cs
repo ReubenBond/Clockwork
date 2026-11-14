@@ -1,5 +1,7 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks.Sources;
+using Clockwork.Shims.System.Threading.Tasks.Sources;
 using Clockwork.Runtime;
 using Clockwork.Runtime.Scheduling;
 
@@ -34,6 +36,31 @@ public sealed class SimulationCompletionTests
 
         /// <summary>The controlled <c>Dispose</c>, which faults the waiter.</summary>
         Dispose,
+    }
+
+    /// <summary>A completion which Clockwork makes, other than the <c>TaskCompletionSource</c> shims.</summary>
+    public enum CompletionRoute
+    {
+        /// <summary>The controlled <c>ManualResetValueTaskSourceCore.SetResult</c>, observed through <c>AsTask</c>.</summary>
+        ValueTaskSourceCoreSetResult,
+
+        /// <summary>The controlled <c>ManualResetValueTaskSourceCore.SetException</c>, observed through <c>AsTask</c>.</summary>
+        ValueTaskSourceCoreSetException,
+
+        /// <summary><c>PeriodicTimer.Dispose</c>, which completes a pending <c>WaitForNextTickAsync</c>.</summary>
+        PeriodicTimerDispose,
+
+        /// <summary><see cref="SimulationGate.Open"/>, which releases a waiter in the gate's lane.</summary>
+        GateOpen,
+
+        /// <summary>A gate waiter which the BCL's <c>Cancel</c>, called by code which is not rewritten, cancels.</summary>
+        GateWaitCanceled,
+
+        /// <summary><see cref="SimulationLatch.Signal"/>, which releases a waiter in the latch's lane.</summary>
+        LatchSignal,
+
+        /// <summary>The last arrival at a <see cref="SimulationBarrier"/>, which releases the others in its lane.</summary>
+        BarrierArrive,
     }
 
     /// <summary>A completion which the BCL rejects.</summary>
@@ -105,6 +132,102 @@ public sealed class SimulationCompletionTests
             return bcl.Observed;
         }));
     }
+
+    // Every other route by which Clockwork completes a task runs a bare continuation on the logical thread: inline in the
+    // completing call where Clockwork completes it there, and otherwise in the lane's work which releases the waiter.
+    [Theory]
+    [InlineData(CompletionRoute.ValueTaskSourceCoreSetResult, CompletionSite.Root)]
+    [InlineData(CompletionRoute.ValueTaskSourceCoreSetResult, CompletionSite.Lane)]
+    [InlineData(CompletionRoute.ValueTaskSourceCoreSetException, CompletionSite.Root)]
+    [InlineData(CompletionRoute.ValueTaskSourceCoreSetException, CompletionSite.Lane)]
+    [InlineData(CompletionRoute.PeriodicTimerDispose, CompletionSite.Root)]
+    [InlineData(CompletionRoute.PeriodicTimerDispose, CompletionSite.Lane)]
+    [InlineData(CompletionRoute.GateOpen, CompletionSite.Root)]
+    [InlineData(CompletionRoute.GateOpen, CompletionSite.Lane)]
+    [InlineData(CompletionRoute.GateWaitCanceled, CompletionSite.Root)]
+    [InlineData(CompletionRoute.GateWaitCanceled, CompletionSite.Lane)]
+    [InlineData(CompletionRoute.LatchSignal, CompletionSite.Root)]
+    [InlineData(CompletionRoute.LatchSignal, CompletionSite.Lane)]
+    [InlineData(CompletionRoute.BarrierArrive, CompletionSite.Root)]
+    [InlineData(CompletionRoute.BarrierArrive, CompletionSite.Lane)]
+    public async Task EveryCompletionRouteRunsBareContinuationsOnTheLogicalThread(CompletionRoute route, CompletionSite site)
+    {
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
+        var probe = new ContinuationProbe(() => cluster.Scheduler.IsSimulationThread);
+        SimulationSchedulerLane lane = cluster.SchedulerLane;
+
+        await RunIn(cluster, site, () =>
+        {
+            switch (route)
+            {
+                case CompletionRoute.ValueTaskSourceCoreSetResult:
+                case CompletionRoute.ValueTaskSourceCoreSetException:
+                    var source = new ValueTaskSource();
+                    probe.Watch(source.Task.AsTask());
+                    probe.Complete(() =>
+                    {
+                        if (route == CompletionRoute.ValueTaskSourceCoreSetResult)
+                        {
+                            ControlledManualResetValueTaskSourceCore.SetResult(ref source.Core, 1);
+                        }
+                        else
+                        {
+                            ControlledManualResetValueTaskSourceCore.SetException(ref source.Core, new InvalidOperationException());
+                        }
+                    });
+                    break;
+                case CompletionRoute.PeriodicTimerDispose:
+                    var timer = new ControlledPeriodicTimer(TimeSpan.FromHours(1));
+                    probe.Watch(timer.WaitForNextTickAsync().AsTask());
+                    probe.Complete(timer.Dispose);
+                    break;
+                case CompletionRoute.GateOpen:
+                    var gate = new SimulationGate(lane);
+                    probe.Watch(gate.WaitAsync());
+                    gate.Open();
+                    break;
+                case CompletionRoute.GateWaitCanceled:
+                    var canceled = new SimulationGate(lane);
+                    var cancellation = new CancellationTokenSource();
+                    probe.Watch(canceled.WaitAsync(cancellation.Token));
+                    probe.Complete(cancellation.Cancel);
+                    break;
+                case CompletionRoute.LatchSignal:
+                    var latch = new SimulationLatch(lane, initialCount: 1);
+                    probe.Watch(latch.WaitAsync());
+                    latch.Signal();
+                    break;
+                case CompletionRoute.BarrierArrive:
+                    var barrier = new SimulationBarrier(lane, participantCount: 2);
+                    probe.Watch(barrier.ArriveAndWaitAsync());
+                    _ = barrier.ArriveAndWaitAsync();
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(route), route, null);
+            }
+        });
+
+        bool completesInTheCall = route is CompletionRoute.ValueTaskSourceCoreSetResult or CompletionRoute.ValueTaskSourceCoreSetException
+            or CompletionRoute.PeriodicTimerDispose or CompletionRoute.GateWaitCanceled;
+        Placement observed = Assert.NotNull(probe.Observed);
+        Assert.True(observed.OnLogicalThread);
+        if (completesInTheCall)
+        {
+            Assert.True(observed.Inline);
+        }
+    }
+
+    // The BCL's own ManualResetValueTaskSourceCore, on a thread-pool thread, runs AsTask's bare continuations inline.
+    [Fact]
+    public async Task OnAThreadPoolThreadTheBclRunsAValueTaskSourceCoresContinuationsInline() =>
+        Assert.Equal(new Placement(Inline: true, OnLogicalThread: true), await OnAThreadPoolThread(onLogicalThread =>
+        {
+            var bcl = new ContinuationProbe(onLogicalThread);
+            var source = new ValueTaskSource();
+            bcl.Watch(source.Task.AsTask());
+            bcl.Complete(() => source.Core.SetResult(1));
+            return bcl.Observed;
+        }));
 
     // CancellationTokenSource runs a callback registered with useSynchronizationContext through the context's Send, which
     // runs it inline on the lane which owns it, inside the completion as outside it.
@@ -377,6 +500,20 @@ public sealed class SimulationCompletionTests
             .WaitAsync(Watchdog, TestContext.Current.CancellationToken);
 
     private sealed record Rejection(Exception Thrown, Exception Raised);
+
+    private sealed class ValueTaskSource : IValueTaskSource<int>
+    {
+        public ManualResetValueTaskSourceCore<int> Core;
+
+        public ValueTask<int> Task => new(this, Core.Version);
+
+        public int GetResult(short token) => Core.GetResult(token);
+
+        public ValueTaskSourceStatus GetStatus(short token) => Core.GetStatus(token);
+
+        public void OnCompleted(Action<object?> continuation, object? state, short token, ValueTaskSourceOnCompletedFlags flags) =>
+            Core.OnCompleted(continuation, state, token, flags);
+    }
 
     private readonly record struct Placement(bool Inline, bool OnLogicalThread);
 
