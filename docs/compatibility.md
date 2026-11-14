@@ -140,7 +140,8 @@ points. This capability does not add profiler/native detours or runtime hosting/
 ### Replay and schedule exploration
 
 Replay artifacts use canonical UTF-8 JSON with format identity `clockwork.replay` and schema version 2.
-They record the simulation seed, explicit schedule seed, strategy/options, Clockwork/runtime compatibility,
+They record the simulation seed, explicit schedule seed, strategy/options (including the
+[simulated processor count](#simulated-processor-count), which replay runs with), Clockwork/runtime compatibility,
 optional closure-manifest and assembly hashes, ordered scheduler/resource/timer decisions, race
 scheduling points, terminal outcome, and structured operation/resource/timer/race/deadlock diagnostics.
 Readers ignore unknown optional properties within a supported schema version. A schema version,
@@ -420,7 +421,7 @@ the published inventory can never drift from the code.
 **Surface classification.** Every public and protected member of each type the built-in rules
 target is controlled or rejected by a rule, or is listed in the inventory's *Members left as BCL
 calls* section with the reason a call to it stays a BCL call: `Value` for `DateTime.AddDays`,
-`HostState` for `Environment.MachineName`, `Blocks` for `Task.Wait(int)`, and so on. A type is
+`HostState` for `Environment.MachineName`, `Blocks` for `SynchronizationContext.WaitHelper`, and so on. A type is
 targeted when a rule names or substitutes it, or when a member's signature mentions a class,
 struct, or interface of `System.Diagnostics.Process.dll`, so a process API is classified wherever
 the framework adds it.
@@ -618,16 +619,24 @@ callback from uninstrumented code, may complete a source outside any simulation,
 shims pass through to the BCL member, and they record the race-detection edge only inside a controlled
 operation.
 
-Blocking `ValueTask<T>.Result` reads remain unsupported: the accessor is not rewritten, so `await`, or
-`GetAwaiter().GetResult()` through the controlled awaiter, is the supported controlled path.
+A blocking `ValueTask<T>.Result` read pumps the coordinator until the value task completes, as `Task<T>.Result` does,
+then returns the BCL's result or throws its exception.
 Other APIs absent from the generated rule inventory are outside the support claim. The task surfaces which can
 still run a continuation outside the coordinator are:
 
 - **Continuations registered by uninstrumented code** (an assembly excluded from rewriting, or the framework itself)
   on a task or value-task source follow the BCL's dispatch. A `RunContinuationsAsynchronously` completion source
   completed in rewritten code still runs them on the thread pool; Clockwork's own continuations of the same task
-  stay controlled. Instrument the assemblies which await simulation work.
-- **Race-detection release edges** are published by rewritten completions (completion sources, async methods,
+  stay controlled. Instrument the assemblies which await simulation work. The framework's own async loops over
+  simulation work which Clockwork knows of are controlled: `Parallel.ForEachAsync` and `Parallel.ForAsync`
+  ([Parallel loops](#parallel-loops)), `ChannelReader<T>.ReadAllAsync` and the inherited base
+  `ReadAsync`/`WriteAsync` ([Channels](#channels)), and the base asynchronous members of `Stream`, `TextReader`, and
+  `TextWriter` ([Stream, TextReader, and TextWriter asynchronous members](#stream-textreader-and-textwriter-asynchronous-members)).
+  Inside a task which uninstrumented code constructs and instrumented code starts, `TaskScheduler.Current` is the
+  coordinator's scheduler: uninstrumented code which continues on it after a completion on another thread is reported
+  as a thread-affinity violation rather than run there.
+- **Race-detection release edges** are published by rewritten completions (completion sources, async methods
+  returning a `Task` or a `ValueTask`,
   `Task.Run`, `TaskFactory.StartNew`, a controlled timer's `DisposeAsync`, and the controlled combinators and
   continuations). A task completed by
   uninstrumented code, including a channel's internal operations, publishes none, so the detector does not order
@@ -659,10 +668,48 @@ into [`rule-inventory.md`](rule-inventory.md); the Coyote parity matrix is
 [`coyote-parity.md`](coyote-parity.md).
 
 Controlled surfaces include the full `Task.Run` and `TaskFactory`/
-`TaskFactory<T>.StartNew` families; every `Task.ContinueWith` and `Task<T>.ContinueWith` overload;
-`Thread` construction/`Start`/`Join`/`Sleep`/`Yield`/`SpinWait`; `ThreadPool.QueueUserWorkItem` and
+`TaskFactory<T>.StartNew` families; `Task.Start` and `Task.RunSynchronously` for a task constructed with
+`new Task(...)`; every `Task.ContinueWith` and `Task<T>.ContinueWith` overload; every `Task.Wait`, `Task.WaitAll`,
+and `Task.WaitAny` overload, including the timed and cancellable ones, whose timeouts elapse in virtual time;
+`Thread` construction/`Start`/`UnsafeStart`/`Join`/`Sleep`/`Yield`/`SpinWait`; `ThreadPool.QueueUserWorkItem` and
 `UnsafeQueueUserWorkItem` (including the generic `Action<TState>` and `IThreadPoolWorkItem` forms);
-and `Parallel.Invoke`/`For`/`ForEach`.
+`Parallel.ForEachAsync`, `Parallel.ForAsync`, `Parallel.Invoke`, `Parallel.For`, and `Parallel.ForEach` (see
+[Parallel loops](#parallel-loops)); and the `ChannelReader<T>`/`ChannelWriter<T>` members whose BCL implementations
+await inside the framework (see [Channels](#channels)).
+
+##### Task schedulers
+
+Every controlled API which takes a `TaskScheduler` (`Task.Start`, `Task.RunSynchronously`, `TaskFactory.StartNew`,
+`ContinueWith`, `ContinueWhenAll`/`ContinueWhenAny`, and `ParallelOptions.TaskScheduler`) applies one policy.
+`TaskScheduler.Default`, which the controlled APIs map to the coordinator, and the coordinator's own scheduler run the
+work on the caller's node. A
+`SimulationTaskScheduler` of the running simulation runs it on its lane's node, so the work suspends and crashes with
+that node; `RunSynchronously` on it queues the task to the lane and waits for it, pumping the coordinator, since the
+lane never runs a task inline. Any other scheduler throws `SimulationApiException`, because work queued to it would
+run outside the coordinator.
+
+##### Constructed tasks
+
+`new Task(...)` and `new Task<TResult>(...)` are controlled. The BCL runs a task's delegate in the `ExecutionContext`
+captured when it was constructed, which carries its creator's strand; the controlled constructors make the delegate
+run as the strand which executes it instead, so a task started with `Task.Start` owns its own locks, as a task on its
+own thread does, and a task run inline with `RunSynchronously` shares its caller's. `TaskCreationOptions.AttachedToParent`
+is rejected: Clockwork's controlled tasks do not model parent and child tasks, and a parent waiting for an attached
+child would block the simulation's logical thread. The constructed task hides its scheduler, so inside it
+`TaskScheduler.Current` is `TaskScheduler.Default`, as inside a task the BCL starts on the default scheduler; the BCL
+runs a framework continuation which the task completes inline only there, and would otherwise queue it to the thread
+pool. Validation, `AsyncState`, `CreationOptions` (which report the options the creator passed), and the outcome of a
+task constructed with a cancelled token are the BCL's.
+
+`Task.Start` and `Task.RunSynchronously` run the task on Clockwork's coordinator `TaskScheduler`: `Start` queues it
+as a fresh controlled operation, as `Task.Run` queues its body, and `RunSynchronously` runs it on the calling logical
+thread. The BCL keeps the task's state, so its status transitions (`WaitingToRun` after `Start`), its rejection of a
+second start, and the execution context captured at construction are the BCL's. Inside such a task
+`TaskScheduler.Current` is the coordinator scheduler, which every controlled API that takes a scheduler accepts as
+it accepts `TaskScheduler.Default`. A timed or cancellable `Wait`, `WaitAll`, or `WaitAny` pumps the coordinator
+until the tasks complete, the token is cancelled, or its deadline elapses, then lets the BCL compute the result
+and exceptions from the completed tasks. `Thread.UnsafeStart` starts the controlled thread without flowing the
+caller's `ExecutionContext`, as the BCL does.
 
 **Deliberate deviations from real BCL semantics:**
 
@@ -686,8 +733,8 @@ and `Parallel.Invoke`/`For`/`ForEach`.
   so `AsyncLocal` values observed by the callback differ between the two exactly as they do on the
   real thread pool.
 - **OS-specific and un-modellable surfaces are rejected precisely, not silently ignored.** Thread
-  `Priority`/apartment-state (including the obsolete `ApartmentState` setter)/`Interrupt`, `Parallel`
-  `ParallelLoopState` (break/stop), thread-local, and `Partitioner` overloads, and
+  `Priority`/apartment-state (including the obsolete `ApartmentState` setter)/`Interrupt`, the `Parallel`
+  overloads whose body receives a `ParallelLoopState` (break/stop and thread-local `TLocal` state), and
   `ThreadPool.UnsafeQueueNativeOverlapped` all fail at the rewritten call
   site with a diagnostic that names the exact API. The registered-wait APIs
   (`RegisterWaitForSingleObject`/`UnsafeRegisterWaitForSingleObject`) are **controlled**
@@ -727,6 +774,172 @@ escaping. The synchronization and virtual-timer capabilities delivered since the
 Each mode is intended to be strictly additive: an application written for
 cooperative mode should continue to work unmodified under controlled, race
 exploration, or deep instrumentation mode.
+
+#### Parallel loops
+
+Every controlled `Parallel` loop runs on a deterministic pool of workers, each a fresh controlled operation on the
+coordinator, following the BCL's `ForEachAsync` design: the loop queues one worker, and each worker queues the
+next when it takes its first element, until the degree of parallelism is exhausted, so no more than that many bodies
+are in flight. A worker takes an element, runs the body, awaits it, and yields to the scheduler before taking
+the next, which is where another worker could take the source first on a real machine; the scheduling strategy
+therefore chooses the interleaving of the workers' iterations, a seed replays it exactly, and different seeds
+explore different interleavings. Workers share an `IEnumerable<T>`'s or `IAsyncEnumerable<T>`'s one enumerator,
+taking one element at a time under an asynchronous FIFO lock; synchronous `ForEach` indexes an `IList<T>` (including an
+array) over `[0, Count)`, where `ForEachAsync` shares its enumerator as for any sequence; each worker enumerates its
+own dynamic partition of a `Partitioner<T>`; integer ranges are taken in ascending order.
+
+- **`ForEachAsync` and `ForAsync`** return a task which the last worker completes with the BCL's outcome:
+  cancelled if the caller's token is cancelled, otherwise faulted with every body fault in the order they occurred,
+  otherwise successful. The first fault, or the caller's token, cancels the token passed to the bodies and stops
+  every worker before its next element. A token cancelled at the call returns a cancelled task without running a
+  body, and a source whose `GetEnumerator` throws returns a faulted task, as in the BCL. Without
+  `ParallelOptions`, or with `MaxDegreeOfParallelism` of -1, the BCL runs `Environment.ProcessorCount` workers;
+  the controlled loop runs the [simulated processor count](#simulated-processor-count) of workers, so a seed
+  replays on any machine.
+- **`For`, `ForEach`, and `Invoke`** block their caller until the loop completes, so the caller pumps the
+  coordinator while the workers run, as every controlled synchronous wait does; a body which waits (a
+  `Thread.Sleep`, a blocking `Task` wait) pumps in turn. They throw what the BCL throws: an `AggregateException` of
+  the body faults, or a single `OperationCanceledException` when the options' token stopped the loop or every fault
+  is a cancellation by that token. The first worker runs on the caller, as the caller's strand and in the context the
+  loop captured, as the BCL's root replica does, with a scheduling point between its iterations, so a loop of degree 1
+  runs entirely on the caller and may re-enter a lock the caller holds. A loop stops launching iterations after its
+  first fault; with `MaxDegreeOfParallelism` of -1 it runs the simulated processor count of workers, standing in for
+  the thread-pool threads which run the BCL's replicas. `Invoke` runs every action despite faults, on the same worker
+  pool, which checks the token after each action, and aggregates their faults. A source is disposed once the loop
+  completes, and a fault there is thrown in place of the loop's outcome, as in the BCL. The returned
+  `ParallelLoopResult` reports completion.
+- **Schedulers.** An unset `ParallelOptions.TaskScheduler` runs the loop on the caller's node whatever
+  `TaskScheduler.Current` is; a set one follows the [scheduler policy](#task-schedulers). A node's
+  `SimulationTaskScheduler` runs every worker on that node, so they suspend and crash with it, and a synchronous loop's
+  caller only waits, as the BCL's caller waits for a root replica its scheduler declines to run inline.
+- **Rejected overloads.** The overloads whose body receives a `ParallelLoopState` (break/stop, and the thread-local
+  `TLocal` overloads) throw `SimulationApiException` at the call site: `ParallelLoopState` has no public
+  constructor, so Clockwork cannot supply one to a body. Stop a loop through `ParallelOptions.CancellationToken`.
+- **Race detection.** Every take of an element synchronizes with the takes before it, as the BCL's lock (for
+  `ForEachAsync` and `ForAsync`), interlocked index (for `For`), or partitioner does, and every body happens before
+  the loop completes, so accesses after `await Parallel.ForEachAsync(...)` or a synchronous loop are ordered after
+  every body's.
+
+Without these rules the BCL's `ForEachAsync` and `ForAsync` queue their workers to the thread pool and resume them
+through BCL awaits, so the bodies run on thread-pool threads outside the schedule;
+`ParallelLoopConformanceTests` pins that escape with a probe rewritten without them.
+
+##### Simulated processor count
+
+Each simulation has one processor count, which its runtime owns: `SimulationCluster`'s `processorCount` argument
+(the `ProcessorCount` property), `ReplayRecordingOptions.ProcessorCount`, `ScheduleExplorationOptions.ProcessorCount`,
+and `ReplayTestConfiguration.ProcessorCount` set it, and it defaults to 4. Four workers are enough for the scheduler
+to explore interleavings among them, few enough to keep the schedule space and the cost of each run bounded, and the
+same on every host, so a seed replays on any machine; set it to model a production machine's count. The replay
+artifact records it (`scheduler.options.processorCount`) and replay runs with the recorded value.
+
+- **`Environment.ProcessorCount`** returns it, so code that sizes its own work by the processor count (a worker
+  pool, a `MaxDegreeOfParallelism = Environment.ProcessorCount`) behaves the same on every host.
+- **`Parallel` loops** without a limit, or with `MaxDegreeOfParallelism` of -1, run that many workers.
+- **`Partitioner.Create(fromInclusive, toExclusive)`** (`int` and `long`) divides the range into three times that
+  many ranges, the BCL's range size for that processor count, so each worker takes the same ranges on every host.
+- **The other `Partitioner.Create` overloads** stay BCL calls. The list, array, and explicit range-size factories
+  never read the processor count. `Create(IEnumerable<T>)` reads it only to size a fill buffer which the BCL never
+  fills: each partition reads the source only for the chunk it takes, so the source is read at the same points on
+  every host. `ProcessorCountConformanceTests` pins that against the BCL.
+
+The framework's own reads of the processor count, inside BCL code no rule reaches, see the host's count; they size
+internal structures such as a `ConcurrentDictionary`'s default lock striping.
+
+#### Channels
+
+The built-in channels complete their operations on the calling thread: `TryWrite`, `TryRead`, and `TryComplete`
+change the channel's state, and the value tasks which `ReadAsync`, `WaitToReadAsync`, `WriteAsync`, and
+`WaitToWriteAsync` return complete when controlled code changes it. A controlled await observes them through the
+coordinator without registering a continuation on them, so those members stay BCL calls. `ChannelReader<T>.ReadAllAsync`,
+and the base `ChannelReader<T>.ReadAsync` and `ChannelWriter<T>.WriteAsync` which a custom reader or writer inherits,
+are instead async methods compiled into the channels assembly, whose awaits resume on the thread pool. They are
+controlled: the shim calls a reader's or writer's override as written, and otherwise runs the BCL's algorithm (the
+same `WaitToReadAsync`/`TryRead` and `WaitToWriteAsync`/`TryWrite` calls, the same cancellation checks, and the
+same `ChannelClosedException`) with controlled awaits. An override's base call (`base.ReadAsync(...)`), which IL
+makes as a non-virtual `call`, runs that base algorithm, through the rule's base-call replacement. `ReadAllAsync` reads nothing until it is enumerated, and
+combines a token passed to `GetAsyncEnumerator` with its own, as `[EnumeratorCancellation]` does. Its enumerator is the
+value-task source of its own `MoveNextAsync`, as the compiler-generated iterator is: a waiting step completes when its
+`WaitToReadAsync` does, and reads its element when the awaiter takes its result, so each wake is one controlled
+operation that allocates nothing; a step whose element another reader took in between waits again, pumping the
+coordinator. `DisposeAsync` during a pending step throws `NotSupportedException`, as the iterator's does, and needs no
+active simulation. Analyzer rule `CW1001` reports these three members except a virtual call whose receiver's type
+overrides the member.
+
+#### BlockingCollection
+
+`BlockingCollection<T>` blocks a taker on an empty collection, and an adder on a full bounded one, on semaphores and
+wait handles inside the framework. Every member which adds, takes, or completes adding is controlled (`Add`, `TryAdd`,
+`Take`, `TryTake`, `GetConsumingEnumerable`, `CompleteAdding`, and the static `AddToAny`, `TryAddToAny`,
+`TakeFromAny`, and `TryTakeFromAny`), over the real collection. Each first makes the BCL's own attempt with a zero
+timeout, which validates the arguments, checks disposal and the token, and adds or takes exactly as the BCL does, in
+the BCL's order. When the BCL would have waited, the caller parks on the coordinator until the collection can satisfy
+it, adding is completed, the token is cancelled, or the timeout elapses in virtual time, and then retries; a wait
+which nothing can satisfy is reported as a deadlock. As in the BCL, `CompleteAdding` makes a waiting taker return
+`false` (or `Take` throw), and a waiting adder throw `InvalidOperationException`; a cancelled token throws
+`OperationCanceledException`; `GetConsumingEnumerable` takes nothing until it is enumerated. Which of several waiters
+proceeds first is the scheduling strategy's choice, as it is the thread scheduler's in the BCL. Every add and
+`CompleteAdding` publishes a race-detection edge which every take, and every observation of a completed collection,
+acquires. `BlockingCollectionConformanceTests` compares each deterministic scenario with the same probe run
+uninstrumented, and pins the escape: without these rules a timed take blocks the logical thread for its whole timeout.
+
+#### Stream, TextReader, and TextWriter asynchronous members
+
+The base asynchronous members of `Stream`, `TextReader`, and `TextWriter`, which a type that overrides only the
+synchronous members inherits, run the synchronous member on a thread-pool thread (`Stream.ReadAsync`, `WriteAsync`,
+`FlushAsync`; `TextReader.ReadLineAsync`, `ReadToEndAsync`, `ReadAsync`, `ReadBlockAsync`; `TextWriter.WriteAsync`,
+`WriteLineAsync`, `FlushAsync`), block the caller on a semaphore or a task (`Stream.BeginRead`/`EndRead`,
+`BeginWrite`/`EndWrite`), or await the other members through BCL awaiters (`Stream.CopyToAsync`, `ReadExactlyAsync`,
+`ReadAtLeastAsync`, `TextWriter.WriteAsync(StringBuilder)`). They are controlled (`AsyncIO` family). A call to a virtual
+member checks, once per receiver type, whether the receiver overrides it, and calls an override as written. Otherwise
+the shim runs the BCL's base algorithm with the same calls on the receiver:
+
+- A synchronous read, write, or flush which the BCL runs on the thread pool runs as a fresh controlled operation in the
+  caller's execution context, concurrently with the caller, so the scheduling strategy chooses how it interleaves with
+  the caller, as the thread pool does. Its task completes as the BCL's does, including cancellation by a token which is
+  canceled before the operation starts.
+- A stream's base reads and writes are serialized in FIFO order, as the BCL's per-stream semaphore serializes them:
+  `ReadAsync` and `WriteAsync` wait for the stream asynchronously and release it when their operation ends;
+  `BeginRead` and `BeginWrite` wait for it with the caller parked on the coordinator, and `EndRead` and `EndWrite`
+  release it. `EndRead` and `EndWrite` pump the coordinator until the operation completes; the callback runs in its own
+  controlled operation after the operation completes. A base `ReadAsync` or `WriteAsync` on a stream which overrides
+  `BeginRead`/`EndRead` (or the write pair) completes through those overrides, as the BCL's does.
+- Every await in a base algorithm, and in the non-virtual members, is a controlled await of the controlled virtual
+  members, so a `CopyToAsync` or `ReadExactlyAsync` over a stream whose `ReadAsync` awaits simulation work resumes on
+  the coordinator.
+
+An override's base call (`base.ReadAsync(...)`), a non-virtual `call`, runs the base algorithm through the rule's
+base-call replacement. Validation and its exceptions and messages are the BCL's. `DisposeAsync`, whose base calls
+`Dispose`, and the synchronous members run on the calling thread and stay BCL calls. Framework code which calls a
+receiver's asynchronous members (a `StreamReader` over a custom stream, `Stream.Synchronized`,
+`TextWriter.CreateBroadcasting`) is not rewritten, so it reaches the receiver's base members as in the BCL.
+`StreamConformanceTests` compares each scenario, including the shapes of Clog's `ArcBufferReadStream` and
+`ArcBufferWriteStream`, with the same probe run uninstrumented, and pins the escape: without these rules the base
+`ReadAsync` reads on a thread-pool thread.
+
+#### AsyncEnumerable
+
+The `System.Linq.AsyncEnumerable` operators are async methods and iterators in the framework, which await a source's
+`MoveNextAsync` with BCL awaiters, some with `ConfigureAwait(false)`. They are not rewritten, and they stay on the
+logical thread over sources in rewritten code: a controlled operation runs with no `SynchronizationContext` and the
+default `TaskScheduler`, so an operator's await captures no context, and its continuation runs inline in the controlled
+operation which completes the source's value task (a rewritten async iterator as it resumes on the coordinator, a
+task-backed source as a controlled operation completes its task). A task constructed with `new Task(...)` hides its
+scheduler ([Constructed tasks](#constructed-tasks)), so the same holds inside a task started with `Task.Start` or run
+with `RunSynchronously`. `AsyncEnumerableConformanceTests` pins both. The BCL runs a continuation inline only where the
+current scheduler is the default one: a task-backed source completed inside a task which runs visibly on another
+scheduler - the root task of `RunToCompletion` before its first await, on the cluster's `SimulationTaskScheduler`, or a
+task constructed by uninstrumented code - sends the operator's continuation to the thread pool, as it does for any
+framework await, and the escaped continuation fails the run at its first controlled call.
+
+#### Concurrency entry points: status
+
+The status of every concurrency entry point is generated from the rule inventory into [Concurrency entry points:
+status](rule-inventory.md#concurrency-entry-points-status): the rule families which control or reject them, the members
+left as BCL calls with their reasons, and the result of an audit which scans the shared framework for members that
+reach the thread pool, `TaskScheduler.Default`, a new thread, a real timer, or an async method. Anything it does not list
+runs as a BCL call; work such a call starts on another thread fails the run at its first controlled call (see
+[Thread affinity](#thread-affinity)), and work which only computes or changes shared state runs unchecked.
 
 #### Monitors, locks, and semaphores
 
@@ -901,7 +1114,8 @@ cancels all remaining registrations without invoking user callbacks.
   routing `async`/`await` and synchronous waits through the simulation coordinator. No controlled surface
   registers a BCL continuation on a task. The inventory
   also controls `Task.Run`, all 24 .NET 11 `TaskFactory`/`TaskFactory<T>.StartNew` signatures, `Thread`, `ThreadPool`
-  (`QueueUserWorkItem`/`UnsafeQueueUserWorkItem`), and `Parallel` under control (see the Coyote
+  (`QueueUserWorkItem`/`UnsafeQueueUserWorkItem`), `Parallel` (including `ForEachAsync` and `ForAsync`), and the
+  channel members which await inside the framework under control (see the Coyote
   parity matrix, [`coyote-parity.md`](coyote-parity.md)). Control is claimed **only** for those
   exact signatures, including virtual timers, all `Task.Delay`/`Task.WaitAsync` overloads, and
   timer-driven cancellation; synchronous `ValueTask` blocking remains a documented hole.
@@ -935,9 +1149,9 @@ cancels all remaining registrations without invoking user callbacks.
   lists every other member of a targeted type with its behavior; the documented holes among them
   include `Stopwatch` instance APIs (`RealClock`), `DateTime`/`DateTimeOffset` parse/format/convert
   helpers (`CultureOrTimeZone`), host and process reads (`HostState`, `Process`), a derived type's
-  constructor chaining to a controlled one (`ConstructorCall`), and the blocking and scheduling
-  `Task`, `Thread`, and `Parallel` overloads the controlled surface does not cover (`Blocks`,
-  `Schedules`). A delegate created from a member (`ldftn`) calls the BCL member, since rules rewrite
+  constructor chaining to a controlled one (`ConstructorCall`), `SynchronizationContext.WaitHelper` (`Blocks`), and
+  `ThreadPool.BindHandle` (`Schedules`); see
+  [Concurrency entry points: status](#concurrency-entry-points-status). A delegate created from a member (`ldftn`) calls the BCL member, since rules rewrite
   `call`, `callvirt`, and `newobj` sites. Timer limitations are unrecognized custom `TimeProvider`
   implementations, non-null `System.Timers.Timer.SynchronizingObject`/designer integration, and
   `Timer.Dispose(WaitHandle)` with a handle outside Clockwork's controlled event surface.

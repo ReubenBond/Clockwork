@@ -8,6 +8,8 @@ Clockwork persists controlled executions as canonical UTF-8 JSON. The format nam
 An artifact records:
 
 - simulation and schedule seeds, scheduling strategy, strategy options, and hard execution bounds;
+- the simulated processor count (`scheduler.options.processorCount`), which the program observes as
+  `Environment.ProcessorCount` and which sizes `Parallel` loops and range partitioners;
 - Clockwork/runtime compatibility plus optional instrumentation manifest, rule-set, and assembly hashes;
 - ordered scheduler choices, resource-winner and wait-resolution decisions, virtual deadlines, and race scheduling points;
 - completion, fault, cancellation, race, deadlock, bound, or aborted outcome with a stable failure identity;
@@ -72,6 +74,12 @@ ReplayExecutionResult replayed = ReplayRunner.ReplayCluster(
     maxSteps: 1_000_000,
     cancellationToken);
 ```
+
+A recording runs with `ReplayRecordingOptions.ProcessorCount` (4 by default), and replay runs with the count the
+artifact recorded, so a seed replays on any machine. An artifact without a valid recorded count fails before scenario
+code runs with a `ReplayCompatibilityException`, as does one whose count differs from
+`ReplayCompatibilityRequirements.ProcessorCount` when the caller sets it (`ReplayTestConfiguration.ProcessorCount`
+sets it for environment-selected replays).
 
 `RecordCluster` and `ReplayCluster` create a fresh cluster at `DateTimeOffset.UnixEpoch` in UTC,
 drive it to a terminal state, capture diagnostics before cleanup, detach replay recording, and then

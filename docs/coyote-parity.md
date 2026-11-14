@@ -79,6 +79,7 @@ the OS-specific surface Coyote simply leaves as an uncontrolled real call.
 | `Create(ParameterizedThreadStart, maxStackSize)` | `new Thread(ParameterizedThreadStart, int)` | ✅ Controlled | `clockwork.thread.ctor.parameterized.stacksize` |
 | `Start(instance)` | `Thread.Start()` | ✅ Controlled | `clockwork.thread.start` |
 | `Start(instance, parameter)` | `Thread.Start(object)` | ✅ Controlled | `clockwork.thread.start.parameter` |
+| *(not modelled by Coyote)* | `Thread.UnsafeStart()` / `UnsafeStart(object)` | ✅ Controlled (beyond Coyote) | `clockwork.thread.unsafestart[.parameter]` — starts the controlled thread without flowing the caller's `ExecutionContext` |
 | `Join(instance)` | `Thread.Join()` | ✅ Controlled | `clockwork.thread.join` (virtual wait) |
 | `Join(instance, ms)` | `Thread.Join(int)` | ✅ Controlled | `clockwork.thread.join.milliseconds` |
 | `Join(instance, TimeSpan)` | `Thread.Join(TimeSpan)` | ✅ Controlled | `clockwork.thread.join.timespan` |
@@ -109,7 +110,8 @@ async machinery, `Yield`, and `Run`.
 | `Task.Run` (8 overloads: `Action`/`Func<TResult>`/`Func<Task>`/`Func<Task<TResult>>`, ± `CancellationToken`) | ✅ Controlled | `clockwork.tasks.run.*` (TaskScheduling family) |
 | `Task.WhenAll` / `Task.WhenAny` (array, span, pair, enumerable; non-generic + generic) | ✅ Controlled | `clockwork.tasks.whenall.*` / `whenany.*` (TaskCombinators); completed through the coordinator, registering nothing on the antecedents |
 | `Task.WhenEach` (array, span, enumerable; non-generic + generic) | ✅ Controlled (beyond Coyote) | `clockwork.tasks.wheneach.*` (TaskCombinators); the coordinator observes the tasks complete and completes `MoveNextAsync` on a controlled operation |
-| `Task.Wait()` / `WaitAll(Task[])` / `WaitAny(Task[])` | ✅ Controlled | `clockwork.tasks.wait.*` (TaskSynchronization) |
+| `Task.Wait` / `WaitAll` / `WaitAny`, every overload (timed, cancellable, `ReadOnlySpan<Task>`, `IEnumerable<Task>`) | ✅ Controlled | `clockwork.tasks.wait.*`, `clockwork.tasks.waitall.*`, `clockwork.tasks.waitany.*` (TaskSynchronization); timeouts elapse in virtual time |
+| `Task.Start()` / `Start(TaskScheduler)` / `RunSynchronously()` / `RunSynchronously(TaskScheduler)` | ✅ Controlled | `clockwork.tasks.start[.scheduler]`, `clockwork.tasks.runsynchronously[.scheduler]` (TaskScheduling); the task runs on the coordinator's `TaskScheduler`; a custom scheduler is rejected |
 | `Task<T>.Result` (blocking get) | ✅ Controlled | `clockwork.tasks.result.generic` |
 | `Task.ContinueWith` (all 20 overloads: `Action`/`Func`, ± state, ± `CancellationToken`/`TaskContinuationOptions`/`TaskScheduler`) | ✅ Controlled | `clockwork.tasks.continuewith.{action,action.state,func,func.state}*` (TaskContinuations); `LongRunning`, `AttachedToParent`, and custom schedulers rejected |
 | `Task<T>.ContinueWith` (all 20 overloads) | ✅ Controlled | `clockwork.tasks.continuewith.generic.*` |
@@ -182,8 +184,9 @@ source through the same member and publishes the race-detection release edge.
 ## `System.Threading.Tasks.Parallel` — Coyote `…Types.Threading.Tasks.Parallel`
 
 Coyote wraps the full `Invoke`/`For`/`ForEach` matrix including thread-local (`TLocal`) and
-`Partitioner`/`OrderablePartitioner` overloads. Clockwork controls the simple-body overloads and
-**rejects** the loop-state / thread-local / partitioner forms with a tested diagnostic.
+`Partitioner`/`OrderablePartitioner` overloads. Clockwork controls every loop whose body takes only the element,
+`ForEachAsync` and `ForAsync` included, and rejects the forms whose body receives a `ParallelLoopState`;
+[Parallel loops](compatibility.md#parallel-loops) describes their behavior.
 
 | Coyote surface | Clockwork status | Rule / reason |
 | --- | --- | --- |
@@ -192,14 +195,16 @@ Coyote wraps the full `Invoke`/`For`/`ForEach` matrix including thread-local (`T
 | `For(int, int, Action<int>)` (± `ParallelOptions`) | ✅ Controlled | `clockwork.parallel.for.int32[.options]` |
 | `For(long, long, Action<long>)` (± `ParallelOptions`) | ✅ Controlled | `clockwork.parallel.for.int64[.options]` |
 | `ForEach<T>(IEnumerable<T>, Action<T>)` (± `ParallelOptions`) | ✅ Controlled | `clockwork.parallel.foreach[.options]` |
-| `For(…, Action<int/long, ParallelLoopState>)` (break/stop) | ⛔ Rejected (tested) | `clockwork.parallel.for.int32/int64.loopstate[.options]` — `ParallelLoopState` has no public constructor and break/stop cannot be modelled deterministically yet |
-| `ForEach(…, Action<T, ParallelLoopState>)` / `Action<T, ParallelLoopState, long>` (± `ParallelOptions`) | ⛔ Rejected (tested) | `clockwork.parallel.foreach.loopstate[.index][.options]` |
-| `For<TLocal>(…)` / `ForEach<TSource,TLocal>(…)` (thread-local accumulation) | ⛔ Rejected (tested) | `clockwork.parallel.for.int32/int64.local[.options]`, `clockwork.parallel.foreach.local[.index][.options]` — thread-local aggregation depends on the physical partition count |
-| `ForEach<T>(Partitioner<T> \| OrderablePartitioner<T>, …)` | ⛔ Rejected (tested) | `clockwork.parallel.foreach.partitioner…`, `clockwork.parallel.foreach.orderablepartitioner…` — a `Partitioner` exposes no controllable enumeration for the coordinator |
+| `ForEach<T>(Partitioner<T>, Action<T>)` (± `ParallelOptions`) | ✅ Controlled | `clockwork.parallel.foreach.partitioner[.options]` — each worker enumerates its own dynamic partition |
+| *(not modelled by Coyote)* `ForEachAsync<T>(IEnumerable<T> \| IAsyncEnumerable<T>, …)` (± token / `ParallelOptions`) | ✅ Controlled (beyond Coyote) | `clockwork.parallel.foreachasync[.asyncenumerable][.cancellationtoken \| .options]` |
+| *(not modelled by Coyote)* `ForAsync<T>(T, T, …)` (± token / `ParallelOptions`) | ✅ Controlled (beyond Coyote) | `clockwork.parallel.forasync[.cancellationtoken \| .options]` |
+| `For(…, Action<int/long, ParallelLoopState>)` (break/stop) | ⛔ Rejected (tested) | `clockwork.parallel.for.int32/int64.loopstate[.options]` — `ParallelLoopState` has no public constructor, so Clockwork cannot supply one to a body |
+| `ForEach(…, Action<T, ParallelLoopState>)` / `Action<T, ParallelLoopState, long>` (± `ParallelOptions`, sequence or partitioner) | ⛔ Rejected (tested) | `clockwork.parallel.foreach[.partitioner \| .orderablepartitioner].loopstate[.index][.options]` |
+| `For<TLocal>(…)` / `ForEach<TSource,TLocal>(…)` (thread-local accumulation) | ⛔ Rejected (tested) | `clockwork.parallel.for.int32/int64.local[.options]`, `clockwork.parallel.foreach[.partitioner \| .orderablepartitioner].local[.index][.options]` — their bodies receive a `ParallelLoopState` |
+| *(not modelled by Coyote)* `Environment.ProcessorCount`, `Partitioner.Create(int, int)` / `(long, long)` | ✅ Controlled (beyond Coyote) | `clockwork.environment.processorcount`, `clockwork.parallel.partitioner.create.int32/int64` — the simulation's processor count |
 
-**Deviation:** results, cancellation (`ParallelOptions.CancellationToken`), and fault aggregation
-(`AggregateException`) are preserved for the controlled overloads; execution is cooperative
-(each branch is a controlled operation on the single logical thread) rather than physically parallel.
+**Deviation:** execution is cooperative rather than physically parallel; see [Parallel loops](compatibility.md#parallel-loops)
+and [Simulated processor count](compatibility.md#simulated-processor-count).
 
 ---
 
@@ -547,8 +552,8 @@ are rejected precisely.
 - **Coyote `TaskCompletionSource` / `TaskExtensions` / `ValueTask`:** the real completion sources are kept and their
   completion members redirected to publish race-detection edges; `Unwrap`, `AsTask`, and `Preserve` are controlled,
   and no controlled surface registers a BCL continuation on a task.
-- **Coyote `Parallel`:** simple-body overloads controlled; loop-state / thread-local / partitioner
-  overloads rejected with tested diagnostics.
+- **Coyote `Parallel`:** the element-only overloads controlled, plus `ForEachAsync` and `ForAsync` beyond Coyote;
+  loop-state / thread-local overloads rejected (see [Parallel loops](compatibility.md#parallel-loops)).
 - **`ThreadPool`:** modelled by Clockwork **beyond Coyote**; the registered-wait APIs
   (`RegisterWaitForSingleObject`/`UnsafeRegisterWaitForSingleObject`, all four timeout overloads) are
   controlled as passive event-driven waits and `UnsafeQueueNativeOverlapped` is rejected.
