@@ -36,6 +36,7 @@ public sealed class RaceTrackerModelTests
         (StepKind.Root, 3),
         (StepKind.Access, 22),
         (StepKind.LockSection, 14),
+        (StepKind.ConcurrentHolder, 4),
         (StepKind.Signal, 6),
         (StepKind.Wait, 6),
         (StepKind.HubSignal, 4),
@@ -56,6 +57,7 @@ public sealed class RaceTrackerModelTests
         Root,
         Access,
         LockSection,
+        ConcurrentHolder,
         Signal,
         Wait,
         HubSignal,
@@ -229,6 +231,9 @@ public sealed class RaceTrackerModelTests
                 case StepKind.LockSection:
                     LockSection(operation, step.First, step.Second);
                     break;
+                case StepKind.ConcurrentHolder:
+                    ConcurrentHolder(operation, step.First, step.Second);
+                    break;
                 case StepKind.Signal:
                     Signal(operation, _signals[step.First % _signals.Length]);
                     break;
@@ -387,6 +392,29 @@ public sealed class RaceTrackerModelTests
                 Tracker.ExitExclusive(operation, entered[exit]);
                 _oracle.ExitSynchronization(operation, entered[exit]);
             }
+        }
+
+        // The operation forks a child and enters a lock, and the child, running as the operation's flow, enters it too and
+        // accesses the locations it guards before both exit, the operation first. The child acquires the releases by
+        // other flows before the operation's hold; the operation records nothing between the fork and its exit, so
+        // whether the child's exit replaces or joins its release changes no verdict.
+        private void ConcurrentHolder(SimulationOperation operation, int first, int second)
+        {
+            object synchronization = _locks[first % _locks.Length];
+            SimulationOperation child = Start(operation);
+            Tracker.EnterExclusive(operation, synchronization);
+            _oracle.EnterSynchronization(operation, synchronization);
+            Tracker.EnterExclusive(child, synchronization);
+            _oracle.EnterSynchronization(child, synchronization);
+            for (int access = 0; access <= second % 2; access++)
+            {
+                Access(child, first + access, second / 3 + access);
+            }
+
+            Tracker.ExitExclusive(operation, synchronization);
+            _oracle.ExitSynchronization(operation, synchronization);
+            Tracker.ExitExclusive(child, synchronization);
+            _oracle.ExitSynchronization(child, synchronization);
         }
 
         private void Signal(SimulationOperation operation, object signal)

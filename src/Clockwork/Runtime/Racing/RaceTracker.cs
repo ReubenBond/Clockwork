@@ -251,13 +251,12 @@ internal sealed class RaceTracker
 
     /// <summary>
     /// Records an entry of an exclusive lock, which one flow (<see cref="Threading.SimulationSynchronizationFlow"/>'s
-    /// logical strand) holds at a time. An entry while no running operation holds the lock acquires the clock the lock's
-    /// releases published, so every access under the lock happens before every later access under it: an entry while
-    /// no flow holds it, or a re-entry by the flow after the operation which held it ended. An operation which enters a
-    /// lock another running operation of its flow holds, which happens only where an operation runs as another's flow,
-    /// acquires nothing: the two hold the lock at once, and their accesses are unordered by it. Shared holds, such as a
-    /// reader lock, publish and consume edges through <see cref="SignalSynchronization"/> and
-    /// <see cref="WaitSynchronization"/> instead.
+    /// logical strand) holds at a time. Every entry acquires the clock the lock's releases have published, so every
+    /// access under the lock happens before every later access under it. An operation which enters a lock another
+    /// running operation of its flow holds, which happens only where an operation runs as another's flow, acquires those
+    /// releases but not the other holder's accesses: the two hold the lock at once, and their accesses are unordered by
+    /// it. Shared holds, such as a reader lock, publish and consume edges through <see cref="SignalSynchronization"/>
+    /// and <see cref="WaitSynchronization"/> instead.
     /// </summary>
     public void EnterExclusive(SimulationOperation operation, object synchronization)
     {
@@ -265,11 +264,15 @@ internal sealed class RaceTracker
         LockState lockState = LockOf(synchronization);
 
         // Covering the last release's own event covers its whole clock, apart from entries which decide nothing.
-        bool acquires = lockState.Holders.Count == 0 && lockState.Release is not null;
-        if (acquires && !Covers(state.Clock, lockState.ReleaseSlotId, lockState.ReleaseEpoch))
+        if (lockState.Release is { } release &&
+            !Covers(state.Clock, lockState.ReleaseSlotId, lockState.ReleaseEpoch))
         {
-            MergeDeciding(state.Clock, lockState.Release!);
+            MergeDeciding(state.Clock, release);
         }
+
+        // Only an entry no running operation's hold precedes stands for the release clock: a concurrent holder's later
+        // exit may join its own clock to it, which the entering operation does not cover.
+        bool acquires = lockState.Holders.Count == 0 && lockState.Release is not null;
 
         int held = state.IndexOfHeld(lockState);
         if (held < 0)

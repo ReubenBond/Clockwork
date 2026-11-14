@@ -478,6 +478,26 @@ public sealed class RaceDetectionTests
         Assert.Null(tracker.Tracker.FirstRace);
     }
 
+    // An operation which enters a lock another running operation of its flow holds still acquires the releases published
+    // before that hold, so another flow's earlier accesses under the lock are ordered before its own.
+    [Fact]
+    public void ConcurrentHolderOfItsFlowsLockAcquiresEarlierReleases()
+    {
+        using var tracker = new TrackerHarness();
+        SimulationOperation earlier = tracker.Start();
+        SimulationOperation creator = tracker.Start();
+
+        tracker.Tracker.EnterExclusive(earlier, tracker.Lock);
+        tracker.Write(earlier, "Fx.State::Value");
+        tracker.Tracker.ExitExclusive(earlier, tracker.Lock);
+        SimulationOperation started = tracker.Fork(creator);
+        tracker.Tracker.EnterExclusive(creator, tracker.Lock);
+        tracker.Tracker.EnterExclusive(started, tracker.Lock);
+
+        Assert.Null(tracker.Read(started, "Fx.State::Value"));
+        Assert.Null(tracker.Tracker.FirstRace);
+    }
+
     // A flow which re-enters its lock after the operation holding it ended acquires that operation's clock, as a thread
     // re-entering a lock it holds follows its own earlier accesses.
     [Fact]
@@ -676,10 +696,12 @@ public sealed class RaceDetectionTests
 
         public object Lock { get; } = new();
 
-        public SimulationOperation Start()
+        public SimulationOperation Start() => Fork(parent: null);
+
+        public SimulationOperation Fork(SimulationOperation? parent)
         {
             SimulationOperation operation = _scheduler.Register("tracked", static () => { });
-            Tracker.RegisterOperation(operation, parent: null);
+            Tracker.RegisterOperation(operation, parent);
             return operation;
         }
 
