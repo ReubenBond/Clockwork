@@ -4,6 +4,7 @@ using System.Threading.Tasks.Sources;
 using Clockwork.Shims.System.Threading.Tasks.Sources;
 using Clockwork.Runtime;
 using Clockwork.Runtime.Scheduling;
+using Clockwork.Runtime.Tasks;
 
 namespace Clockwork.Tests;
 
@@ -252,6 +253,33 @@ public sealed class SimulationCompletionTests
 
         Assert.Equal(new Placement(Inline: true, OnLogicalThread: true), controlled.Observed);
         Assert.Equal(bcl.Observed, controlled.Observed);
+    }
+
+    // Inside a completion the thread still executes the lane's work, but with no context current; installing the lane's
+    // context there makes it current until the scope ends.
+    [Fact]
+    public async Task InstallingTheLanesContextInsideACompletionMakesItCurrent()
+    {
+        await using var cluster = new SimulationCluster(seed: 1, DateTimeOffset.UnixEpoch);
+        SimulationSynchronizationContext context = cluster.SchedulerLane.SynchronizationContext;
+        var observed = new List<SynchronizationContext?>();
+        cluster.SchedulerLane.Enqueue(() => SimulationCompletion.Run(
+            observed,
+            completion =>
+            {
+                completion.Add(SynchronizationContext.Current);
+                using (context.Install())
+                {
+                    completion.Add(SynchronizationContext.Current);
+                }
+
+                completion.Add(SynchronizationContext.Current);
+            },
+            "test"));
+
+        await Drive(() => cluster.RunUntilIdle(TestContext.Current.CancellationToken));
+
+        Assert.Equal([null, context, null], observed);
     }
 
     // A Send to another lane's context, from simulation work, cannot pump that lane: the pump fails the call and the run

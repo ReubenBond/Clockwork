@@ -215,12 +215,14 @@ public sealed class SimulationSynchronizationContext(SimulationSchedulerLane sch
     /// <summary>
     /// Installs this synchronization context on the current thread, and makes the thread execute this context's lane's
     /// work (see <see cref="Send"/>), until the returned scope is disposed. The lane runs each of its items inside this
-    /// scope. If the thread is already executing the lane's work, returns an empty scope (no-op).
+    /// scope. If the thread is already executing the lane's work with this lane's context current, returns an empty scope
+    /// (no-op); inside a completion, where the thread executes the lane's work with no context current, it installs the
+    /// context.
     /// </summary>
     /// <returns>A disposable scope that restores the previous synchronization context and lane when disposed.</returns>
     public IDisposable Install()
     {
-        if (IsOnOwningExecutionContext())
+        if (IsOnOwningExecutionContext() && Current is SimulationSynchronizationContext current && IsSameScheduler(current))
         {
             return SynchronizationContextScope.Empty;
         }
