@@ -120,12 +120,20 @@ valid. Constructors and property accessors follow Coyote's documented exclusions
 points, while accesses reached through a hoisted `this` or closure object retain object-field identity.
 
 The runtime assigns weak, monotonically ordered identities through `ConditionalWeakTable`; reports and
-location tables retain only numeric identities. A per-operation vector clock detects unordered
-read/write and write/write conflicts. Common controlled locksets and release/acquire clocks suppress
-protected accesses across Monitor/C# `lock`, `System.Threading.Lock`, `ReaderWriterLockSlim`,
-`SemaphoreSlim`, controlled task completion/waits, and scheduler resources/events. The first race is
-selected deterministically and returned as a distinct `RaceDetected` structured outcome rather than
-thrown through user code.
+location tables retain only numeric identities. Vector clocks detect unordered read/write and
+write/write conflicts. Happens-before orders each operation's events, each operation after the
+operation that registered it, and each controlled release before the acquires that observe it. Clock
+components are keyed by clock strand rather than by operation: an operation whose clock already covers
+a finished operation's last event continues that operation's strand, as an await continuation does,
+so a strand's events are totally ordered and each access is retained as its strand and epoch. An
+operation's clock state is dropped when it terminates, a finished strand ends once no location retains
+its last write or reads there, and lock and signal clocks live as long as their synchronization
+object. Clocks are therefore bounded by the running operations and the finished strands whose accesses
+locations retain, however long a continuation chain or loop runs. Common
+controlled locksets and release/acquire clocks suppress protected accesses across Monitor/C# `lock`,
+`System.Threading.Lock`, `ReaderWriterLockSlim`, `SemaphoreSlim`, controlled task completion/waits,
+and scheduler resources/events. The first race is selected deterministically and returned as a
+distinct `RaceDetected` structured outcome rather than thrown through user code.
 
 **Exact limits:** multidimensional/non-vector arrays lowered to helper calls, interface-typed collection
 calls, reflection/dynamic invocation, `Span<T>`/native pointers, unmanaged memory, and offsets derived

@@ -398,6 +398,37 @@ public sealed class RaceDetectionTests
     }
 
     [Fact]
+    public void CanceledOperationsUnwoundLockExitOrdersTheNextHolder()
+    {
+        var synchronization = new object();
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        var resource = scheduler.CreateResource(
+            Clockwork.Runtime.Scheduling.Resources.SimulationResourceKind.ManualResetEvent,
+            "never-set");
+        SimulationOperation parked = scheduler.Schedule("parked", () =>
+        {
+            RaceSynchronization.Enter(synchronization);
+            try
+            {
+                RaceInstrumentation.WriteStatic("Fx.State::Value", "parked", 1, null, -1);
+                scheduler.WaitOnResource(resource, SimulationPauseReason.ResourceWait("never-set"));
+            }
+            finally
+            {
+                RaceSynchronization.Exit(synchronization);
+            }
+        });
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
+
+        scheduler.Cancel(parked);
+        scheduler.Schedule("next", () => ProtectedWrite(synchronization));
+        scheduler.Drain(TestContext.Current.CancellationToken);
+
+        Assert.Null(scheduler.FirstRace);
+        Assert.Equal(0, scheduler.RaceTrackerStatistics.Operations);
+    }
+
+    [Fact]
     public void TrackerDoesNotRetainTargetObjectsAfterOperationCompletes()
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();

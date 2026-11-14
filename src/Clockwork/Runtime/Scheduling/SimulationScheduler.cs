@@ -346,6 +346,18 @@ public sealed class SimulationScheduler : IDisposable
         }
     }
 
+    /// <summary>Gets the size of the race detector's retained state.</summary>
+    internal RaceTrackerStatistics RaceTrackerStatistics
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _raceTracker.Statistics;
+            }
+        }
+    }
+
     /// <summary>
     /// Records an injected scheduling point and yields the current operation through the configured
     /// scheduling strategy and decision/replay pipeline.
@@ -1579,6 +1591,13 @@ public sealed class SimulationScheduler : IDisposable
         if (needsUnwind)
         {
             UnwindParkedThread(operation);
+        }
+
+        // The unwound body's finally blocks still record synchronization (a lock statement's exit releases its lock
+        // to the next acquirer), so the operation's race state is dropped only once its thread has exited.
+        lock (_gate)
+        {
+            _raceTracker.CompleteOperation(operation);
         }
 
         operation.ReleaseExecutionState();
@@ -2876,6 +2895,7 @@ public sealed class SimulationScheduler : IDisposable
 
                 operation.ApplyTransition(terminal, terminalException: terminalException);
                 _activeOperations.Remove(operation);
+                _raceTracker.CompleteOperation(operation);
                 _pendingTerminalNotification = operation;
             }
         }
