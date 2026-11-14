@@ -764,9 +764,10 @@ public static class RuleInventoryDocument
             "`HttpClientJsonExtensions` member redirect to shims which throw `SimulationApiException` when the client's " +
             "`Timeout` is finite, as it is by default (100 seconds), and otherwise call the BCL member: the BCL bounds each " +
             "request, and the JSON extensions the reading of its response, with the timeout on a real timer. Set " +
-            "`Timeout` to `Timeout.InfiniteTimeSpan` and bound a request with a token which a virtual delay cancels. A call " +
-            "through `HttpMessageInvoker` is checked when its receiver is a client; the virtual members' base calls run " +
-            "the base implementation.",
+            "`Timeout` to `Timeout.InfiniteTimeSpan` and bound a request with a token which a virtual delay cancels. The " +
+            "virtual `Send` and `SendAsync` with a request and a token check the timeout only where they run " +
+            "`HttpClient`'s implementation, whether called through `HttpClient` or `HttpMessageInvoker`: an override is " +
+            "called as written, and its base call runs the base implementation, checked.",
         BuiltInRuleFamily.Hosting =>
             "Every `HostingAbstractionsHostExtensions` member is controlled. The BCL's members await the host's work in " +
             "framework code, whose continuations leave the logical thread where the simulation's synchronization context " +

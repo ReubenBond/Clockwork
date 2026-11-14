@@ -1106,8 +1106,10 @@ it does; where the timer lives inside the framework, the member is rejected for 
   `SimulationApiException` when the client's `Timeout` is finite, which it is by default (100 seconds): the BCL bounds
   the request, and the JSON extensions the reading of its response, with that timeout on a real timer. Set
   `Timeout = Timeout.InfiniteTimeSpan` and bound a request with a `CancellationToken` which a virtual delay cancels,
-  such as one from `new CancellationTokenSource(timeout)`. With an infinite timeout each member is the BCL's. An
-  override's base call to `Send` or `SendAsync` runs the base implementation.
+  such as one from `new CancellationTokenSource(timeout)`. With an infinite timeout each member is the BCL's. The
+  virtual `Send` and `SendAsync` with a request and a token check the timeout only where they run `HttpClient`'s
+  implementation: a client type's override is called as written, and its base call to `HttpClient`'s implementation is
+  checked.
 - **`WebSocketStream`.** A stream which owns its `WebSocket` closes it on disposal, bounding the closing handshake
   with a real timer. `WebSocketStream.Create(webSocket, messageType, ownsWebSocket: true)` (whose close timeout is 16
   seconds) and `Create(webSocket, messageType, closeTimeout)` with a finite, non-zero timeout throw

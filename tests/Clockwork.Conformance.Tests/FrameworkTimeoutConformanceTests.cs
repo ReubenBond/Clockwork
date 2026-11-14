@@ -69,6 +69,16 @@ public sealed class FrameworkTimeoutConformanceTests : IDisposable
                 }
             }
 
+            // Answers every request itself, without HttpClient's implementation, so its timeout bounds nothing.
+            public sealed class CannedClient : HttpClient
+            {
+                public override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+                    Task.FromResult(new HttpResponseMessage(HttpStatusCode.Accepted));
+
+                public override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken) =>
+                    new HttpResponseMessage(HttpStatusCode.Created);
+            }
+
             // Marks the responses its override returns, which reach HttpMessageInvoker's implementation through a base call.
             public sealed class MarkingInvoker : HttpMessageInvoker
             {
@@ -215,6 +225,13 @@ public sealed class FrameworkTimeoutConformanceTests : IDisposable
                     using var markingInvoker = new MarkingInvoker(new DelayedHandler(TimeSpan.FromMilliseconds(5)));
                     HttpResponseMessage invoked = await markingInvoker.SendAsync(new HttpRequestMessage(HttpMethod.Get, "http://sim/h"), CancellationToken.None);
                     log.Add(await invoked.Content.ReadAsStringAsync() + " marked:" + invoked.Headers.Contains("X-Marked"));
+
+                    // A client type's override which answers itself starts no timer, whatever the client's timeout.
+                    using var canned = new CannedClient();
+                    HttpMessageInvoker cannedInvoker = canned;
+                    log.Add("canned:" + (await canned.SendAsync(new HttpRequestMessage(HttpMethod.Get, "http://sim/i"), CancellationToken.None)).StatusCode
+                        + "," + (await cannedInvoker.SendAsync(new HttpRequestMessage(HttpMethod.Get, "http://sim/i"), CancellationToken.None)).StatusCode
+                        + "," + cannedInvoker.Send(new HttpRequestMessage(HttpMethod.Get, "http://sim/i"), CancellationToken.None).StatusCode);
                     return string.Join("|", log);
                 }
 

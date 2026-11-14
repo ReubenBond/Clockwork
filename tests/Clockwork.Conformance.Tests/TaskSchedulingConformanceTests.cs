@@ -514,6 +514,7 @@ public sealed class TaskSchedulingConformanceTests : IDisposable
     }
 
     [Theory]
+    [InlineData("RunSynchronouslyOnCustomScheduler", "System.Threading.Tasks.Task.RunSynchronously")]
     [InlineData("StartNewOnCustomScheduler", "System.Threading.Tasks.TaskFactory.StartNew")]
     public void ACustomSchedulerIsRejected(string probe, string apiName)
     {

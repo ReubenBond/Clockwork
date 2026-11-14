@@ -267,8 +267,8 @@ public enum BuiltInRuleFamily
     /// The <see cref="System.Net.Http.HttpClient"/> members which send a request, <c>HttpMessageInvoker.Send</c> and
     /// <c>SendAsync</c> (which dispatch to the client's when the receiver is one), and the
     /// <c>System.Net.Http.Json.HttpClientJsonExtensions</c> members, which send through a client. The BCL bounds each
-    /// request with <c>HttpClient.Timeout</c> on a real timer, so each shim rejects a client whose timeout is finite and
-    /// otherwise calls the BCL member.
+    /// request with <c>HttpClient.Timeout</c> on a real timer, so each shim rejects a client whose timeout is finite where
+    /// the call runs <c>HttpClient</c>'s implementation, and otherwise calls the BCL member.
     /// </summary>
     HttpClient,
 

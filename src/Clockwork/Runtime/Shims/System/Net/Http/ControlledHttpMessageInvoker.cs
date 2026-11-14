@@ -5,10 +5,11 @@ namespace Clockwork.Shims.System.Net.Http;
 
 /// <summary>
 /// Controlled <see cref="HttpMessageInvoker"/> <c>Send</c> and <c>SendAsync</c>. A call through an
-/// <see cref="HttpMessageInvoker"/> reference dispatches to <see cref="HttpClient"/>'s override when the receiver is a
-/// client, which bounds the request with the client's real-time <see cref="HttpClient.Timeout"/>, so such a call requires
-/// an infinite timeout as <see cref="ControlledHttpClient"/> does; any other receiver sends as written. The base calls of
-/// an override run <see cref="HttpMessageInvoker"/>'s implementation, which sends through the handler with no timeout.
+/// <see cref="HttpMessageInvoker"/> reference dispatches to <see cref="HttpClient"/>'s implementation when the receiver is
+/// a client whose type does not override the member, which bounds the request with the client's real-time
+/// <see cref="HttpClient.Timeout"/>, so such a call requires an infinite timeout as <see cref="ControlledHttpClient"/>
+/// does; any other receiver sends as written. The base calls of an override run <see cref="HttpMessageInvoker"/>'s
+/// implementation, which sends through the handler with no timeout.
 /// </summary>
 public static class ControlledHttpMessageInvoker
 {
@@ -25,14 +26,14 @@ public static class ControlledHttpMessageInvoker
     /// <summary>Controlled <c>HttpMessageInvoker.Send(HttpRequestMessage, CancellationToken)</c>.</summary>
     public static HttpResponseMessage Send(HttpMessageInvoker invoker, HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        RequireInfiniteTimeout(invoker, Api + ".Send");
+        RequireInfiniteTimeout(invoker, "Send");
         return invoker.Send(request, cancellationToken);
     }
 
     /// <summary>Controlled <c>HttpMessageInvoker.SendAsync(HttpRequestMessage, CancellationToken)</c>.</summary>
     public static Task<HttpResponseMessage> SendAsync(HttpMessageInvoker invoker, HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        RequireInfiniteTimeout(invoker, Api + ".SendAsync");
+        RequireInfiniteTimeout(invoker, "SendAsync");
         return invoker.SendAsync(request, cancellationToken);
     }
 
@@ -50,15 +51,16 @@ public static class ControlledHttpMessageInvoker
         return BaseSendAsyncCall(invoker, request, cancellationToken);
     }
 
-    // A null receiver fails with the NullReferenceException the BCL's instance call does.
-    private static void RequireInfiniteTimeout(HttpMessageInvoker invoker, string api)
+    // Only HttpClient's own implementation bounds the request with the client's timeout; an override which answers without
+    // calling it starts no timer. A null receiver fails with the NullReferenceException the BCL's instance call does.
+    private static void RequireInfiniteTimeout(HttpMessageInvoker invoker, string member)
     {
-        if (invoker is HttpClient client)
+        if (invoker is HttpClient client && ControlledHttpClient.RunsHttpClientImplementation(client, member))
         {
-            ControlledHttpClient.RequireInfiniteTimeoutFor(client, api);
+            ControlledHttpClient.RequireInfiniteTimeoutFor(client, Api + "." + member);
             return;
         }
 
-        SimulationRuntimeDispatch.RequireActiveSimulation(api);
+        SimulationRuntimeDispatch.RequireActiveSimulation(Api + "." + member);
     }
 }

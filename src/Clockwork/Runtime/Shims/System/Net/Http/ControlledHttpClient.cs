@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net.Http;
 using Clockwork.Runtime;
 using Clockwork.Runtime.Shims;
@@ -11,12 +12,16 @@ namespace Clockwork.Shims.System.Net.Http;
 /// the request, its validation, and its outcome are the BCL's. A client with a finite timeout, which every client has
 /// by default (100 seconds), throws <see cref="SimulationApiException"/>: set
 /// <c>Timeout = Timeout.InfiniteTimeSpan</c> and bound the request with a token which a virtual delay cancels, such as a
-/// <c>CancellationTokenSource</c> constructed with a timeout. The virtual <c>Send</c> and <c>SendAsync</c> members
-/// dispatch to an override as written; their base calls run <see cref="HttpClient"/>'s implementation.
+/// <c>CancellationTokenSource</c> constructed with a timeout. The virtual <c>Send</c> and <c>SendAsync</c> check the
+/// timeout only where they run <see cref="HttpClient"/>'s implementation: an override is called as written, and its base
+/// call runs <see cref="HttpClient"/>'s implementation, checked.
 /// </summary>
 public static class ControlledHttpClient
 {
     private const string Api = "System.Net.Http.HttpClient";
+
+    // Whether a client type's Send or SendAsync is HttpClient's own implementation, by type and member.
+    private static readonly ConcurrentDictionary<(Type Type, string Member), bool> ImplementedByHttpClient = new();
 
     private static readonly Func<HttpClient, HttpRequestMessage, CancellationToken, HttpResponseMessage> BaseSendCall =
         NonVirtualCall.Create<Func<HttpClient, HttpRequestMessage, CancellationToken, HttpResponseMessage>>(
@@ -302,7 +307,7 @@ public static class ControlledHttpClient
     /// <summary>Controlled <c>HttpClient.Send(HttpRequestMessage, CancellationToken)</c>.</summary>
     public static HttpResponseMessage Send(HttpClient client, HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        RequireInfiniteTimeout(client, "Send");
+        RequireInfiniteTimeoutIfRunByHttpClient(client, "Send");
         return client.Send(request, cancellationToken);
     }
 
@@ -330,7 +335,7 @@ public static class ControlledHttpClient
     /// <summary>Controlled <c>HttpClient.SendAsync(HttpRequestMessage, CancellationToken)</c>.</summary>
     public static Task<HttpResponseMessage> SendAsync(HttpClient client, HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        RequireInfiniteTimeout(client, "SendAsync");
+        RequireInfiniteTimeoutIfRunByHttpClient(client, "SendAsync");
         return client.SendAsync(request, cancellationToken);
     }
 
@@ -351,6 +356,30 @@ public static class ControlledHttpClient
     private static void RequireInfiniteTimeout(HttpClient client, string member) =>
         RequireInfiniteTimeoutFor(client, Api + "." + member);
 
+    // The virtual Send and SendAsync arm the timer only in HttpClient's implementation: an override which answers without
+    // calling it starts none, and one which calls it does so through a base call, which BaseSend and BaseSendAsync check.
+    private static void RequireInfiniteTimeoutIfRunByHttpClient(HttpClient client, string member)
+    {
+        if (client is null || RunsHttpClientImplementation(client, member))
+        {
+            RequireInfiniteTimeoutFor(client!, Api + "." + member);
+            return;
+        }
+
+        SimulationRuntimeDispatch.RequireActiveSimulation(Api + "." + member);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="client"/>'s virtual <c>Send</c> or <c>SendAsync</c> with a request and a token is
+    /// <see cref="HttpClient"/>'s own implementation, the one which bounds the request with the client's timeout.
+    /// </summary>
+    /// <param name="client">The client.</param>
+    /// <param name="member">The member: <c>Send</c> or <c>SendAsync</c>.</param>
+    /// <returns><see langword="true"/> unless the client's type overrides the member.</returns>
+    internal static bool RunsHttpClientImplementation(HttpClient client, string member) =>
+        ImplementedByHttpClient.GetOrAdd(
+            (client.GetType(), member),
+            static key => key.Type.GetMethod(key.Member, [typeof(HttpRequestMessage), typeof(CancellationToken)])!.DeclaringType == typeof(HttpClient));
     /// <summary>
     /// Requires an active simulation and a client whose requests a real timer does not bound. A null client fails with the
     /// <see cref="NullReferenceException"/> the BCL's instance call does.
