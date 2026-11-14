@@ -13,17 +13,20 @@ namespace Clockwork.Benchmarks;
     Justification = "BenchmarkDotNet invokes GlobalCleanup after each benchmark case.")]
 public class RaceTrackerBenchmarks
 {
-    private static readonly RaceMemoryLocation s_location =
-        new(RaceMemoryLocationKind.StaticField, 0, "Benchmark::Value");
-
     private static readonly RaceSourceLocation s_source =
         new("Benchmark.Write", 0, SourceFile: null, SourceLine: -1);
 
+    private readonly object _section = new();
     private SimulationScheduler _scheduler = null!;
     private SimulationOperation _operation = null!;
     private RaceTracker _tracker = null!;
+    private RaceTracker.LocationState _location = null!;
 
-    [Params(0, 4, 16)]
+    // The components of the accessing operation's clock: its own, and one per other running operation it has synchronized with.
+    [Params(1, 17)]
+    public int ClockSize { get; set; }
+
+    [Params(0, 4)]
     public int HeldSynchronizationCount { get; set; }
 
     [GlobalSetup]
@@ -31,12 +34,19 @@ public class RaceTrackerBenchmarks
     {
         _scheduler = new SimulationScheduler(
             new SimulationRuntimeIdentity(Guid.Empty, Seed: 1, Description: "benchmark"));
-        _operation = _scheduler.Register("benchmark", static () => { });
         _tracker = new RaceTracker();
-        _tracker.RegisterOperation(_operation, parent: null);
+        _location = _tracker.ResolveLocation(RaceMemoryLocationKind.StaticField, null, "Benchmark::Value", null)!;
+        _operation = Register();
+        var signal = new object();
+        for (var index = 1; index < ClockSize; index++)
+        {
+            _tracker.SignalSynchronization(Register(), signal);
+        }
+
+        _tracker.WaitSynchronization(_operation, signal);
         for (var index = 0; index < HeldSynchronizationCount; index++)
         {
-            _tracker.EnterSynchronization(_operation, new object());
+            _tracker.EnterExclusive(_operation, new object());
         }
     }
 
@@ -44,11 +54,24 @@ public class RaceTrackerBenchmarks
     public void Cleanup() => _scheduler.Dispose();
 
     [Benchmark]
+    public void RecordRead() =>
+        _tracker.RecordAccess(_operation, RaceAccessKind.Read, _location, s_source, Array.Empty<RaceSchedulingPoint>());
+
+    [Benchmark]
     public void RecordWrite() =>
-        _tracker.RecordAccess(
-            _operation,
-            RaceAccessKind.Write,
-            s_location,
-            s_source,
-            Array.Empty<RaceSchedulingPoint>());
+        _tracker.RecordAccess(_operation, RaceAccessKind.Write, _location, s_source, Array.Empty<RaceSchedulingPoint>());
+
+    [Benchmark]
+    public void LockSection()
+    {
+        _tracker.EnterExclusive(_operation, _section);
+        _tracker.ExitExclusive(_operation, _section);
+    }
+
+    private SimulationOperation Register()
+    {
+        SimulationOperation operation = _scheduler.Register("benchmark", static () => { });
+        _tracker.RegisterOperation(operation, parent: null);
+        return operation;
+    }
 }

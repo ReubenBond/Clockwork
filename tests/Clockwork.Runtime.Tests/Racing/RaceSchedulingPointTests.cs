@@ -45,6 +45,37 @@ public sealed class RaceSchedulingPointTests
     }
 
     [Fact]
+    public void TraceRetainsTheMostRecentPointsUpToItsCapacity()
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        scheduler.RaceTraceCapacity = 3;
+        scheduler.Schedule("first", () => AccessTwice("A"));
+        scheduler.Schedule("second", () => AccessTwice("B"));
+        scheduler.Schedule("racer", () => RaceInstrumentation.WriteStatic("Fx.Subject::Value", "C", 3, null, -1));
+        scheduler.Drain(TestContext.Current.CancellationToken);
+
+        Assert.Equal([3L, 4L, 5L], scheduler.CaptureRaceSchedulingPoints().Select(static point => point.Sequence));
+        RaceReport race = Assert.IsType<RaceReport>(scheduler.FirstRace);
+        Assert.InRange(race.ScheduleTrace.Length, 1, 3);
+        Assert.Equal(race.SecondAccess.Source, race.ScheduleTrace[^1].Source);
+    }
+
+    [Fact]
+    public void LoweringTheTraceCapacityKeepsTheMostRecentPoints()
+    {
+        var trace = new RaceSchedulingTrace(capacity: 4);
+        for (int sequence = 1; sequence <= 6; sequence++)
+        {
+            trace.Add(new RaceSchedulingPoint(sequence, new SimulationOperationId(1), RaceAccessKind.Read, "x", default));
+        }
+
+        trace.Capacity = 2;
+        trace.Add(new RaceSchedulingPoint(7, new SimulationOperationId(1), RaceAccessKind.Read, "x", default));
+
+        Assert.Equal([6L, 7L], trace.Select(static point => point.Sequence));
+    }
+
+    [Fact]
     public void SchedulingPointOutsideControlledOperationIsNoOp()
     {
         RaceInstrumentation.ReadStatic("Fx.Subject::Value", "Fx.Subject::Run", 1, null, -1);

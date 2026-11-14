@@ -241,7 +241,7 @@ public static class ControlledReaderWriterLockSlim
             state.UpgradeableOwner = null;
         }
 
-        RaceSynchronization.Exit(instance);
+        RaceSynchronization.ExitExclusive(instance);
         RaceSynchronization.Signal(instance);
     }
 
@@ -283,7 +283,7 @@ public static class ControlledReaderWriterLockSlim
             state.WriterOwner = null;
         }
 
-        RaceSynchronization.Exit(instance);
+        RaceSynchronization.ExitExclusive(instance);
         RaceSynchronization.Signal(instance);
     }
 
@@ -502,7 +502,7 @@ public static class ControlledReaderWriterLockSlim
         else
         {
             RaceSynchronization.Wait(instance);
-            RaceSynchronization.Enter(instance);
+            RaceSynchronization.EnterExclusive(instance);
         }
     }
 

@@ -12,7 +12,10 @@ public sealed record RaceReport
     /// <summary>Gets the later conflicting access that exposed the race.</summary>
     public required RaceAccessRecord SecondAccess { get; init; }
 
-    /// <summary>Gets the scheduling-point trace through the second access.</summary>
+    /// <summary>
+    /// Gets the most recent scheduling points through the second access, up to the scheduler's
+    /// <see cref="Scheduling.SimulationScheduler.RaceTraceCapacity"/>.
+    /// </summary>
     public ImmutableArray<RaceSchedulingPoint> ScheduleTrace { get; init; } = [];
 
     /// <summary>Formats a deterministic multi-line race diagnostic suitable for replay artifacts.</summary>

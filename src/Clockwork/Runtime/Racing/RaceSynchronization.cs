@@ -10,23 +10,26 @@ namespace Clockwork.Runtime.Racing;
 [EditorBrowsable(EditorBrowsableState.Never)]
 public static class RaceSynchronization
 {
-    /// <summary>Records acquisition of an exclusive controlled synchronization object.</summary>
-    public static void Enter(object synchronization)
+    /// <summary>
+    /// Records acquisition of an exclusive controlled lock: one flow holds it at a time, and only the holding flow exits
+    /// it. Each acquisition consumes the release edge of the exit before it.
+    /// </summary>
+    public static void EnterExclusive(object synchronization)
     {
         ArgumentNullException.ThrowIfNull(synchronization);
         if (SimulationScheduler.TryGetExecutingOperation(out SimulationScheduler? scheduler, out _))
         {
-            scheduler.EnterRaceSynchronization(synchronization);
+            scheduler.EnterExclusiveRaceSynchronization(synchronization);
         }
     }
 
-    /// <summary>Records release of an exclusive controlled synchronization object.</summary>
-    public static void Exit(object synchronization)
+    /// <summary>Records release of an exclusive controlled lock by the flow holding it, publishing a release edge.</summary>
+    public static void ExitExclusive(object synchronization)
     {
         ArgumentNullException.ThrowIfNull(synchronization);
         if (SimulationScheduler.TryGetExecutingOperation(out SimulationScheduler? scheduler, out _))
         {
-            scheduler.ExitRaceSynchronization(synchronization);
+            scheduler.ExitExclusiveRaceSynchronization(synchronization);
         }
     }
 

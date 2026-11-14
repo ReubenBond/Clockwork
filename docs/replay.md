@@ -11,7 +11,9 @@ An artifact records:
 - the simulated processor count (`scheduler.options.processorCount`), which the program observes as
   `Environment.ProcessorCount` and which sizes `Parallel` loops and range partitioners;
 - Clockwork/runtime compatibility plus optional instrumentation manifest, rule-set, and assembly hashes;
-- ordered scheduler choices, resource-winner and wait-resolution decisions, virtual deadlines, and race scheduling points;
+- ordered scheduler choices, resource-winner and wait-resolution decisions, virtual deadlines, and the most recent race
+  scheduling points (`SimulationScheduler.RaceTraceCapacity`, 4,096 by default; a scenario which raises it before
+  registering work recovers earlier points on replay);
 - completion, fault, cancellation, race, deadlock, bound, or aborted outcome with a stable failure identity;
 - terminal operation/resource wait graph, pending timer queue, race pair, and deadlock cycles.
 

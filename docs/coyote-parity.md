@@ -59,8 +59,9 @@ and arguments around the original direct call. The runtime collection type, retu
 and .NET 11 member semantics therefore remain those of the BCL. Normal `Controlled` mode runs no such
 pass and does not change collection types.
 
-The detector uses vector-clock happens-before plus controlled locksets rather than physical-thread
-overlap. Object and synchronization identities are weak-keyed. Reports include both operations,
+The detector uses vector-clock happens-before, with exclusive locks ordered by their release-to-acquire
+edges, rather than physical-thread overlap. Object and synchronization identities are weak-keyed, and a
+location's state lives as long as its object. Reports include both operations,
 read/write kinds, source/IL call sites, held synchronization, and the seeded schedule trace.
 
 ---

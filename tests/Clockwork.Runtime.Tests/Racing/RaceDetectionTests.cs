@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using Clockwork.Runtime.Racing;
 using Clockwork.Runtime.Scheduling;
+using Clockwork.Runtime.Scheduling.Resources;
 using Clockwork.Runtime.Scheduling.Strategies;
 using Clockwork.Runtime.Tests.Scheduling;
 using Clockwork.Runtime.Tasks;
@@ -121,7 +122,7 @@ public sealed class RaceDetectionTests
     }
 
     [Fact]
-    public void SharedControlledLockSuppressesProtectedAccesses()
+    public void SharedControlledLockOrdersProtectedAccesses()
     {
         var synchronization = new object();
         using SimulationScheduler scheduler = RunPair(
@@ -285,14 +286,14 @@ public sealed class RaceDetectionTests
         using SimulationScheduler scheduler = RunPair(
             () =>
             {
-                RaceSynchronization.Enter(synchronization);
+                RaceSynchronization.EnterExclusive(synchronization);
                 try
                 {
                     RaceInstrumentation.WriteStatic("Fx.State::Value", "lock", 1, null, -1);
                 }
                 finally
                 {
-                    RaceSynchronization.Exit(synchronization);
+                    RaceSynchronization.ExitExclusive(synchronization);
                 }
             },
             () =>
@@ -351,7 +352,7 @@ public sealed class RaceDetectionTests
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();
         var resource = scheduler.CreateResource(
-            Clockwork.Runtime.Scheduling.Resources.SimulationResourceKind.ManualResetEvent,
+            SimulationResourceKind.ManualResetEvent,
             "race-event");
         scheduler.Schedule("consumer", () =>
         {
@@ -373,9 +374,9 @@ public sealed class RaceDetectionTests
     public void ResourceWaitConsumesClockFromItsResolvingSignal()
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();
-        scheduler.SchedulingStrategy = Clockwork.Runtime.Scheduling.Strategies.SimulationSchedulingStrategies.Priority();
+        scheduler.SchedulingStrategy = SimulationSchedulingStrategies.Priority();
         var resource = scheduler.CreateResource(
-            Clockwork.Runtime.Scheduling.Resources.SimulationResourceKind.ManualResetEvent,
+            SimulationResourceKind.ManualResetEvent,
             "clocked-event");
         scheduler.Schedule("consumer", () =>
         {
@@ -395,6 +396,140 @@ public sealed class RaceDetectionTests
         scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.NotNull(scheduler.FirstRace);
+    }
+
+    [Fact]
+    public void CanceledOperationUnwoundLockExitOrdersTheNextHolder()
+    {
+        var synchronization = new object();
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        var resource = scheduler.CreateResource(
+            SimulationResourceKind.ManualResetEvent,
+            "never-set");
+        SimulationOperation parked = scheduler.Schedule("parked", () =>
+        {
+            RaceSynchronization.EnterExclusive(synchronization);
+            try
+            {
+                RaceInstrumentation.WriteStatic("Fx.State::Value", "parked", 1, null, -1);
+                scheduler.WaitOnResource(resource, SimulationPauseReason.ResourceWait("never-set"));
+            }
+            finally
+            {
+                RaceSynchronization.ExitExclusive(synchronization);
+            }
+        });
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
+
+        scheduler.Cancel(parked);
+        scheduler.Schedule("next", () => ProtectedWrite(synchronization));
+        scheduler.Drain(TestContext.Current.CancellationToken);
+
+        Assert.Null(scheduler.FirstRace);
+        Assert.Equal(0, scheduler.RaceTrackerStatistics.Operations);
+    }
+
+    [Fact]
+    public void DisposeEndsTheRaceTrackingOfEveryOperationAfterItUnwinds()
+    {
+        var synchronization = new object();
+        var scheduler = SchedulerTestHarness.NewScheduler();
+        var resource = scheduler.CreateResource(SimulationResourceKind.ManualResetEvent, "never-set");
+        scheduler.Schedule("parked", () =>
+        {
+            RaceSynchronization.EnterExclusive(synchronization);
+            try
+            {
+                scheduler.WaitOnResource(resource, SimulationPauseReason.ResourceWait("never-set"));
+            }
+            finally
+            {
+                RaceSynchronization.ExitExclusive(synchronization);
+            }
+        });
+        scheduler.Schedule("never-started", static () => { });
+        Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
+
+        scheduler.Dispose();
+
+        Assert.Equal(0, scheduler.RaceTrackerStatistics.Operations);
+    }
+
+    // Where an operation runs as another's flow (a started task constructed without the constructor rules runs as its
+    // creator's), it exits the lock its flow holds: the exit publishes both the holder's clock, at the holder's end, and
+    // its own, so the next entry is ordered after both operations' accesses.
+    [Fact]
+    public void LockExitedByAnotherOperationOfItsFlowPublishesBothClocks()
+    {
+        using var tracker = new TrackerHarness();
+        SimulationOperation holder = tracker.Start();
+        SimulationOperation exiter = tracker.Start();
+        SimulationOperation next = tracker.Start();
+
+        tracker.Tracker.EnterExclusive(holder, tracker.Lock);
+        tracker.Write(holder, "Fx.State::First");
+        tracker.Tracker.CompleteOperation(holder);
+        tracker.Write(exiter, "Fx.State::Second");
+        tracker.Tracker.ExitExclusive(exiter, tracker.Lock);
+        tracker.Tracker.EnterExclusive(next, tracker.Lock);
+
+        Assert.Null(tracker.Read(next, "Fx.State::First"));
+        Assert.Null(tracker.Read(next, "Fx.State::Second"));
+        Assert.Null(tracker.Tracker.FirstRace);
+    }
+
+    // A flow which re-enters its lock after the operation holding it ended acquires that operation's clock, as a thread
+    // re-entering a lock it holds follows its own earlier accesses.
+    [Fact]
+    public void FlowReenteringItsLockAfterItsHolderEndedIsOrderedAfterTheHolder()
+    {
+        using var tracker = new TrackerHarness();
+        SimulationOperation holder = tracker.Start();
+        SimulationOperation continuation = tracker.Start();
+
+        tracker.Tracker.EnterExclusive(holder, tracker.Lock);
+        tracker.Write(holder, "Fx.State::Value");
+        tracker.Tracker.CompleteOperation(holder);
+        tracker.Tracker.EnterExclusive(continuation, tracker.Lock);
+
+        Assert.Null(tracker.Read(continuation, "Fx.State::Value"));
+        Assert.Null(tracker.Tracker.FirstRace);
+    }
+
+    // Two operations of one flow which hold its lock at once are not ordered by it, so their accesses race, as the
+    // unconstrained program's would; both report the lock as held.
+    [Fact]
+    public void OperationsHoldingALockAtOnceAsOneFlowAreUnorderedByIt()
+    {
+        using var tracker = new TrackerHarness();
+        SimulationOperation creator = tracker.Start();
+        SimulationOperation started = tracker.Start();
+
+        tracker.Tracker.EnterExclusive(creator, tracker.Lock);
+        tracker.Write(creator, "Fx.State::Value");
+        tracker.Tracker.EnterExclusive(started, tracker.Lock);
+
+        Assert.NotNull(tracker.Read(started, "Fx.State::Value"));
+        RaceReport race = Assert.IsType<RaceReport>(tracker.Tracker.FirstRace);
+        Assert.Equal(["sync#1"], race.FirstAccess.SynchronizationContext);
+        Assert.Equal(["sync#1"], race.SecondAccess.SynchronizationContext);
+    }
+
+    [Theory]
+    [InlineData("lock")]
+    [InlineData("signal")]
+    [InlineData("task")]
+    public void SynchronizationStateIsFreedWithItsObject(string kind)
+    {
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        WeakReference? weak = null;
+        scheduler.Schedule("synchronize", () => weak = SynchronizeOnTemporaryObject(kind));
+        scheduler.Drain(TestContext.Current.CancellationToken);
+
+        ForceCollection();
+
+        Assert.NotNull(weak);
+        Assert.False(weak.IsAlive);
     }
 
     [Fact]
@@ -442,14 +577,14 @@ public sealed class RaceDetectionTests
 
     private static void ProtectedWrite(object synchronization)
     {
-        RaceSynchronization.Enter(synchronization);
+        RaceSynchronization.EnterExclusive(synchronization);
         try
         {
             RaceInstrumentation.WriteStatic("Fx.State::Value", "protected", 1, null, -1);
         }
         finally
         {
-            RaceSynchronization.Exit(synchronization);
+            RaceSynchronization.ExitExclusive(synchronization);
         }
     }
 
@@ -488,6 +623,29 @@ public sealed class RaceDetectionTests
         return weak;
     }
 
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference SynchronizeOnTemporaryObject(string kind)
+    {
+        switch (kind)
+        {
+            case "lock":
+                var gate = new object();
+                RaceSynchronization.EnterExclusive(gate);
+                RaceSynchronization.ExitExclusive(gate);
+                return new WeakReference(gate);
+            case "signal":
+                var signal = new object();
+                RaceSynchronization.Signal(signal);
+                RaceSynchronization.Wait(signal);
+                return new WeakReference(signal);
+            default:
+                var completion = new TaskCompletionSource();
+                ControlledTaskCompletionSource.SetResult(completion);
+                ControlledTask.Wait(completion.Task);
+                return new WeakReference(completion.Task);
+        }
+    }
+
     private static void ForceCollection()
     {
         for (var attempt = 0; attempt < 10; attempt++)
@@ -506,6 +664,40 @@ public sealed class RaceDetectionTests
         scheduler.Schedule("second", () => AccessStatic(RaceAccessKind.Read, "B"));
         scheduler.Drain(TestContext.Current.CancellationToken);
         return Assert.IsType<RaceReport>(scheduler.FirstRace).ToDetailedString();
+    }
+
+    // Drives a race tracker directly with operations of a scheduler which never runs them.
+    private sealed class TrackerHarness : IDisposable
+    {
+        private readonly SimulationScheduler _scheduler = SchedulerTestHarness.NewScheduler();
+        private int _nextOffset;
+
+        public RaceTracker Tracker { get; } = new();
+
+        public object Lock { get; } = new();
+
+        public SimulationOperation Start()
+        {
+            SimulationOperation operation = _scheduler.Register("tracked", static () => { });
+            Tracker.RegisterOperation(operation, parent: null);
+            return operation;
+        }
+
+        public RaceTracker.RacingAccess? Write(SimulationOperation operation, string member) =>
+            Record(operation, RaceAccessKind.Write, member);
+
+        public RaceTracker.RacingAccess? Read(SimulationOperation operation, string member) =>
+            Record(operation, RaceAccessKind.Read, member);
+
+        public void Dispose() => _scheduler.Dispose();
+
+        private RaceTracker.RacingAccess? Record(SimulationOperation operation, RaceAccessKind kind, string member) =>
+            Tracker.RecordAccess(
+                operation,
+                kind,
+                Tracker.ResolveLocation(RaceMemoryLocationKind.StaticField, null, member, null)!,
+                new RaceSourceLocation("tracked", ++_nextOffset, null, -1),
+                []);
     }
 
     private static class GenericStatic<T>

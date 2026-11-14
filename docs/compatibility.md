@@ -120,12 +120,37 @@ valid. Constructors and property accessors follow Coyote's documented exclusions
 points, while accesses reached through a hoisted `this` or closure object retain object-field identity.
 
 The runtime assigns weak, monotonically ordered identities through `ConditionalWeakTable`; reports and
-location tables retain only numeric identities. A per-operation vector clock detects unordered
-read/write and write/write conflicts. Common controlled locksets and release/acquire clocks suppress
-protected accesses across Monitor/C# `lock`, `System.Threading.Lock`, `ReaderWriterLockSlim`,
-`SemaphoreSlim`, controlled task completion/waits, and scheduler resources/events. The first race is
-selected deterministically and returned as a distinct `RaceDetected` structured outcome rather than
-thrown through user code.
+location tables retain only numeric identities. Two accesses to one tracked location race when at
+least one is a write and neither happens before the other. Happens-before orders each operation's
+events, each operation after the operation that registered it, and each controlled release before
+the acquires that observe it: Monitor/C# `lock`, `System.Threading.Lock`, the write and upgradeable
+holds of `ReaderWriterLockSlim`, read-lock exits before later writers, `SemaphoreSlim`, controlled
+task completion and waits, and scheduler resources and events. Every recorded lock is exclusive, so
+accesses under a common lock are ordered by its release-to-acquire edges; the locks an access holds
+label its report. Two operations which hold a lock at once as one logical strand, which happens only
+where an operation runs as another's strand, are not ordered by it, and their accesses race. The first race is selected deterministically and returned as a distinct
+`RaceDetected` structured outcome rather than thrown through user code. No verdict, report, or
+scheduling decision depends on garbage-collection timing.
+
+The detector's retained state is bounded by the work in flight, not by the work done. It keeps the
+running operations, and for each live location its last write and the reads since then which are
+mutually unordered; a location of an object lives as long as the object, a static field's as long as
+the run. Lock and signal state lives as long as its synchronization object. A vector clock's entries
+name running operations and kept accesses: a copy drops the entries which stop doing so, and a clock
+which is merged into drops them once more of them have changed than half its size, so clocks do not
+grow with the length of a continuation chain or loop.
+
+Each run retains the most recent `SimulationScheduler.RaceTraceCapacity` race scheduling points
+(4,096 by default) for `CaptureRaceSchedulingPoints`, race reports, and replay artifacts; each point's
+sequence number counts every point the run reached. Replaying the run with a larger capacity, set by
+the scenario before it registers work, recovers the earlier points.
+
+Race reports differ from earlier builds in five respects: a write racing several reads names the
+read which ran first; a write racing the last write names that write; `sync#N` labels number locks
+alone, in the order they are first used; accesses of two operations holding a lock at once as one
+logical strand are reported rather than suppressed by the lock; and a lock which another operation of
+its holder's strand exits, or whose holder ends while holding it, orders that operation's accesses
+before the lock's next holder.
 
 **Exact limits:** multidimensional/non-vector arrays lowered to helper calls, interface-typed collection
 calls, reflection/dynamic invocation, `Span<T>`/native pointers, unmanaged memory, and offsets derived

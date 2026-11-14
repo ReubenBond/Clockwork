@@ -118,7 +118,7 @@ public static class ControlledMonitor
         }
 
         state.Recursion--;
-        RaceSynchronization.Exit(obj);
+        RaceSynchronization.ExitExclusive(obj);
         if (state.Recursion == 0)
         {
             state.Owner = Unowned;
@@ -364,7 +364,7 @@ public static class ControlledMonitor
         state.WaitSet.Add(waiter);
         for (var recursion = 0; recursion < savedRecursion; recursion++)
         {
-            RaceSynchronization.Exit(obj);
+            RaceSynchronization.ExitExclusive(obj);
         }
 
         state.Owner = Unowned;
@@ -437,7 +437,7 @@ public static class ControlledMonitor
         if (state.Owner == me)
         {
             state.Recursion++;
-            RaceSynchronization.Enter(obj);
+            RaceSynchronization.EnterExclusive(obj);
             return;
         }
 
@@ -446,7 +446,7 @@ public static class ControlledMonitor
         SimulationTaskRuntime.DrainUntil(() => state.Owner == Unowned, EnterApi, CancellationToken.None);
         state.Owner = me;
         state.Recursion = 1;
-        RaceSynchronization.Enter(obj);
+        RaceSynchronization.EnterExclusive(obj);
     }
 
     /// <summary>
@@ -463,7 +463,7 @@ public static class ControlledMonitor
         if (state.Owner == me)
         {
             state.Recursion++;
-            RaceSynchronization.Enter(obj);
+            RaceSynchronization.EnterExclusive(obj);
             return true;
         }
 
@@ -471,7 +471,7 @@ public static class ControlledMonitor
         {
             state.Owner = me;
             state.Recursion = 1;
-            RaceSynchronization.Enter(obj);
+            RaceSynchronization.EnterExclusive(obj);
             return true;
         }
 
@@ -491,7 +491,7 @@ public static class ControlledMonitor
             deadline.Cancel();
             state.Owner = me;
             state.Recursion = 1;
-            RaceSynchronization.Enter(obj);
+            RaceSynchronization.EnterExclusive(obj);
             return true;
         }
 
@@ -509,7 +509,7 @@ public static class ControlledMonitor
         if (state.Owner == me)
         {
             state.Recursion++;
-            RaceSynchronization.Enter(obj);
+            RaceSynchronization.EnterExclusive(obj);
             return true;
         }
 
@@ -517,7 +517,7 @@ public static class ControlledMonitor
         {
             state.Owner = me;
             state.Recursion = 1;
-            RaceSynchronization.Enter(obj);
+            RaceSynchronization.EnterExclusive(obj);
             return true;
         }
 
@@ -528,7 +528,7 @@ public static class ControlledMonitor
     {
         for (var count = 0; count < recursion; count++)
         {
-            RaceSynchronization.Enter(obj);
+            RaceSynchronization.EnterExclusive(obj);
         }
     }
 

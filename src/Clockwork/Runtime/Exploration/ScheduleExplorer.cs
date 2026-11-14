@@ -276,12 +276,15 @@ public static class ScheduleExplorer
             return byDecisions;
         }
 
-        int byRacePoints = left.Artifact.RaceSchedulingPoints.Count.CompareTo(
-            right.Artifact.RaceSchedulingPoints.Count);
+        int byRacePoints = RaceSchedulingPointCount(left.Artifact).CompareTo(RaceSchedulingPointCount(right.Artifact));
         return byRacePoints != 0
             ? byRacePoints
             : StringComparer.Ordinal.Compare(left.ArtifactId, right.ArtifactId);
     }
+
+    // An artifact retains only the most recent points, whose sequence numbers count every point the run reached.
+    private static long RaceSchedulingPointCount(ReplayArtifact artifact) =>
+        artifact.RaceSchedulingPoints.Count == 0 ? 0 : artifact.RaceSchedulingPoints[^1].Sequence;
 
     private static void Validate(ScheduleExplorationOptions configuration)
     {

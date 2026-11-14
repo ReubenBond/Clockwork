@@ -79,7 +79,7 @@ public sealed class SimulationScheduler : IDisposable
     private readonly SimulationTimerQueue _clock = new();
     private readonly List<ReadinessWait> _readinessWaits = [];
     private readonly Queue<ExceptionDispatchInfo> _unhandledCallbackFailures = new();
-    private readonly List<RaceSchedulingPoint> _raceSchedulingPoints = [];
+    private readonly RaceSchedulingTrace _raceSchedulingPoints = new(DefaultRaceTraceCapacity);
     private readonly RaceTracker _raceTracker = new();
     private readonly SimulationRuntimeIdentity _runtime;
     private readonly ISimulationOperationListener? _listener;
@@ -325,7 +325,38 @@ public sealed class SimulationScheduler : IDisposable
         return scheduler is not null;
     }
 
-    /// <summary>Captures the injected race-exploration points reached so far in deterministic order.</summary>
+    /// <summary>The number of the most recent race scheduling points a scheduler retains unless configured otherwise.</summary>
+    public const int DefaultRaceTraceCapacity = 4096;
+
+    /// <summary>
+    /// Gets or sets the number of the most recent race scheduling points the scheduler retains, for
+    /// <see cref="CaptureRaceSchedulingPoints"/>, race reports, and replay artifacts. Older points are dropped, so a long
+    /// run retains a bounded trace; replaying the run with a larger capacity recovers them. Defaults to
+    /// <see cref="DefaultRaceTraceCapacity"/>.
+    /// </summary>
+    public int RaceTraceCapacity
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _raceSchedulingPoints.Capacity;
+            }
+        }
+
+        set
+        {
+            lock (_gate)
+            {
+                _raceSchedulingPoints.Capacity = value;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Captures the most recent injected race-exploration points (see <see cref="RaceTraceCapacity"/>) in deterministic
+    /// order. Each point's <see cref="RaceSchedulingPoint.Sequence"/> counts every point the run has reached.
+    /// </summary>
     public IReadOnlyList<RaceSchedulingPoint> CaptureRaceSchedulingPoints()
     {
         lock (_gate)
@@ -346,6 +377,18 @@ public sealed class SimulationScheduler : IDisposable
         }
     }
 
+    /// <summary>Gets the size of the race detector's retained state.</summary>
+    internal RaceTrackerStatistics RaceTrackerStatistics
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _raceTracker.Statistics;
+            }
+        }
+    }
+
     /// <summary>
     /// Records an injected scheduling point and yields the current operation through the configured
     /// scheduling strategy and decision/replay pipeline.
@@ -362,21 +405,19 @@ public sealed class SimulationScheduler : IDisposable
         bool suppressInterleaving;
         lock (_gate)
         {
-            RaceMemoryLocation? location = _raceTracker.ResolveLocation(
-                locationKind,
-                target,
-                member,
-                elementIndex);
+            RaceTracker.LocationState? location = kind is RaceAccessKind.Read or RaceAccessKind.Write
+                ? _raceTracker.ResolveLocation(locationKind, target, member, elementIndex)
+                : null;
             var point = new RaceSchedulingPoint(
                 ++_nextRaceSchedulingPointSequence,
                 operation.Id,
                 kind,
-                location?.ToString() ?? member,
+                location?.Description ?? member,
                 source);
             _raceSchedulingPoints.Add(point);
-            if (location is { } tracked)
+            if (location is not null)
             {
-                _raceTracker.RecordAccess(operation, kind, tracked, source, _raceSchedulingPoints);
+                _raceTracker.RecordAccess(operation, kind, location, source, _raceSchedulingPoints);
             }
 
             suppressInterleaving = _raceTracker.HasHeldSynchronization(operation);
@@ -388,22 +429,35 @@ public sealed class SimulationScheduler : IDisposable
         }
     }
 
-    internal void EnterRaceSynchronization(object synchronization)
+    internal void EnterExclusiveRaceSynchronization(object synchronization)
     {
         SimulationOperation operation = RequireCurrentOperation();
         lock (_gate)
         {
-            _raceTracker.EnterSynchronization(operation, synchronization);
+            _raceTracker.EnterExclusive(operation, synchronization);
         }
     }
 
-    internal void ExitRaceSynchronization(object synchronization)
+    internal void ExitExclusiveRaceSynchronization(object synchronization)
     {
         SimulationOperation operation = RequireCurrentOperation();
         lock (_gate)
         {
-            _raceTracker.ExitSynchronization(operation, synchronization);
+            _raceTracker.ExitExclusive(operation, synchronization);
         }
+    }
+
+    /// <summary>
+    /// Ends <paramref name="operation"/>'s race tracking. Every path by which an operation ends calls this exactly once,
+    /// at the point the operation can record no further race event: its body has returned or unwound, or never started.
+    /// An operation whose thread does not unwind within <see cref="ThreadJoinTimeout"/> may still record events, so its
+    /// tracking does not end. Requires the scheduler lock.
+    /// </summary>
+    private void EndRaceTracking(SimulationOperation operation)
+    {
+        Debug.Assert(Monitor.IsEntered(_gate), "Race tracking ends under the scheduler lock.");
+        Debug.Assert(!ReferenceEquals(t_currentOperation, operation), "An operation's body no longer runs when its race tracking ends.");
+        _raceTracker.CompleteOperation(operation);
     }
 
     internal void SignalRaceSynchronization(object synchronization)
@@ -1581,6 +1635,13 @@ public sealed class SimulationScheduler : IDisposable
             UnwindParkedThread(operation);
         }
 
+        // The unwound body's finally blocks still record synchronization (a lock statement's exit releases its lock
+        // to the next acquirer), so its race tracking ends only once its thread has exited.
+        lock (_gate)
+        {
+            EndRaceTracking(operation);
+        }
+
         operation.ReleaseExecutionState();
         operation.DisposeSignals();
     }
@@ -2441,6 +2502,12 @@ public sealed class SimulationScheduler : IDisposable
             {
                 UnwindParkedThread(victim);
             }
+
+            // As for Cancel, a victim's race tracking ends once its thread has exited.
+            lock (_gate)
+            {
+                EndRaceTracking(victim);
+            }
         }
 
         foreach (var operation in SnapshotOperations())
@@ -2874,6 +2941,7 @@ public sealed class SimulationScheduler : IDisposable
                     return;
                 }
 
+                EndRaceTracking(operation);
                 operation.ApplyTransition(terminal, terminalException: terminalException);
                 _activeOperations.Remove(operation);
                 _pendingTerminalNotification = operation;
