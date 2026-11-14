@@ -228,22 +228,97 @@ public sealed class TaskSchedulingConformanceTests : IDisposable
                     return string.Join(",", observed) + "|" + string.Join(",", items);
                 }
 
+                // A framework operator awaits a task-backed source with ConfigureAwait(false), and the caller's 'run' runs
+                // the code which completes the source's task: inline, or in a task which uninstrumented code constructs.
+                // The BCL must see wherever that code runs as a thread-pool thread for it to run the operator's
+                // continuation inline rather than on the thread pool.
+                public static async Task<string> FrameworkContinuationsCompletedWhereTheCallerRuns(
+                    Func<Action, Task> run,
+                    Func<bool> onSimulationThread)
+                {
+                    var observed = new List<string>();
+                    var source = new TaskBackedSequence();
+                    Task<List<int>> list = source
+                        .Append(9)
+                        .Select(item =>
+                        {
+                            observed.Add(item + ":" + onSimulationThread());
+                            return item;
+                        })
+                        .ToListAsync()
+                        .AsTask();
+
+                    Task completing = run(() =>
+                    {
+                        source.Produce(1);
+                        source.Produce(2);
+                        source.Finish();
+                    });
+                    if (completing.Status == TaskStatus.Created)
+                    {
+                        completing.Start();
+                    }
+
+                    await completing;
+                    List<int> items = await list;
+                    return string.Join(",", observed) + "|" + string.Join(",", items);
+                }
+
+                // Buffers what it produces, so a consumer which continues later, on a context it captured, sees every item.
                 public sealed class TaskBackedSequence : IAsyncEnumerable<int>
                 {
-                    private TaskCompletionSource<bool> _next = new TaskCompletionSource<bool>();
+                    private readonly Queue<int> _items = new Queue<int>();
+                    private TaskCompletionSource<bool> _waiting;
+                    private bool _finished;
                     private int _current;
 
                     public void Produce(int item)
                     {
-                        _current = item;
-                        TaskCompletionSource<bool> next = _next;
-                        _next = new TaskCompletionSource<bool>();
-                        next.SetResult(true);
+                        _items.Enqueue(item);
+                        Deliver();
                     }
 
-                    public void Finish() => _next.SetResult(false);
+                    public void Finish()
+                    {
+                        _finished = true;
+                        Deliver();
+                    }
 
                     public IAsyncEnumerator<int> GetAsyncEnumerator(CancellationToken cancellationToken = default) => new Enumerator(this);
+
+                    private void Deliver()
+                    {
+                        TaskCompletionSource<bool> waiting = _waiting;
+                        if (waiting == null || (_items.Count == 0 && !_finished))
+                        {
+                            return;
+                        }
+
+                        _waiting = null;
+                        waiting.SetResult(TryTake());
+                    }
+
+                    private bool TryTake()
+                    {
+                        if (_items.Count == 0)
+                        {
+                            return false;
+                        }
+
+                        _current = _items.Dequeue();
+                        return true;
+                    }
+
+                    private ValueTask<bool> MoveNextAsync()
+                    {
+                        if (_items.Count > 0 || _finished)
+                        {
+                            return new ValueTask<bool>(TryTake());
+                        }
+
+                        _waiting = new TaskCompletionSource<bool>();
+                        return new ValueTask<bool>(_waiting.Task);
+                    }
 
                     private sealed class Enumerator : IAsyncEnumerator<int>
                     {
@@ -253,7 +328,7 @@ public sealed class TaskSchedulingConformanceTests : IDisposable
 
                         public int Current => _owner._current;
 
-                        public ValueTask<bool> MoveNextAsync() => new ValueTask<bool>(_owner._next.Task);
+                        public ValueTask<bool> MoveNextAsync() => _owner.MoveNextAsync();
 
                         public ValueTask DisposeAsync() => default;
                     }
@@ -429,6 +504,54 @@ public sealed class TaskSchedulingConformanceTests : IDisposable
         Assert.Equal(bcl, log);
         Assert.Equal("1:True,2:True,9:True|1,2,9", log);
     }
+
+    public static TheoryData<string, bool> CompletionLocations
+    {
+        get
+        {
+            var data = new TheoryData<string, bool>();
+            foreach (string location in new[] { "root", "lane", "lane task", "uninstrumented task" })
+            {
+                foreach (bool optimize in new[] { true, false })
+                {
+                    data.Add(location, optimize);
+                }
+            }
+
+            return data;
+        }
+    }
+
+    // Rewritten code completes a framework operator's task-backed source where Clockwork's cooperative surfaces are
+    // current: before the first await of RunToCompletion's root task, which runs visibly on the cluster's
+    // SimulationTaskScheduler with its SimulationSynchronizationContext; in a scheduler lane's work, which runs with the
+    // lane's context; in a task which uninstrumented code starts on a node's SimulationTaskScheduler; and in a task which
+    // uninstrumented code constructs and rewritten code starts, which runs visibly on the coordinator's scheduler.
+    [Theory]
+    [MemberData(nameof(CompletionLocations))]
+    public async Task FrameworkContinuationsWhichRewrittenCodeCompletesRunOnTheLogicalThread(string location, bool optimize)
+    {
+        using var host = new SimulationHost(Start);
+        MethodInfo probe = Method("FrameworkContinuationsCompletedWhereTheCallerRuns", optimize);
+        Func<bool> onSimulationThread = () => host.Scheduler.IsSimulationThread;
+        SimulationTaskScheduler lane = host.NodeTaskScheduler("node");
+
+        string log = location switch
+        {
+            "root" => host.RunToCompletion<string>(probe, RunInline, onSimulationThread),
+            "lane" => Completed<string>(host.Invoke(probe, RunInline, onSimulationThread)),
+            "lane task" => Completed<string>(host.Invoke(
+                probe,
+                new Func<Action, Task>(body => Task.Factory.StartNew(body, CancellationToken.None, TaskCreationOptions.None, lane)),
+                onSimulationThread)),
+            _ => Completed<string>(host.Invoke(probe, new Func<Action, Task>(body => new Task(body)), onSimulationThread)),
+        };
+
+        string bcl = await ((Task<string>)_bcl.Value.Method("FrameworkContinuationsCompletedWhereTheCallerRuns")
+            .Invoke(null, [RunInline, new Func<bool>(() => true)])!).WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
+        Assert.Equal(bcl, log);
+        Assert.Equal("1:True,2:True,9:True|1,2,9", log);
+    }
     [Fact]
     public void ATaskWhichUninstrumentedCodeConstructsRunsOnTheCoordinatorsScheduler()
     {
@@ -495,6 +618,12 @@ public sealed class TaskSchedulingConformanceTests : IDisposable
 
     private static Task<string> ConstructUninstrumented(MethodInfo schedule, Func<string> node) =>
         new(() => (string)schedule.Invoke(null, [node])!);
+
+    private static readonly Func<Action, Task> RunInline = body =>
+    {
+        body();
+        return Task.CompletedTask;
+    };
     private static T Completed<T>(object? task)
     {
         var typed = Assert.IsAssignableFrom<Task<T>>(task);
