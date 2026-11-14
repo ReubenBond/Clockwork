@@ -28,7 +28,8 @@ internal readonly record struct AuditedAssembly(string Name, EscapeReason Reason
 /// or declared by an assembly of <see cref="Assemblies"/>, whose reason covers every member a rule does not classify. The
 /// implementation assemblies differ by operating system, so the lists hold every platform's candidates. The test fails on
 /// a member a new runtime adds, and on an entry the reference pack or the shared framework no longer has, or that a rule
-/// now classifies. <see cref="RuleInventoryDocument"/> publishes the result as the concurrency status table.
+/// now classifies; the members an assembly's reason covers are kept in a snapshot, so one a runtime adds to such an
+/// assembly fails until it is reviewed. <see cref="RuleInventoryDocument"/> publishes the result as the concurrency status table.
 /// </summary>
 internal static class ConcurrencyEscapeAudit
 {
@@ -51,9 +52,10 @@ internal static class ConcurrencyEscapeAudit
         new("Microsoft.Extensions.Caching.Abstractions", EscapeReason.FrameworkAwait,
             "`HybridCache` and the `IDistributedCache` extensions await the cache and the factory they are given."),
         new("Microsoft.Extensions.Hosting.Abstractions", EscapeReason.FrameworkAwait,
-            "The `IHost` extensions await the host's start, stop, and shutdown, and `BackgroundService.StopAsync` awaits " +
-            "the service's work. `BackgroundService.StartAsync`, which starts that work with the real `Task.Run`, is " +
-            "rejected (`BackgroundWork` family)."),
+            "`BackgroundService.StopAsync` awaits the service's work. The `IHost` extensions, which await the host's work " +
+            "in framework code, block on it, or bound a stop with a real timer, are controlled (`Hosting` family), and " +
+            "`BackgroundService.StartAsync`, which starts the service's work with the real `Task.Run`, is rejected " +
+            "(`BackgroundWork` family)."),
         new("Microsoft.Extensions.Options", EscapeReason.FrameworkAwait,
             "Asynchronous options validation awaits the validators it is given."),
         new("System.ComponentModel.Annotations", EscapeReason.FrameworkAwait,
@@ -80,10 +82,14 @@ internal static class ConcurrencyEscapeAudit
         new("System.Memory", EscapeReason.FrameworkAwait,
             "The stream over a `ReadOnlySequence<byte>` awaits the destination it copies to."),
         new("System.Net.Http", EscapeReason.FrameworkAwait,
-            "`HttpClient`, `HttpMessageInvoker`, and the content types await the handler and the streams they are given; " +
-            "the default handler performs network I/O. `MessageProcessingHandler` is listed by member."),
+            "The content types await the streams they are given and the handlers await the handler they wrap; the default " +
+            "handler performs network I/O. `HttpClient`'s sending members, which bound each request with " +
+            "`HttpClient.Timeout` on a real timer, are controlled (`HttpClient` family). `MessageProcessingHandler` is " +
+            "listed by member."),
         new("System.Net.Http.Json", EscapeReason.FrameworkAwait,
-            "The JSON extensions await the `HttpClient` and content they are given."),
+            "The `HttpContent` extensions await the content they are given. The `HttpClient` extensions, which bound the " +
+            "request and the reading of its response with `HttpClient.Timeout` on a real timer, are controlled " +
+            "(`HttpClient` family)."),
         new("System.Net.HttpListener", EscapeReason.OsResource,
             "`HttpListener` serves requests from the OS's HTTP stack or its own sockets."),
         new("System.Net.Mail", EscapeReason.OsResource,
@@ -113,8 +119,10 @@ internal static class ConcurrencyEscapeAudit
             "`WebClient` performs network I/O and raises its completion events through the captured " +
             "`SynchronizationContext` or on the thread pool."),
         new("System.Net.WebSockets", EscapeReason.FrameworkAwait,
-            "`WebSocketStream` and the `WebSocket` base members await the `WebSocket` they are given. The factories " +
-            "which run the framework's protocol over a caller's stream are rejected (`WebSockets` family)."),
+            "`WebSocketStream` and the `WebSocket` base members await the `WebSocket` they are given. The " +
+            "`WebSocketStream.Create` overloads which make a stream own its socket, whose disposal bounds the close with a " +
+            "real timer, are controlled, and the factories which run the framework's protocol over a caller's stream are " +
+            "rejected (`WebSockets` family)."),
         new("System.Net.WebSockets.Client", EscapeReason.OsResource,
             "`ClientWebSocket` connects over the network."),
         new("System.Private.Xml", EscapeReason.FrameworkAwait,

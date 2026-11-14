@@ -9,22 +9,36 @@ namespace Clockwork.Conformance.Tests;
 /// probe method as node work (so the ambient simulation runtime and its deterministic environment are
 /// active) and returns the result, unwrapping reflection exceptions so tests can assert on the real
 /// shim exception types.
+/// <para>
+/// Each drive of the cluster runs on a thread of its own under a watchdog. A probe which blocks the simulation's logical
+/// thread in a real wait never hands control back to the scheduler, so the drive never returns; the watchdog fails the
+/// test with a message once the drive outlasts its bound, rather than leaving it to CI's job timeout.
+/// </para>
 /// </summary>
 internal sealed class SimulationHost : IDisposable
 {
+    // Far longer than any probe takes, even in a Debug build on a loaded CI runner.
+    private static readonly TimeSpan DefaultHangBound = TimeSpan.FromMinutes(2);
+
     private readonly SimulationCluster _cluster;
     private readonly Dictionary<string, SimulationNode> _nodes = new(StringComparer.Ordinal);
     private readonly string _defaultAddress;
+    private readonly TimeSpan _hangBound;
+
+    // Set once a drive outlasts the watchdog: its thread still holds the cluster, so disposing the cluster would hang too.
+    private bool _hung;
 
     public SimulationHost(
         DateTimeOffset start,
         int seed = 1,
         TimeZoneInfo? timeZone = null,
         IReadOnlyList<string>? nodeAddresses = null,
-        int? processorCount = null)
+        int? processorCount = null,
+        TimeSpan? hangBound = null)
     {
         IReadOnlyList<string> addresses = nodeAddresses ?? ["node"];
         _defaultAddress = addresses[0];
+        _hangBound = hangBound ?? DefaultHangBound;
 
         _cluster = new SimulationCluster(
             seed,
@@ -68,7 +82,7 @@ internal sealed class SimulationHost : IDisposable
             },
             TimeSpan.Zero);
 
-        _cluster.RunUntilIdle(TestContext.Current.CancellationToken);
+        RunUntilIdle();
 
         if (error is not null)
         {
@@ -111,7 +125,7 @@ internal sealed class SimulationHost : IDisposable
             node.Context.SchedulerLane.EnqueueAfter(captured, TimeSpan.Zero);
         }
 
-        _cluster.RunUntilIdle(TestContext.Current.CancellationToken);
+        RunUntilIdle();
 
         if (error is not null)
         {
@@ -126,8 +140,11 @@ internal sealed class SimulationHost : IDisposable
     /// where <see cref="TaskScheduler.Current"/> is the cluster's <see cref="SimulationTaskScheduler"/> until the
     /// probe's first await, and returns its result.
     /// </summary>
-    public T RunToCompletion<T>(MethodInfo method, params object?[] args) =>
-        _cluster.RunToCompletion(
+    public T RunToCompletion<T>(MethodInfo method, params object?[] args)
+    {
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+        T result = default!;
+        Watched(() => result = _cluster.RunToCompletion(
             () =>
             {
                 try
@@ -140,7 +157,55 @@ internal sealed class SimulationHost : IDisposable
                     throw;
                 }
             },
-            TestContext.Current.CancellationToken);
+            cancellationToken));
+        return result;
+    }
 
-    public void Dispose() => _cluster.DisposeAsync().AsTask().GetAwaiter().GetResult();
+    public void Dispose()
+    {
+        if (!_hung)
+        {
+            _cluster.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
+    }
+
+    private void RunUntilIdle()
+    {
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+        Watched(() => _cluster.RunUntilIdle(cancellationToken));
+    }
+
+    // Runs one drive of the cluster on a thread of its own, failing the test if it outlasts the hang bound. The thread is
+    // a background thread, so a hung one does not keep the test process alive.
+    private void Watched(Action drive)
+    {
+        ObjectDisposedException.ThrowIf(_hung, this);
+        ExceptionDispatchInfo? failure = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                drive();
+            }
+            catch (Exception exception)
+            {
+                failure = ExceptionDispatchInfo.Capture(exception);
+            }
+        })
+        {
+            IsBackground = true,
+            Name = "Clockwork conformance drive",
+        };
+        thread.Start();
+        if (!thread.Join(_hangBound))
+        {
+            _hung = true;
+            throw new TimeoutException(
+                $"The simulation did not become idle within {_hangBound}. A probe has most likely blocked the simulation's " +
+                "logical thread in a real wait (an uncontrolled blocking call), so the scheduler can run nothing else. " +
+                "The drive's thread is abandoned.");
+        }
+
+        failure?.Throw();
+    }
 }

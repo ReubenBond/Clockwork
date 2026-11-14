@@ -59,8 +59,9 @@ public enum BuiltInRuleFamily
     /// <see cref="System.Threading.Tasks.TaskCompletionSource"/> and
     /// <see cref="System.Threading.Tasks.TaskCompletionSource{TResult}"/> (<c>SetResult</c>, <c>SetException</c>,
     /// <c>SetCanceled</c>, <c>SetFromTask</c>, and their <c>TrySet*</c> forms), redirected to shims which complete the
-    /// source through the same member and publish the race-detection release edge an await acquires. The completion
-    /// source type, its options, and its task are unchanged.
+    /// source through the same member and publish the race-detection release edge an await acquires, and the
+    /// constructors which take creation options, redirected to factories which reject <c>AttachedToParent</c> inside a
+    /// simulation. The completion source type, its options, and its task are unchanged.
     /// </summary>
     TaskCompletionSource,
 
@@ -255,10 +256,29 @@ public enum BuiltInRuleFamily
 
     /// <summary>
     /// The <see cref="System.Net.WebSockets.WebSocket"/> factories over a caller's stream (<c>CreateFromStream</c> and
-    /// <c>CreateClientWebSocket</c>). Classified <c>Rejected</c>: the framework's protocol implementation sends keep-alive
-    /// pings from a real timer on the thread pool and times out its closing handshake in real time.
+    /// <c>CreateClientWebSocket</c>), rejected: the framework's protocol implementation sends keep-alive pings from a real
+    /// timer on the thread pool and times out its closing handshake in real time. And the <c>WebSocketStream.Create</c>
+    /// overloads which may make the stream own its socket, controlled: a stream which owns its socket bounds the close on
+    /// disposal with a real timer, so they reject a finite, non-zero close timeout.
     /// </summary>
     WebSockets,
+
+    /// <summary>
+    /// The <see cref="System.Net.Http.HttpClient"/> members which send a request, <c>HttpMessageInvoker.Send</c> and
+    /// <c>SendAsync</c> (which dispatch to the client's when the receiver is one), and the
+    /// <c>System.Net.Http.Json.HttpClientJsonExtensions</c> members, which send through a client. The BCL bounds each
+    /// request with <c>HttpClient.Timeout</c> on a real timer, so each shim rejects a client whose timeout is finite where
+    /// the call runs <c>HttpClient</c>'s implementation, and otherwise calls the BCL member.
+    /// </summary>
+    HttpClient,
+
+    /// <summary>
+    /// The <c>Microsoft.Extensions.Hosting.HostingAbstractionsHostExtensions</c> members, which await the host's work in
+    /// framework code, block the caller on it (<c>Start</c>, <c>Run</c>, <c>WaitForShutdown</c>), or bound a stop with a
+    /// real timer (<c>StopAsync(IHost, TimeSpan)</c>). The shims await through the coordinator, wait with the controlled
+    /// wait, and time out in virtual time.
+    /// </summary>
+    Hosting,
 
     /// <summary>
     /// Process control and abrupt-termination surfaces that cannot be modelled by the deterministic

@@ -73,8 +73,8 @@ public sealed class ThreadAffinityConformanceTests : IDisposable
 
     /// <summary>
     /// Outside any simulation, the same entry points reject the call before reading their arguments, except the
-    /// <c>TaskCompletionSource</c> completions and <c>Task.CreationOptions</c>, which pass through to the BCL member and
-    /// fail on the null receiver.
+    /// <c>TaskCompletionSource</c> constructors, which construct the BCL source, and its completions and
+    /// <c>Task.CreationOptions</c>, which pass through to the BCL member and fail on the null receiver.
     /// </summary>
     [Fact]
     public void EveryControlledEntryPointRejectsACallOutsideASimulation()
@@ -82,10 +82,12 @@ public sealed class ThreadAffinityConformanceTests : IDisposable
         EntryPoint[] entryPoints = ControlledEntryPoints();
 
         List<string> failures = InvokeEach(ambient: null, entryPoints, static (entryPoint, exception) =>
-            entryPoint.Method.DeclaringType == typeof(ControlledTaskCompletionSource)
-                || entryPoint.Method == typeof(ControlledTask).GetMethod(nameof(ControlledTask.CreationOptions))
-                ? exception is NullReferenceException
-                : exception is SimulationNotActiveException notActive && entryPoint.Names(notActive.ApiName));
+            entryPoint.Method.DeclaringType == typeof(ControlledTaskCompletionSource) && entryPoint.Method.Name.StartsWith("Create", StringComparison.Ordinal)
+                ? exception is null
+                : entryPoint.Method.DeclaringType == typeof(ControlledTaskCompletionSource)
+                    || entryPoint.Method == typeof(ControlledTask).GetMethod(nameof(ControlledTask.CreationOptions))
+                    ? exception is NullReferenceException
+                    : exception is SimulationNotActiveException notActive && entryPoint.Names(notActive.ApiName));
 
         Assert.True(failures.Count == 0, string.Join(Environment.NewLine, failures));
     }

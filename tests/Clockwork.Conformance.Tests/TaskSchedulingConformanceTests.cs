@@ -125,6 +125,12 @@ public sealed class TaskSchedulingConformanceTests : IDisposable
                         return "started";
                     }));
 
+                    // The promise constructors which take options keep the BCL's options, state, and validation.
+                    log.Add(new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously).Task.CreationOptions.ToString());
+                    log.Add(new TaskCompletionSource<int>("promise state", TaskCreationOptions.None).Task.AsyncState as string);
+                    log.Add(Describe(() => new TaskCompletionSource((TaskCreationOptions)0x10000)));
+                    log.Add(Describe(() => new TaskCompletionSource<int>(null, TaskCreationOptions.LongRunning)));
+
                     return string.Join("|", log);
                 }
 
@@ -141,18 +147,38 @@ public sealed class TaskSchedulingConformanceTests : IDisposable
                     return parent.Status + ":" + parent.Exception.InnerException.GetType().Name;
                 }
 
-                // A promise asks to attach to the running task; the constructed task denies attachment, so
-                // RunSynchronously returns once the body does instead of waiting for the promise on the logical thread.
+                // A promise asks to attach to the running task. The BCL attaches it, so the parent faults with it; under
+                // simulation its constructor is rejected, so the parent faults with the rejection rather than silently
+                // completing without its child.
                 public static string RunSynchronouslyWithAnAttachedPromise()
                 {
                     var parent = new Task(() =>
+                        new TaskCompletionSource(TaskCreationOptions.AttachedToParent).SetException(new InvalidOperationException("promise")));
+                    parent.RunSynchronously();
+                    return parent.Status + ":" + parent.Exception?.InnerException.GetType().Name;
+                }
+
+                public static void AttachedPromise() => new TaskCompletionSource(TaskCreationOptions.AttachedToParent);
+
+                // Runs a task which uninstrumented code constructed, without DenyChildAttach, whose body attaches a promise.
+                // Another operation completes the promise later, and RunSynchronously returns once it has.
+                public static string RunSynchronouslyWaitsForAnAttachedChild(Task parent, Func<TaskCompletionSource> child)
+                {
+                    var log = new List<string>();
+                    Task.Run(async () =>
                     {
-                        var promise = new TaskCompletionSource(TaskCreationOptions.AttachedToParent);
-                        Task.Run(() => promise.SetResult());
+                        await Task.Delay(10);
+                        log.Add("completing child");
+                        child().SetResult();
                     });
                     parent.RunSynchronously();
-                    return parent.Status.ToString();
+                    log.Add("parent " + parent.Status);
+                    return string.Join("|", log);
                 }
+
+                public static void AttachedGenericPromise() =>
+                    new TaskCompletionSource<int>("state", TaskCreationOptions.AttachedToParent | TaskCreationOptions.RunContinuationsAsynchronously);
+
                 public static async Task<string> SchedulersRunWorkOnTheirNode(TaskScheduler otherNode, Func<string> node)
                 {
                     var log = new List<string>();
@@ -360,7 +386,8 @@ public sealed class TaskSchedulingConformanceTests : IDisposable
         Assert.Equal(
             "ArgumentNullException:action|ArgumentNullException:action|ArgumentNullException:action|" +
             "ArgumentNullException:action|ArgumentOutOfRangeException:creationOptions|state|generic state|LongRunning|" +
-            "Canceled|ran:s|start canceled:InvalidOperationException",
+            "Canceled|ran:s|start canceled:InvalidOperationException|RunContinuationsAsynchronously|promise state|" +
+            "ArgumentOutOfRangeException:creationOptions|ArgumentOutOfRangeException:creationOptions",
             controlled);
         Assert.Equal(bcl, controlled);
     }
@@ -368,6 +395,8 @@ public sealed class TaskSchedulingConformanceTests : IDisposable
     [Theory]
     [InlineData("AttachedChild", "System.Threading.Tasks.Task..ctor")]
     [InlineData("AttachedGenericChild", "System.Threading.Tasks.Task`1..ctor")]
+    [InlineData("AttachedPromise", "System.Threading.Tasks.TaskCompletionSource..ctor")]
+    [InlineData("AttachedGenericPromise", "System.Threading.Tasks.TaskCompletionSource`1..ctor")]
     public void AttachedToParentIsRejected(string probe, string apiName)
     {
         using var host = new SimulationHost(Start);
@@ -386,15 +415,30 @@ public sealed class TaskSchedulingConformanceTests : IDisposable
     }
 
     [Fact]
-    public void RunSynchronouslyOfAConstructedTaskDoesNotWaitForAPromiseAskingToAttach()
+    public void RunSynchronouslyOfAParentWithAnAttachedPromiseFaultsWithTheRejection()
     {
         using var host = new SimulationHost(Start);
 
         var controlled = (string)host.Invoke(Method("RunSynchronouslyWithAnAttachedPromise"))!;
         var bcl = (string)_bcl.Value.Method("RunSynchronouslyWithAnAttachedPromise").Invoke(null, null)!;
 
-        Assert.Equal("RanToCompletion", controlled);
-        Assert.Equal(bcl, controlled);
+        // The BCL's parent faults with its attached promise's exception; the controlled parent with the rejection.
+        Assert.Equal("Faulted:AggregateException", bcl);
+        Assert.Equal("Faulted:SimulationApiException", controlled);
+    }
+
+    [Fact]
+    public void WithoutThePromiseConstructorRuleAnAttachedPromiseIsSilentlyDetached()
+    {
+        StagedProbe staged = _fixture.StageControlledTasksWithout(
+            "Conf.TaskSchedulingEscape.AttachedPromise",
+            ProbeType,
+            Source,
+            rule => rule.Id == "clockwork.tasks.completionsource.ctor.options");
+        using var host = new SimulationHost(Start);
+
+        // The constructed task denies child attachment, so the promise's fault never reaches its parent.
+        Assert.Equal("RanToCompletion:", (string)host.Invoke(staged.Method("RunSynchronouslyWithAnAttachedPromise"))!);
     }
     [Theory]
     [InlineData(true)]
@@ -446,6 +490,29 @@ public sealed class TaskSchedulingConformanceTests : IDisposable
 
         Assert.Equal("visible:True|startnew:node|continuewith:node", log);
     }
+    [Fact]
+    public void RunSynchronouslyOfAnUninstrumentedTaskWaitsForItsAttachedChildWithoutBlocking()
+    {
+        // A regression blocks the logical thread for good, so the watchdog's bound is short.
+        using var host = new SimulationHost(Start, hangBound: TimeSpan.FromSeconds(30));
+        var child = new TaskCompletionSource?[1];
+        Func<TaskCompletionSource> getChild = () => child[0]!;
+        MethodInfo construct = typeof(TaskSchedulingConformanceTests).GetMethod(
+            nameof(ConstructUninstrumentedParent),
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+
+        // Constructed inside the simulation, so the task's captured context carries it, with the BCL's constructor.
+        var parent = (Task)host.Invoke(construct, (object)child)!;
+        var controlled = (string)host.Invoke(Method("RunSynchronouslyWaitsForAnAttachedChild"), parent, getChild)!;
+
+        var bclChild = new TaskCompletionSource?[1];
+        var bcl = (string)_bcl.Value.Method("RunSynchronouslyWaitsForAnAttachedChild")
+            .Invoke(null, [ConstructUninstrumentedParent(bclChild), new Func<TaskCompletionSource>(() => bclChild[0]!)])!;
+
+        Assert.Equal("completing child|parent RanToCompletion", controlled);
+        Assert.Equal(bcl, controlled);
+    }
+
     [Theory]
     [InlineData("RunSynchronouslyOnCustomScheduler", "System.Threading.Tasks.Task.RunSynchronously")]
     [InlineData("StartNewOnCustomScheduler", "System.Threading.Tasks.TaskFactory.StartNew")]
@@ -495,6 +562,10 @@ public sealed class TaskSchedulingConformanceTests : IDisposable
 
     private static Task<string> ConstructUninstrumented(MethodInfo schedule, Func<string> node) =>
         new(() => (string)schedule.Invoke(null, [node])!);
+
+    // The body attaches a promise to the task, which the BCL's constructor lets it do.
+    private static Task ConstructUninstrumentedParent(TaskCompletionSource?[] child) =>
+        new(() => child[0] = new TaskCompletionSource(TaskCreationOptions.AttachedToParent));
     private static T Completed<T>(object? task)
     {
         var typed = Assert.IsAssignableFrom<Task<T>>(task);

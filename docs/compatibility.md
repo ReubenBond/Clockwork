@@ -610,7 +610,11 @@ ready at a nondeterministic scheduling step. Instead:
   code. Their completion members (`SetResult`, `SetException`, `SetCanceled`, `SetFromTask`, and the `TrySet*`
   forms) redirect to shims which complete the source through the same BCL member and publish the race-detection
   release edge on its task; an await, synchronous wait, combinator, or continuation which observes the task
-  acquires it, and the combinators carry their antecedents' edges to their results.
+  acquires it, and the combinators carry their antecedents' edges to their results. The constructors which take
+  `TaskCreationOptions` redirect to factories which reject `AttachedToParent` inside a simulation with
+  `SimulationApiException`, as `new Task`, `StartNew`, and `ContinueWith` do: a promise which attaches to the task
+  running it makes that parent fault when it faults under the BCL, and Clockwork's controlled tasks do not model
+  parent and child tasks. The factories otherwise construct the source with the BCL's options, state, and validation.
 
 The redirect obeys the same simulation-only invariant as the BCL rule set: instrumented Controlled
 builders, awaiters, and shims require an active Clockwork simulation. Continuations and waits route
@@ -697,7 +701,7 @@ run as the strand which executes it instead, so a task started with `Task.Start`
 own thread does, and a task run inline with `RunSynchronously` shares its caller's. `TaskCreationOptions.AttachedToParent`
 is rejected: Clockwork's controlled tasks do not model parent and child tasks, and a parent waiting for an attached
 child would block the simulation's logical thread. The constructed task denies child attachment, as `Task.Run`'s
-tasks do, so no child (a `TaskCompletionSource` asking for `AttachedToParent`, say) attaches to it. It also hides its
+tasks do, so no child attaches to it from uninstrumented code. It also hides its
 scheduler, so inside it
 `TaskScheduler.Current` is `TaskScheduler.Default`, as inside a task the BCL starts on the default scheduler; the BCL
 runs a framework continuation which the task completes inline only there, and would otherwise queue it to the thread
@@ -707,7 +711,10 @@ task constructed with a cancelled token are the BCL's.
 `Task.Start` and `Task.RunSynchronously` run the task on Clockwork's coordinator `TaskScheduler`: `Start` queues it
 as a fresh controlled operation, as `Task.Run` queues its body, and `RunSynchronously` runs it on the calling logical
 thread. The BCL keeps the task's state, so its status transitions (`WaitingToRun` after `Start`), its rejection of a
-second start, and the execution context captured at construction are the BCL's. Inside such a task
+second start, and the execution context captured at construction are the BCL's. A task which uninstrumented code
+constructs without `DenyChildAttach` may gain attached children while it runs; `RunSynchronously` runs its delegate
+inline and then waits for those children with the controlled wait, pumping the coordinator, so the BCL's
+`RunSynchronously` finds the task complete and never blocks the logical thread on them. Inside such a task
 `TaskScheduler.Current` is the coordinator scheduler, which every controlled API that takes a scheduler accepts as
 it accepts `TaskScheduler.Default`. A timed or cancellable `Wait`, `WaitAll`, or `WaitAny` pumps the coordinator
 until the tasks complete, the token is cancelled, or its deadline elapses, then lets the BCL compute the result
@@ -941,7 +948,9 @@ The status of every concurrency entry point is generated from the rule inventory
 status](rule-inventory.md#concurrency-entry-points-status): the rule families which control or reject them, the members
 left as BCL calls with their reasons, and the result of an audit which scans every managed assembly of the shared
 framework, on Windows, Linux, and macOS, for members that reach the thread pool, `TaskScheduler.Default`, a new
-thread, a real timer, or an async method, classified by member or by assembly. Anything it does not list
+thread, a real timer, or an async method, classified by member or by assembly. The members classified by their
+assembly are kept in a snapshot, so a runtime which adds one fails the audit until it is reviewed against the
+assembly's reason. Anything it does not list
 runs as a BCL call; work such a call starts on another thread fails the run at its first controlled call (see
 [Thread affinity](#thread-affinity)), and work which only computes or changes shared state runs unchecked.
 
@@ -1085,6 +1094,37 @@ ticks. Generation checks suppress stale firings after reentrant `Change`, stop, 
 Applicable timer callbacks restore the construction-time user `ExecutionContext` while executing on a
 fresh logical strand. Pending deadlines appear in diagnostics as `PausedUntilTime`, and teardown
 cancels all remaining registrations without invoking user callbacks.
+
+#### Framework timeouts
+
+Some framework members bound their work with a timer of their own. Where Clockwork can run that timer in virtual time
+it does; where the timer lives inside the framework, the member is rejected for the configurations which arm it:
+
+- **`HttpClient`.** Every member which sends a request (`GetAsync`, `GetStringAsync`, `GetByteArrayAsync`,
+  `GetStreamAsync`, `PostAsync`, `PutAsync`, `PatchAsync`, `DeleteAsync`, `Send`, `SendAsync`), `HttpMessageInvoker.Send`
+  and `SendAsync` when the receiver is an `HttpClient`, and every `HttpClientJsonExtensions` member throw
+  `SimulationApiException` when the client's `Timeout` is finite, which it is by default (100 seconds): the BCL bounds
+  the request, and the JSON extensions the reading of its response, with that timeout on a real timer. Set
+  `Timeout = Timeout.InfiniteTimeSpan` and bound a request with a `CancellationToken` which a virtual delay cancels,
+  such as one from `new CancellationTokenSource(timeout)`. With an infinite timeout each member is the BCL's. The
+  virtual `Send` and `SendAsync` with a request and a token check the timeout only where they run `HttpClient`'s
+  implementation: a client type's override is called as written, and its base call to `HttpClient`'s implementation is
+  checked.
+- **`WebSocketStream`.** A stream which owns its `WebSocket` closes it on disposal, bounding the closing handshake
+  with a real timer. `WebSocketStream.Create(webSocket, messageType, ownsWebSocket: true)` (whose close timeout is 16
+  seconds) and `Create(webSocket, messageType, closeTimeout)` with a finite, non-zero timeout throw
+  `SimulationApiException`. A stream which does not own its socket, and an owning one whose close timeout is zero (an
+  already-cancelled close) or `Timeout.InfiniteTimeSpan`, are the BCL's; close the socket yourself, with a token a
+  virtual delay cancels, before disposing the stream.
+- **Hosting.** Every `HostingAbstractionsHostExtensions` member is controlled. `StopAsync(IHost, TimeSpan)` stops the
+  host with a token which a virtual timer cancels once the timeout elapses. `Start`, `Run`, and `WaitForShutdown`
+  block the caller on the host's work in the BCL; under simulation they wait with the controlled wait, which pumps
+  the coordinator, so the host's work runs while the caller waits. `RunAsync` and `WaitForShutdownAsync` await
+  through the coordinator: the BCL's framework awaits would leave the logical thread where the simulation's
+  synchronization context is current. Each runs the BCL's steps in the same order, with the BCL's outcome.
+
+`FrameworkTimeoutConformanceTests` compares each controlled outcome with the BCL's, and stages each probe without its
+rules to show the real timer racing virtual time.
 
 ## Platform and deployment contract
 

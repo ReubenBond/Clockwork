@@ -45,24 +45,43 @@ public sealed class BlockingCollectionConformanceTests : IDisposable
                     return string.Join(",", read) + "|" + collection.IsCompleted;
                 }
 
+                // The producer's zero-timeout add waits for the consumer's first take, so the collection has room for it
+                // under the BCL as under simulation, whatever the threads' real-time margins.
                 public static async Task<string> TakeAndTryTake()
                 {
                     using var collection = new BlockingCollection<int>(3);
-                    Task producer = Task.Run(async () =>
+                    var firstTaken = new TaskCompletionSource();
+                    Task<string> producer = Task.Run(async () =>
                     {
                         await Task.Delay(1);
                         collection.Add(1);
                         await Task.Delay(1);
-                        collection.TryAdd(2, Timeout.Infinite);
-                        collection.TryAdd(3, TimeSpan.FromMilliseconds(-1));
-                        collection.TryAdd(4, 0);
+                        bool addedSecond = collection.TryAdd(2, Timeout.Infinite);
+                        bool addedThird = collection.TryAdd(3, TimeSpan.FromMilliseconds(-1));
+                        await firstTaken.Task;
+                        bool addedFourth = collection.TryAdd(4, 0);
+                        return $"{addedSecond},{addedThird},{addedFourth}";
                     });
                     int first = collection.Take();
+                    firstTaken.SetResult();
                     bool second = collection.TryTake(out int secondItem, -1);
-                    await producer;
+                    string added = await producer;
                     bool third = collection.TryTake(out int thirdItem);
                     bool fourth = collection.TryTake(out int fourthItem, TimeSpan.Zero);
-                    return $"{first}|{second}:{secondItem}|{third}:{thirdItem}|{fourth}:{fourthItem}";
+                    return $"{first}|{second}:{secondItem}|{third}:{thirdItem}|{fourth}:{fourthItem}|added:{added}";
+                }
+
+                // A zero-timeout add to a full bounded collection fails at once, and succeeds once a take makes room.
+                public static Task<string> ZeroTimeoutAdd()
+                {
+                    using var collection = new BlockingCollection<int>(1);
+                    collection.Add(1);
+                    bool full = collection.TryAdd(2, 0);
+                    bool fullTimeSpan = collection.TryAdd(2, TimeSpan.Zero);
+                    bool fullUntimed = collection.TryAdd(2);
+                    int taken = collection.Take();
+                    bool room = collection.TryAdd(3, 0);
+                    return Task.FromResult($"{full},{fullTimeSpan},{fullUntimed}|{taken}|{room}:{string.Join(",", collection.ToArray())}");
                 }
 
                 public static async Task<string> CancelTake()
@@ -238,7 +257,6 @@ public sealed class BlockingCollectionConformanceTests : IDisposable
     {
         { "ProducerConsumer", [1] },
         { "ProducerConsumer", [3] },
-        { "TakeAndTryTake", [] },
         { "CancelTake", [] },
         { "CompleteAddingWakesTakers", [] },
         { "AnyOfSeveral", [] },
@@ -255,6 +273,19 @@ public sealed class BlockingCollectionConformanceTests : IDisposable
         string actual = Completed(host.Invoke(_probe.Value.Method(scenario), args));
 
         Assert.Equal(expected, actual);
+    }
+
+    // The scenarios whose outcome does not depend on real-time margins, pinned so a run of either side which differs fails
+    // here with the value it should have produced.
+    [Theory]
+    [InlineData("TakeAndTryTake", "1|True:2|True:3|True:4|added:True,True,True")]
+    [InlineData("ZeroTimeoutAdd", "False,False,False|1|True:3")]
+    public async Task ScenarioReturnsItsDeterministicOutcome(string scenario, string expected)
+    {
+        Assert.Equal(expected, await (Task<string>)_bcl.Value.Method(scenario).Invoke(null, null)!);
+        using var host = new SimulationHost(Start);
+
+        Assert.Equal(expected, Completed(host.Invoke(_probe.Value.Method(scenario))));
     }
 
     [Fact]

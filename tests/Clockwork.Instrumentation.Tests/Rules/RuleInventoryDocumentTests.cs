@@ -166,7 +166,7 @@ public sealed class RuleInventoryDocumentTests
         string[] classified =
         [
             .. BuiltInRuleSets.ControlledTasksInventory
-                .Where(entry => entry.Family == BuiltInRuleFamily.TaskCompletionSource)
+                .Where(entry => entry.Family == BuiltInRuleFamily.TaskCompletionSource && entry.Rule.Operation == RewriteOperationKind.RedirectCall)
                 .Select(entry => entry.Rule.Target)
                 .Select(target => target.DeclaringTypeFullName.Split('.')[^1] + "::" + target.MemberName + "(" + target.ParameterTypeFullNames.Length + ")")
                 .Order(StringComparer.Ordinal),

@@ -971,6 +971,32 @@ internal static class UnrewrittenMembers
             "Zip``3(System.Linq.ParallelQuery`1<!!0>,System.Collections.Generic.IEnumerable`1<!!1>,System.Func`3<!!0,!!1,!!2>)",
             "Zip``3(System.Linq.ParallelQuery`1<!!0>,System.Linq.ParallelQuery`1<!!1>,System.Func`3<!!0,!!1,!!2>)");
 
+        Add("System.Net.Http.HttpClient", UnrewrittenReason.Value,
+            ".ctor()",
+            ".ctor(System.Net.Http.HttpMessageHandler)",
+            ".ctor(System.Net.Http.HttpMessageHandler,System.Boolean)",
+            "get_BaseAddress()",
+            "set_BaseAddress(System.Uri)",
+            "get_DefaultProxy()",
+            "set_DefaultProxy(System.Net.IWebProxy)",
+            "get_DefaultRequestHeaders()",
+            "get_DefaultRequestVersion()",
+            "set_DefaultRequestVersion(System.Version)",
+            "get_DefaultVersionPolicy()",
+            "set_DefaultVersionPolicy(System.Net.Http.HttpVersionPolicy)",
+            "get_MaxResponseContentBufferSize()",
+            "set_MaxResponseContentBufferSize(System.Int64)",
+            "get_Timeout()",
+            "set_Timeout(System.TimeSpan)",
+            "CancelPendingRequests()",
+            "Dispose(System.Boolean)");
+
+        Add("System.Net.Http.HttpMessageInvoker", UnrewrittenReason.Value,
+            ".ctor(System.Net.Http.HttpMessageHandler)",
+            ".ctor(System.Net.Http.HttpMessageHandler,System.Boolean)",
+            "Dispose()",
+            "Dispose(System.Boolean)");
+
         Add("System.Net.WebSockets.WebSocket", UnrewrittenReason.Value,
             ".ctor()",
             "get_DefaultKeepAliveInterval()",
@@ -995,6 +1021,37 @@ internal static class UnrewrittenMembers
             "SendAsync(System.ArraySegment`1<System.Byte>,System.Net.WebSockets.WebSocketMessageType,System.Boolean,System.Threading.CancellationToken)",
             "SendAsync(System.ReadOnlyMemory`1<System.Byte>,System.Net.WebSockets.WebSocketMessageType,System.Boolean,System.Threading.CancellationToken)",
             "SendAsync(System.ReadOnlyMemory`1<System.Byte>,System.Net.WebSockets.WebSocketMessageType,System.Net.WebSockets.WebSocketMessageFlags,System.Threading.CancellationToken)");
+
+        Add("System.Net.WebSockets.WebSocketStream", UnrewrittenReason.Value,
+            "CreateReadableMessageStream(System.Net.WebSockets.WebSocket)",
+            "CreateWritableMessageStream(System.Net.WebSockets.WebSocket,System.Net.WebSockets.WebSocketMessageType)",
+            "get_CanRead()",
+            "get_CanSeek()",
+            "get_CanWrite()",
+            "get_Length()",
+            "get_Position()",
+            "set_Position(System.Int64)",
+            "get_WebSocket()",
+            "Flush()",
+            "Seek(System.Int64,System.IO.SeekOrigin)",
+            "SetLength(System.Int64)");
+
+        Add("System.Net.WebSockets.WebSocketStream", UnrewrittenReason.Blocks,
+            "Dispose(System.Boolean)",
+            "EndRead(System.IAsyncResult)",
+            "EndWrite(System.IAsyncResult)",
+            "Read(System.Byte[],System.Int32,System.Int32)",
+            "Write(System.Byte[],System.Int32,System.Int32)");
+
+        Add("System.Net.WebSockets.WebSocketStream", UnrewrittenReason.WebSocket,
+            "BeginRead(System.Byte[],System.Int32,System.Int32,System.AsyncCallback,System.Object)",
+            "BeginWrite(System.Byte[],System.Int32,System.Int32,System.AsyncCallback,System.Object)",
+            "DisposeAsync()",
+            "FlushAsync(System.Threading.CancellationToken)",
+            "ReadAsync(System.Byte[],System.Int32,System.Int32,System.Threading.CancellationToken)",
+            "ReadAsync(System.Memory`1<System.Byte>,System.Threading.CancellationToken)",
+            "WriteAsync(System.Byte[],System.Int32,System.Int32,System.Threading.CancellationToken)",
+            "WriteAsync(System.ReadOnlyMemory`1<System.Byte>,System.Threading.CancellationToken)");
 
         Add("System.Random", UnrewrittenReason.Dispatch,
             "GetHexString(System.Int32,System.Boolean)",
@@ -1291,16 +1348,20 @@ internal static class UnrewrittenMembers
         Add("System.Threading.Tasks.TaskCompletionSource", UnrewrittenReason.Value,
             ".ctor()",
             ".ctor(System.Object)",
-            ".ctor(System.Object,System.Threading.Tasks.TaskCreationOptions)",
-            ".ctor(System.Threading.Tasks.TaskCreationOptions)",
             "get_Task()");
+
+        Add("System.Threading.Tasks.TaskCompletionSource", UnrewrittenReason.ConstructorCall,
+            ".ctor(System.Object,System.Threading.Tasks.TaskCreationOptions)",
+            ".ctor(System.Threading.Tasks.TaskCreationOptions)");
 
         Add("System.Threading.Tasks.TaskCompletionSource`1", UnrewrittenReason.Value,
             ".ctor()",
             ".ctor(System.Object)",
-            ".ctor(System.Object,System.Threading.Tasks.TaskCreationOptions)",
-            ".ctor(System.Threading.Tasks.TaskCreationOptions)",
             "get_Task()");
+
+        Add("System.Threading.Tasks.TaskCompletionSource`1", UnrewrittenReason.ConstructorCall,
+            ".ctor(System.Object,System.Threading.Tasks.TaskCreationOptions)",
+            ".ctor(System.Threading.Tasks.TaskCreationOptions)");
 
         Add("System.Threading.Tasks.TaskFactory", UnrewrittenReason.Value,
             ".ctor()",

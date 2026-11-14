@@ -118,6 +118,12 @@ public sealed class ContinuationRedirectRuleGoldenTests
                 }
 
                 public static TaskCompletionSource<int> Create() => new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+                public static TaskCompletionSource<int> CreateWithState() => new("state", TaskCreationOptions.None);
+
+                public static TaskCompletionSource CreateNonGeneric() => new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+                public static TaskCompletionSource CreateNonGenericWithState() => new("state", TaskCreationOptions.None);
             }
 
             public sealed class DerivedSource : TaskCompletionSource<int>
@@ -174,7 +180,7 @@ public sealed class ContinuationRedirectRuleGoldenTests
                 .Distinct()
                 .Order(StringComparer.Ordinal),
         ];
-        Assert.Equal(68, expectedRules.Length);
+        Assert.Equal(72, expectedRules.Length);
         Assert.Equal(expectedRules, appliedRules);
 
         using ModuleDefinition module = context.LoadModule(outputPath);
@@ -194,9 +200,13 @@ public sealed class ContinuationRedirectRuleGoldenTests
             && call.DeclaringType.FullName.StartsWith("System.Threading.Tasks.TaskCompletionSource", StringComparison.Ordinal));
         Assert.All(calls, call => Assert.True(call.Resolve() is not null, $"Rewritten reference '{call.FullName}' does not bind."));
 
-        // The completion sources keep their BCL type: their constructors, base types, and signatures are unchanged.
+        // The completion sources keep their BCL type: a derived source's base constructor call, its base type, and the
+        // signatures are unchanged, and the constructors which take options are built by the shim's factories.
         Assert.Contains(calls, call => call.FullName ==
             "System.Void System.Threading.Tasks.TaskCompletionSource`1<System.Int32>::.ctor(System.Threading.Tasks.TaskCreationOptions)");
+        Assert.True(CecilInspect.CallsAnyContaining(
+            CecilInspect.GetMethod(module, "Fx.Completions", "Create"),
+            "Clockwork.Shims.System.Threading.Tasks.ControlledTaskCompletionSource::CreateGeneric<System.Int32>"));
         Assert.Equal(
             "System.Threading.Tasks.TaskCompletionSource`1<System.Int32>",
             module.GetType("Fx.DerivedSource").BaseType.FullName);

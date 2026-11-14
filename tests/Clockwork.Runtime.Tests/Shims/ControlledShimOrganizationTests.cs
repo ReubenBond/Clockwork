@@ -27,6 +27,8 @@ public sealed partial class ControlledShimOrganizationTests
                 typeof(Microsoft.Extensions.Hosting.BackgroundService).Assembly,
                 typeof(System.Threading.Tasks.Dataflow.DataflowBlock).Assembly,
                 typeof(System.Net.WebSockets.WebSocket).Assembly,
+                typeof(System.Net.Http.HttpClient).Assembly,
+                typeof(System.Net.Http.Json.HttpClientJsonExtensions).Assembly,
             }
             .Distinct()
             .SelectMany(assembly => assembly.GetTypes()),

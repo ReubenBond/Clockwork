@@ -13,13 +13,19 @@ namespace Clockwork.Instrumentation.Tests.Rules;
 /// listed in <see cref="UnrewrittenMembers"/>, or listed in <see cref="ConcurrencyEscapeAudit"/>, by member or by its
 /// whole assembly, with the reason it needs no rule. The implementation assemblies differ by operating system, so the list covers every platform's candidates.
 /// A runtime that adds a candidate fails these tests until it is classified, and a listed member that the reference pack
-/// no longer has, or that a rule now classifies, is stale. To check another operating system's implementation assemblies,
+/// no longer has, or that a rule now classifies, is stale. A candidate classified by its assembly alone must also be in a
+/// snapshot of those candidates (<c>AuditedAssemblyCandidates.txt</c>), so a runtime which adds one to a classified
+/// assembly fails until it is reviewed against the assembly's reason. To check another operating system's implementation assemblies,
 /// set <c>CLOCKWORK_ESCAPE_FRAMEWORK_DIRECTORY</c> to the <c>lib</c> directory of its extracted
 /// <c>Microsoft.NETCore.App.Runtime.&lt;rid&gt;</c> package.
 /// </summary>
 [Collection(ReferencePackGroup.Name)]
 public sealed class ConcurrencyEscapeAuditTests
 {
+    // The snapshot of the candidates classified by their assembly alone, one "Assembly: Type::Member" per line.
+    private const string AssemblyCandidatesSnapshot = "AuditedAssemblyCandidates.txt";
+    private const string AssemblySeparator = ": ";
+
     private static readonly Lazy<Audit> Result = new(Audit.Run);
 
     [Fact]
@@ -76,6 +82,60 @@ public sealed class ConcurrencyEscapeAuditTests
             "reason it needs no rule (or classify its whole assembly with one reason), and remove or correct each stale entry." + Environment.NewLine +
             "Unclassified:" + Environment.NewLine + string.Join(Environment.NewLine, unclassified) + Environment.NewLine +
             "Stale:" + Environment.NewLine + string.Join(Environment.NewLine, stale));
+    }
+
+    [Fact]
+    public void EveryCandidateOfAClassifiedAssemblyIsInTheSnapshot()
+    {
+        Audit audit = Result.Value;
+        HashSet<string> listed = [.. ConcurrencyEscapeAudit.All.Select(member => member.QualifiedKey)];
+        HashSet<string> unrewritten = [.. UnrewrittenMembers.All.Select(member => member.QualifiedKey)];
+        HashSet<string> assemblies = [.. ConcurrencyEscapeAudit.Assemblies.Select(assembly => assembly.Name)];
+        HashSet<string> found = [.. audit.Candidates.Select(entry => entry.Candidate.QualifiedKey)];
+
+        // The candidates whose only classification is their assembly's reason.
+        HashSet<string> byAssembly =
+        [
+            .. audit.Candidates
+                .Where(entry => assemblies.Contains(entry.Candidate.Assembly)
+                    && entry.Classification.Outcome is RuleOutcome.None or RuleOutcome.NewObjOnly
+                    && !unrewritten.Contains(entry.Candidate.QualifiedKey)
+                    && !listed.Contains(entry.Candidate.QualifiedKey))
+                .Select(entry => entry.Candidate.Assembly + AssemblySeparator + entry.Candidate.QualifiedKey),
+        ];
+
+        string path = Repository.PathOf("tests", "Clockwork.Instrumentation.Tests", "Rules", AssemblyCandidatesSnapshot);
+        string[] expected = File.Exists(path) ? [.. File.ReadAllLines(path).Where(line => line.Length > 0)] : [];
+
+        // The implementation assemblies differ by operating system, so the snapshot holds every platform's candidates: an
+        // entry this platform's scan does not find is stale only when the reference pack lacks it, and one it finds is
+        // stale when it is no longer classified by its assembly alone.
+        HashSet<string> referenceMembers = [.. ReferencePack.Shared.Types.Values.SelectMany(ReferencePack.VisibleMembers).Select(ReferencePack.QualifiedKey)];
+        bool IsStale(string entry)
+        {
+            string key = entry[(entry.IndexOf(AssemblySeparator, StringComparison.Ordinal) + AssemblySeparator.Length)..];
+            return found.Contains(key) ? !byAssembly.Contains(entry) : !referenceMembers.Contains(key);
+        }
+
+        if (Environment.GetEnvironmentVariable("CLOCKWORK_UPDATE_SNAPSHOTS") == "1")
+        {
+            string[] updated = [.. expected.Where(entry => !IsStale(entry)).Union(byAssembly, StringComparer.Ordinal).Order(StringComparer.Ordinal)];
+            File.WriteAllText(path, string.Join('\n', updated) + "\n");
+            expected = updated;
+        }
+
+        string[] added = [.. byAssembly.Except(expected, StringComparer.Ordinal).Order(StringComparer.Ordinal)];
+        string[] stale = [.. expected.Where(IsStale)];
+        Assert.True(
+            added.Length == 0 && stale.Length == 0,
+            $"The candidates which the concurrency-escape scan of '{ConcurrencyEscapeScanner.FrameworkDirectory}' classifies " +
+            $"by their assembly alone no longer match '{path}'. Check that each added member's behavior is the one its " +
+            $"assembly's reason in {nameof(ConcurrencyEscapeAudit)} describes, and give it a rule or a member-level entry " +
+            "when it is not; then refresh the snapshot with `$env:CLOCKWORK_UPDATE_SNAPSHOTS='1'`, on each operating system " +
+            "(or with CLOCKWORK_ESCAPE_FRAMEWORK_DIRECTORY set to each runtime pack), since the snapshot holds the candidates " +
+            "of Windows, Linux, and macOS." + Environment.NewLine +
+            "Added:" + Environment.NewLine + string.Join(Environment.NewLine, added.Select(entry => "    " + entry)) + Environment.NewLine +
+            "Stale:" + Environment.NewLine + string.Join(Environment.NewLine, stale.Select(entry => "    " + entry)));
     }
 
     [Fact]

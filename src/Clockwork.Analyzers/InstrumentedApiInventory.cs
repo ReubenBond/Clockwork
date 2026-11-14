@@ -54,6 +54,8 @@ public static class InstrumentedApiInventory
         Api("System.Threading.Tasks.TaskCompletionSource`1", "TrySetCanceled"),
         Api("System.Threading.Tasks.TaskCompletionSource`1", "SetFromTask"),
         Api("System.Threading.Tasks.TaskCompletionSource`1", "TrySetFromTask"),
+        Api("System.Threading.Tasks.TaskCompletionSource", ".ctor"),
+        Api("System.Threading.Tasks.TaskCompletionSource`1", ".ctor"),
         Api("System.Threading.Tasks.ValueTask", "AsTask"),
         Api("System.Threading.Tasks.ValueTask", "Preserve"),
         Api("System.Threading.Tasks.ValueTask`1", "AsTask"),
@@ -138,6 +140,21 @@ public static class InstrumentedApiInventory
         Api("System.Threading.Tasks.Dataflow.DataflowBlock", "OutputAvailableAsync"),
         Api("System.Net.WebSockets.WebSocket", "CreateFromStream"),
         Api("System.Net.WebSockets.WebSocket", "CreateClientWebSocket"),
+        Api("System.Net.WebSockets.WebSocketStream", "Create"),
+        Api("System.Net.Http.HttpClient", "DeleteAsync"),
+        Api("System.Net.Http.HttpClient", "GetAsync"),
+        Api("System.Net.Http.HttpClient", "GetByteArrayAsync"),
+        Api("System.Net.Http.HttpClient", "GetStreamAsync"),
+        Api("System.Net.Http.HttpClient", "GetStringAsync"),
+        Api("System.Net.Http.HttpClient", "PatchAsync"),
+        Api("System.Net.Http.HttpClient", "PostAsync"),
+        Api("System.Net.Http.HttpClient", "PutAsync"),
+        Api("System.Net.Http.HttpClient", "Send"),
+        Api("System.Net.Http.HttpClient", "SendAsync"),
+        Api("System.Net.Http.HttpMessageInvoker", "Send"),
+        Api("System.Net.Http.HttpMessageInvoker", "SendAsync"),
+        Api("System.Net.Http.Json.HttpClientJsonExtensions", Wildcard),
+        Api("Microsoft.Extensions.Hosting.HostingAbstractionsHostExtensions", Wildcard),
         Api("System.Collections.Concurrent.BlockingCollection`1", "AddToAny"),
         Api("System.Collections.Concurrent.BlockingCollection`1", "TryAddToAny"),
         Api("System.Collections.Concurrent.BlockingCollection`1", "TakeFromAny"),
@@ -243,6 +260,14 @@ public static class InstrumentedApiInventory
                 || (method.Parameters.Length <= 3
                     && !method.Parameters.Any(parameter =>
                         parameter.Type.ToDisplayString() == "System.Threading.Tasks.TaskScheduler"));
+        }
+
+        // Only the completion-source constructors which take creation options are rewritten.
+        if (typeMetadataName is "System.Threading.Tasks.TaskCompletionSource" or "System.Threading.Tasks.TaskCompletionSource`1"
+            && method.MethodKind == MethodKind.Constructor)
+        {
+            return method.Parameters.Any(static parameter =>
+                parameter.Type.ToDisplayString() == "System.Threading.Tasks.TaskCreationOptions");
         }
 
         // Only the range factories which size their ranges by the processor count are rewritten.

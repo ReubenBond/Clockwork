@@ -232,7 +232,8 @@ public sealed class NondeterministicApiAnalyzer : DiagnosticAnalyzer
             ReportControlled(context, operation.Syntax.GetLocation(), display, ruleId);
         }
         else if (known.TryGetMetadataName(ctor.ContainingType, out string typeName)
-            && InstrumentedApiInventory.Contains(typeName, ".ctor"))
+            && InstrumentedApiInventory.Contains(typeName, ".ctor")
+            && InstrumentedApiInventory.ContainsInvocation(typeName, ctor))
         {
             ReportControlled(
                 context,

@@ -46,6 +46,8 @@ public static class RuleInventoryDocument
         BuiltInRuleFamily.BackgroundWork,
         BuiltInRuleFamily.Dataflow,
         BuiltInRuleFamily.WebSockets,
+        BuiltInRuleFamily.HttpClient,
+        BuiltInRuleFamily.Hosting,
         BuiltInRuleFamily.Semaphore,
         BuiltInRuleFamily.SynchronizationContext,
         BuiltInRuleFamily.UncontrolledInvocation,
@@ -233,7 +235,9 @@ public static class RuleInventoryDocument
             "[Audited framework members](#audited-framework-members) with the reason it needs no rule, or declared by an " +
             "assembly listed under [Audited framework assemblies](#audited-framework-assemblies), whose reason covers its " +
             "members. The implementation assemblies differ by operating system, so the lists hold the candidates of " +
-            "Windows, Linux, and macOS. A runtime which adds or removes such a member fails the test until it is classified.");
+            "Windows, Linux, and macOS. A runtime which adds or removes such a member fails the test until it is classified; " +
+            "the members classified by their assembly are kept in a snapshot, so one a runtime adds to such an assembly " +
+            "fails until it is reviewed against the assembly's reason.");
         Line();
         Line("| Entry points | Status under simulation |");
         Line("| --- | --- |");
@@ -522,9 +526,10 @@ public static class RuleInventoryDocument
             "a call through `IHostedService` starts, as a host makes, runs on the thread pool, where the thread-affinity " +
             "check catches its first controlled call.",
         UnrewrittenReason.WebSocket =>
-            "Runs on the receiving `WebSocket`: an application's own implementation, a `ClientWebSocket` over an OS " +
-            "connection, or one uninstrumented code creates. The framework's implementation over a caller's stream is " +
-            "created only by the rejected `CreateFromStream` and `CreateClientWebSocket` (`WebSockets` family).",
+            "Runs on the receiving `WebSocket`, or on the `WebSocket` a `WebSocketStream` wraps: an application's own " +
+            "implementation, a `ClientWebSocket` over an OS connection, or one uninstrumented code creates. The " +
+            "framework's implementation over a caller's stream is created only by the rejected `CreateFromStream` and " +
+            "`CreateClientWebSocket` (`WebSockets` family).",
         _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, null),
     };
 
@@ -603,7 +608,9 @@ public static class RuleInventoryDocument
             "creation options. The completion members (`SetResult`, `SetException`, `SetCanceled`, `SetFromTask`, and " +
             "their `TrySet*` forms) redirect to shims which complete the source through the same BCL member and " +
             "publish the race-detection release edge an await, wait, combinator, or continuation acquires. Outside a " +
-            "simulation (in a finalizer, or a callback from uninstrumented code) the shims call the BCL member alone.",
+            "simulation (in a finalizer, or a callback from uninstrumented code) the shims call the BCL member alone. " +
+            "The constructors which take creation options redirect to factories which reject `AttachedToParent` inside " +
+            "a simulation, as the `Task` constructors do: Clockwork's controlled tasks do not model parent and child tasks.",
         BuiltInRuleFamily.TaskTime =>
             "`Task.Delay` and `Task.WaitAsync` use controlled virtual deadlines, preserve cancellation and " +
             "terminal task state, and never consume wall-clock time.",
@@ -748,7 +755,26 @@ public static class RuleInventoryDocument
         BuiltInRuleFamily.WebSockets =>
             "`WebSocket.CreateFromStream` and `WebSocket.CreateClientWebSocket` are rejected at the call site with a " +
             "precise diagnostic: the framework's WebSocket protocol over a caller's stream sends keep-alive pings from a " +
-            "real timer on the thread pool and times out its closing handshake in real time.",
+            "real timer on the thread pool and times out its closing handshake in real time. The `WebSocketStream.Create` " +
+            "overloads which may make the stream own its socket are controlled: a stream which owns its socket bounds the " +
+            "close on disposal with a real timer, so they throw `SimulationApiException` for a finite, non-zero close " +
+            "timeout (an owning stream's default is 16 seconds), and otherwise return the BCL's stream.",
+        BuiltInRuleFamily.HttpClient =>
+            "Every `HttpClient` member which sends a request, `HttpMessageInvoker.Send` and `SendAsync`, and every " +
+            "`HttpClientJsonExtensions` member redirect to shims which throw `SimulationApiException` when the client's " +
+            "`Timeout` is finite, as it is by default (100 seconds), and otherwise call the BCL member: the BCL bounds each " +
+            "request, and the JSON extensions the reading of its response, with the timeout on a real timer. Set " +
+            "`Timeout` to `Timeout.InfiniteTimeSpan` and bound a request with a token which a virtual delay cancels. The " +
+            "virtual `Send` and `SendAsync` with a request and a token check the timeout only where they run " +
+            "`HttpClient`'s implementation, whether called through `HttpClient` or `HttpMessageInvoker`: an override is " +
+            "called as written, and its base call runs the base implementation, checked.",
+        BuiltInRuleFamily.Hosting =>
+            "Every `HostingAbstractionsHostExtensions` member is controlled. The BCL's members await the host's work in " +
+            "framework code, whose continuations leave the logical thread where the simulation's synchronization context " +
+            "is current; block the caller on it (`Start`, `Run`, `WaitForShutdown`); or bound a stop with a real timer " +
+            "(`StopAsync(IHost, TimeSpan)`). The shims run the BCL's steps in the same order, awaiting through the " +
+            "coordinator, waiting with the controlled wait, which pumps the coordinator so the host's work runs while the " +
+            "caller waits, and stopping with a token which a virtual timer cancels once the timeout elapses in simulated time.",
         BuiltInRuleFamily.Monitor =>
             "The complete .NET 11 `Monitor` surface is classified: synchronization and C# `lock (object)` " +
             "lowering are controlled with deterministic virtual-time deadlines, while the process-wide " +
