@@ -610,7 +610,9 @@ ready at a nondeterministic scheduling step. Instead:
   code. Their completion members (`SetResult`, `SetException`, `SetCanceled`, `SetFromTask`, and the `TrySet*`
   forms) redirect to shims which complete the source through the same BCL member and publish the race-detection
   release edge on its task; an await, synchronous wait, combinator, or continuation which observes the task
-  acquires it, and the combinators carry their antecedents' edges to their results.
+  acquires it, and the combinators carry their antecedents' edges to their results. Inside a simulation each shim
+  completes the source as on a thread-pool thread (see
+  [Completions from rewritten code](#completions-from-rewritten-code)).
 
 The redirect obeys the same simulation-only invariant as the BCL rule set: instrumented Controlled
 builders, awaiters, and shims require an active Clockwork simulation. Continuations and waits route
@@ -656,7 +658,36 @@ every task has completed if nothing enumerates it). `ControlledTimer.DisposeAsyn
 `RunContinuationsAsynchronously`, so its `CreationOptions` report `None`. Because no continuation runs inside the
 completing call, Clockwork cannot surface bugs where a continuation runs inline under the completer's lock (a
 deadlock or reentrancy the BCL's synchronous continuations can cause). `DocumentedDeviationConformanceTests` pins each
-of these deviations, with the BCL's value beside it.
+of these deviations, with the BCL's value beside it. Since rewritten completions run as on a thread-pool thread
+([Completions from rewritten code](#completions-from-rewritten-code)), a continuation which uninstrumented code
+registered on a synchronization context or task scheduler, and which rewritten code completes while that context or
+scheduler is current, is posted or queued to it rather than run inline in the completing call, and uninstrumented code
+which runs inside a completion sees no synchronization context, where the BCL runs it under the completer's.
+
+##### Completions from rewritten code
+
+The BCL runs a continuation registered as a bare state machine - an await with `ConfigureAwait(false)`, or one
+registered where no synchronization context or task scheduler was current, as in the framework's
+`System.Linq.AsyncEnumerable` operators - inline in the call which completes its task only where no synchronization
+context other than the base one is current and `TaskScheduler.Current` is `TaskScheduler.Default`, as on a thread-pool
+thread; anywhere else it queues the continuation to the thread pool. Rewritten code completes tasks in such other
+places: a scheduler lane's work runs with the lane's `SimulationSynchronizationContext` current, the root task of
+`SimulationCluster.RunToCompletion` and any other task on a `SimulationTaskScheduler` run visibly on that scheduler, and
+a task which uninstrumented code constructs and rewritten code starts runs visibly on the coordinator's scheduler. Those
+contexts and schedulers stay current for the rest of that work, so uninstrumented code there continues and schedules
+work on the simulation, as [cooperative mode](#cooperative-mode) relies on. The completion itself runs as on a
+thread-pool thread, with no synchronization context and, where another scheduler is current, inside a task which hides
+it: the `TaskCompletionSource` completion shims, `CancellationTokenSource.Cancel`, and the completion of a controlled
+synchronization primitive's waiter (the task `SemaphoreSlim.WaitAsync` returns, for example) all do so. The BCL
+therefore runs such a continuation inline on the logical thread there too, as it does for a completion in a controlled
+operation. A continuation which captured a synchronization context or a scheduler is posted or queued to it, so
+uninstrumented code which awaits in a lane's work continues on that lane. Code which runs inside the completion - a
+callback which `Cancel` runs, or a continuation which the BCL runs inline - sees no synchronization context and the
+default scheduler, as on a thread-pool thread, so uninstrumented code there which yields, starts a task without naming
+a scheduler, or captures the context reaches the real thread pool; start such work from rewritten code.
+`TaskSchedulingConformanceTests` pins each place with a `System.Linq.AsyncEnumerable` pipeline over a task-backed
+source, against the same probe run uninstrumented, and `SimulationClusterRunToCompletionTests` pins `Cancel` (against
+the BCL) and `SemaphoreSlim.Release`, and the context which code inside a completion sees.
 
 #### Threads, thread pool, Parallel, and task parity
 
@@ -688,6 +719,13 @@ work on the caller's node. A
 that node; `RunSynchronously` on it queues the task to the lane and waits for it, pumping the coordinator, since the
 lane never runs a task inline. Any other scheduler throws `SimulationApiException`, because work queued to it would
 run outside the coordinator.
+
+The root task of `SimulationCluster.RunToCompletion` runs on the cluster's `SimulationTaskScheduler`, with the cluster's
+`SimulationSynchronizationContext` current, so until its first await `TaskScheduler.Current` is that scheduler and
+uninstrumented code there awaits, continues, and schedules work on the cluster's lane, as in any other work of a
+scheduler lane. Rewritten code continues after an await as a controlled operation, where `TaskScheduler.Current` is
+`TaskScheduler.Default`. A completion by rewritten code in the root runs as on a thread-pool thread
+([Completions from rewritten code](#completions-from-rewritten-code)).
 
 ##### Constructed tasks
 
@@ -929,11 +967,12 @@ default `TaskScheduler`, so an operator's await captures no context, and its con
 operation which completes the source's value task (a rewritten async iterator as it resumes on the coordinator, a
 task-backed source as a controlled operation completes its task). A task constructed with `new Task(...)` hides its
 scheduler ([Constructed tasks](#constructed-tasks)), so the same holds inside a task started with `Task.Start` or run
-with `RunSynchronously`. `AsyncEnumerableConformanceTests` pins both. The BCL runs a continuation inline only where the
-current scheduler is the default one: a task-backed source completed inside a task which runs visibly on another
-scheduler - the root task of `RunToCompletion` before its first await, on the cluster's `SimulationTaskScheduler`, or a
-task constructed by uninstrumented code - sends the operator's continuation to the thread pool, as it does for any
-framework await, and the escaped continuation fails the run at its first controlled call.
+with `RunSynchronously`. `AsyncEnumerableConformanceTests` pins both. A task-backed source which rewritten code
+completes in a scheduler lane's work, before the first await of the root task of `RunToCompletion`, or in a task on a
+`SimulationTaskScheduler` or constructed by uninstrumented code also resumes the operator inline on the logical thread,
+since rewritten completions run as on a thread-pool thread
+([Completions from rewritten code](#completions-from-rewritten-code)); an operator's await which captured the lane's
+`SimulationSynchronizationContext` continues on that lane.
 
 #### Concurrency entry points: status
 
@@ -1072,7 +1111,8 @@ The controlled rule set classifies the exact .NET 11 timer surface:
   `TimeSpan`, and `TimeProvider` combinations).
 - `CancellationTokenSource`: timed constructors `(int)`, `(TimeSpan)`, and
   `(TimeSpan, TimeProvider)`; both `CancelAfter` overloads; cancellation, reset, and disposal paths
-  which must invalidate a pending timer generation.
+  which must invalidate a pending timer generation. `Cancel` runs the token's callbacks as on a thread-pool thread
+  ([Completions from rewritten code](#completions-from-rewritten-code)).
 - `TimeProvider.System` and `TimeProvider.CreateTimer(TimerCallback, object?, TimeSpan, TimeSpan)`.
   The returned object implements the standard `ITimer`; interface `Change` and disposal dispatch to
   the controlled timer. Unrecognized custom providers reject instead of allocating an OS timer.

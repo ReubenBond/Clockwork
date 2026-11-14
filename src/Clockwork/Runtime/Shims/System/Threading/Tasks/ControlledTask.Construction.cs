@@ -243,7 +243,7 @@ public static partial class ControlledTask
     /// <returns>The task's creation options.</returns>
     public static TaskCreationOptions CreationOptions(Task task)
     {
-        SimulationRuntimeDispatch.RequireSimulationThreadIfActive("System.Threading.Tasks.Task", "get_CreationOptions");
+        _ = SimulationRuntimeDispatch.RequireSimulationThreadIfActive("System.Threading.Tasks.Task", "get_CreationOptions");
 
         // An instance getter: a null receiver fails with the runtime's NullReferenceException.
         TaskCreationOptions options = task.CreationOptions;

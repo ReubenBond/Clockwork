@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Clockwork.Runtime.Racing;
 using Clockwork.Runtime.Shims;
+using Clockwork.Runtime.Tasks;
 
 namespace Clockwork.Shims.System.Threading.Tasks;
 
@@ -19,8 +20,15 @@ namespace Clockwork.Shims.System.Threading.Tasks;
 /// A successful completion publishes a race-detection release edge on the source's task, which an await, a
 /// synchronous wait, or a controlled combinator or continuation acquires when it observes the task complete. A
 /// completion from another task (<c>SetFromTask</c>) first acquires that task's edges, since it reads that task's
-/// outcome. Continuation scheduling needs no shim: Clockwork never registers a BCL continuation on a task, so completing
-/// a source runs nothing inline and posts nothing to the thread pool, whatever its options.
+/// outcome.
+/// </para>
+/// <para>
+/// Clockwork registers no BCL continuation on a task, so a completion runs only continuations which uninstrumented code
+/// registered, and each shim completes the source as on a thread-pool thread, with no synchronization context and the
+/// default scheduler current (see <see cref="ThreadPoolLocation"/>). The BCL therefore runs a framework continuation
+/// which a completion in a scheduler lane's work, or in a task running visibly on a simulation scheduler, would
+/// otherwise queue to the real thread pool inline on the logical thread, as it does for a completion in a controlled
+/// operation.
 /// </para>
 /// <para>
 /// Completion is the one controlled surface which runs outside a simulation: a finalizer, or a callback from
@@ -39,91 +47,90 @@ public static class ControlledTaskCompletionSource
     /// <summary>Controlled <c>TaskCompletionSource.SetResult()</c>.</summary>
     public static void SetResult(TaskCompletionSource source)
     {
-        RequireSimulationThread(TaskCompletionSourceApi);
-        source.SetResult();
+        Complete(TaskCompletionSourceApi, source, static source => source.SetResult());
         Published(source.Task);
     }
 
     /// <summary>Controlled <c>TaskCompletionSource.TrySetResult()</c>.</summary>
-    public static bool TrySetResult(TaskCompletionSource source)
-    {
-        RequireSimulationThread(TaskCompletionSourceApi);
-        return Published(source.TrySetResult(), source.Task);
-    }
+    public static bool TrySetResult(TaskCompletionSource source) =>
+        Published(TryComplete(TaskCompletionSourceApi, source, static source => source.TrySetResult()), source.Task);
 
     /// <summary>Controlled <c>TaskCompletionSource.SetException(Exception)</c>.</summary>
     public static void SetException(TaskCompletionSource source, Exception exception)
     {
-        RequireSimulationThread(TaskCompletionSourceApi);
-        source.SetException(exception);
+        Complete(TaskCompletionSourceApi, (source, exception), static s => s.source.SetException(s.exception));
         Published(source.Task);
     }
 
     /// <summary>Controlled <c>TaskCompletionSource.SetException(IEnumerable&lt;Exception&gt;)</c>.</summary>
     public static void SetException(TaskCompletionSource source, IEnumerable<Exception> exceptions)
     {
-        RequireSimulationThread(TaskCompletionSourceApi);
-        source.SetException(exceptions);
+        Complete(TaskCompletionSourceApi, (source, exceptions), static s => s.source.SetException(s.exceptions));
         Published(source.Task);
     }
 
     /// <summary>Controlled <c>TaskCompletionSource.TrySetException(Exception)</c>.</summary>
-    public static bool TrySetException(TaskCompletionSource source, Exception exception)
-    {
-        RequireSimulationThread(TaskCompletionSourceApi);
-        return Published(source.TrySetException(exception), source.Task);
-    }
+    public static bool TrySetException(TaskCompletionSource source, Exception exception) =>
+        Published(
+            TryComplete(
+                TaskCompletionSourceApi,
+                (source, exception),
+                static s => s.source.TrySetException(s.exception)),
+            source.Task);
 
     /// <summary>Controlled <c>TaskCompletionSource.TrySetException(IEnumerable&lt;Exception&gt;)</c>.</summary>
-    public static bool TrySetException(TaskCompletionSource source, IEnumerable<Exception> exceptions)
-    {
-        RequireSimulationThread(TaskCompletionSourceApi);
-        return Published(source.TrySetException(exceptions), source.Task);
-    }
+    public static bool TrySetException(TaskCompletionSource source, IEnumerable<Exception> exceptions) =>
+        Published(
+            TryComplete(
+                TaskCompletionSourceApi,
+                (source, exceptions),
+                static s => s.source.TrySetException(s.exceptions)),
+            source.Task);
 
     /// <summary>Controlled <c>TaskCompletionSource.SetCanceled()</c>.</summary>
     public static void SetCanceled(TaskCompletionSource source)
     {
-        RequireSimulationThread(TaskCompletionSourceApi);
-        source.SetCanceled();
+        Complete(TaskCompletionSourceApi, source, static source => source.SetCanceled());
         Published(source.Task);
     }
 
     /// <summary>Controlled <c>TaskCompletionSource.SetCanceled(CancellationToken)</c>.</summary>
     public static void SetCanceled(TaskCompletionSource source, CancellationToken cancellationToken)
     {
-        RequireSimulationThread(TaskCompletionSourceApi);
-        source.SetCanceled(cancellationToken);
+        Complete(
+            TaskCompletionSourceApi,
+            (source, cancellationToken),
+            static s => s.source.SetCanceled(s.cancellationToken));
         Published(source.Task);
     }
 
     /// <summary>Controlled <c>TaskCompletionSource.TrySetCanceled()</c>.</summary>
-    public static bool TrySetCanceled(TaskCompletionSource source)
-    {
-        RequireSimulationThread(TaskCompletionSourceApi);
-        return Published(source.TrySetCanceled(), source.Task);
-    }
+    public static bool TrySetCanceled(TaskCompletionSource source) =>
+        Published(TryComplete(TaskCompletionSourceApi, source, static source => source.TrySetCanceled()), source.Task);
 
     /// <summary>Controlled <c>TaskCompletionSource.TrySetCanceled(CancellationToken)</c>.</summary>
-    public static bool TrySetCanceled(TaskCompletionSource source, CancellationToken cancellationToken)
-    {
-        RequireSimulationThread(TaskCompletionSourceApi);
-        return Published(source.TrySetCanceled(cancellationToken), source.Task);
-    }
+    public static bool TrySetCanceled(TaskCompletionSource source, CancellationToken cancellationToken) =>
+        Published(
+            TryComplete(
+                TaskCompletionSourceApi,
+                (source, cancellationToken),
+                static s => s.source.TrySetCanceled(s.cancellationToken)),
+            source.Task);
 
     /// <summary>Controlled <c>TaskCompletionSource.SetFromTask(Task)</c>.</summary>
     public static void SetFromTask(TaskCompletionSource source, Task completedTask)
     {
-        RequireSimulationThread(TaskCompletionSourceApi);
-        source.SetFromTask(completedTask);
+        Complete(TaskCompletionSourceApi, (source, completedTask), static s => s.source.SetFromTask(s.completedTask));
         Published(completedTask, source.Task);
     }
 
     /// <summary>Controlled <c>TaskCompletionSource.TrySetFromTask(Task)</c>.</summary>
     public static bool TrySetFromTask(TaskCompletionSource source, Task completedTask)
     {
-        RequireSimulationThread(TaskCompletionSourceApi);
-        if (!source.TrySetFromTask(completedTask))
+        if (!TryComplete(
+            TaskCompletionSourceApi,
+            (source, completedTask),
+            static s => s.source.TrySetFromTask(s.completedTask)))
         {
             return false;
         }
@@ -135,91 +142,97 @@ public static class ControlledTaskCompletionSource
     /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.SetResult(TResult)</c>.</summary>
     public static void SetResult<TResult>(TaskCompletionSource<TResult> source, TResult result)
     {
-        RequireSimulationThread(GenericTaskCompletionSourceApi);
-        source.SetResult(result);
+        Complete(GenericTaskCompletionSourceApi, (source, result), static s => s.source.SetResult(s.result));
         Published(source.Task);
     }
 
     /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.TrySetResult(TResult)</c>.</summary>
-    public static bool TrySetResult<TResult>(TaskCompletionSource<TResult> source, TResult result)
-    {
-        RequireSimulationThread(GenericTaskCompletionSourceApi);
-        return Published(source.TrySetResult(result), source.Task);
-    }
+    public static bool TrySetResult<TResult>(TaskCompletionSource<TResult> source, TResult result) =>
+        Published(
+            TryComplete(GenericTaskCompletionSourceApi, (source, result), static s => s.source.TrySetResult(s.result)),
+            source.Task);
 
     /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.SetException(Exception)</c>.</summary>
     public static void SetException<TResult>(TaskCompletionSource<TResult> source, Exception exception)
     {
-        RequireSimulationThread(GenericTaskCompletionSourceApi);
-        source.SetException(exception);
+        Complete(GenericTaskCompletionSourceApi, (source, exception), static s => s.source.SetException(s.exception));
         Published(source.Task);
     }
 
     /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.SetException(IEnumerable&lt;Exception&gt;)</c>.</summary>
     public static void SetException<TResult>(TaskCompletionSource<TResult> source, IEnumerable<Exception> exceptions)
     {
-        RequireSimulationThread(GenericTaskCompletionSourceApi);
-        source.SetException(exceptions);
+        Complete(GenericTaskCompletionSourceApi, (source, exceptions), static s => s.source.SetException(s.exceptions));
         Published(source.Task);
     }
 
     /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.TrySetException(Exception)</c>.</summary>
-    public static bool TrySetException<TResult>(TaskCompletionSource<TResult> source, Exception exception)
-    {
-        RequireSimulationThread(GenericTaskCompletionSourceApi);
-        return Published(source.TrySetException(exception), source.Task);
-    }
+    public static bool TrySetException<TResult>(TaskCompletionSource<TResult> source, Exception exception) =>
+        Published(
+            TryComplete(
+                GenericTaskCompletionSourceApi,
+                (source, exception),
+                static s => s.source.TrySetException(s.exception)),
+            source.Task);
 
     /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.TrySetException(IEnumerable&lt;Exception&gt;)</c>.</summary>
-    public static bool TrySetException<TResult>(TaskCompletionSource<TResult> source, IEnumerable<Exception> exceptions)
-    {
-        RequireSimulationThread(GenericTaskCompletionSourceApi);
-        return Published(source.TrySetException(exceptions), source.Task);
-    }
+    public static bool TrySetException<TResult>(TaskCompletionSource<TResult> source, IEnumerable<Exception> exceptions) =>
+        Published(
+            TryComplete(
+                GenericTaskCompletionSourceApi,
+                (source, exceptions),
+                static s => s.source.TrySetException(s.exceptions)),
+            source.Task);
 
     /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.SetCanceled()</c>.</summary>
     public static void SetCanceled<TResult>(TaskCompletionSource<TResult> source)
     {
-        RequireSimulationThread(GenericTaskCompletionSourceApi);
-        source.SetCanceled();
+        Complete(GenericTaskCompletionSourceApi, source, static source => source.SetCanceled());
         Published(source.Task);
     }
 
     /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.SetCanceled(CancellationToken)</c>.</summary>
     public static void SetCanceled<TResult>(TaskCompletionSource<TResult> source, CancellationToken cancellationToken)
     {
-        RequireSimulationThread(GenericTaskCompletionSourceApi);
-        source.SetCanceled(cancellationToken);
+        Complete(
+            GenericTaskCompletionSourceApi,
+            (source, cancellationToken),
+            static s => s.source.SetCanceled(s.cancellationToken));
         Published(source.Task);
     }
 
     /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.TrySetCanceled()</c>.</summary>
-    public static bool TrySetCanceled<TResult>(TaskCompletionSource<TResult> source)
-    {
-        RequireSimulationThread(GenericTaskCompletionSourceApi);
-        return Published(source.TrySetCanceled(), source.Task);
-    }
+    public static bool TrySetCanceled<TResult>(TaskCompletionSource<TResult> source) =>
+        Published(
+            TryComplete(GenericTaskCompletionSourceApi, source, static source => source.TrySetCanceled()),
+            source.Task);
 
     /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.TrySetCanceled(CancellationToken)</c>.</summary>
-    public static bool TrySetCanceled<TResult>(TaskCompletionSource<TResult> source, CancellationToken cancellationToken)
-    {
-        RequireSimulationThread(GenericTaskCompletionSourceApi);
-        return Published(source.TrySetCanceled(cancellationToken), source.Task);
-    }
+    public static bool TrySetCanceled<TResult>(TaskCompletionSource<TResult> source, CancellationToken cancellationToken) =>
+        Published(
+            TryComplete(
+                GenericTaskCompletionSourceApi,
+                (source, cancellationToken),
+                static s => s.source.TrySetCanceled(s.cancellationToken)),
+            source.Task);
 
     /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.SetFromTask(Task&lt;TResult&gt;)</c>.</summary>
     public static void SetFromTask<TResult>(TaskCompletionSource<TResult> source, Task<TResult> completedTask)
     {
-        RequireSimulationThread(GenericTaskCompletionSourceApi);
-        source.SetFromTask(completedTask);
+        Complete(
+            GenericTaskCompletionSourceApi,
+            (source, completedTask),
+            static s => s.source.SetFromTask(s.completedTask));
         Published(completedTask, source.Task);
     }
 
     /// <summary>Controlled <c>TaskCompletionSource&lt;TResult&gt;.TrySetFromTask(Task&lt;TResult&gt;)</c>.</summary>
     public static bool TrySetFromTask<TResult>(TaskCompletionSource<TResult> source, Task<TResult> completedTask)
     {
-        RequireSimulationThread(GenericTaskCompletionSourceApi);
-        if (!source.TrySetFromTask(completedTask))
+        if (!TryComplete(
+            GenericTaskCompletionSourceApi,
+            (source, completedTask),
+            static s => s.source.TrySetFromTask(s.completedTask)))
         {
             return false;
         }
@@ -228,8 +241,30 @@ public static class ControlledTaskCompletionSource
         return true;
     }
 
-    private static void RequireSimulationThread(string api, [CallerMemberName] string member = "") =>
-        SimulationRuntimeDispatch.RequireSimulationThreadIfActive(api, member);
+    // Completes the source through the BCL member, inside a simulation as on a thread-pool thread.
+    private static void Complete<TState>(
+        string api,
+        TState state,
+        Action<TState> complete,
+        [CallerMemberName] string member = "") =>
+        _ = TryComplete(
+            api,
+            (state, complete),
+            static invocation =>
+            {
+                invocation.complete(invocation.state);
+                return true;
+            },
+            member);
+
+    private static bool TryComplete<TState>(
+        string api,
+        TState state,
+        Func<TState, bool> complete,
+        [CallerMemberName] string member = "") =>
+        SimulationRuntimeDispatch.RequireSimulationThreadIfActive(api, member)
+            ? ThreadPoolLocation.Run(state, complete)
+            : complete(state);
 
     private static void Published(Task task) => RaceSynchronization.Signal(task);
 
