@@ -76,6 +76,8 @@ public sealed class NondeterministicApiAnalyzerTests
     [InlineData("new System.ComponentModel.BackgroundWorker().RunWorkerAsync();", "CW1001")]
     [InlineData("_ = new System.Threading.Tasks.Dataflow.ActionBlock<int>(_ => { });", "CW1001")]
     [InlineData("_ = System.Net.WebSockets.WebSocket.CreateFromStream(System.IO.Stream.Null, new System.Net.WebSockets.WebSocketCreationOptions());", "CW1001")]
+    [InlineData("_ = new System.Net.Http.HttpClient().GetStringAsync(\"http://example\");", "CW1001")]
+    [InlineData("_ = System.Net.Http.Json.HttpClientJsonExtensions.GetFromJsonAsync<int>(new System.Net.Http.HttpClient(), \"http://example\");", "CW1001")]
     [InlineData("_ = System.IO.Stream.Null.FlushAsync();", "CW1001")]
     [InlineData("System.Threading.Monitor.Enter(new object());", "CW1001")]
     [InlineData("using var semaphore = new System.Threading.SemaphoreSlim(1);", "CW1001")]
@@ -274,6 +276,8 @@ public sealed class NondeterministicApiAnalyzerTests
             BuiltInRuleFamily.BackgroundWork,
             BuiltInRuleFamily.Dataflow,
             BuiltInRuleFamily.WebSockets,
+            BuiltInRuleFamily.HttpClient,
+            BuiltInRuleFamily.Hosting,
             BuiltInRuleFamily.Monitor,
             BuiltInRuleFamily.Lock,
             BuiltInRuleFamily.Semaphore,

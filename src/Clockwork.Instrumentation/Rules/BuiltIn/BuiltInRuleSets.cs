@@ -300,6 +300,59 @@ public static class BuiltInRuleSets
     private const string DataflowShim = "Clockwork.Shims.System.Threading.Tasks.Dataflow.ControlledDataflowBlock";
     private const string WebSocketType = "System.Net.WebSockets.WebSocket";
     private const string WebSocketShim = "Clockwork.Shims.System.Net.WebSockets.ControlledWebSocket";
+    private const string WebSocketStreamType = "System.Net.WebSockets.WebSocketStream";
+    private const string WebSocketStreamShim = "Clockwork.Shims.System.Net.WebSockets.ControlledWebSocketStream";
+    private const string WebSocketMessageType = "System.Net.WebSockets.WebSocketMessageType";
+
+    // Cecil full names for the hosting extensions which block on the host's work or time out on a real timer.
+    private const string HostExtensionsType = "Microsoft.Extensions.Hosting.HostingAbstractionsHostExtensions";
+    private const string HostExtensionsShim = "Clockwork.Shims.Microsoft.Extensions.Hosting.ControlledHostingAbstractionsHostExtensions";
+    private const string IHostType = "Microsoft.Extensions.Hosting.IHost";
+
+    // Cecil full names for the members which send through an HttpClient, whose timeout runs on a real timer.
+    private const string HttpClientType = "System.Net.Http.HttpClient";
+    private const string HttpClientShim = "Clockwork.Shims.System.Net.Http.ControlledHttpClient";
+    private const string HttpMessageInvokerType = "System.Net.Http.HttpMessageInvoker";
+    private const string HttpMessageInvokerShim = "Clockwork.Shims.System.Net.Http.ControlledHttpMessageInvoker";
+    private const string HttpClientJsonType = "System.Net.Http.Json.HttpClientJsonExtensions";
+    private const string HttpClientJsonShim = "Clockwork.Shims.System.Net.Http.Json.ControlledHttpClientJsonExtensions";
+    private const string HttpRequestMessageType = "System.Net.Http.HttpRequestMessage";
+    private const string HttpCompletionOptionType = "System.Net.Http.HttpCompletionOption";
+    private const string HttpContentType = "System.Net.Http.HttpContent";
+    private const string UriType = "System.Uri";
+    private const string SystemType = "System.Type";
+    private const string JsonOptionsType = "System.Text.Json.JsonSerializerOptions";
+    private const string JsonContextType = "System.Text.Json.Serialization.JsonSerializerContext";
+    private const string JsonTypeInfoOfValue = "System.Text.Json.Serialization.Metadata.JsonTypeInfo`1<!!0>";
+    private const string MethodTypeArg0 = "!!0";
+
+    // Every HttpClient member which sends a request. Send and SendAsync with a request and a token are the virtual
+    // overrides of HttpMessageInvoker's.
+    private static readonly (string Member, string[] Parameters)[] HttpClientSends =
+    [
+        .. HttpUriSends("DeleteAsync", []),
+        .. HttpUriSends("GetAsync", []),
+        .. HttpUriSends("GetAsync", [HttpCompletionOptionType]),
+        .. HttpUriSends("GetByteArrayAsync", []),
+        .. HttpUriSends("GetStreamAsync", []),
+        .. HttpUriSends("GetStringAsync", []),
+        .. HttpUriSends("PatchAsync", [HttpContentType]),
+        .. HttpUriSends("PostAsync", [HttpContentType]),
+        .. HttpUriSends("PutAsync", [HttpContentType]),
+        .. HttpRequestSends("Send"),
+        .. HttpRequestSends("SendAsync"),
+    ];
+
+    // Every HttpClientJsonExtensions member: each sends through the HttpClient it is given.
+    private static readonly (string Member, string[] Parameters)[] HttpClientJsonSends =
+    [
+        .. HttpJsonReads("DeleteFromJsonAsync"),
+        .. HttpJsonReads("GetFromJsonAsync"),
+        .. HttpJsonWrites("PatchAsJsonAsync"),
+        .. HttpJsonWrites("PostAsJsonAsync"),
+        .. HttpJsonWrites("PutAsJsonAsync"),
+        .. HttpJsonEnumerations("GetFromJsonAsAsyncEnumerable"),
+    ];
 
     // Every public block of System.Threading.Tasks.Dataflow; ConcurrencyEscapeAuditTests fails on one a runtime adds,
     // since its constructor reaches TaskScheduler.Default.
@@ -595,6 +648,8 @@ public static class BuiltInRuleSets
         BuiltInRuleFamily.BackgroundWork,
         BuiltInRuleFamily.Dataflow,
         BuiltInRuleFamily.WebSockets,
+        BuiltInRuleFamily.HttpClient,
+        BuiltInRuleFamily.Hosting,
         BuiltInRuleFamily.Monitor,
         BuiltInRuleFamily.Lock,
         BuiltInRuleFamily.Semaphore,
@@ -1494,6 +1549,71 @@ public static class BuiltInRuleSets
         CallSiteRejection(builder, BuiltInRuleFamily.WebSockets, "clockwork.websocket.createclientwebsocket",
             new MemberSignature(WebSocketType, "CreateClientWebSocket"), WebSocketShim);
 
+        // ---- WebSocketStream factories which may make the stream own its socket: on disposal an owning stream bounds the
+        // closing handshake with a real timer, so the shims reject a finite, non-zero close timeout. ----
+        TaskRule(builder, BuiltInRuleFamily.WebSockets, "clockwork.websocketstream.create.ownswebsocket",
+            MemberSignature.Method(WebSocketStreamType, "Create", WebSocketType, WebSocketMessageType, Boolean),
+            Shim(WebSocketStreamShim, "Create", WebSocketType, WebSocketMessageType, Boolean));
+        TaskRule(builder, BuiltInRuleFamily.WebSockets, "clockwork.websocketstream.create.closetimeout",
+            MemberSignature.Method(WebSocketStreamType, "Create", WebSocketType, WebSocketMessageType, TimeSpan),
+            Shim(WebSocketStreamShim, "Create", WebSocketType, WebSocketMessageType, TimeSpan));
+
+        // ---- HttpClient: the BCL bounds every request with HttpClient.Timeout on a real timer, so each member which sends
+        // redirects to a shim which rejects a finite timeout and then calls the BCL member. A call through
+        // HttpMessageInvoker reaches the client's override, so its shim checks a client receiver too. The virtual members'
+        // base calls run the base implementation without dispatch. ----
+        foreach ((string member, string[] parameters) in HttpClientSends)
+        {
+            RewriteRule rule = RewriteRule.RedirectCall(
+                HttpRuleId("clockwork.http.httpclient.", member, parameters),
+                MemberSignature.Method(HttpClientType, member, parameters),
+                Shim(HttpClientShim, member, [HttpClientType, .. parameters]));
+            if (parameters is [HttpRequestMessageType, CancellationToken])
+            {
+                rule = rule with { BaseCallReplacement = Shim(HttpClientShim, "Base" + member, [HttpClientType, .. parameters]) };
+            }
+
+            builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.HttpClient, rule));
+        }
+
+        foreach (string member in (ReadOnlySpan<string>)["Send", "SendAsync"])
+        {
+            builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.HttpClient, RewriteRule.RedirectCall(
+                HttpRuleId("clockwork.http.httpmessageinvoker.", member, [HttpRequestMessageType, CancellationToken]),
+                MemberSignature.Method(HttpMessageInvokerType, member, HttpRequestMessageType, CancellationToken),
+                Shim(HttpMessageInvokerShim, member, HttpMessageInvokerType, HttpRequestMessageType, CancellationToken)) with
+            {
+                BaseCallReplacement = Shim(HttpMessageInvokerShim, "Base" + member, HttpMessageInvokerType, HttpRequestMessageType, CancellationToken),
+            }));
+        }
+
+        foreach ((string member, string[] parameters) in HttpClientJsonSends)
+        {
+            TaskRule(builder, BuiltInRuleFamily.HttpClient, HttpRuleId("clockwork.http.json.", member, parameters),
+                MemberSignature.Method(HttpClientJsonType, member, parameters),
+                Shim(HttpClientJsonShim, member, [.. parameters.Select(static parameter => parameter.Replace(MethodTypeArg0, "TValue", StringComparison.Ordinal))]));
+        }
+
+        // ---- Hosting: the BCL's extensions await the host's work in framework code, block the caller on it (Start, Run,
+        // WaitForShutdown), or bound a stop with a real timer (StopAsync(IHost, TimeSpan)); the shims await through the
+        // coordinator, wait with the controlled wait, and time out in virtual time. ----
+        foreach ((string member, string id) in (ReadOnlySpan<(string, string)>)[("Start", "start"), ("Run", "run"), ("WaitForShutdown", "waitforshutdown")])
+        {
+            TaskRule(builder, BuiltInRuleFamily.Hosting, "clockwork.hosting." + id,
+                MemberSignature.Method(HostExtensionsType, member, IHostType), Shim(HostExtensionsShim, member, IHostType));
+        }
+
+        foreach ((string member, string id) in (ReadOnlySpan<(string, string)>)[("RunAsync", "runasync"), ("WaitForShutdownAsync", "waitforshutdownasync")])
+        {
+            TaskRule(builder, BuiltInRuleFamily.Hosting, "clockwork.hosting." + id,
+                MemberSignature.Method(HostExtensionsType, member, IHostType, CancellationToken),
+                Shim(HostExtensionsShim, member, IHostType, CancellationToken));
+        }
+
+        TaskRule(builder, BuiltInRuleFamily.Hosting, "clockwork.hosting.stopasync.timeout",
+            MemberSignature.Method(HostExtensionsType, "StopAsync", IHostType, TimeSpan),
+            Shim(HostExtensionsShim, "StopAsync", IHostType, TimeSpan));
+
         // ---- Uncontrolled invocation: process control and abrupt host termination. A
         // rewritten assembly must never launch, kill, signal, wait on, reschedule, or terminate a real OS process out from
         // under the simulation, so each of these call sites is rejected with a precise diagnostic naming
@@ -2217,6 +2337,71 @@ public static class BuiltInRuleSets
     {
         builder.Add(new BuiltInRuleEntry(family, RewriteRule.InjectRejection(id, target, Shim(shimType, "RejectUnsupported", String))));
     }
+
+    // The overloads of an HttpClient member which takes a string or Uri request URI, then `parameters`, with and without
+    // a trailing CancellationToken.
+    private static IEnumerable<(string Member, string[] Parameters)> HttpUriSends(string member, string[] parameters)
+    {
+        foreach (string uri in (string[])[String, UriType])
+        {
+            yield return (member, [uri, .. parameters]);
+            yield return (member, [uri, .. parameters, CancellationToken]);
+        }
+    }
+
+    // The overloads of HttpClient.Send or SendAsync: a request, with and without a completion option and a token.
+    private static IEnumerable<(string Member, string[] Parameters)> HttpRequestSends(string member) =>
+    [
+        (member, [HttpRequestMessageType]),
+        (member, [HttpRequestMessageType, HttpCompletionOptionType]),
+        (member, [HttpRequestMessageType, CancellationToken]),
+        (member, [HttpRequestMessageType, HttpCompletionOptionType, CancellationToken]),
+    ];
+
+    // The overloads of an HttpClientJsonExtensions member which reads a value: by Type with options, a context, or
+    // neither, and generically with options, type information, or neither.
+    private static IEnumerable<(string Member, string[] Parameters)> HttpJsonReads(string member) =>
+        HttpJsonOverloads(member, [[SystemType, JsonOptionsType], [SystemType, JsonContextType], [SystemType], [JsonOptionsType], [JsonTypeInfoOfValue], []]);
+
+    // The overloads of an HttpClientJsonExtensions member which writes a value: with options, type information, or neither.
+    private static IEnumerable<(string Member, string[] Parameters)> HttpJsonWrites(string member) =>
+        HttpJsonOverloads(member, [[MethodTypeArg0, JsonOptionsType], [MethodTypeArg0, JsonTypeInfoOfValue], [MethodTypeArg0]]);
+
+    // The overloads of an HttpClientJsonExtensions member which enumerates values: with options, type information, or neither.
+    private static IEnumerable<(string Member, string[] Parameters)> HttpJsonEnumerations(string member) =>
+        HttpJsonOverloads(member, [[JsonOptionsType], [JsonTypeInfoOfValue], []]);
+
+    // Each shape after the client and a string or Uri request URI, with a trailing CancellationToken.
+    private static IEnumerable<(string Member, string[] Parameters)> HttpJsonOverloads(string member, string[][] shapes)
+    {
+        foreach (string uri in (string[])[String, UriType])
+        {
+            foreach (string[] shape in shapes)
+            {
+                yield return (member, [HttpClientType, uri, .. shape, CancellationToken]);
+            }
+        }
+    }
+
+    // A rule id naming an HTTP member's overload by its parameters: "clockwork.http.httpclient.getasync.uri.cancellationtoken".
+    private static string HttpRuleId(string prefix, string member, string[] parameters) =>
+        prefix + member.ToLowerInvariant() + string.Concat(parameters
+            .Where(static parameter => parameter != HttpClientType)
+            .Select(static parameter => "." + parameter switch
+            {
+                String => "string",
+                UriType => "uri",
+                CancellationToken => "cancellationtoken",
+                HttpCompletionOptionType => "completionoption",
+                HttpContentType => "content",
+                HttpRequestMessageType => "request",
+                SystemType => "type",
+                JsonOptionsType => "options",
+                JsonContextType => "context",
+                JsonTypeInfoOfValue => "typeinfo",
+                MethodTypeArg0 => "value",
+                _ => throw new ArgumentOutOfRangeException(nameof(parameters), parameter, "An unexpected HTTP member parameter."),
+            }));
 
 
     private static void PlinqRejection(

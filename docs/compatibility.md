@@ -948,7 +948,9 @@ The status of every concurrency entry point is generated from the rule inventory
 status](rule-inventory.md#concurrency-entry-points-status): the rule families which control or reject them, the members
 left as BCL calls with their reasons, and the result of an audit which scans every managed assembly of the shared
 framework, on Windows, Linux, and macOS, for members that reach the thread pool, `TaskScheduler.Default`, a new
-thread, a real timer, or an async method, classified by member or by assembly. Anything it does not list
+thread, a real timer, or an async method, classified by member or by assembly. The members classified by their
+assembly are kept in a snapshot, so a runtime which adds one fails the audit until it is reviewed against the
+assembly's reason. Anything it does not list
 runs as a BCL call; work such a call starts on another thread fails the run at its first controlled call (see
 [Thread affinity](#thread-affinity)), and work which only computes or changes shared state runs unchecked.
 
@@ -1092,6 +1094,35 @@ ticks. Generation checks suppress stale firings after reentrant `Change`, stop, 
 Applicable timer callbacks restore the construction-time user `ExecutionContext` while executing on a
 fresh logical strand. Pending deadlines appear in diagnostics as `PausedUntilTime`, and teardown
 cancels all remaining registrations without invoking user callbacks.
+
+#### Framework timeouts
+
+Some framework members bound their work with a timer of their own. Where Clockwork can run that timer in virtual time
+it does; where the timer lives inside the framework, the member is rejected for the configurations which arm it:
+
+- **`HttpClient`.** Every member which sends a request (`GetAsync`, `GetStringAsync`, `GetByteArrayAsync`,
+  `GetStreamAsync`, `PostAsync`, `PutAsync`, `PatchAsync`, `DeleteAsync`, `Send`, `SendAsync`), `HttpMessageInvoker.Send`
+  and `SendAsync` when the receiver is an `HttpClient`, and every `HttpClientJsonExtensions` member throw
+  `SimulationApiException` when the client's `Timeout` is finite, which it is by default (100 seconds): the BCL bounds
+  the request, and the JSON extensions the reading of its response, with that timeout on a real timer. Set
+  `Timeout = Timeout.InfiniteTimeSpan` and bound a request with a `CancellationToken` which a virtual delay cancels,
+  such as one from `new CancellationTokenSource(timeout)`. With an infinite timeout each member is the BCL's. An
+  override's base call to `Send` or `SendAsync` runs the base implementation.
+- **`WebSocketStream`.** A stream which owns its `WebSocket` closes it on disposal, bounding the closing handshake
+  with a real timer. `WebSocketStream.Create(webSocket, messageType, ownsWebSocket: true)` (whose close timeout is 16
+  seconds) and `Create(webSocket, messageType, closeTimeout)` with a finite, non-zero timeout throw
+  `SimulationApiException`. A stream which does not own its socket, and an owning one whose close timeout is zero (an
+  already-cancelled close) or `Timeout.InfiniteTimeSpan`, are the BCL's; close the socket yourself, with a token a
+  virtual delay cancels, before disposing the stream.
+- **Hosting.** Every `HostingAbstractionsHostExtensions` member is controlled. `StopAsync(IHost, TimeSpan)` stops the
+  host with a token which a virtual timer cancels once the timeout elapses. `Start`, `Run`, and `WaitForShutdown`
+  block the caller on the host's work in the BCL; under simulation they wait with the controlled wait, which pumps
+  the coordinator, so the host's work runs while the caller waits. `RunAsync` and `WaitForShutdownAsync` await
+  through the coordinator: the BCL's framework awaits would leave the logical thread where the simulation's
+  synchronization context is current. Each runs the BCL's steps in the same order, with the BCL's outcome.
+
+`FrameworkTimeoutConformanceTests` compares each controlled outcome with the BCL's, and stages each probe without its
+rules to show the real timer racing virtual time.
 
 ## Platform and deployment contract
 
