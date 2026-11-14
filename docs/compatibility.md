@@ -128,22 +128,25 @@ holds of `ReaderWriterLockSlim`, read-lock exits before later writers, `Semaphor
 task completion and waits, and scheduler resources and events. Every recorded lock is exclusive, so
 accesses under a common lock are ordered by its release-to-acquire edges; the locks an access holds
 label its report. Two operations which hold a lock at once as one logical strand, which happens only
-where an operation runs as another's strand, are not ordered by it, and their accesses race. The first race is selected deterministically and returned as a distinct
-`RaceDetected` structured outcome rather than thrown through user code. No verdict, report, or
-scheduling decision depends on garbage-collection timing.
+where an operation runs as another's strand, are not ordered by it, and their accesses race. The
+first race is selected deterministically and returned as a distinct `RaceDetected` structured outcome
+rather than thrown through user code. No verdict, report, or scheduling decision depends on
+garbage-collection timing.
 
-The detector's retained state is bounded by the work in flight, not by the work done. It keeps the
-running operations, and for each live location its last write and the reads since then which are
-mutually unordered; a location of an object lives as long as the object, a static field's as long as
-the run. Lock and signal state lives as long as its synchronization object. A vector clock's entries
-name running operations and kept accesses: a copy drops the entries which stop doing so, and a clock
-which is merged into drops them once more of them have changed than half its size, so clocks do not
-grow with the length of a continuation chain or loop.
+The detector retains the running operations and, for each live location, its last write and the
+reads since then which are mutually unordered. A static field's location lives for the run; a field
+or element's lives as long as its object, and the detector releases a collected object's locations
+at a sweep, due once the tracked objects' locations have doubled since the last. Lock and signal
+state is freed with its synchronization object. Vector clocks are bounded by the running operations
+and the clock slots of those retained accesses, so a continuation chain or loop does not grow them;
+a program which keeps many mutually unordered reads of a live location retains each of them, since a
+later write must be checked against each.
 
 Each run retains the most recent `SimulationScheduler.RaceTraceCapacity` race scheduling points
-(4,096 by default) for `CaptureRaceSchedulingPoints`, race reports, and replay artifacts; each point's
-sequence number counts every point the run reached. Replaying the run with a larger capacity, set by
-the scenario before it registers work, recovers the earlier points.
+(4,096 by default, at most 250,000, the replay artifact limit) for `CaptureRaceSchedulingPoints`,
+race reports, and replay artifacts; each point's sequence number counts every point the run reached.
+Replaying the run with a larger capacity, set by the scenario before it registers work, recovers the
+earlier points.
 
 Race reports differ from earlier builds in five respects: a write racing several reads names the
 read which ran first; a write racing the last write names that write; `sync#N` labels number locks
