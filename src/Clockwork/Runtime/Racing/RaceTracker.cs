@@ -196,6 +196,9 @@ internal sealed class RaceTracker
             new RaceMemoryLocation(kind.Value, tracked.Id, locationMember, elementIndex));
         _objectLocations += tracked.Locations.Count - before;
         SweepIfDue();
+
+        // The sweep must not find the object being resolved collected, which would orphan the access about to be kept.
+        GC.KeepAlive(target);
         return location;
     }
 
