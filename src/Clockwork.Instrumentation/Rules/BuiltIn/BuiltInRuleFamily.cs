@@ -273,7 +273,8 @@ public enum BuiltInRuleFamily
     HttpClient,
 
     /// <summary>
-    /// The <c>Microsoft.Extensions.Hosting.HostingAbstractionsHostExtensions</c> members, which await the host's work in
+    /// The <c>Microsoft.Extensions.Hosting.HostingAbstractionsHostExtensions</c> and
+    /// <c>HostingAbstractionsHostBuilderExtensions</c> members, which await the host's work in
     /// framework code, block the caller on it (<c>Start</c>, <c>Run</c>, <c>WaitForShutdown</c>), or bound a stop with a
     /// real timer (<c>StopAsync(IHost, TimeSpan)</c>). The shims await through the coordinator, wait with the controlled
     /// wait, and time out in virtual time.

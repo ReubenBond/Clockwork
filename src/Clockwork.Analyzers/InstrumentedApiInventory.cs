@@ -155,6 +155,7 @@ public static class InstrumentedApiInventory
         Api("System.Net.Http.HttpMessageInvoker", "SendAsync"),
         Api("System.Net.Http.Json.HttpClientJsonExtensions", Wildcard),
         Api("Microsoft.Extensions.Hosting.HostingAbstractionsHostExtensions", Wildcard),
+        Api("Microsoft.Extensions.Hosting.HostingAbstractionsHostBuilderExtensions", Wildcard),
         Api("System.Collections.Concurrent.BlockingCollection`1", "AddToAny"),
         Api("System.Collections.Concurrent.BlockingCollection`1", "TryAddToAny"),
         Api("System.Collections.Concurrent.BlockingCollection`1", "TakeFromAny"),

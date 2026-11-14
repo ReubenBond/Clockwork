@@ -769,9 +769,10 @@ public static class RuleInventoryDocument
             "`HttpClient`'s implementation, whether called through `HttpClient` or `HttpMessageInvoker`: an override is " +
             "called as written, and its base call runs the base implementation, checked.",
         BuiltInRuleFamily.Hosting =>
-            "Every `HostingAbstractionsHostExtensions` member is controlled. The BCL's members await the host's work in " +
+            "Every `HostingAbstractionsHostExtensions` and `HostingAbstractionsHostBuilderExtensions` member is controlled. " +
+            "The BCL's members await the host's work in " +
             "framework code, whose continuations leave the logical thread where the simulation's synchronization context " +
-            "is current; block the caller on it (`Start`, `Run`, `WaitForShutdown`); or bound a stop with a real timer " +
+            "is current; block the caller on it (`Start`, `Run`, `WaitForShutdown`, and the builder's `Start`); or bound a stop with a real timer " +
             "(`StopAsync(IHost, TimeSpan)`). The shims run the BCL's steps in the same order, awaiting through the " +
             "coordinator, waiting with the controlled wait, which pumps the coordinator so the host's work runs while the " +
             "caller waits, and stopping with a token which a virtual timer cancels once the timeout elapses in simulated time.",

@@ -1116,10 +1116,12 @@ it does; where the timer lives inside the framework, the member is rejected for 
   `SimulationApiException`. A stream which does not own its socket, and an owning one whose close timeout is zero (an
   already-cancelled close) or `Timeout.InfiniteTimeSpan`, are the BCL's; close the socket yourself, with a token a
   virtual delay cancels, before disposing the stream.
-- **Hosting.** Every `HostingAbstractionsHostExtensions` member is controlled. `StopAsync(IHost, TimeSpan)` stops the
-  host with a token which a virtual timer cancels once the timeout elapses. `Start`, `Run`, and `WaitForShutdown`
-  block the caller on the host's work in the BCL; under simulation they wait with the controlled wait, which pumps
-  the coordinator, so the host's work runs while the caller waits. `RunAsync` and `WaitForShutdownAsync` await
+- **Hosting.** Every `HostingAbstractionsHostExtensions` and `HostingAbstractionsHostBuilderExtensions` member is
+  controlled. `StopAsync(IHost, TimeSpan)` stops the
+  host with a token which a virtual timer cancels once the timeout elapses. `Start`, `Run`, `WaitForShutdown`, and
+  `IHostBuilder.Start` block the caller on the host's work in the BCL; under simulation they wait with the controlled
+  wait, which pumps the coordinator, so the host's work runs while the caller waits. `RunAsync`,
+  `WaitForShutdownAsync`, and `IHostBuilder.StartAsync` await
   through the coordinator: the BCL's framework awaits would leave the logical thread where the simulation's
   synchronization context is current. Each runs the BCL's steps in the same order, with the BCL's outcome.
 

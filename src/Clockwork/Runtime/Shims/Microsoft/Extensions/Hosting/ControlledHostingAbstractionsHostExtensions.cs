@@ -131,9 +131,11 @@ public static class ControlledHostingAbstractionsHostExtensions
         }
     }
 
-    private static CoordinatedValueTaskAwaitable Coordinated(Task task) => new(new ValueTask(task));
+    /// <summary>Awaits <paramref name="task"/> through the coordinator.</summary>
+    internal static CoordinatedValueTaskAwaitable Coordinated(Task task) => new(new ValueTask(task));
 
-    private static void WaitFor(Task task, string api)
+    /// <summary>Waits for <paramref name="task"/> with the controlled wait, then observes its outcome as the BCL's blocking wait does.</summary>
+    internal static void WaitFor(Task task, string api)
     {
         if (!task.IsCompleted)
         {

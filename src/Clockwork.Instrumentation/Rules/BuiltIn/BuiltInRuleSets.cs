@@ -308,6 +308,9 @@ public static class BuiltInRuleSets
     private const string HostExtensionsType = "Microsoft.Extensions.Hosting.HostingAbstractionsHostExtensions";
     private const string HostExtensionsShim = "Clockwork.Shims.Microsoft.Extensions.Hosting.ControlledHostingAbstractionsHostExtensions";
     private const string IHostType = "Microsoft.Extensions.Hosting.IHost";
+    private const string HostBuilderExtensionsType = "Microsoft.Extensions.Hosting.HostingAbstractionsHostBuilderExtensions";
+    private const string HostBuilderExtensionsShim = "Clockwork.Shims.Microsoft.Extensions.Hosting.ControlledHostingAbstractionsHostBuilderExtensions";
+    private const string IHostBuilderType = "Microsoft.Extensions.Hosting.IHostBuilder";
 
     // Cecil full names for the members which send through an HttpClient, whose timeout runs on a real timer.
     private const string HttpClientType = "System.Net.Http.HttpClient";
@@ -1613,6 +1616,14 @@ public static class BuiltInRuleSets
         TaskRule(builder, BuiltInRuleFamily.Hosting, "clockwork.hosting.stopasync.timeout",
             MemberSignature.Method(HostExtensionsType, "StopAsync", IHostType, TimeSpan),
             Shim(HostExtensionsShim, "StopAsync", IHostType, TimeSpan));
+
+        // The builder's Start blocks on StartAsync, which builds the host and awaits its start in framework code.
+        TaskRule(builder, BuiltInRuleFamily.Hosting, "clockwork.hosting.builder.start",
+            MemberSignature.Method(HostBuilderExtensionsType, "Start", IHostBuilderType),
+            Shim(HostBuilderExtensionsShim, "Start", IHostBuilderType));
+        TaskRule(builder, BuiltInRuleFamily.Hosting, "clockwork.hosting.builder.startasync",
+            MemberSignature.Method(HostBuilderExtensionsType, "StartAsync", IHostBuilderType, CancellationToken),
+            Shim(HostBuilderExtensionsShim, "StartAsync", IHostBuilderType, CancellationToken));
 
         // ---- Uncontrolled invocation: process control and abrupt host termination. A
         // rewritten assembly must never launch, kill, signal, wait on, reschedule, or terminate a real OS process out from

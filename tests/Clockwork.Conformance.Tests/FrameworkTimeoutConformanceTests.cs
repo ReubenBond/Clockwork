@@ -195,6 +195,26 @@ public sealed class FrameworkTimeoutConformanceTests : IDisposable
                 public void Dispose() => Log.Add("disposed");
             }
 
+            // Builds a RecordingHost.
+            public sealed class RecordingHostBuilder : IHostBuilder
+            {
+                public IDictionary<object, object> Properties { get; } = new Dictionary<object, object>();
+
+                public IHost Build() => new RecordingHost(TimeSpan.Zero);
+
+                public IHostBuilder ConfigureHostConfiguration(Action<Microsoft.Extensions.Configuration.IConfigurationBuilder> configureDelegate) => this;
+
+                public IHostBuilder ConfigureAppConfiguration(Action<HostBuilderContext, Microsoft.Extensions.Configuration.IConfigurationBuilder> configureDelegate) => this;
+
+                public IHostBuilder ConfigureServices(Action<HostBuilderContext, Microsoft.Extensions.DependencyInjection.IServiceCollection> configureDelegate) => this;
+
+                public IHostBuilder UseServiceProviderFactory<TContainerBuilder>(Microsoft.Extensions.DependencyInjection.IServiceProviderFactory<TContainerBuilder> factory) => this;
+
+                public IHostBuilder UseServiceProviderFactory<TContainerBuilder>(Func<HostBuilderContext, Microsoft.Extensions.DependencyInjection.IServiceProviderFactory<TContainerBuilder>> factory) => this;
+
+                public IHostBuilder ConfigureContainer<TContainerBuilder>(Action<HostBuilderContext, TContainerBuilder> configureDelegate) => this;
+            }
+
             public static class FrameworkTimeoutProbe
             {
                 private static HttpClient InfiniteClient(TimeSpan delay) =>
@@ -337,6 +357,11 @@ public sealed class FrameworkTimeoutConformanceTests : IDisposable
 
                 public static void StartAHost() => new RecordingHost(TimeSpan.Zero).Start();
 
+                public static string StartABuilder() => string.Join(",", ((RecordingHost)new RecordingHostBuilder().Start()).Log);
+
+                public static async Task<string> StartABuilderAsync() =>
+                    string.Join(",", ((RecordingHost)await new RecordingHostBuilder().StartAsync()).Log);
+
                 // Runs a host until a token which a timer cancels triggers its shutdown.
                 public static async Task<string> RunUntilATokenIsCancelled()
                 {
@@ -379,6 +404,7 @@ public sealed class FrameworkTimeoutConformanceTests : IDisposable
     [InlineData("StreamsWhoseCloseNeedsNoTimer")]
     [InlineData("StopWithATimeout")]
     [InlineData("RunUntilATokenIsCancelled")]
+    [InlineData("StartABuilderAsync")]
     public async Task ControlledOutcomesMatchTheBcl(string probe)
     {
         string bcl = await ((Task<string>)_bcl.Value.Method(probe).Invoke(null, null)!)
@@ -391,20 +417,20 @@ public sealed class FrameworkTimeoutConformanceTests : IDisposable
         }
     }
 
-    [Fact]
-    public void ControlledOutcomesMatchTheBclForTheBlockingHostExtensions()
+    [Theory]
+    [InlineData("StartWaitForShutdownAndRun", "started,start returned,stopping,stopped,shut down|started,stopping,stopped,disposed,run returned")]
+    [InlineData("StartABuilder", "started")]
+    public void ControlledOutcomesMatchTheBclForTheBlockingHostExtensions(string probe, string expected)
     {
-        string bcl = (string)_bcl.Value.Method("StartWaitForShutdownAndRun").Invoke(null, null)!;
+        string bcl = (string)_bcl.Value.Method(probe).Invoke(null, null)!;
         foreach (bool optimize in new[] { true, false })
         {
             using var host = new SimulationHost(Start);
 
-            Assert.Equal(bcl, (string)host.Invoke(Method("StartWaitForShutdownAndRun", optimize))!);
+            Assert.Equal(bcl, (string)host.Invoke(Method(probe, optimize))!);
         }
 
-        Assert.Equal(
-            "started,start returned,stopping,stopped,shut down|started,stopping,stopped,disposed,run returned",
-            bcl);
+        Assert.Equal(expected, bcl);
     }
 
     [Theory]
@@ -449,18 +475,20 @@ public sealed class FrameworkTimeoutConformanceTests : IDisposable
         Assert.Equal(escaped, Completed<string>(host.Invoke(staged.Method(probe))));
     }
 
-    [Fact]
-    public void WithoutTheHostingRulesStartBlocksTheLogicalThread()
+    [Theory]
+    [InlineData("StartAHost")]
+    [InlineData("StartABuilder")]
+    public void WithoutTheHostingRulesStartBlocksTheLogicalThread(string probe)
     {
         StagedProbe staged = _fixture.StageControlledTasksWithout(
-            "Conf.FrameworkTimeoutEscape.Start",
+            "Conf.FrameworkTimeoutEscape." + probe,
             ProbeType,
             Source,
             rule => rule.Id.StartsWith("clockwork.hosting.", StringComparison.Ordinal));
         using var host = new SimulationHost(Start, hangBound: TimeSpan.FromSeconds(5));
 
         // The BCL's Start blocks on the host's start, whose virtual delay only the blocked logical thread could run.
-        Assert.Throws<TimeoutException>(() => host.Invoke(staged.Method("StartAHost")));
+        Assert.Throws<TimeoutException>(() => host.Invoke(staged.Method(probe)));
     }
 
     private static T Completed<T>(object? task)

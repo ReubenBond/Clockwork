@@ -52,7 +52,7 @@ internal static class ConcurrencyEscapeAudit
         new("Microsoft.Extensions.Caching.Abstractions", EscapeReason.FrameworkAwait,
             "`HybridCache` and the `IDistributedCache` extensions await the cache and the factory they are given."),
         new("Microsoft.Extensions.Hosting.Abstractions", EscapeReason.FrameworkAwait,
-            "`BackgroundService.StopAsync` awaits the service's work. The `IHost` extensions, which await the host's work " +
+            "`BackgroundService.StopAsync` awaits the service's work. The `IHost` and `IHostBuilder` extensions, which await the host's work " +
             "in framework code, block on it, or bound a stop with a real timer, are controlled (`Hosting` family), and " +
             "`BackgroundService.StartAsync`, which starts the service's work with the real `Task.Run`, is rejected " +
             "(`BackgroundWork` family)."),
