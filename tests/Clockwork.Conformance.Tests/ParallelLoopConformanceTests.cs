@@ -132,6 +132,7 @@ public sealed class ParallelLoopConformanceTests : IDisposable
                 {
                     var completion = new TaskCompletionSource<long>(TaskCreationOptions.RunContinuationsAsynchronously);
                     Timer timer = null;
+                    // Created disarmed and armed only after the assignment, so the callback always sees the timer.
                     timer = new Timer(
                         _ =>
                         {
@@ -139,8 +140,9 @@ public sealed class ParallelLoopConformanceTests : IDisposable
                             completion.TrySetResult(key * 10);
                         },
                         null,
-                        TimeSpan.FromMilliseconds(3),
+                        Timeout.InfiniteTimeSpan,
                         Timeout.InfiniteTimeSpan);
+                    timer.Change(TimeSpan.FromMilliseconds(3), Timeout.InfiniteTimeSpan);
                     return completion.Task;
                 }
             }
