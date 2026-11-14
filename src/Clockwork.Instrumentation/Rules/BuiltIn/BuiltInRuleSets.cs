@@ -808,10 +808,29 @@ public static class BuiltInRuleSets
         ContinueWithRules(builder, "clockwork.tasks.continuewith.generic.func.state", TaskTType, TaskTDecl, FuncOfTaskTStateAndNewResult, FuncOfTaskTStateAndNewResultDecl, hasState: true);
 
         // ---- Completion sources: the real BCL TaskCompletionSource and TaskCompletionSource<TResult> are kept, with
-        // their real options. Only calls to their non-virtual completion members redirect, to shims which complete the
+        // their real options. Calls to their non-virtual completion members redirect to shims which complete the
         // source through the same member and publish a race-detection release edge on its task. ----
         CompletionSourceRules(builder, "clockwork.tasks.completionsource", TaskCompletionSourceType, TaskCompletionSourceType, [], [], Task, Task);
         CompletionSourceRules(builder, "clockwork.tasks.completionsource.generic", TaskCompletionSourceTType, TaskCompletionSourceTDecl, [TypeArg0], [TResultDecl], TaskTypeArg0, TaskTDecl);
+
+        // The constructors which take creation options redirect to factories which reject AttachedToParent inside a
+        // simulation, as the Task constructors do: Clockwork's controlled tasks do not model parent and child tasks.
+        // The generic source's factories bind TResult from the constructed type.
+        foreach ((string type, string shim, string id) in (ReadOnlySpan<(string, string, string)>)
+            [
+                (TaskCompletionSourceType, "Create", "clockwork.tasks.completionsource.ctor"),
+                (TaskCompletionSourceTType, "CreateGeneric", "clockwork.tasks.completionsource.generic.ctor"),
+            ])
+        {
+            builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.TaskCompletionSource, RewriteRule.RedirectNewObj(
+                id + ".options",
+                MemberSignature.Constructor(type, TaskCreationOptions),
+                Shim(TaskCompletionSourceShim, shim, TaskCreationOptions))));
+            builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.TaskCompletionSource, RewriteRule.RedirectNewObj(
+                id + ".state.options",
+                MemberSignature.Constructor(type, ObjectType, TaskCreationOptions),
+                Shim(TaskCompletionSourceShim, shim, ObjectType, TaskCreationOptions))));
+        }
 
         // ---- Virtual-time task delays and asynchronous timeout races. ----
         TaskRule(builder, BuiltInRuleFamily.TaskTime, "clockwork.tasks.delay.milliseconds",

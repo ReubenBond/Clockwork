@@ -87,7 +87,13 @@ internal sealed class ControlledTaskScheduler : TaskScheduler
             "this simulation, or an overload without a scheduler.");
     }
 
-    /// <summary>Runs <paramref name="task"/> on the calling logical thread, as the BCL runs a task inline.</summary>
+    /// <summary>
+    /// Runs <paramref name="task"/> on the calling logical thread, as the BCL runs a task inline. A task with attached
+    /// children - one uninstrumented code constructed without <see cref="TaskCreationOptions.DenyChildAttach"/>, say -
+    /// completes only once they do; the inline run waits for them with the controlled wait (see
+    /// <see cref="TryExecuteTaskInline"/>), so the BCL's <c>RunSynchronously</c> finds the task complete and never
+    /// blocks the logical thread on them.
+    /// </summary>
     /// <param name="task">The task, in its created state.</param>
     public static void RunInline(Task task)
     {
@@ -181,8 +187,23 @@ internal sealed class ControlledTaskScheduler : TaskScheduler
     }
 
     /// <inheritdoc />
-    protected override bool TryExecuteTaskInline(Task task, bool taskWasPreviouslyQueued) =>
-        !taskWasPreviouslyQueued && IsSimulationThread() && TryExecuteTask(task);
+    protected override bool TryExecuteTaskInline(Task task, bool taskWasPreviouslyQueued)
+    {
+        if (taskWasPreviouslyQueued || !IsSimulationThread() || !TryExecuteTask(task))
+        {
+            return false;
+        }
+
+        // A task whose delegate has returned stays incomplete while it waits for attached children, which only other
+        // controlled operations can complete. RunSynchronously would block this thread on them, so the coordinator runs
+        // that work here instead, until the task completes.
+        if (ReferenceEquals(task, t_inlineTask) && !task.IsCompleted)
+        {
+            SimulationTaskRuntime.DrainUntilCompleted(task, RunSynchronouslyApi, CancellationToken.None);
+        }
+
+        return true;
+    }
 
     /// <inheritdoc />
     protected override IEnumerable<Task> GetScheduledTasks() => [];

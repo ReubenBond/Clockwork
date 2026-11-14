@@ -50,6 +50,8 @@ public sealed class NondeterministicApiAnalyzerTests
     [InlineData("_ = default(System.Threading.Tasks.ValueTask).AsTask();", "CW1001")]
     [InlineData("_ = default(System.Threading.Tasks.ValueTask<int>).Preserve();", "CW1001")]
     [InlineData("new System.Threading.Tasks.TaskCompletionSource<int>().SetResult(1);", "CW1001")]
+    [InlineData("_ = new System.Threading.Tasks.TaskCompletionSource(System.Threading.Tasks.TaskCreationOptions.None);", "CW1001")]
+    [InlineData("_ = new System.Threading.Tasks.TaskCompletionSource<int>(null, System.Threading.Tasks.TaskCreationOptions.None);", "CW1001")]
     [InlineData("_ = System.Threading.Tasks.Task.WhenEach(System.Threading.Tasks.Task.CompletedTask);", "CW1001")]
     [InlineData("_ = System.Threading.Tasks.Task.Factory.ContinueWhenAll(new[] { System.Threading.Tasks.Task.CompletedTask }, _ => { });", "CW1001")]
     [InlineData("_ = System.Threading.Tasks.Task<int>.Factory.ContinueWhenAny(new[] { System.Threading.Tasks.Task.CompletedTask }, _ => 1);", "CW1001")]
@@ -105,6 +107,12 @@ public sealed class NondeterministicApiAnalyzerTests
         // At most a single controlled diagnostic (e.g. DateTime.Now / new Random(int)).
         Assert.True(diagnostics.Length <= 1);
     }
+
+    [Theory]
+    [InlineData("_ = new System.Threading.Tasks.TaskCompletionSource();")]
+    [InlineData("_ = new System.Threading.Tasks.TaskCompletionSource<int>(\"state\");")]
+    public async Task CompletionSourceConstructorsWithoutOptionsNeedNoInstrumentation(string statement) =>
+        Assert.Empty(await AnalyzeAsync(Wrap(statement)));
 
     [Theory]
     [InlineData("_ = thread.Priority; thread.Priority = System.Threading.ThreadPriority.AboveNormal;")]

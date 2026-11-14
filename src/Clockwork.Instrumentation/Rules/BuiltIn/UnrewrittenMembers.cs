@@ -1291,16 +1291,20 @@ internal static class UnrewrittenMembers
         Add("System.Threading.Tasks.TaskCompletionSource", UnrewrittenReason.Value,
             ".ctor()",
             ".ctor(System.Object)",
-            ".ctor(System.Object,System.Threading.Tasks.TaskCreationOptions)",
-            ".ctor(System.Threading.Tasks.TaskCreationOptions)",
             "get_Task()");
+
+        Add("System.Threading.Tasks.TaskCompletionSource", UnrewrittenReason.ConstructorCall,
+            ".ctor(System.Object,System.Threading.Tasks.TaskCreationOptions)",
+            ".ctor(System.Threading.Tasks.TaskCreationOptions)");
 
         Add("System.Threading.Tasks.TaskCompletionSource`1", UnrewrittenReason.Value,
             ".ctor()",
             ".ctor(System.Object)",
-            ".ctor(System.Object,System.Threading.Tasks.TaskCreationOptions)",
-            ".ctor(System.Threading.Tasks.TaskCreationOptions)",
             "get_Task()");
+
+        Add("System.Threading.Tasks.TaskCompletionSource`1", UnrewrittenReason.ConstructorCall,
+            ".ctor(System.Object,System.Threading.Tasks.TaskCreationOptions)",
+            ".ctor(System.Threading.Tasks.TaskCreationOptions)");
 
         Add("System.Threading.Tasks.TaskFactory", UnrewrittenReason.Value,
             ".ctor()",

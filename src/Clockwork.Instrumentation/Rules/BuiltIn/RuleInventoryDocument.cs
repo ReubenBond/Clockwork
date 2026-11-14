@@ -603,7 +603,9 @@ public static class RuleInventoryDocument
             "creation options. The completion members (`SetResult`, `SetException`, `SetCanceled`, `SetFromTask`, and " +
             "their `TrySet*` forms) redirect to shims which complete the source through the same BCL member and " +
             "publish the race-detection release edge an await, wait, combinator, or continuation acquires. Outside a " +
-            "simulation (in a finalizer, or a callback from uninstrumented code) the shims call the BCL member alone.",
+            "simulation (in a finalizer, or a callback from uninstrumented code) the shims call the BCL member alone. " +
+            "The constructors which take creation options redirect to factories which reject `AttachedToParent` inside " +
+            "a simulation, as the `Task` constructors do: Clockwork's controlled tasks do not model parent and child tasks.",
         BuiltInRuleFamily.TaskTime =>
             "`Task.Delay` and `Task.WaitAsync` use controlled virtual deadlines, preserve cancellation and " +
             "terminal task state, and never consume wall-clock time.",

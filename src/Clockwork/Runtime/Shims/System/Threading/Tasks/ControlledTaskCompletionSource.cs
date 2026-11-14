@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Clockwork.Runtime.Execution;
 using Clockwork.Runtime.Racing;
 using Clockwork.Runtime.Shims;
 
@@ -10,7 +11,7 @@ namespace Clockwork.Shims.System.Threading.Tasks;
 /// <para>
 /// Controlled completion members of <see cref="TaskCompletionSource"/> and <see cref="TaskCompletionSource{TResult}"/>.
 /// Rewritten code keeps the real BCL completion sources, with their real <see cref="TaskCreationOptions"/>: the
-/// rewriter redirects only calls to the completion members, each to a static shim whose first parameter is the
+/// rewriter redirects calls to the completion members, each to a static shim whose first parameter is the
 /// receiving source. Each shim completes the source through the BCL member itself, so validation, exceptions, and the
 /// resulting task state are the BCL's, and the completion members are not virtual, so a source derived from the BCL
 /// type completes exactly as it would without the redirect.
@@ -30,11 +31,57 @@ namespace Clockwork.Shims.System.Threading.Tasks;
 /// <see cref="SimulationThreadAffinityException"/>. Each shim publishes or acquires an edge only inside a controlled
 /// operation, as the race detector records edges only there.
 /// </para>
+/// <para>
+/// The constructors which take <see cref="TaskCreationOptions"/> also redirect, so that inside a simulation
+/// <see cref="TaskCreationOptions.AttachedToParent"/> is rejected, as it is for <c>new Task</c>, <c>StartNew</c>, and
+/// <c>ContinueWith</c>: Clockwork's controlled tasks do not model parent and child tasks, so a promise could not attach
+/// to the task running it as it does under the BCL, where a parent faults when its attached promise faults.
+/// </para>
 /// </summary>
 public static class ControlledTaskCompletionSource
 {
     private const string TaskCompletionSourceApi = "System.Threading.Tasks.TaskCompletionSource";
     private const string GenericTaskCompletionSourceApi = "System.Threading.Tasks.TaskCompletionSource`1";
+
+    /// <summary>Controlled <c>new TaskCompletionSource(TaskCreationOptions)</c>.</summary>
+    /// <param name="creationOptions">The options of the source's task.</param>
+    /// <returns>The source.</returns>
+    public static TaskCompletionSource Create(TaskCreationOptions creationOptions)
+    {
+        RequireUnattached(creationOptions, TaskCompletionSourceApi);
+        return new TaskCompletionSource(creationOptions);
+    }
+
+    /// <summary>Controlled <c>new TaskCompletionSource(object?, TaskCreationOptions)</c>.</summary>
+    /// <param name="state">The state of the source's task, its <see cref="Task.AsyncState"/>.</param>
+    /// <param name="creationOptions">The options of the source's task.</param>
+    /// <returns>The source.</returns>
+    public static TaskCompletionSource Create(object? state, TaskCreationOptions creationOptions)
+    {
+        RequireUnattached(creationOptions, TaskCompletionSourceApi);
+        return new TaskCompletionSource(state, creationOptions);
+    }
+
+    /// <summary>Controlled <c>new TaskCompletionSource&lt;TResult&gt;(TaskCreationOptions)</c>.</summary>
+    /// <typeparam name="TResult">The result type of the source's task.</typeparam>
+    /// <param name="creationOptions">The options of the source's task.</param>
+    /// <returns>The source.</returns>
+    public static TaskCompletionSource<TResult> CreateGeneric<TResult>(TaskCreationOptions creationOptions)
+    {
+        RequireUnattached(creationOptions, GenericTaskCompletionSourceApi);
+        return new TaskCompletionSource<TResult>(creationOptions);
+    }
+
+    /// <summary>Controlled <c>new TaskCompletionSource&lt;TResult&gt;(object?, TaskCreationOptions)</c>.</summary>
+    /// <typeparam name="TResult">The result type of the source's task.</typeparam>
+    /// <param name="state">The state of the source's task, its <see cref="Task.AsyncState"/>.</param>
+    /// <param name="creationOptions">The options of the source's task.</param>
+    /// <returns>The source.</returns>
+    public static TaskCompletionSource<TResult> CreateGeneric<TResult>(object? state, TaskCreationOptions creationOptions)
+    {
+        RequireUnattached(creationOptions, GenericTaskCompletionSourceApi);
+        return new TaskCompletionSource<TResult>(state, creationOptions);
+    }
 
     /// <summary>Controlled <c>TaskCompletionSource.SetResult()</c>.</summary>
     public static void SetResult(TaskCompletionSource source)
@@ -230,6 +277,23 @@ public static class ControlledTaskCompletionSource
 
     private static void RequireSimulationThread(string api, [CallerMemberName] string member = "") =>
         SimulationRuntimeDispatch.RequireSimulationThreadIfActive(api, member);
+
+    // Outside a simulation the constructor is the BCL's. Rejecting before constructing matters: the BCL attaches the
+    // promise to the running task as it constructs it, and that parent would then wait for a promise nobody completes.
+    private static void RequireUnattached(TaskCreationOptions creationOptions, string api)
+    {
+        SimulationRuntimeDispatch.RequireSimulationThreadIfActive(api, ".ctor");
+        if ((creationOptions & TaskCreationOptions.AttachedToParent) != 0
+            && SimulationExecutionContext.TryGetCurrentRuntime(out _))
+        {
+            throw new SimulationApiException(
+                SimulationApiCategory.Task,
+                api + "..ctor",
+                "TaskCreationOptions.AttachedToParent attaches the promise to the task running it, and Clockwork's " +
+                "controlled tasks do not model parent and child tasks: a parent waiting for an attached child would block " +
+                "the simulation's logical thread.");
+        }
+    }
 
     private static void Published(Task task) => RaceSynchronization.Signal(task);
 

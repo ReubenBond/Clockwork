@@ -180,7 +180,7 @@ Policy: **Controlled**. All 40 .NET 11 `Task.ContinueWith` and `Task<T>.Continue
 
 ## TaskCompletionSource family
 
-Policy: **Controlled**. Rewritten code keeps the real `TaskCompletionSource` and `TaskCompletionSource<TResult>`, with their real creation options. The completion members (`SetResult`, `SetException`, `SetCanceled`, `SetFromTask`, and their `TrySet*` forms) redirect to shims which complete the source through the same BCL member and publish the race-detection release edge an await, wait, combinator, or continuation acquires. Outside a simulation (in a finalizer, or a callback from uninstrumented code) the shims call the BCL member alone.
+Policy: **Controlled**. Rewritten code keeps the real `TaskCompletionSource` and `TaskCompletionSource<TResult>`, with their real creation options. The completion members (`SetResult`, `SetException`, `SetCanceled`, `SetFromTask`, and their `TrySet*` forms) redirect to shims which complete the source through the same BCL member and publish the race-detection release edge an await, wait, combinator, or continuation acquires. Outside a simulation (in a finalizer, or a callback from uninstrumented code) the shims call the BCL member alone. The constructors which take creation options redirect to factories which reject `AttachedToParent` inside a simulation, as the `Task` constructors do: Clockwork's controlled tasks do not model parent and child tasks.
 
 | Rule id | BCL target | Shim | Policy |
 | --- | --- | --- | --- |
@@ -208,6 +208,10 @@ Policy: **Controlled**. Rewritten code keeps the real `TaskCompletionSource` and
 | `clockwork.tasks.completionsource.generic.trysetcanceled.cancellationtoken` | `` System.Threading.Tasks.TaskCompletionSource`1::TrySetCanceled(System.Threading.CancellationToken) `` | `` Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledTaskCompletionSource::TrySetCanceled(System.Threading.Tasks.TaskCompletionSource`1<TResult>,System.Threading.CancellationToken) `` | Controlled |
 | `clockwork.tasks.completionsource.generic.setfromtask` | `` System.Threading.Tasks.TaskCompletionSource`1::SetFromTask(System.Threading.Tasks.Task`1<!0>) `` | `` Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledTaskCompletionSource::SetFromTask(System.Threading.Tasks.TaskCompletionSource`1<TResult>,System.Threading.Tasks.Task`1<TResult>) `` | Controlled |
 | `clockwork.tasks.completionsource.generic.trysetfromtask` | `` System.Threading.Tasks.TaskCompletionSource`1::TrySetFromTask(System.Threading.Tasks.Task`1<!0>) `` | `` Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledTaskCompletionSource::TrySetFromTask(System.Threading.Tasks.TaskCompletionSource`1<TResult>,System.Threading.Tasks.Task`1<TResult>) `` | Controlled |
+| `clockwork.tasks.completionsource.ctor.options` | `new System.Threading.Tasks.TaskCompletionSource(System.Threading.Tasks.TaskCreationOptions)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledTaskCompletionSource::Create(System.Threading.Tasks.TaskCreationOptions)` | Controlled |
+| `clockwork.tasks.completionsource.ctor.state.options` | `new System.Threading.Tasks.TaskCompletionSource(System.Object,System.Threading.Tasks.TaskCreationOptions)` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledTaskCompletionSource::Create(System.Object,System.Threading.Tasks.TaskCreationOptions)` | Controlled |
+| `clockwork.tasks.completionsource.generic.ctor.options` | `` new System.Threading.Tasks.TaskCompletionSource`1(System.Threading.Tasks.TaskCreationOptions) `` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledTaskCompletionSource::CreateGeneric(System.Threading.Tasks.TaskCreationOptions)` | Controlled |
+| `clockwork.tasks.completionsource.generic.ctor.state.options` | `` new System.Threading.Tasks.TaskCompletionSource`1(System.Object,System.Threading.Tasks.TaskCreationOptions) `` | `Clockwork!Clockwork.Shims.System.Threading.Tasks.ControlledTaskCompletionSource::CreateGeneric(System.Object,System.Threading.Tasks.TaskCreationOptions)` | Controlled |
 
 ## TaskTime family
 
@@ -1426,11 +1430,13 @@ Every public and protected member of a type the built-in rules target is control
 
 ## `System.Threading.Tasks.TaskCompletionSource`
 
-- `Value`: `.ctor()`, `.ctor(System.Object)`, `.ctor(System.Object,System.Threading.Tasks.TaskCreationOptions)`, `.ctor(System.Threading.Tasks.TaskCreationOptions)`, `get_Task()`
+- `Value`: `.ctor()`, `.ctor(System.Object)`, `get_Task()`
+- `ConstructorCall`: `.ctor(System.Object,System.Threading.Tasks.TaskCreationOptions)`, `.ctor(System.Threading.Tasks.TaskCreationOptions)`
 
 ## `` System.Threading.Tasks.TaskCompletionSource`1 ``
 
-- `Value`: `.ctor()`, `.ctor(System.Object)`, `.ctor(System.Object,System.Threading.Tasks.TaskCreationOptions)`, `.ctor(System.Threading.Tasks.TaskCreationOptions)`, `get_Task()`
+- `Value`: `.ctor()`, `.ctor(System.Object)`, `get_Task()`
+- `ConstructorCall`: `.ctor(System.Object,System.Threading.Tasks.TaskCreationOptions)`, `.ctor(System.Threading.Tasks.TaskCreationOptions)`
 
 ## `System.Threading.Tasks.TaskFactory`
 
@@ -1489,7 +1495,7 @@ A test scans every managed implementation assembly of the shared framework the t
 | `Task.ContinueWith`, `Task<T>.ContinueWith` | Controlled ([`TaskContinuations` family](#taskcontinuations-family)). |
 | `TaskFactory.ContinueWhenAll`, `TaskFactory.ContinueWhenAny`, `TaskFactory<T>.ContinueWhenAll`, `TaskFactory<T>.ContinueWhenAny` | Controlled ([`TaskFactoryContinuations` family](#taskfactorycontinuations-family)). |
 | `TaskFactory.FromAsync`, `TaskFactory<T>.FromAsync` | Rejected ([`TaskFactoryFromAsync` family](#taskfactoryfromasync-family)). |
-| `TaskCompletionSource.SetResult`, `TaskCompletionSource.TrySetResult`, `TaskCompletionSource.SetException`, `TaskCompletionSource.TrySetException`, `TaskCompletionSource.SetCanceled`, `TaskCompletionSource.TrySetCanceled`, `TaskCompletionSource.SetFromTask`, `TaskCompletionSource.TrySetFromTask`, `TaskCompletionSource<T>.SetResult`, `TaskCompletionSource<T>.TrySetResult`, `TaskCompletionSource<T>.SetException`, `TaskCompletionSource<T>.TrySetException`, `TaskCompletionSource<T>.SetCanceled`, `TaskCompletionSource<T>.TrySetCanceled`, `TaskCompletionSource<T>.SetFromTask`, `TaskCompletionSource<T>.TrySetFromTask` | Controlled ([`TaskCompletionSource` family](#taskcompletionsource-family)). |
+| `TaskCompletionSource.SetResult`, `TaskCompletionSource.TrySetResult`, `TaskCompletionSource.SetException`, `TaskCompletionSource.TrySetException`, `TaskCompletionSource.SetCanceled`, `TaskCompletionSource.TrySetCanceled`, `TaskCompletionSource.SetFromTask`, `TaskCompletionSource.TrySetFromTask`, `TaskCompletionSource<T>.SetResult`, `TaskCompletionSource<T>.TrySetResult`, `TaskCompletionSource<T>.SetException`, `TaskCompletionSource<T>.TrySetException`, `TaskCompletionSource<T>.SetCanceled`, `TaskCompletionSource<T>.TrySetCanceled`, `TaskCompletionSource<T>.SetFromTask`, `TaskCompletionSource<T>.TrySetFromTask`, `new TaskCompletionSource`, `new TaskCompletionSource<T>` | Controlled ([`TaskCompletionSource` family](#taskcompletionsource-family)). |
 | `Task.WhenAll`, `Task.WhenAny`, `Task.WhenEach`, `TaskExtensions.Unwrap` | Controlled ([`TaskCombinators` family](#taskcombinators-family)). |
 | `Task.Wait`, `Task.WaitAll`, `Task.WaitAny`, `Task<T>.Result`, `ValueTask<T>.Result`, `TaskAsyncEnumerableExtensions.ToBlockingEnumerable` | Controlled ([`TaskSynchronization` family](#tasksynchronization-family)). |
 | `Task.Delay`, `Task.WaitAsync`, `Task<T>.WaitAsync` | Controlled ([`TaskTime` family](#tasktime-family)). |

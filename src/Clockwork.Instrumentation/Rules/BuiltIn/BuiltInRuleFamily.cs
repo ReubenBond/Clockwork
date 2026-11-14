@@ -59,8 +59,9 @@ public enum BuiltInRuleFamily
     /// <see cref="System.Threading.Tasks.TaskCompletionSource"/> and
     /// <see cref="System.Threading.Tasks.TaskCompletionSource{TResult}"/> (<c>SetResult</c>, <c>SetException</c>,
     /// <c>SetCanceled</c>, <c>SetFromTask</c>, and their <c>TrySet*</c> forms), redirected to shims which complete the
-    /// source through the same member and publish the race-detection release edge an await acquires. The completion
-    /// source type, its options, and its task are unchanged.
+    /// source through the same member and publish the race-detection release edge an await acquires, and the
+    /// constructors which take creation options, redirected to factories which reject <c>AttachedToParent</c> inside a
+    /// simulation. The completion source type, its options, and its task are unchanged.
     /// </summary>
     TaskCompletionSource,
 

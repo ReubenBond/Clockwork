@@ -54,6 +54,8 @@ public static class InstrumentedApiInventory
         Api("System.Threading.Tasks.TaskCompletionSource`1", "TrySetCanceled"),
         Api("System.Threading.Tasks.TaskCompletionSource`1", "SetFromTask"),
         Api("System.Threading.Tasks.TaskCompletionSource`1", "TrySetFromTask"),
+        Api("System.Threading.Tasks.TaskCompletionSource", ".ctor"),
+        Api("System.Threading.Tasks.TaskCompletionSource`1", ".ctor"),
         Api("System.Threading.Tasks.ValueTask", "AsTask"),
         Api("System.Threading.Tasks.ValueTask", "Preserve"),
         Api("System.Threading.Tasks.ValueTask`1", "AsTask"),
@@ -243,6 +245,14 @@ public static class InstrumentedApiInventory
                 || (method.Parameters.Length <= 3
                     && !method.Parameters.Any(parameter =>
                         parameter.Type.ToDisplayString() == "System.Threading.Tasks.TaskScheduler"));
+        }
+
+        // Only the completion-source constructors which take creation options are rewritten.
+        if (typeMetadataName is "System.Threading.Tasks.TaskCompletionSource" or "System.Threading.Tasks.TaskCompletionSource`1"
+            && method.MethodKind == MethodKind.Constructor)
+        {
+            return method.Parameters.Any(static parameter =>
+                parameter.Type.ToDisplayString() == "System.Threading.Tasks.TaskCreationOptions");
         }
 
         // Only the range factories which size their ranges by the processor count are rewritten.

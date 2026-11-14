@@ -610,7 +610,11 @@ ready at a nondeterministic scheduling step. Instead:
   code. Their completion members (`SetResult`, `SetException`, `SetCanceled`, `SetFromTask`, and the `TrySet*`
   forms) redirect to shims which complete the source through the same BCL member and publish the race-detection
   release edge on its task; an await, synchronous wait, combinator, or continuation which observes the task
-  acquires it, and the combinators carry their antecedents' edges to their results.
+  acquires it, and the combinators carry their antecedents' edges to their results. The constructors which take
+  `TaskCreationOptions` redirect to factories which reject `AttachedToParent` inside a simulation with
+  `SimulationApiException`, as `new Task`, `StartNew`, and `ContinueWith` do: a promise which attaches to the task
+  running it makes that parent fault when it faults under the BCL, and Clockwork's controlled tasks do not model
+  parent and child tasks. The factories otherwise construct the source with the BCL's options, state, and validation.
 
 The redirect obeys the same simulation-only invariant as the BCL rule set: instrumented Controlled
 builders, awaiters, and shims require an active Clockwork simulation. Continuations and waits route
@@ -697,7 +701,7 @@ run as the strand which executes it instead, so a task started with `Task.Start`
 own thread does, and a task run inline with `RunSynchronously` shares its caller's. `TaskCreationOptions.AttachedToParent`
 is rejected: Clockwork's controlled tasks do not model parent and child tasks, and a parent waiting for an attached
 child would block the simulation's logical thread. The constructed task denies child attachment, as `Task.Run`'s
-tasks do, so no child (a `TaskCompletionSource` asking for `AttachedToParent`, say) attaches to it. It also hides its
+tasks do, so no child attaches to it from uninstrumented code. It also hides its
 scheduler, so inside it
 `TaskScheduler.Current` is `TaskScheduler.Default`, as inside a task the BCL starts on the default scheduler; the BCL
 runs a framework continuation which the task completes inline only there, and would otherwise queue it to the thread
@@ -707,7 +711,10 @@ task constructed with a cancelled token are the BCL's.
 `Task.Start` and `Task.RunSynchronously` run the task on Clockwork's coordinator `TaskScheduler`: `Start` queues it
 as a fresh controlled operation, as `Task.Run` queues its body, and `RunSynchronously` runs it on the calling logical
 thread. The BCL keeps the task's state, so its status transitions (`WaitingToRun` after `Start`), its rejection of a
-second start, and the execution context captured at construction are the BCL's. Inside such a task
+second start, and the execution context captured at construction are the BCL's. A task which uninstrumented code
+constructs without `DenyChildAttach` may gain attached children while it runs; `RunSynchronously` runs its delegate
+inline and then waits for those children with the controlled wait, pumping the coordinator, so the BCL's
+`RunSynchronously` finds the task complete and never blocks the logical thread on them. Inside such a task
 `TaskScheduler.Current` is the coordinator scheduler, which every controlled API that takes a scheduler accepts as
 it accepts `TaskScheduler.Default`. A timed or cancellable `Wait`, `WaitAll`, or `WaitAny` pumps the coordinator
 until the tasks complete, the token is cancelled, or its deadline elapses, then lets the BCL compute the result
