@@ -192,51 +192,58 @@ internal class SimulationWaiter(string? asynchronousApi = null)
 
         public Task<bool> Task => _waiter.Task;
 
-        public void Complete(bool result) =>
-            Resolve(result, static (completion, result) => completion.TrySetResult(result));
+        public void Complete(bool result) => Resolve(new Outcome(OutcomeKind.Result, result, null, default));
 
         public void Cancel(CancellationToken cancellationToken) =>
-            Resolve(cancellationToken, static (completion, cancellationToken) => completion.TrySetCanceled(cancellationToken));
+            Resolve(new Outcome(OutcomeKind.Canceled, Result: false, null, cancellationToken));
 
         public void Fault(Exception exception)
         {
             ArgumentNullException.ThrowIfNull(exception);
-            Resolve(exception, static (completion, exception) => completion.TrySetException(exception));
+            Resolve(new Outcome(OutcomeKind.Faulted, Result: false, exception, default));
         }
 
         private static bool IsSimulationThread() =>
             SimulationExecutionContext.Current is { Runtime.Scheduler.IsSimulationThread: true };
 
-        // The registrations are released inside the completion, so a completion which fails the run does so first. A
-        // waiter which continues asynchronously is delivered by a controlled operation queued from the logical thread; a
-        // cancellation which a thread outside the simulation makes completes it there, where the BCL would too.
-        private void Resolve<TOutcome>(
-            TOutcome outcome,
-            [CompletionCallback] Func<TaskCompletionSource<bool>, TOutcome, bool> complete)
+        // A waiter which continues asynchronously is delivered by a controlled operation queued from the logical thread;
+        // a cancellation which a thread outside the simulation makes completes it there, where the BCL would too.
+        private void Resolve(Outcome outcome)
         {
             if (_waiter._asynchronousApi is not { } asynchronousApi || !IsSimulationThread())
             {
-                SimulationCompletion.Run(
-                    (claim: this, outcome, complete),
-                    static completion =>
-                    {
-                        completion.claim.Cleanup();
-                        completion.complete(completion.claim._waiter._completion, completion.outcome);
-                    },
-                    Api);
+                Deliver(this, outcome, cleanup: true);
                 return;
             }
 
             Cleanup();
-            TaskCompletionSource<bool> source = _waiter._completion;
+            Claim claim = this;
             SimulationTaskRuntime.QueueWork(
-                () => SimulationCompletion.Run(
-                    (source, outcome, complete),
-                    static completion => completion.complete(completion.source, completion.outcome),
-                    Api),
+                () => Deliver(claim, outcome, cleanup: false),
                 asynchronousApi,
                 flowExecutionContext: false);
         }
+
+        // The registrations are released inside the completion, so a completion which fails the run does so first.
+        private static void Deliver(Claim claim, Outcome outcome, bool cleanup) =>
+            SimulationCompletion.Run(
+                (claim, outcome, cleanup),
+                static completion =>
+                {
+                    if (completion.cleanup)
+                    {
+                        completion.claim.Cleanup();
+                    }
+
+                    TaskCompletionSource<bool> source = completion.claim._waiter._completion;
+                    _ = completion.outcome.Kind switch
+                    {
+                        OutcomeKind.Result => source.TrySetResult(completion.outcome.Result),
+                        OutcomeKind.Canceled => source.TrySetCanceled(completion.outcome.CancellationToken),
+                        _ => source.TrySetException(completion.outcome.Exception!),
+                    };
+                },
+                Api);
 
         private void Cleanup()
         {
@@ -244,4 +251,13 @@ internal class SimulationWaiter(string? asynchronousApi = null)
             _cancellationRegistration.Dispose();
         }
     }
+
+    private enum OutcomeKind
+    {
+        Result,
+        Canceled,
+        Faulted,
+    }
+
+    private readonly record struct Outcome(OutcomeKind Kind, bool Result, Exception? Exception, CancellationToken CancellationToken);
 }

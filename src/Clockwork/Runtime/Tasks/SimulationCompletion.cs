@@ -39,7 +39,8 @@ namespace Clockwork.Runtime.Tasks;
 /// <para>
 /// Clockwork's code calls the BCL's completion members (<see cref="TaskCompletionSource"/>'s <c>Set*</c> and
 /// <c>TrySet*</c>, <see cref="System.Threading.Tasks.Sources.ManualResetValueTaskSourceCore{TResult}"/>'s <c>Set*</c>, and
-/// <see cref="CancellationTokenSource.Cancel()"/>) only in the delegates its callers pass here (see
+/// <see cref="CancellationTokenSource"/>'s <c>Cancel</c>, <c>CancelAsync</c>, and <c>CancelAfter</c>) only in the delegates
+/// its callers pass here (see
 /// <see cref="CompletionCallbackAttribute"/>): an analyzer rejects any other call in the Clockwork assembly.
 /// </para>
 /// </summary>

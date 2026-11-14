@@ -15,20 +15,21 @@ namespace Clockwork.Analyzers;
 /// work to the thread pool.
 /// </para>
 /// <para>
-/// <c>CW1004</c> reports a call of a completion member (<c>TaskCompletionSource</c>'s and
+/// <c>CW1004</c> reports a call of, or a delegate to, a completion member (<c>TaskCompletionSource</c>'s and
 /// <c>TaskCompletionSource&lt;TResult&gt;</c>'s <c>Set*</c> and <c>TrySet*</c>,
 /// <c>ManualResetValueTaskSourceCore&lt;TResult&gt;</c>'s <c>SetResult</c> and <c>SetException</c>, and
-/// <c>CancellationTokenSource</c>'s <c>Cancel</c>) unless it is inside
-/// <c>SimulationCompletion</c>, or directly inside a lambda passed to a parameter marked
-/// <c>[CompletionCallback]</c>, which runs only through <c>SimulationCompletion</c>. The rule is active only in the
-/// assembly which defines <c>SimulationCompletion</c>.
+/// <c>CancellationTokenSource</c>'s <c>Cancel</c>, <c>CancelAsync</c>, and <c>CancelAfter</c>) unless it is inside
+/// <c>SimulationCompletion</c>, or directly inside a lambda, or is a method group, passed to a parameter marked
+/// <c>Clockwork.Runtime.Tasks.CompletionCallbackAttribute</c>, which runs only through <c>SimulationCompletion</c>. Outside
+/// <c>SimulationCompletion</c>, such a parameter may only be passed on to another such parameter. The rule is active
+/// only in the assembly which defines <c>SimulationCompletion</c>.
 /// </para>
 /// </summary>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class CompletionAuthorityAnalyzer : DiagnosticAnalyzer
 {
     private const string AuthorityTypeName = "Clockwork.Runtime.Tasks.SimulationCompletion";
-    private const string CallbackAttributeName = "CompletionCallbackAttribute";
+    private const string CallbackAttributeTypeName = "Clockwork.Runtime.Tasks.CompletionCallbackAttribute";
 
     private static readonly ImmutableHashSet<string> TaskCompletionSourceMembers = ImmutableHashSet.Create(
         "SetResult",
@@ -42,8 +43,11 @@ public sealed class CompletionAuthorityAnalyzer : DiagnosticAnalyzer
 
     private static readonly ImmutableHashSet<string> ValueTaskSourceCoreMembers = ImmutableHashSet.Create("SetResult", "SetException");
 
+    private static readonly ImmutableHashSet<string> CancellationTokenSourceMembers =
+        ImmutableHashSet.Create("Cancel", "CancelAsync", "CancelAfter");
+
     /// <summary>
-    /// <c>CW1004</c>: Clockwork code calls a completion member outside <c>SimulationCompletion</c>.
+    /// <c>CW1004</c>: Clockwork code calls, or makes a delegate to, a completion member outside <c>SimulationCompletion</c>.
     /// </summary>
     public static readonly DiagnosticDescriptor CompletionOutsideAuthority = new(
         id: "CW1004",
@@ -54,8 +58,21 @@ public sealed class CompletionAuthorityAnalyzer : DiagnosticAnalyzer
         isEnabledByDefault: true,
         description: "Every completion Clockwork performs for simulation code runs through SimulationCompletion, with no synchronization context and the default scheduler current, so the BCL runs the continuations it completes inline on the simulation's logical thread rather than queuing them to the real thread pool.");
 
+    /// <summary>
+    /// <c>CW1004</c>: a completion callback flows somewhere other than another completion callback parameter.
+    /// </summary>
+    public static readonly DiagnosticDescriptor CompletionCallbackEscapes = new(
+        id: "CW1004",
+        title: "Clockwork completes tasks through SimulationCompletion",
+        messageFormat: "Completion callback '{0}' may only be passed to another [CompletionCallback] parameter, which runs it through SimulationCompletion",
+        category: "Clockwork.Runtime",
+        defaultSeverity: DiagnosticSeverity.Error,
+        isEnabledByDefault: true,
+        description: "A [CompletionCallback] delegate may call completion members, so it runs only through SimulationCompletion.");
+
     /// <inheritdoc />
-    public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } = [CompletionOutsideAuthority];
+    public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } =
+        [CompletionOutsideAuthority, CompletionCallbackEscapes];
 
     /// <inheritdoc />
     public override void Initialize(AnalysisContext context)
@@ -73,6 +90,7 @@ public sealed class CompletionAuthorityAnalyzer : DiagnosticAnalyzer
             return;
         }
 
+        INamedTypeSymbol? callbackAttribute = context.Compilation.GetTypeByMetadataName(CallbackAttributeTypeName);
         INamedTypeSymbol?[] taskCompletionSources =
         [
             context.Compilation.GetTypeByMetadataName("System.Threading.Tasks.TaskCompletionSource"),
@@ -95,7 +113,53 @@ public sealed class CompletionAuthorityAnalyzer : DiagnosticAnalyzer
                 return ValueTaskSourceCoreMembers.Contains(method.Name);
             }
 
-            return SymbolEqualityComparer.Default.Equals(type, cancellationTokenSource) && method.Name == "Cancel";
+            return SymbolEqualityComparer.Default.Equals(type, cancellationTokenSource)
+                && CancellationTokenSourceMembers.Contains(method.Name);
+        }
+
+        bool IsCallbackParameter(IParameterSymbol parameter) =>
+            callbackAttribute is not null
+            && parameter.OriginalDefinition.GetAttributes().Any(
+                attribute => SymbolEqualityComparer.Default.Equals(attribute.AttributeClass, callbackAttribute));
+
+        bool IsInsideAuthority(ISymbol containingSymbol)
+        {
+            for (INamedTypeSymbol? type = containingSymbol.ContainingType; type is not null; type = type.ContainingType)
+            {
+                if (SymbolEqualityComparer.Default.Equals(type, authority))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        // Whether the value of 'operation' is passed, through conversions and delegate creation, to a callback parameter.
+        bool IsPassedAsCompletionCallback(IOperation operation)
+        {
+            IOperation? parent = operation.Parent;
+            while (parent is IDelegateCreationOperation or IConversionOperation)
+            {
+                parent = parent.Parent;
+            }
+
+            return parent is IArgumentOperation { Parameter: { } parameter } && IsCallbackParameter(parameter);
+        }
+
+        // A completion member may be used directly inside a lambda passed as a completion callback, or anywhere in
+        // SimulationCompletion outside a lambda.
+        bool IsAuthorized(IOperation use, ISymbol containingSymbol)
+        {
+            for (IOperation? operation = use.Parent; operation is not null; operation = operation.Parent)
+            {
+                if (operation is IAnonymousFunctionOperation function)
+                {
+                    return IsPassedAsCompletionCallback(function);
+                }
+            }
+
+            return IsInsideAuthority(containingSymbol);
         }
 
         context.RegisterOperationAction(
@@ -103,47 +167,46 @@ public sealed class CompletionAuthorityAnalyzer : DiagnosticAnalyzer
             {
                 var invocation = (IInvocationOperation)operationContext.Operation;
                 if (IsCompletionMember(invocation.TargetMethod)
-                    && !IsAuthorized(invocation, operationContext.ContainingSymbol, authority))
+                    && !IsAuthorized(invocation, operationContext.ContainingSymbol))
                 {
-                    operationContext.ReportDiagnostic(Diagnostic.Create(
-                        CompletionOutsideAuthority,
-                        invocation.Syntax.GetLocation(),
-                        invocation.TargetMethod.ContainingType.Name + "." + invocation.TargetMethod.Name));
+                    Report(operationContext, CompletionOutsideAuthority, invocation, invocation.TargetMethod);
                 }
             },
             OperationKind.Invocation);
-    }
 
-    private static bool IsAuthorized(IOperation invocation, ISymbol containingSymbol, INamedTypeSymbol authority)
-    {
-        for (IOperation? operation = invocation.Parent; operation is not null; operation = operation.Parent)
-        {
-            if (operation is IAnonymousFunctionOperation function)
+        context.RegisterOperationAction(
+            operationContext =>
             {
-                return IsPassedAsCompletionCallback(function);
-            }
-        }
+                var reference = (IMethodReferenceOperation)operationContext.Operation;
+                if (IsCompletionMember(reference.Method)
+                    && !IsPassedAsCompletionCallback(reference)
+                    && !IsAuthorized(reference, operationContext.ContainingSymbol))
+                {
+                    Report(operationContext, CompletionOutsideAuthority, reference, reference.Method);
+                }
+            },
+            OperationKind.MethodReference);
 
-        for (INamedTypeSymbol? type = containingSymbol.ContainingType; type is not null; type = type.ContainingType)
-        {
-            if (SymbolEqualityComparer.Default.Equals(type, authority))
+        context.RegisterOperationAction(
+            operationContext =>
             {
-                return true;
-            }
-        }
-
-        return false;
+                var reference = (IParameterReferenceOperation)operationContext.Operation;
+                if (IsCallbackParameter(reference.Parameter)
+                    && !IsPassedAsCompletionCallback(reference)
+                    && !IsInsideAuthority(operationContext.ContainingSymbol))
+                {
+                    operationContext.ReportDiagnostic(Diagnostic.Create(
+                        CompletionCallbackEscapes,
+                        reference.Syntax.GetLocation(),
+                        reference.Parameter.Name));
+                }
+            },
+            OperationKind.ParameterReference);
     }
 
-    private static bool IsPassedAsCompletionCallback(IAnonymousFunctionOperation function)
-    {
-        IOperation? parent = function.Parent;
-        while (parent is IDelegateCreationOperation or IConversionOperation)
-        {
-            parent = parent.Parent;
-        }
-
-        return parent is IArgumentOperation { Parameter: { } parameter }
-            && parameter.OriginalDefinition.GetAttributes().Any(attribute => attribute.AttributeClass?.Name == CallbackAttributeName);
-    }
+    private static void Report(OperationAnalysisContext context, DiagnosticDescriptor descriptor, IOperation use, IMethodSymbol member) =>
+        context.ReportDiagnostic(Diagnostic.Create(
+            descriptor,
+            use.Syntax.GetLocation(),
+            member.ContainingType.Name + "." + member.Name));
 }
