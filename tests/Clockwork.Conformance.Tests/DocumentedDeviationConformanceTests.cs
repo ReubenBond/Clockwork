@@ -142,6 +142,17 @@ public sealed class DocumentedDeviationConformanceTests : IDisposable
                 return string.Join("|", log);
             }
 
+            // Release frees a WaitAsync waiter: whether its task has completed when Release returns.
+            public static async Task<string> WaitAsyncAfterRelease()
+            {
+                var semaphore = new SemaphoreSlim(0);
+                Task waiting = semaphore.WaitAsync();
+                semaphore.Release();
+                string observed = "completed=" + waiting.IsCompleted;
+                await waiting;
+                return observed;
+            }
+
             // A callback which the probe registers runs inside Cancel, and describes the context and scheduler it sees.
             public static Task<string> ContextInsideACompletion(Func<string> describe)
             {
@@ -218,6 +229,16 @@ public sealed class DocumentedDeviationConformanceTests : IDisposable
     {
         // The BCL's task runs its continuations asynchronously ("RunContinuationsAsynchronously completed=False").
         Assert.Equal("None completed=False", Simulated("TimerDisposalWhileTheCallbackRuns", optimize));
+    }
+
+    [Theory]
+    [MemberData(nameof(Optimizations))]
+    public async Task AWaitAsyncWaiterIsIncompleteWhenReleaseReturns(bool optimize)
+    {
+        // The BCL completes the task inside Release, and runs only its continuations asynchronously.
+        var bcl = (Task<string>)_bcl.Value.Method("WaitAsyncAfterRelease").Invoke(null, null)!;
+        Assert.Equal("completed=True", await bcl.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
+        Assert.Equal("completed=False", Simulated("WaitAsyncAfterRelease", optimize));
     }
 
     /// <summary>Where a probe runs: before the first await of <c>RunToCompletion</c>'s root task, or in a lane's work.</summary>

@@ -659,7 +659,10 @@ or `WhenEach` enumerator whose antecedent is still pending completes one control
 rather than inside the completing call; and a combinator or continuation whose antecedent never completes remains
 pending simulation work, as an await of that antecedent does (for `WhenEach`, until its enumeration ends, or until
 every task has completed if nothing enumerates it). `ControlledTimer.DisposeAsync` completes its task without
-`RunContinuationsAsynchronously`, so its `CreationOptions` report `None`. Because Clockwork's own continuations never
+`RunContinuationsAsynchronously`, so its `CreationOptions` report `None`. The task `SemaphoreSlim.WaitAsync` returns is
+still incomplete when the `Release`, `Cancel`, or `Dispose` which resolves it returns, and completes in a controlled
+operation of its own, where the BCL completes it inside that call and runs only its continuations asynchronously
+([Completions from rewritten code](#completions-from-rewritten-code)). Because Clockwork's own continuations never
 run inside the completing call, Clockwork cannot surface bugs where such a continuation runs inline under the
 completer's lock (a deadlock or reentrancy the BCL's synchronous continuations can cause). A continuation which
 uninstrumented code registered on the current synchronization context, whose task rewritten code completes while that
@@ -695,7 +698,8 @@ Around the completion the BCL's behavior is kept where it differs:
 - **Asynchronous completions stay asynchronous.** The BCL completes the task `SemaphoreSlim.WaitAsync` returns with
   `RunContinuationsAsynchronously`, so no continuation runs inside the `Release`, `Cancel`, or `Dispose` which resolves
   the waiter. Clockwork fixes the waiter's outcome in that call and completes its task in a controlled operation of its
-  own, on the logical thread. The synchronous waits of the other primitives complete inside the call, as in the BCL.
+  own, on the logical thread, so the task itself is not yet complete when that call returns (a remaining deviation). The
+  synchronous waits of the other primitives complete inside the call, as in the BCL.
 - **`Send` runs inline on the owning lane.** `SimulationSynchronizationContext.Send` runs its callback inline when the
   calling thread is executing that context's lane's work, whichever context is current, so a callback registered with
   `CancellationToken.Register(..., useSynchronizationContext: true)` runs inside `Cancel`, as in the BCL. A `Send` made
