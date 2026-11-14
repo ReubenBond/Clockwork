@@ -36,20 +36,20 @@ internal sealed class ThreadPoolEscapeGuard : EventListener
 
     private static readonly Lazy<ThreadPoolEscapeGuard> Instance = new(Create);
 
-    private readonly ConcurrentDictionary<SimulationScheduler, ConcurrentQueue<string>> _watched = new();
+    private readonly ConcurrentDictionary<SimulationScheduler, ConcurrentQueue<StackTrace>> _watched = new();
     private readonly ManualResetEventSlim _primed = new();
     private volatile int _primingThread;
 
     /// <summary>Starts recording the work which <paramref name="scheduler"/>'s logical thread queues to the thread pool.</summary>
     /// <param name="scheduler">The scheduler to watch.</param>
     public static void Watch(SimulationScheduler scheduler) =>
-        Instance.Value._watched.TryAdd(scheduler, new ConcurrentQueue<string>());
+        Instance.Value._watched.TryAdd(scheduler, new ConcurrentQueue<StackTrace>());
 
     /// <summary>Stops watching <paramref name="scheduler"/> and returns the stacks which queued work while it was watched.</summary>
     /// <param name="scheduler">The watched scheduler.</param>
     /// <returns>The stack of each enqueue.</returns>
-    public static IReadOnlyCollection<string> Unwatch(SimulationScheduler scheduler) =>
-        Instance.Value._watched.TryRemove(scheduler, out ConcurrentQueue<string>? escapes) ? escapes : [];
+    public static IReadOnlyCollection<StackTrace> Unwatch(SimulationScheduler scheduler) =>
+        Instance.Value._watched.TryRemove(scheduler, out ConcurrentQueue<StackTrace>? escapes) ? escapes : [];
 
     private static ThreadPoolEscapeGuard Create()
     {
@@ -98,11 +98,11 @@ internal sealed class ThreadPoolEscapeGuard : EventListener
             return;
         }
 
-        foreach ((SimulationScheduler scheduler, ConcurrentQueue<string> escapes) in _watched)
+        foreach ((SimulationScheduler scheduler, ConcurrentQueue<StackTrace> escapes) in _watched)
         {
             if (scheduler.IsSimulationThread)
             {
-                escapes.Enqueue(Environment.StackTrace);
+                escapes.Enqueue(new StackTrace(fNeedFileInfo: true));
             }
         }
     }

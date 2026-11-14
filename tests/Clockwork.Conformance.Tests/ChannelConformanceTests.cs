@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -757,7 +758,7 @@ public sealed class ChannelConformanceTests : IDisposable
         string controlled;
 
         // A built-in channel completes a wait which its token cancels on the thread pool (#59).
-        using (var host = new SimulationHost(Start, knownEscapeFrame: "System.Threading.Channels.ChannelUtilities.UnsafeQueueUserWorkItem"))
+        using (var host = new SimulationHost(Start, isKnownEscape: IsAChannelsCancellationCallback))
         {
             controlled = Completed((Task<string>)host.Invoke(Method("Scenario"), scenario)!);
         }
@@ -765,6 +766,37 @@ public sealed class ChannelConformanceTests : IDisposable
         var bcl = (Task<string>)_bcl.Value.Method("Scenario").Invoke(null, [scenario])!;
 
         Assert.Equal(await bcl.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken), controlled);
+    }
+
+    // The #59 escape: a built-in channel's cancellation callback, which CancellationTokenSource runs, queues the canceled
+    // wait's completion. The frames between the thread pool's and ExecuteCallbackHandlers are all the channel assembly's
+    // (its queueing helper is a forwarder the JIT may inline); any other enqueue, such as a channel's own race in
+    // OnCompleted, is not this escape.
+    private static bool IsAChannelsCancellationCallback(StackTrace stack)
+    {
+        StackFrame[] frames = stack.GetFrames();
+        int frame = Array.FindIndex(frames, candidate => candidate.GetMethod()?.DeclaringType == typeof(ThreadPool));
+        if (frame < 0)
+        {
+            return false;
+        }
+
+        while (frame < frames.Length && frames[frame].GetMethod()?.DeclaringType == typeof(ThreadPool))
+        {
+            frame++;
+        }
+
+        int channelFrames = 0;
+        while (frame < frames.Length && frames[frame].GetMethod()?.DeclaringType?.Assembly == typeof(System.Threading.Channels.Channel).Assembly)
+        {
+            frame++;
+            channelFrames++;
+        }
+
+        return channelFrames > 0
+            && frame < frames.Length
+            && frames[frame].GetMethod() is { Name: "ExecuteCallbackHandlers" } caller
+            && caller.DeclaringType == typeof(CancellationTokenSource);
     }
 
     [Fact]

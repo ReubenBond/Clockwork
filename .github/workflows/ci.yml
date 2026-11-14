@@ -43,6 +43,13 @@ jobs:
         run: dotnet run --project tests/Clockwork.Analyzers.Tests/Clockwork.Analyzers.Tests.csproj --configuration Release --no-build -- --timeout 60s
       - name: Test conformance (Debug lowering)
         run: dotnet run --project tests/Clockwork.Conformance.Tests/Clockwork.Conformance.Tests.csproj --configuration Debug -- --timeout 300s
+      - name: Test channel conformance without tiered compilation
+        # Fully optimized framework code inlines small forwarders, so the escape guard's channel exception (#59) must
+        # not depend on their frames.
+        env:
+          DOTNET_TieredCompilation: '0'
+          DOTNET_ReadyToRun: '0'
+        run: dotnet run --project tests/Clockwork.Conformance.Tests/Clockwork.Conformance.Tests.csproj --configuration Debug --no-build -- --timeout 300s --filter-class Clockwork.Conformance.Tests.ChannelConformanceTests
       - name: Package smoke tests
         # Exercises the real packed NuGet artifacts end-to-end: packs Clockwork.Instrumentation.Build
         # and Clockwork.Tool into an isolated feed, consumes the build package through the real MSBuild

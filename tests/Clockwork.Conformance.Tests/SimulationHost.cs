@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
 using Clockwork.Runtime.Scheduling;
@@ -29,7 +30,7 @@ internal sealed class SimulationHost : IDisposable
     private readonly string _defaultAddress;
     private readonly TimeSpan _hangBound;
     private readonly bool _allowThreadPoolEscapes;
-    private readonly string? _knownEscapeFrame;
+    private readonly Func<StackTrace, bool>? _isKnownEscape;
 
     // Set once a drive outlasts the watchdog: its thread still holds the cluster, so disposing the cluster would hang too.
     private bool _hung;
@@ -42,13 +43,13 @@ internal sealed class SimulationHost : IDisposable
         int? processorCount = null,
         TimeSpan? hangBound = null,
         bool allowThreadPoolEscapes = false,
-        string? knownEscapeFrame = null)
+        Func<StackTrace, bool>? isKnownEscape = null)
     {
         IReadOnlyList<string> addresses = nodeAddresses ?? ["node"];
         _defaultAddress = addresses[0];
         _hangBound = hangBound ?? DefaultHangBound;
         _allowThreadPoolEscapes = allowThreadPoolEscapes;
-        _knownEscapeFrame = knownEscapeFrame;
+        _isKnownEscape = isKnownEscape;
 
         _cluster = new SimulationCluster(
             seed,
@@ -197,9 +198,9 @@ internal sealed class SimulationHost : IDisposable
             _cluster.DisposeAsync().AsTask().GetAwaiter().GetResult();
         }
 
-        // An escape tracked elsewhere is recognised by a frame of the stack which queued it; any other still fails.
-        List<string> escapes = [.. ThreadPoolEscapeGuard.Unwatch(_cluster.Scheduler)
-            .Where(stack => _knownEscapeFrame is null || !stack.Contains(_knownEscapeFrame, StringComparison.Ordinal))];
+        // An escape tracked elsewhere is recognised by the stack which queued it; any other still fails.
+        List<StackTrace> escapes = [.. ThreadPoolEscapeGuard.Unwatch(_cluster.Scheduler)
+            .Where(stack => _isKnownEscape is null || !_isKnownEscape(stack))];
         if (!_allowThreadPoolEscapes && escapes.Count > 0)
         {
             Assert.Fail(
