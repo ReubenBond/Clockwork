@@ -141,6 +141,18 @@ public sealed class TaskSchedulingConformanceTests : IDisposable
                     return parent.Status + ":" + parent.Exception.InnerException.GetType().Name;
                 }
 
+                // A promise asks to attach to the running task; the constructed task denies attachment, so
+                // RunSynchronously returns once the body does instead of waiting for the promise on the logical thread.
+                public static string RunSynchronouslyWithAnAttachedPromise()
+                {
+                    var parent = new Task(() =>
+                    {
+                        var promise = new TaskCompletionSource(TaskCreationOptions.AttachedToParent);
+                        Task.Run(() => promise.SetResult());
+                    });
+                    parent.RunSynchronously();
+                    return parent.Status.ToString();
+                }
                 public static async Task<string> SchedulersRunWorkOnTheirNode(TaskScheduler otherNode, Func<string> node)
                 {
                     var log = new List<string>();
@@ -247,6 +259,21 @@ public sealed class TaskSchedulingConformanceTests : IDisposable
                     }
                 }
 
+                public static async Task<string> StartAndAwait(Task<string> task)
+                {
+                    task.Start();
+                    return await task;
+                }
+
+                // Runs inside a task constructed by uninstrumented code, whose scheduler is visible: TaskScheduler.Current
+                // is the coordinator's, which every controlled API taking a scheduler accepts.
+                public static string ScheduleOnTheCurrentScheduler(Func<string> node)
+                {
+                    bool visible = TaskScheduler.Current != TaskScheduler.Default;
+                    string viaFactory = Task.Factory.StartNew(node, CancellationToken.None, TaskCreationOptions.None, TaskScheduler.Current).Result;
+                    string viaContinuation = Task.CompletedTask.ContinueWith(_ => node(), TaskScheduler.Current).Result;
+                    return "visible:" + visible + "|startnew:" + viaFactory + "|continuewith:" + viaContinuation;
+                }
                 public static void RunSynchronouslyOnCustomScheduler() =>
                     new Task(() => { }).RunSynchronously(new ConcurrentExclusiveSchedulerPair().ExclusiveScheduler);
 
@@ -358,6 +385,17 @@ public sealed class TaskSchedulingConformanceTests : IDisposable
         Assert.Equal("Faulted:SimulationApiException", (string)host.Invoke(Method("RunSynchronouslyWithAnAttachedChild"))!);
     }
 
+    [Fact]
+    public void RunSynchronouslyOfAConstructedTaskDoesNotWaitForAPromiseAskingToAttach()
+    {
+        using var host = new SimulationHost(Start);
+
+        var controlled = (string)host.Invoke(Method("RunSynchronouslyWithAnAttachedPromise"))!;
+        var bcl = (string)_bcl.Value.Method("RunSynchronouslyWithAnAttachedPromise").Invoke(null, null)!;
+
+        Assert.Equal("RanToCompletion", controlled);
+        Assert.Equal(bcl, controlled);
+    }
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -390,6 +428,23 @@ public sealed class TaskSchedulingConformanceTests : IDisposable
 
         Assert.Equal(bcl, log);
         Assert.Equal("1:True,2:True,9:True|1,2,9", log);
+    }
+    [Fact]
+    public void ATaskWhichUninstrumentedCodeConstructsRunsOnTheCoordinatorsScheduler()
+    {
+        using var host = new SimulationHost(Start);
+        Func<string> node = () => SimulationExecutionContext.Current?.Node?.Address ?? "none";
+        MethodInfo schedule = Method("ScheduleOnTheCurrentScheduler");
+
+        // The test assembly is not rewritten, so this constructs the task with the BCL's constructor, which hides no
+        // scheduler, inside the simulation, which its captured context carries.
+        var task = (Task<string>)host.Invoke(
+            typeof(TaskSchedulingConformanceTests).GetMethod(nameof(ConstructUninstrumented), BindingFlags.NonPublic | BindingFlags.Static)!,
+            schedule,
+            node)!;
+        string log = Completed<string>(host.Invoke(Method("StartAndAwait"), task));
+
+        Assert.Equal("visible:True|startnew:node|continuewith:node", log);
     }
     [Theory]
     [InlineData("RunSynchronouslyOnCustomScheduler", "System.Threading.Tasks.Task.RunSynchronously")]
@@ -438,6 +493,8 @@ public sealed class TaskSchedulingConformanceTests : IDisposable
         Assert.Equal(escaped, (string)host.Invoke(staged.Method(probe))!);
     }
 
+    private static Task<string> ConstructUninstrumented(MethodInfo schedule, Func<string> node) =>
+        new(() => (string)schedule.Invoke(null, [node])!);
     private static T Completed<T>(object? task)
     {
         var typed = Assert.IsAssignableFrom<Task<T>>(task);

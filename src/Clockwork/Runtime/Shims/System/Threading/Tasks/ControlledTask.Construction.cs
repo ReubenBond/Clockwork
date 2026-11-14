@@ -19,8 +19,11 @@ namespace Clockwork.Shims.System.Threading.Tasks;
 /// <see cref="TaskScheduler.Current"/> is <see cref="TaskScheduler.Default"/>, as inside a task the BCL starts on the
 /// default scheduler. The BCL runs a framework continuation inline only where the current scheduler is the default
 /// one, and queues it to the thread pool anywhere else, so a task running visibly on the coordinator's scheduler would
-/// send the framework continuations it completes off the simulation. <see cref="CreationOptions"/> reports the options
-/// as the caller passed them.
+/// send the framework continuations it completes off the simulation. It also denies child attachment
+/// (<see cref="TaskCreationOptions.DenyChildAttach"/>), as <c>Task.Run</c>'s tasks do, so no child - a
+/// <see cref="TaskCompletionSource"/> constructed with <see cref="TaskCreationOptions.AttachedToParent"/>, say - attaches
+/// to it and makes <c>RunSynchronously</c> wait for that child on the logical thread. <see cref="CreationOptions"/> reports
+/// the options as the caller passed them.
 /// </para>
 /// </summary>
 // The factories mirror the BCL constructors, which take the CancellationToken before the TaskCreationOptions.
@@ -30,8 +33,11 @@ public static partial class ControlledTask
     private const string TaskConstructorApi = "System.Threading.Tasks.Task..ctor";
     private const string GenericTaskConstructorApi = "System.Threading.Tasks.Task`1..ctor";
 
-    // The tasks whose HideScheduler the constructor added, rather than their creator.
-    private static readonly ConditionalWeakTable<Task, object?> SchedulerHiddenByConstructor = [];
+    // The options which the controlled constructors add to every task they construct.
+    private const TaskCreationOptions ConstructorOptions = TaskCreationOptions.HideScheduler | TaskCreationOptions.DenyChildAttach;
+
+    // The constructor options each constructed task's creator did not pass itself.
+    private static readonly ConditionalWeakTable<Task, StrongBox<TaskCreationOptions>> AddedByConstructor = [];
 
     /// <summary>Controlled <c>new Task(Action)</c>.</summary>
     /// <param name="action">The task's delegate.</param>
@@ -62,7 +68,7 @@ public static partial class ControlledTask
         SimulationRuntimeDispatch.RequireActiveSimulation(TaskConstructorApi);
         ArgumentNullException.ThrowIfNull(action);
         RejectAttachedToParent(creationOptions, TaskConstructorApi);
-        return HideScheduler(creationOptions, options => new Task(() => ControlledTaskScheduler.RunAsExecutingTask(action), cancellationToken, options));
+        return Isolate(creationOptions, options => new Task(() => ControlledTaskScheduler.RunAsExecutingTask(action), cancellationToken, options));
     }
 
     /// <summary>Controlled <c>new Task(Action&lt;object?&gt;, object?)</c>.</summary>
@@ -103,7 +109,7 @@ public static partial class ControlledTask
         SimulationRuntimeDispatch.RequireActiveSimulation(TaskConstructorApi);
         ArgumentNullException.ThrowIfNull(action);
         RejectAttachedToParent(creationOptions, TaskConstructorApi);
-        return HideScheduler(
+        return Isolate(
             creationOptions,
             options => new Task(
                 taskState => ControlledTaskScheduler.RunAsExecutingTask(() => action(taskState)),
@@ -150,7 +156,7 @@ public static partial class ControlledTask
         // The BCL names the delegate 'action' in Task<TResult>'s argument validation too.
         ArgumentNullException.ThrowIfNull(function, "action");
         RejectAttachedToParent(creationOptions, GenericTaskConstructorApi);
-        return HideScheduler(
+        return Isolate(
             creationOptions,
             options => new Task<TResult>(
                 () =>
@@ -214,7 +220,7 @@ public static partial class ControlledTask
         // The BCL names the delegate 'action' in Task<TResult>'s argument validation too.
         ArgumentNullException.ThrowIfNull(function, "action");
         RejectAttachedToParent(creationOptions, GenericTaskConstructorApi);
-        return HideScheduler(
+        return Isolate(
             creationOptions,
             options => new Task<TResult>(
                 taskState =>
@@ -230,7 +236,8 @@ public static partial class ControlledTask
 
     /// <summary>
     /// Controlled <c>task.CreationOptions</c>: the options a task's creator passed, without the
-    /// <see cref="TaskCreationOptions.HideScheduler"/> which the controlled constructors add.
+    /// <see cref="TaskCreationOptions.HideScheduler"/> and <see cref="TaskCreationOptions.DenyChildAttach"/> which the
+    /// controlled constructors add.
     /// </summary>
     /// <param name="task">The task.</param>
     /// <returns>The task's creation options.</returns>
@@ -240,17 +247,19 @@ public static partial class ControlledTask
 
         // An instance getter: a null receiver fails with the runtime's NullReferenceException.
         TaskCreationOptions options = task.CreationOptions;
-        return SchedulerHiddenByConstructor.TryGetValue(task, out _) ? options & ~TaskCreationOptions.HideScheduler : options;
+        return AddedByConstructor.TryGetValue(task, out StrongBox<TaskCreationOptions>? added) ? options & ~added.Value : options;
     }
 
-    // Constructs the task with its scheduler hidden, recording when the creator did not ask for that itself.
-    private static TTask HideScheduler<TTask>(TaskCreationOptions creationOptions, Func<TaskCreationOptions, TTask> construct)
+    // Constructs the task with its scheduler hidden and child attachment denied, recording the options its creator did
+    // not pass itself.
+    private static TTask Isolate<TTask>(TaskCreationOptions creationOptions, Func<TaskCreationOptions, TTask> construct)
         where TTask : Task
     {
-        TTask task = construct(creationOptions | TaskCreationOptions.HideScheduler);
-        if ((creationOptions & TaskCreationOptions.HideScheduler) == 0)
+        TTask task = construct(creationOptions | ConstructorOptions);
+        TaskCreationOptions added = ConstructorOptions & ~creationOptions;
+        if (added != 0)
         {
-            SchedulerHiddenByConstructor.Add(task, null);
+            AddedByConstructor.Add(task, new StrongBox<TaskCreationOptions>(added));
         }
 
         return task;

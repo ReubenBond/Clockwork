@@ -695,7 +695,9 @@ captured when it was constructed, which carries its creator's strand; the contro
 run as the strand which executes it instead, so a task started with `Task.Start` owns its own locks, as a task on its
 own thread does, and a task run inline with `RunSynchronously` shares its caller's. `TaskCreationOptions.AttachedToParent`
 is rejected: Clockwork's controlled tasks do not model parent and child tasks, and a parent waiting for an attached
-child would block the simulation's logical thread. The constructed task hides its scheduler, so inside it
+child would block the simulation's logical thread. The constructed task denies child attachment, as `Task.Run`'s
+tasks do, so no child (a `TaskCompletionSource` asking for `AttachedToParent`, say) attaches to it. It also hides its
+scheduler, so inside it
 `TaskScheduler.Current` is `TaskScheduler.Default`, as inside a task the BCL starts on the default scheduler; the BCL
 runs a framework continuation which the task completes inline only there, and would otherwise queue it to the thread
 pool. Validation, `AsyncState`, `CreationOptions` (which report the options the creator passed), and the outcome of a

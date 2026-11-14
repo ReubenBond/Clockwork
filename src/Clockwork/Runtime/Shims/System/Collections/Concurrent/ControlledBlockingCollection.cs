@@ -28,8 +28,6 @@ namespace Clockwork.Shims.System.Collections.Concurrent;
 /// collection, which every take, and every observation that the collection is completed, acquires.
 /// </para>
 /// </summary>
-// The shims mirror the BCL signatures, which take a timeout before the token.
-#pragma warning disable CA1068
 [SuppressMessage("Naming", "CA1711", Justification = "Mirrors BlockingCollection<T>, as every controlled shim mirrors its framework type's name.")]
 public static class ControlledBlockingCollection
 {
@@ -55,7 +53,7 @@ public static class ControlledBlockingCollection
     public static void Add<T>(BlockingCollection<T> collection, T item)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(AddApi);
-        _ = TryAddCore(collection, item, Timeout.Infinite, CancellationToken.None, AddApi);
+        _ = TryAddCore(collection, item, Timeout.Infinite, AddApi, CancellationToken.None);
     }
 
     /// <summary>Controlled <see cref="BlockingCollection{T}.Add(T, CancellationToken)"/>.</summary>
@@ -66,7 +64,7 @@ public static class ControlledBlockingCollection
     public static void Add<T>(BlockingCollection<T> collection, T item, CancellationToken cancellationToken)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(AddApi);
-        _ = TryAddCore(collection, item, Timeout.Infinite, cancellationToken, AddApi);
+        _ = TryAddCore(collection, item, Timeout.Infinite, AddApi, cancellationToken);
     }
 
     /// <summary>Controlled <see cref="BlockingCollection{T}.TryAdd(T)"/>, which never waits.</summary>
@@ -77,7 +75,7 @@ public static class ControlledBlockingCollection
     public static bool TryAdd<T>(BlockingCollection<T> collection, T item)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(TryAddApi);
-        return TryAddCore(collection, item, 0, CancellationToken.None, TryAddApi);
+        return TryAddCore(collection, item, 0, TryAddApi, CancellationToken.None);
     }
 
     /// <summary>Controlled <see cref="BlockingCollection{T}.TryAdd(T, TimeSpan)"/>.</summary>
@@ -90,7 +88,7 @@ public static class ControlledBlockingCollection
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(TryAddApi);
         return IsValid(timeout)
-            ? TryAddCore(collection, item, (int)timeout.TotalMilliseconds, CancellationToken.None, TryAddApi)
+            ? TryAddCore(collection, item, (int)timeout.TotalMilliseconds, TryAddApi, CancellationToken.None)
             : collection.TryAdd(item, timeout);
     }
 
@@ -104,7 +102,7 @@ public static class ControlledBlockingCollection
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(TryAddApi);
         return IsValid(millisecondsTimeout)
-            ? TryAddCore(collection, item, millisecondsTimeout, CancellationToken.None, TryAddApi)
+            ? TryAddCore(collection, item, millisecondsTimeout, TryAddApi, CancellationToken.None)
             : collection.TryAdd(item, millisecondsTimeout);
     }
 
@@ -119,7 +117,7 @@ public static class ControlledBlockingCollection
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(TryAddApi);
         return IsValid(millisecondsTimeout)
-            ? TryAddCore(collection, item, millisecondsTimeout, cancellationToken, TryAddApi)
+            ? TryAddCore(collection, item, millisecondsTimeout, TryAddApi, cancellationToken)
             : collection.TryAdd(item, millisecondsTimeout, cancellationToken);
     }
 
@@ -130,7 +128,7 @@ public static class ControlledBlockingCollection
     public static T Take<T>(BlockingCollection<T> collection)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(TakeApi);
-        return TryTakeCore(collection, out T? item, Timeout.Infinite, CancellationToken.None, TakeApi)
+        return TryTakeCore(collection, out T? item, Timeout.Infinite, TakeApi, CancellationToken.None)
             ? item
             : collection.Take();
     }
@@ -145,7 +143,7 @@ public static class ControlledBlockingCollection
         SimulationRuntimeDispatch.RequireActiveSimulation(TakeApi);
 
         // Unsatisfied only once the collection is completed, when the BCL's Take throws without waiting.
-        return TryTakeCore(collection, out T? item, Timeout.Infinite, cancellationToken, TakeApi)
+        return TryTakeCore(collection, out T? item, Timeout.Infinite, TakeApi, cancellationToken)
             ? item
             : collection.Take(cancellationToken);
     }
@@ -158,7 +156,7 @@ public static class ControlledBlockingCollection
     public static bool TryTake<T>(BlockingCollection<T> collection, [MaybeNullWhen(false)] out T item)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(TryTakeApi);
-        return TryTakeCore(collection, out item, 0, CancellationToken.None, TryTakeApi);
+        return TryTakeCore(collection, out item, 0, TryTakeApi, CancellationToken.None);
     }
 
     /// <summary>Controlled <see cref="BlockingCollection{T}.TryTake(out T, TimeSpan)"/>.</summary>
@@ -171,7 +169,7 @@ public static class ControlledBlockingCollection
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(TryTakeApi);
         return IsValid(timeout)
-            ? TryTakeCore(collection, out item, (int)timeout.TotalMilliseconds, CancellationToken.None, TryTakeApi)
+            ? TryTakeCore(collection, out item, (int)timeout.TotalMilliseconds, TryTakeApi, CancellationToken.None)
             : collection.TryTake(out item, timeout);
     }
 
@@ -185,7 +183,7 @@ public static class ControlledBlockingCollection
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(TryTakeApi);
         return IsValid(millisecondsTimeout)
-            ? TryTakeCore(collection, out item, millisecondsTimeout, CancellationToken.None, TryTakeApi)
+            ? TryTakeCore(collection, out item, millisecondsTimeout, TryTakeApi, CancellationToken.None)
             : collection.TryTake(out item, millisecondsTimeout);
     }
 
@@ -200,7 +198,7 @@ public static class ControlledBlockingCollection
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(TryTakeApi);
         return IsValid(millisecondsTimeout)
-            ? TryTakeCore(collection, out item, millisecondsTimeout, cancellationToken, TryTakeApi)
+            ? TryTakeCore(collection, out item, millisecondsTimeout, TryTakeApi, cancellationToken)
             : collection.TryTake(out item, millisecondsTimeout, cancellationToken);
     }
 
@@ -248,7 +246,7 @@ public static class ControlledBlockingCollection
     public static int AddToAny<T>(BlockingCollection<T>[] collections, T item)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(AddToAnyApi);
-        return TryAddToAnyCore(collections, item, Timeout.Infinite, CancellationToken.None, AddToAnyApi);
+        return TryAddToAnyCore(collections, item, Timeout.Infinite, AddToAnyApi, CancellationToken.None);
     }
 
     /// <summary>Controlled <see cref="BlockingCollection{T}.AddToAny(BlockingCollection{T}[], T, CancellationToken)"/>.</summary>
@@ -260,7 +258,7 @@ public static class ControlledBlockingCollection
     public static int AddToAny<T>(BlockingCollection<T>[] collections, T item, CancellationToken cancellationToken)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(AddToAnyApi);
-        return TryAddToAnyCore(collections, item, Timeout.Infinite, cancellationToken, AddToAnyApi);
+        return TryAddToAnyCore(collections, item, Timeout.Infinite, AddToAnyApi, cancellationToken);
     }
 
     /// <summary>Controlled <see cref="BlockingCollection{T}.TryAddToAny(BlockingCollection{T}[], T)"/>, which never waits.</summary>
@@ -271,7 +269,7 @@ public static class ControlledBlockingCollection
     public static int TryAddToAny<T>(BlockingCollection<T>[] collections, T item)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(TryAddToAnyApi);
-        return TryAddToAnyCore(collections, item, 0, CancellationToken.None, TryAddToAnyApi);
+        return TryAddToAnyCore(collections, item, 0, TryAddToAnyApi, CancellationToken.None);
     }
 
     /// <summary>Controlled <see cref="BlockingCollection{T}.TryAddToAny(BlockingCollection{T}[], T, TimeSpan)"/>.</summary>
@@ -284,7 +282,7 @@ public static class ControlledBlockingCollection
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(TryAddToAnyApi);
         return IsValid(timeout)
-            ? TryAddToAnyCore(collections, item, (int)timeout.TotalMilliseconds, CancellationToken.None, TryAddToAnyApi)
+            ? TryAddToAnyCore(collections, item, (int)timeout.TotalMilliseconds, TryAddToAnyApi, CancellationToken.None)
             : BlockingCollection<T>.TryAddToAny(collections, item, timeout);
     }
 
@@ -298,7 +296,7 @@ public static class ControlledBlockingCollection
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(TryAddToAnyApi);
         return IsValid(millisecondsTimeout)
-            ? TryAddToAnyCore(collections, item, millisecondsTimeout, CancellationToken.None, TryAddToAnyApi)
+            ? TryAddToAnyCore(collections, item, millisecondsTimeout, TryAddToAnyApi, CancellationToken.None)
             : BlockingCollection<T>.TryAddToAny(collections, item, millisecondsTimeout);
     }
 
@@ -317,7 +315,7 @@ public static class ControlledBlockingCollection
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(TryAddToAnyApi);
         return IsValid(millisecondsTimeout)
-            ? TryAddToAnyCore(collections, item, millisecondsTimeout, cancellationToken, TryAddToAnyApi)
+            ? TryAddToAnyCore(collections, item, millisecondsTimeout, TryAddToAnyApi, cancellationToken)
             : BlockingCollection<T>.TryAddToAny(collections, item, millisecondsTimeout, cancellationToken);
     }
 
@@ -329,7 +327,7 @@ public static class ControlledBlockingCollection
     public static int TakeFromAny<T>(BlockingCollection<T>[] collections, out T? item)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(TakeFromAnyApi);
-        return TryTakeFromAnyCore(collections, out item, Timeout.Infinite, isTake: true, CancellationToken.None, TakeFromAnyApi);
+        return TryTakeFromAnyCore(collections, out item, Timeout.Infinite, isTake: true, TakeFromAnyApi, CancellationToken.None);
     }
 
     /// <summary>Controlled <see cref="BlockingCollection{T}.TakeFromAny(BlockingCollection{T}[], out T, CancellationToken)"/>.</summary>
@@ -341,7 +339,7 @@ public static class ControlledBlockingCollection
     public static int TakeFromAny<T>(BlockingCollection<T>[] collections, out T? item, CancellationToken cancellationToken)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(TakeFromAnyApi);
-        return TryTakeFromAnyCore(collections, out item, Timeout.Infinite, isTake: true, cancellationToken, TakeFromAnyApi);
+        return TryTakeFromAnyCore(collections, out item, Timeout.Infinite, isTake: true, TakeFromAnyApi, cancellationToken);
     }
 
     /// <summary>Controlled <see cref="BlockingCollection{T}.TryTakeFromAny(BlockingCollection{T}[], out T)"/>, which never waits.</summary>
@@ -352,7 +350,7 @@ public static class ControlledBlockingCollection
     public static int TryTakeFromAny<T>(BlockingCollection<T>[] collections, out T? item)
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(TryTakeFromAnyApi);
-        return TryTakeFromAnyCore(collections, out item, 0, isTake: false, CancellationToken.None, TryTakeFromAnyApi);
+        return TryTakeFromAnyCore(collections, out item, 0, isTake: false, TryTakeFromAnyApi, CancellationToken.None);
     }
 
     /// <summary>Controlled <see cref="BlockingCollection{T}.TryTakeFromAny(BlockingCollection{T}[], out T, TimeSpan)"/>.</summary>
@@ -365,7 +363,7 @@ public static class ControlledBlockingCollection
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(TryTakeFromAnyApi);
         return IsValid(timeout)
-            ? TryTakeFromAnyCore(collections, out item, (int)timeout.TotalMilliseconds, isTake: false, CancellationToken.None, TryTakeFromAnyApi)
+            ? TryTakeFromAnyCore(collections, out item, (int)timeout.TotalMilliseconds, isTake: false, TryTakeFromAnyApi, CancellationToken.None)
             : BlockingCollection<T>.TryTakeFromAny(collections, out item, timeout);
     }
 
@@ -379,7 +377,7 @@ public static class ControlledBlockingCollection
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(TryTakeFromAnyApi);
         return IsValid(millisecondsTimeout)
-            ? TryTakeFromAnyCore(collections, out item, millisecondsTimeout, isTake: false, CancellationToken.None, TryTakeFromAnyApi)
+            ? TryTakeFromAnyCore(collections, out item, millisecondsTimeout, isTake: false, TryTakeFromAnyApi, CancellationToken.None)
             : BlockingCollection<T>.TryTakeFromAny(collections, out item, millisecondsTimeout);
     }
 
@@ -398,7 +396,7 @@ public static class ControlledBlockingCollection
     {
         SimulationRuntimeDispatch.RequireActiveSimulation(TryTakeFromAnyApi);
         return IsValid(millisecondsTimeout)
-            ? TryTakeFromAnyCore(collections, out item, millisecondsTimeout, isTake: false, cancellationToken, TryTakeFromAnyApi)
+            ? TryTakeFromAnyCore(collections, out item, millisecondsTimeout, isTake: false, TryTakeFromAnyApi, cancellationToken)
             : BlockingCollection<T>.TryTakeFromAny(collections, out item, millisecondsTimeout, cancellationToken);
     }
 
@@ -406,8 +404,8 @@ public static class ControlledBlockingCollection
         BlockingCollection<T> collection,
         T item,
         int millisecondsTimeout,
-        CancellationToken cancellationToken,
-        string apiName)
+        string apiName,
+        CancellationToken cancellationToken)
     {
         if (TryAddNow(collection, item, cancellationToken))
         {
@@ -422,7 +420,6 @@ public static class ControlledBlockingCollection
         return Wait(
             () => CanAdd(collection),
             millisecondsTimeout,
-            cancellationToken,
             apiName,
             () =>
             {
@@ -433,15 +430,16 @@ public static class ControlledBlockingCollection
                 }
 
                 return TryAddNow(collection, item, cancellationToken) ? true : null;
-            });
+            },
+            cancellationToken);
     }
 
     private static bool TryTakeCore<T>(
         BlockingCollection<T> collection,
         [MaybeNullWhen(false)] out T item,
         int millisecondsTimeout,
-        CancellationToken cancellationToken,
-        string apiName)
+        string apiName,
+        CancellationToken cancellationToken)
     {
         if (TryTakeNow(collection, out item, cancellationToken))
         {
@@ -457,9 +455,9 @@ public static class ControlledBlockingCollection
         bool result = Wait(
             () => CanTake(collection),
             millisecondsTimeout,
-            cancellationToken,
             apiName,
-            () => TryTakeNow(collection, out taken, cancellationToken) ? true : IsCompleted(collection) ? false : null);
+            () => TryTakeNow(collection, out taken, cancellationToken) ? true : IsCompleted(collection) ? false : null,
+            cancellationToken);
         item = taken!;
         return result;
     }
@@ -471,7 +469,7 @@ public static class ControlledBlockingCollection
             yield break;
         }
 
-        while (TryTakeCore(collection, out T? item, Timeout.Infinite, cancellationToken, GetConsumingEnumerableApi))
+        while (TryTakeCore(collection, out T? item, Timeout.Infinite, GetConsumingEnumerableApi, cancellationToken))
         {
             yield return item;
         }
@@ -481,8 +479,8 @@ public static class ControlledBlockingCollection
         BlockingCollection<T>[] collections,
         T item,
         int millisecondsTimeout,
-        CancellationToken cancellationToken,
-        string apiName)
+        string apiName,
+        CancellationToken cancellationToken)
     {
         int index = TryAddToAnyNow(collections, item, cancellationToken);
         if (index >= 0 || millisecondsTimeout == 0)
@@ -494,9 +492,9 @@ public static class ControlledBlockingCollection
         bool result = Wait(
             () => CanAddToAny(collections),
             millisecondsTimeout,
-            cancellationToken,
             apiName,
-            () => (added = TryAddToAnyNow(collections, item, cancellationToken)) >= 0 ? true : null);
+            () => (added = TryAddToAnyNow(collections, item, cancellationToken)) >= 0 ? true : null,
+            cancellationToken);
         return result ? added : -1;
     }
 
@@ -505,8 +503,8 @@ public static class ControlledBlockingCollection
         out T? item,
         int millisecondsTimeout,
         bool isTake,
-        CancellationToken cancellationToken,
-        string apiName)
+        string apiName,
+        CancellationToken cancellationToken)
     {
         int index = TryTakeFromAnyNow(collections, out item, cancellationToken);
         if (index >= 0)
@@ -530,11 +528,11 @@ public static class ControlledBlockingCollection
         bool result = Wait(
             () => CanTakeFromAny(collections),
             millisecondsTimeout,
-            cancellationToken,
             apiName,
             () => (taken = TryTakeFromAnyNow(collections, out takenItem, cancellationToken)) >= 0 ? true
                 : AreAllCompleted(collections) ? false
-                : null);
+                : null,
+            cancellationToken);
         item = takenItem;
         if (result)
         {
@@ -552,9 +550,9 @@ public static class ControlledBlockingCollection
     private static bool Wait(
         Func<bool> ready,
         int millisecondsTimeout,
-        CancellationToken cancellationToken,
         string apiName,
-        Func<bool?> attempt)
+        Func<bool?> attempt,
+        CancellationToken cancellationToken)
     {
         ISimulationTimer? deadline = millisecondsTimeout == Timeout.Infinite
             ? null
@@ -731,4 +729,3 @@ public static class ControlledBlockingCollection
         return totalMilliseconds is >= 0 and <= int.MaxValue || totalMilliseconds == Timeout.Infinite;
     }
 }
-#pragma warning restore CA1068

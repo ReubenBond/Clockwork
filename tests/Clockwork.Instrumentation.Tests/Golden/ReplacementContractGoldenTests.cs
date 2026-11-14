@@ -51,6 +51,24 @@ public sealed class ReplacementContractGoldenTests
             RewriteDiagnosticIds.ReplacementContractMismatch
         },
         {
+            "base-call replacement of a non-virtual member",
+            RewriteRule.RedirectCall(
+                "basecall",
+                MemberSignature.Method("ClockworkFixtures.Api.Service", "GetValue"),
+                RewriteReplacement.Method(
+                    FixtureSources.ShimAssemblyName,
+                    "ClockworkFixtures.Shims.ClockShim",
+                    "GetValue",
+                    "ClockworkFixtures.Api.Service")) with
+            {
+                BaseCallReplacement = RewriteReplacement.Method(
+                    FixtureSources.ShimAssemblyName,
+                    "ClockworkFixtures.Shims.ClockShim",
+                    "GetValue",
+                    "ClockworkFixtures.Api.Service"),
+            },
+            RewriteDiagnosticIds.ReplacementContractMismatch
+        },        {
             "return mismatch",
             RewriteRule.RedirectCall(
                 "return",

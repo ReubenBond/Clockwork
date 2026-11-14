@@ -47,6 +47,18 @@ internal sealed class CallSiteRewritingPass : RewritePass
     private Instruction RedirectCall(Instruction instruction, MethodReference method, RewriteRule rule)
     {
         int offset = instruction.Offset;
+
+        // Only a virtual member has base calls: a rule which gives a non-virtual target a base-call replacement is
+        // malformed, since its call sites are all non-virtual calls the base-call replacement would capture.
+        if (rule.BaseCallReplacement is not null && method.Resolve() is { IsVirtual: false })
+        {
+            ReportContractMismatch(
+                rule,
+                offset,
+                $"The rule has a base-call replacement, but its target '{method.FullName}' is not a virtual member, so it has no base calls.");
+            return instruction;
+        }
+
         RewriteReplacement replacement = instruction.OpCode.Code == Code.Call && rule.BaseCallReplacement is { } baseCall
             ? baseCall
             : rule.Replacement;
