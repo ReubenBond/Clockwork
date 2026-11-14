@@ -271,6 +271,10 @@ public sealed class FrameworkTimeoutConformanceTests : IDisposable
 
                 public static Task DefaultClient() => new HttpClient(new DelayedHandler(TimeSpan.Zero)).GetStringAsync("http://sim/a");
 
+                // The override reaches HttpClient's implementation through its base call, which the timeout bounds.
+                public static Task MarkingClientWithTheDefaultTimeout() =>
+                    new MarkingClient(new DelayedHandler(TimeSpan.Zero)).SendAsync(new HttpRequestMessage(HttpMethod.Get, "http://sim/a"), CancellationToken.None);
+
                 public static Task InvokerOverAClient()
                 {
                     HttpMessageInvoker invoker = new HttpClient(new DelayedHandler(TimeSpan.Zero));
@@ -441,6 +445,7 @@ public sealed class FrameworkTimeoutConformanceTests : IDisposable
     [InlineData("OwningStream", "System.Net.WebSockets.WebSocketStream.Create")]
     [InlineData("StreamWithAFiniteCloseTimeout", "System.Net.WebSockets.WebSocketStream.Create")]
     [InlineData("ACloseLongerThanTheTimeout", "System.Net.WebSockets.WebSocketStream.Create")]
+    [InlineData("MarkingClientWithTheDefaultTimeout", "System.Net.Http.HttpClient.SendAsync")]
     public void ARealTimerIsRejected(string probe, string apiName)
     {
         using var host = new SimulationHost(Start);
