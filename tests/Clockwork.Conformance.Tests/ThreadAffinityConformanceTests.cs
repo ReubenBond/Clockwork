@@ -73,7 +73,8 @@ public sealed class ThreadAffinityConformanceTests : IDisposable
 
     /// <summary>
     /// Outside any simulation, the same entry points reject the call before reading their arguments, except the
-    /// <c>TaskCompletionSource</c> completions, which pass through to the BCL member and fail on the null source.
+    /// <c>TaskCompletionSource</c> completions and <c>Task.CreationOptions</c>, which pass through to the BCL member and
+    /// fail on the null receiver.
     /// </summary>
     [Fact]
     public void EveryControlledEntryPointRejectsACallOutsideASimulation()
@@ -82,6 +83,7 @@ public sealed class ThreadAffinityConformanceTests : IDisposable
 
         List<string> failures = InvokeEach(ambient: null, entryPoints, static (entryPoint, exception) =>
             entryPoint.Method.DeclaringType == typeof(ControlledTaskCompletionSource)
+                || entryPoint.Method == typeof(ControlledTask).GetMethod(nameof(ControlledTask.CreationOptions))
                 ? exception is NullReferenceException
                 : exception is SimulationNotActiveException notActive && entryPoint.Names(notActive.ApiName));
 

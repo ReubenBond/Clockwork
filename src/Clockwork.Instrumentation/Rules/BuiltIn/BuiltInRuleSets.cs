@@ -53,6 +53,7 @@ public static class BuiltInRuleSets
     private const string ThreadShim = "Clockwork.Shims.System.Threading.ControlledThread";
     private const string ThreadPoolShim = "Clockwork.Shims.System.Threading.ControlledThreadPool";
     private const string ParallelShim = "Clockwork.Shims.System.Threading.Tasks.ControlledParallel";
+    private const string PartitionerShim = "Clockwork.Shims.System.Collections.Concurrent.ControlledPartitioner";
     private const string MonitorShim = "Clockwork.Shims.System.Threading.ControlledMonitor";
     private const string SemaphoreSlimShim = "Clockwork.Shims.System.Threading.ControlledSemaphoreSlim";
     private const string InterlockedShim = "Clockwork.Shims.System.Threading.ControlledInterlocked";
@@ -264,7 +265,61 @@ public static class BuiltInRuleSets
     private const string ActionOfTSourceLoopStateVar = "System.Action`2<!!0,System.Threading.Tasks.ParallelLoopState>";
     private const string ActionOfTSourceLoopStateInt64Var = "System.Action`3<!!0,System.Threading.Tasks.ParallelLoopState,System.Int64>";
     private const string PartitionerOfTSourceVar = "System.Collections.Concurrent.Partitioner`1<!!0>";
+    private const string PartitionerOfTSourceDecl = "System.Collections.Concurrent.Partitioner`1<TSource>";
     private const string OrderablePartitionerOfTSourceVar = "System.Collections.Concurrent.OrderablePartitioner`1<!!0>";
+    private const string PartitionerType = "System.Collections.Concurrent.Partitioner";
+
+    // The asynchronous loops: ForEachAsync<TSource> over IEnumerable/IAsyncEnumerable and ForAsync<T>, whose body is a
+    // Func<element, CancellationToken, ValueTask>.
+    private const string IAsyncEnumerableOfTSourceVar = "System.Collections.Generic.IAsyncEnumerable`1<!!0>";
+    private const string IAsyncEnumerableOfTSourceDecl = "System.Collections.Generic.IAsyncEnumerable`1<TSource>";
+    private const string AsyncBodyOfTSourceVar = "System.Func`3<!!0,System.Threading.CancellationToken,System.Threading.Tasks.ValueTask>";
+    private const string AsyncBodyOfTSourceDecl = "System.Func`3<TSource,System.Threading.CancellationToken,System.Threading.Tasks.ValueTask>";
+    private const string AsyncBodyOfTDecl = "System.Func`3<T,System.Threading.CancellationToken,System.Threading.Tasks.ValueTask>";
+
+    // Cecil full names for the controlled System.Threading.Channels surface: virtual members of the open generic reader
+    // and writer (`!0` target), redirected to receiver-first generic shims (`T` replacement).
+    private const string ChannelReaderShim = "Clockwork.Shims.System.Threading.Channels.ControlledChannelReader";
+    private const string ChannelWriterShim = "Clockwork.Shims.System.Threading.Channels.ControlledChannelWriter";
+    private const string ChannelReaderType = "System.Threading.Channels.ChannelReader`1";
+    private const string ChannelWriterType = "System.Threading.Channels.ChannelWriter`1";
+    private const string ChannelReaderTDecl = "System.Threading.Channels.ChannelReader`1<T>";
+    private const string ChannelWriterTDecl = "System.Threading.Channels.ChannelWriter`1<T>";
+
+    // Cecil full names for the PLINQ entry points, rejected at the call site.
+    private const string ParallelEnumerableType = "System.Linq.ParallelEnumerable";
+    private const string ParallelEnumerableShim = "Clockwork.Shims.System.Linq.ControlledParallelEnumerable";
+    private const string NonGenericIEnumerable = "System.Collections.IEnumerable";
+
+    // Cecil full names for the controlled BlockingCollection<T> surface: members of the open generic type (`!0` target),
+    // redirected to generic shims (`T` replacement), receiver first for the instance members.
+    private const string BlockingCollectionType = "System.Collections.Concurrent.BlockingCollection`1";
+    private const string BlockingCollectionShim = "Clockwork.Shims.System.Collections.Concurrent.ControlledBlockingCollection";
+    private const string BlockingCollectionTDecl = "System.Collections.Concurrent.BlockingCollection`1<T>";
+    private const string BlockingCollectionArrayVar = "System.Collections.Concurrent.BlockingCollection`1<!0>[]";
+    private const string BlockingCollectionArrayDecl = "System.Collections.Concurrent.BlockingCollection`1<T>[]";
+    private const string TypeArg0Ref = "!0&";
+
+    // Cecil full names for the controlled Stream, TextReader, and TextWriter asynchronous members. The virtual members
+    // redirect receiver first to a shim which calls an override as written and otherwise runs the base algorithm, and
+    // their base calls to the shim's `Base` form.
+    private const string StreamType = "System.IO.Stream";
+    private const string TextReaderType = "System.IO.TextReader";
+    private const string TextWriterType = "System.IO.TextWriter";
+    private const string StreamShim = "Clockwork.Shims.System.IO.ControlledStream";
+    private const string TextReaderShim = "Clockwork.Shims.System.IO.ControlledTextReader";
+    private const string TextWriterShim = "Clockwork.Shims.System.IO.ControlledTextWriter";
+    private const string ByteArray = "System.Byte[]";
+    private const string CharArray = "System.Char[]";
+    private const string CharType = "System.Char";
+    private const string MemoryOfByte = "System.Memory`1<System.Byte>";
+    private const string ReadOnlyMemoryOfByte = "System.ReadOnlyMemory`1<System.Byte>";
+    private const string MemoryOfChar = "System.Memory`1<System.Char>";
+    private const string ReadOnlyMemoryOfChar = "System.ReadOnlyMemory`1<System.Char>";
+    private const string AsyncCallbackType = "System.AsyncCallback";
+    private const string AsyncResultType = "System.IAsyncResult";
+    private const string RuneType = "System.Text.Rune";
+    private const string StringBuilderType = "System.Text.StringBuilder";
 
     // The thread-local (TLocal) overloads: For<TLocal> declares TLocal as its only method generic parameter (`!!0`), while
     // ForEach<TSource, TLocal> declares it second (`!!1`).
@@ -506,6 +561,10 @@ public static class BuiltInRuleSets
         BuiltInRuleFamily.Timers,
         BuiltInRuleFamily.CancellationTimers,
         BuiltInRuleFamily.Parallel,
+        BuiltInRuleFamily.Channels,
+        BuiltInRuleFamily.Plinq,
+        BuiltInRuleFamily.BlockingCollection,
+        BuiltInRuleFamily.AsyncIO,
         BuiltInRuleFamily.Monitor,
         BuiltInRuleFamily.Lock,
         BuiltInRuleFamily.Semaphore,
@@ -652,11 +711,49 @@ public static class BuiltInRuleSets
         TaskRule(builder, BuiltInRuleFamily.TaskSynchronization, "clockwork.tasks.waitany.array",
             MemberSignature.Method(Task, "WaitAny", TaskArray), Shim(TaskShim, "WaitAny", TaskArray));
 
+        // The timed and cancellable waits pump the loop until the tasks complete, the token is cancelled, or a virtual
+        // deadline elapses, then let the BCL compute the outcome from the completed tasks.
+        TaskRule(builder, BuiltInRuleFamily.TaskSynchronization, "clockwork.tasks.wait.milliseconds",
+            MemberSignature.Method(Task, "Wait", Int32), Shim(TaskShim, "Wait", Task, Int32));
+        TaskRule(builder, BuiltInRuleFamily.TaskSynchronization, "clockwork.tasks.wait.milliseconds.cancellationtoken",
+            MemberSignature.Method(Task, "Wait", Int32, CancellationToken), Shim(TaskShim, "Wait", Task, Int32, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.TaskSynchronization, "clockwork.tasks.wait.cancellationtoken",
+            MemberSignature.Method(Task, "Wait", CancellationToken), Shim(TaskShim, "Wait", Task, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.TaskSynchronization, "clockwork.tasks.wait.timespan",
+            MemberSignature.Method(Task, "Wait", TimeSpan), Shim(TaskShim, "Wait", Task, TimeSpan));
+        TaskRule(builder, BuiltInRuleFamily.TaskSynchronization, "clockwork.tasks.wait.timespan.cancellationtoken",
+            MemberSignature.Method(Task, "Wait", TimeSpan, CancellationToken), Shim(TaskShim, "Wait", Task, TimeSpan, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.TaskSynchronization, "clockwork.tasks.waitall.array.milliseconds",
+            MemberSignature.Method(Task, "WaitAll", TaskArray, Int32), Shim(TaskShim, "WaitAll", TaskArray, Int32));
+        TaskRule(builder, BuiltInRuleFamily.TaskSynchronization, "clockwork.tasks.waitall.array.milliseconds.cancellationtoken",
+            MemberSignature.Method(Task, "WaitAll", TaskArray, Int32, CancellationToken), Shim(TaskShim, "WaitAll", TaskArray, Int32, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.TaskSynchronization, "clockwork.tasks.waitall.array.cancellationtoken",
+            MemberSignature.Method(Task, "WaitAll", TaskArray, CancellationToken), Shim(TaskShim, "WaitAll", TaskArray, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.TaskSynchronization, "clockwork.tasks.waitall.array.timespan",
+            MemberSignature.Method(Task, "WaitAll", TaskArray, TimeSpan), Shim(TaskShim, "WaitAll", TaskArray, TimeSpan));
+        TaskRule(builder, BuiltInRuleFamily.TaskSynchronization, "clockwork.tasks.waitall.enumerable.cancellationtoken",
+            MemberSignature.Method(Task, "WaitAll", IEnumerableTask, CancellationToken), Shim(TaskShim, "WaitAll", IEnumerableTask, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.TaskSynchronization, "clockwork.tasks.waitall.span",
+            MemberSignature.Method(Task, "WaitAll", ReadOnlySpanTask), Shim(TaskShim, "WaitAll", ReadOnlySpanTask));
+        TaskRule(builder, BuiltInRuleFamily.TaskSynchronization, "clockwork.tasks.waitany.array.milliseconds",
+            MemberSignature.Method(Task, "WaitAny", TaskArray, Int32), Shim(TaskShim, "WaitAny", TaskArray, Int32));
+        TaskRule(builder, BuiltInRuleFamily.TaskSynchronization, "clockwork.tasks.waitany.array.milliseconds.cancellationtoken",
+            MemberSignature.Method(Task, "WaitAny", TaskArray, Int32, CancellationToken), Shim(TaskShim, "WaitAny", TaskArray, Int32, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.TaskSynchronization, "clockwork.tasks.waitany.array.cancellationtoken",
+            MemberSignature.Method(Task, "WaitAny", TaskArray, CancellationToken), Shim(TaskShim, "WaitAny", TaskArray, CancellationToken));
+        TaskRule(builder, BuiltInRuleFamily.TaskSynchronization, "clockwork.tasks.waitany.array.timespan",
+            MemberSignature.Method(Task, "WaitAny", TaskArray, TimeSpan), Shim(TaskShim, "WaitAny", TaskArray, TimeSpan));
+
         // Blocking Task<TResult>.Result getter -> controlled drain. The getter is a non-generic member on
         // the closed generic Task`1<T>, so the call-site pass binds the shim's TResult from the receiver's
         // declaring type; the drain pumps the loop until the task completes instead of blocking a thread.
         TaskRule(builder, BuiltInRuleFamily.TaskSynchronization, "clockwork.tasks.result.generic",
             MemberSignature.Method("System.Threading.Tasks.Task`1", "get_Result"), Shim(TaskShim, "Result", TaskTDecl));
+
+        // Blocking ValueTask<TResult>.Result getter -> the same controlled drain. The receiver is a value type, so the
+        // shim takes it by reference, as the call pushes its address.
+        TaskRule(builder, BuiltInRuleFamily.TaskSynchronization, "clockwork.tasks.valuetask.result.generic",
+            MemberSignature.Method(ValueTaskTType, "get_Result"), Shim(ValueTaskShim, "Result", ValueTaskTRefDecl));
 
         // Blocking TaskAsyncEnumerableExtensions.ToBlockingEnumerable -> a controlled enumerable that drains the loop
         // until each MoveNextAsync and the final DisposeAsync complete, instead of blocking the logical thread that
@@ -749,6 +846,23 @@ public static class BuiltInRuleSets
             MemberSignature.Method(Task, "Run", FuncOfTaskResult), Shim(TaskShim, "Run", FuncOfTaskResultDecl));
         TaskRule(builder, BuiltInRuleFamily.TaskScheduling, "clockwork.tasks.run.func.task.generic.cancellationtoken",
             MemberSignature.Method(Task, "Run", FuncOfTaskResult, CancellationToken), Shim(TaskShim, "Run", FuncOfTaskResultDecl, CancellationToken));
+
+        // A task constructed with `new Task(...)` starts, or runs inline, on the coordinator's TaskScheduler, which keeps
+        // the BCL's validation and status transitions.
+        TaskRule(builder, BuiltInRuleFamily.TaskScheduling, "clockwork.tasks.start",
+            MemberSignature.Method(Task, "Start"), Shim(TaskShim, "Start", Task));
+        TaskRule(builder, BuiltInRuleFamily.TaskScheduling, "clockwork.tasks.start.scheduler",
+            MemberSignature.Method(Task, "Start", TaskSchedulerType), Shim(TaskShim, "Start", Task, TaskSchedulerType));
+        TaskRule(builder, BuiltInRuleFamily.TaskScheduling, "clockwork.tasks.runsynchronously",
+            MemberSignature.Method(Task, "RunSynchronously"), Shim(TaskShim, "RunSynchronously", Task));
+        TaskRule(builder, BuiltInRuleFamily.TaskScheduling, "clockwork.tasks.runsynchronously.scheduler",
+            MemberSignature.Method(Task, "RunSynchronously", TaskSchedulerType), Shim(TaskShim, "RunSynchronously", Task, TaskSchedulerType));
+
+        // `new Task(...)`: the constructed task's delegate runs as the strand which executes it rather than as its
+        // creator's, whose strand the BCL restores with the captured ExecutionContext, and AttachedToParent is rejected.
+        AddTaskConstructorRules(builder);
+        TaskRule(builder, BuiltInRuleFamily.TaskScheduling, "clockwork.tasks.creationoptions",
+            MemberSignature.Method(Task, "get_CreationOptions"), Shim(TaskShim, "CreationOptions", Task));
 
         // ---- Async machinery: retarget the compiler-generated builder/awaiter types of an async state
         // machine onto controlled equivalents (member-aware SubstituteType), plus the Task.Yield redirect.
@@ -975,6 +1089,10 @@ public static class BuiltInRuleSets
             MemberSignature.Method(ThreadType, "Start"), Shim(ThreadShim, "Start", ThreadType));
         TaskRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.start.parameter",
             MemberSignature.Method(ThreadType, "Start", ObjectType), Shim(ThreadShim, "Start", ThreadType, ObjectType));
+        TaskRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.unsafestart",
+            MemberSignature.Method(ThreadType, "UnsafeStart"), Shim(ThreadShim, "UnsafeStart", ThreadType));
+        TaskRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.unsafestart.parameter",
+            MemberSignature.Method(ThreadType, "UnsafeStart", ObjectType), Shim(ThreadShim, "UnsafeStart", ThreadType, ObjectType));
         TaskRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.join",
             MemberSignature.Method(ThreadType, "Join"), Shim(ThreadShim, "Join", ThreadType));
         TaskRule(builder, BuiltInRuleFamily.Thread, "clockwork.thread.join.milliseconds",
@@ -1093,12 +1211,12 @@ public static class BuiltInRuleSets
         RegisterWaitRedirect(builder, "clockwork.threadpool.unsaferegisterwait.int64", "UnsafeRegisterWaitForSingleObject", Int64);
         RegisterWaitRedirect(builder, "clockwork.threadpool.unsaferegisterwait.timespan", "UnsafeRegisterWaitForSingleObject", TimeSpan);
 
-        // ---- Parallel: the simple-body Invoke / For / ForEach overloads decompose into
-        // controlled operations on the coordinator (each branch queued, then the loop drained until all
-        // complete). Parallel is static, so the shim signatures match the target exactly. The generic
-        // ForEach<TSource> overloads are GenericInstanceMethods (`!!0` target, `TSource` replacement). The
-        // break/stop (ParallelLoopState), thread-local (TLocal), and Partitioner overloads are rejected at the call
-        // site. ----
+        // ---- Parallel: every loop runs on a deterministic pool of controlled workers on the coordinator, which honours
+        // MaxDegreeOfParallelism; the synchronous loops pump the coordinator until the pool completes, and the
+        // asynchronous loops (ForEachAsync, ForAsync) return its completion. Parallel is static, so the shim signatures
+        // match the target exactly. The generic overloads are GenericInstanceMethods (`!!0` target, `TSource`/`T`
+        // replacement). The overloads whose body receives a ParallelLoopState (break/stop and thread-local TLocal) are
+        // rejected at the call site. ----
         TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.invoke",
             MemberSignature.Method(ParallelType, "Invoke", ActionArray), Shim(ParallelShim, "Invoke", ActionArray));
         TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.invoke.options",
@@ -1117,6 +1235,51 @@ public static class BuiltInRuleSets
         TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.foreach.options",
             MemberSignature.Method(ParallelType, "ForEach", IEnumerableOfTSourceVar, ParallelOptionsType, ActionOfTSourceVar),
             Shim(ParallelShim, "ForEach", IEnumerableOfTSourceDecl, ParallelOptionsType, ActionOfTSourceDecl));
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.foreach.partitioner",
+            MemberSignature.Method(ParallelType, "ForEach", PartitionerOfTSourceVar, ActionOfTSourceVar),
+            Shim(ParallelShim, "ForEach", PartitionerOfTSourceDecl, ActionOfTSourceDecl));
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.foreach.partitioner.options",
+            MemberSignature.Method(ParallelType, "ForEach", PartitionerOfTSourceVar, ParallelOptionsType, ActionOfTSourceVar),
+            Shim(ParallelShim, "ForEach", PartitionerOfTSourceDecl, ParallelOptionsType, ActionOfTSourceDecl));
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.forasync",
+            MemberSignature.Method(ParallelType, "ForAsync", GenericArg0, GenericArg0, AsyncBodyOfTSourceVar),
+            Shim(ParallelShim, "ForAsync", GenericTDecl, GenericTDecl, AsyncBodyOfTDecl));
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.forasync.cancellationtoken",
+            MemberSignature.Method(ParallelType, "ForAsync", GenericArg0, GenericArg0, CancellationToken, AsyncBodyOfTSourceVar),
+            Shim(ParallelShim, "ForAsync", GenericTDecl, GenericTDecl, CancellationToken, AsyncBodyOfTDecl));
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.forasync.options",
+            MemberSignature.Method(ParallelType, "ForAsync", GenericArg0, GenericArg0, ParallelOptionsType, AsyncBodyOfTSourceVar),
+            Shim(ParallelShim, "ForAsync", GenericTDecl, GenericTDecl, ParallelOptionsType, AsyncBodyOfTDecl));
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.foreachasync",
+            MemberSignature.Method(ParallelType, "ForEachAsync", IEnumerableOfTSourceVar, AsyncBodyOfTSourceVar),
+            Shim(ParallelShim, "ForEachAsync", IEnumerableOfTSourceDecl, AsyncBodyOfTSourceDecl));
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.foreachasync.cancellationtoken",
+            MemberSignature.Method(ParallelType, "ForEachAsync", IEnumerableOfTSourceVar, CancellationToken, AsyncBodyOfTSourceVar),
+            Shim(ParallelShim, "ForEachAsync", IEnumerableOfTSourceDecl, CancellationToken, AsyncBodyOfTSourceDecl));
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.foreachasync.options",
+            MemberSignature.Method(ParallelType, "ForEachAsync", IEnumerableOfTSourceVar, ParallelOptionsType, AsyncBodyOfTSourceVar),
+            Shim(ParallelShim, "ForEachAsync", IEnumerableOfTSourceDecl, ParallelOptionsType, AsyncBodyOfTSourceDecl));
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.foreachasync.asyncenumerable",
+            MemberSignature.Method(ParallelType, "ForEachAsync", IAsyncEnumerableOfTSourceVar, AsyncBodyOfTSourceVar),
+            Shim(ParallelShim, "ForEachAsync", IAsyncEnumerableOfTSourceDecl, AsyncBodyOfTSourceDecl));
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.foreachasync.asyncenumerable.cancellationtoken",
+            MemberSignature.Method(ParallelType, "ForEachAsync", IAsyncEnumerableOfTSourceVar, CancellationToken, AsyncBodyOfTSourceVar),
+            Shim(ParallelShim, "ForEachAsync", IAsyncEnumerableOfTSourceDecl, CancellationToken, AsyncBodyOfTSourceDecl));
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.foreachasync.asyncenumerable.options",
+            MemberSignature.Method(ParallelType, "ForEachAsync", IAsyncEnumerableOfTSourceVar, ParallelOptionsType, AsyncBodyOfTSourceVar),
+            Shim(ParallelShim, "ForEachAsync", IAsyncEnumerableOfTSourceDecl, ParallelOptionsType, AsyncBodyOfTSourceDecl));
+
+        // The simulated processor count, which the program reads as Environment.ProcessorCount and which sizes what the
+        // BCL sizes by the processor count: the loops' default degree of parallelism and the range partitioners' range
+        // size. These rules share the Parallel family so that one selection decides both the loops and the count they
+        // are sized by. Partitioner.Create(IEnumerable) reads the processor count only to size a fill buffer which the
+        // BCL never fills, so it stays a BCL call (UnrewrittenMembers).
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.environment.processorcount",
+            MemberSignature.Method(EnvironmentType, "get_ProcessorCount"), Shim(EnvironmentShim, "GetProcessorCount"));
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.partitioner.create.int32",
+            MemberSignature.Method(PartitionerType, "Create", Int32, Int32), Shim(PartitionerShim, "Create", Int32, Int32));
+        TaskRule(builder, BuiltInRuleFamily.Parallel, "clockwork.parallel.partitioner.create.int64",
+            MemberSignature.Method(PartitionerType, "Create", Int64, Int64), Shim(PartitionerShim, "Create", Int64, Int64));
 
         ParallelRejection(builder, "clockwork.parallel.for.int32.loopstate", "For", Int32, Int32, ActionOfInt32LoopState);
         ParallelRejection(builder, "clockwork.parallel.for.int32.loopstate.options", "For", Int32, Int32, ParallelOptionsType, ActionOfInt32LoopState);
@@ -1126,8 +1289,6 @@ public static class BuiltInRuleSets
         ParallelRejection(builder, "clockwork.parallel.foreach.loopstate.index", "ForEach", IEnumerableOfTSourceVar, ActionOfTSourceLoopStateInt64Var);
         ParallelRejection(builder, "clockwork.parallel.foreach.loopstate.options", "ForEach", IEnumerableOfTSourceVar, ParallelOptionsType, ActionOfTSourceLoopStateVar);
         ParallelRejection(builder, "clockwork.parallel.foreach.loopstate.index.options", "ForEach", IEnumerableOfTSourceVar, ParallelOptionsType, ActionOfTSourceLoopStateInt64Var);
-        ParallelRejection(builder, "clockwork.parallel.foreach.partitioner", "ForEach", PartitionerOfTSourceVar, ActionOfTSourceVar);
-        ParallelRejection(builder, "clockwork.parallel.foreach.partitioner.options", "ForEach", PartitionerOfTSourceVar, ParallelOptionsType, ActionOfTSourceVar);
         ParallelRejection(builder, "clockwork.parallel.foreach.partitioner.loopstate", "ForEach", PartitionerOfTSourceVar, ActionOfTSourceLoopStateVar);
         ParallelRejection(builder, "clockwork.parallel.foreach.partitioner.loopstate.options", "ForEach", PartitionerOfTSourceVar, ParallelOptionsType, ActionOfTSourceLoopStateVar);
         ParallelRejection(builder, "clockwork.parallel.foreach.orderablepartitioner.loopstate.index", "ForEach", OrderablePartitionerOfTSourceVar, ActionOfTSourceLoopStateInt64Var);
@@ -1144,6 +1305,112 @@ public static class BuiltInRuleSets
         ParallelRejection(builder, "clockwork.parallel.foreach.partitioner.local.options", "ForEach", PartitionerOfTSourceVar, ParallelOptionsType, ForEachLocalInit, ForEachLocalBody, ForEachLocalFinally);
         ParallelRejection(builder, "clockwork.parallel.foreach.orderablepartitioner.local.index", "ForEach", OrderablePartitionerOfTSourceVar, ForEachLocalInit, ForEachIndexedLocalBody, ForEachLocalFinally);
         ParallelRejection(builder, "clockwork.parallel.foreach.orderablepartitioner.local.index.options", "ForEach", OrderablePartitionerOfTSourceVar, ParallelOptionsType, ForEachLocalInit, ForEachIndexedLocalBody, ForEachLocalFinally);
+
+        // ---- Channels: the ChannelReader<T>/ChannelWriter<T> members whose BCL implementations are async methods in the
+        // channels assembly, whose awaits resume on the thread pool. Each is a virtual member of the open generic type
+        // (`!0` target), redirected receiver first to a shim which calls an override as written and otherwise runs the
+        // BCL's algorithm through controlled awaits. A base call from an override (a non-virtual `call`) runs the base
+        // algorithm, since dispatching it would re-enter the override. ----
+        ChannelRule(builder, "clockwork.channels.reader.readallasync", ChannelReaderType, "ReadAllAsync", ChannelReaderShim,
+            [CancellationToken], [ChannelReaderTDecl, CancellationToken]);
+        ChannelRule(builder, "clockwork.channels.reader.readasync", ChannelReaderType, "ReadAsync", ChannelReaderShim,
+            [CancellationToken], [ChannelReaderTDecl, CancellationToken]);
+        ChannelRule(builder, "clockwork.channels.writer.writeasync", ChannelWriterType, "WriteAsync", ChannelWriterShim,
+            [TypeArg0, CancellationToken], [ChannelWriterTDecl, GenericTDecl, CancellationToken]);
+
+        // ---- PLINQ: the ParallelEnumerable members which create a ParallelQuery. A query runs on TaskScheduler.Default
+        // worker tasks and its caller blocks on framework waits, so each call site is rejected; every operator needs a
+        // ParallelQuery, which rewritten code then cannot create. ----
+        PlinqRejection(builder, "clockwork.plinq.asparallel.generic", "AsParallel", IEnumerableOfTSourceVar);
+        PlinqRejection(builder, "clockwork.plinq.asparallel.nongeneric", "AsParallel", NonGenericIEnumerable);
+        PlinqRejection(builder, "clockwork.plinq.asparallel.partitioner", "AsParallel", PartitionerOfTSourceVar);
+        PlinqRejection(builder, "clockwork.plinq.range", "Range", Int32, Int32);
+        PlinqRejection(builder, "clockwork.plinq.repeat", "Repeat", GenericArg0, Int32);
+        PlinqRejection(builder, "clockwork.plinq.empty", "Empty");
+
+        // ---- BlockingCollection<T>: the members which add, take, or complete adding. The BCL blocks a taker or a bounded
+        // adder on framework semaphores and wait handles; each shim makes the BCL's own zero-timeout attempt and parks
+        // the caller on the coordinator until it can succeed. ----
+        BlockingCollectionInstanceRule(builder, "clockwork.blockingcollection.add", "Add", [TypeArg0], [GenericTDecl]);
+        BlockingCollectionInstanceRule(builder, "clockwork.blockingcollection.add.token", "Add", [TypeArg0, CancellationToken], [GenericTDecl, CancellationToken]);
+        BlockingCollectionInstanceRule(builder, "clockwork.blockingcollection.tryadd", "TryAdd", [TypeArg0], [GenericTDecl]);
+        BlockingCollectionInstanceRule(builder, "clockwork.blockingcollection.tryadd.timespan", "TryAdd", [TypeArg0, TimeSpan], [GenericTDecl, TimeSpan]);
+        BlockingCollectionInstanceRule(builder, "clockwork.blockingcollection.tryadd.milliseconds", "TryAdd", [TypeArg0, Int32], [GenericTDecl, Int32]);
+        BlockingCollectionInstanceRule(builder, "clockwork.blockingcollection.tryadd.milliseconds.token", "TryAdd", [TypeArg0, Int32, CancellationToken], [GenericTDecl, Int32, CancellationToken]);
+        BlockingCollectionInstanceRule(builder, "clockwork.blockingcollection.take", "Take", [], []);
+        BlockingCollectionInstanceRule(builder, "clockwork.blockingcollection.take.token", "Take", [CancellationToken], [CancellationToken]);
+        BlockingCollectionInstanceRule(builder, "clockwork.blockingcollection.trytake", "TryTake", [TypeArg0Ref], [GenericTRefDecl]);
+        BlockingCollectionInstanceRule(builder, "clockwork.blockingcollection.trytake.timespan", "TryTake", [TypeArg0Ref, TimeSpan], [GenericTRefDecl, TimeSpan]);
+        BlockingCollectionInstanceRule(builder, "clockwork.blockingcollection.trytake.milliseconds", "TryTake", [TypeArg0Ref, Int32], [GenericTRefDecl, Int32]);
+        BlockingCollectionInstanceRule(builder, "clockwork.blockingcollection.trytake.milliseconds.token", "TryTake", [TypeArg0Ref, Int32, CancellationToken], [GenericTRefDecl, Int32, CancellationToken]);
+        BlockingCollectionInstanceRule(builder, "clockwork.blockingcollection.getconsumingenumerable", "GetConsumingEnumerable", [], []);
+        BlockingCollectionInstanceRule(builder, "clockwork.blockingcollection.getconsumingenumerable.token", "GetConsumingEnumerable", [CancellationToken], [CancellationToken]);
+        BlockingCollectionInstanceRule(builder, "clockwork.blockingcollection.completeadding", "CompleteAdding", [], []);
+        BlockingCollectionStaticRule(builder, "clockwork.blockingcollection.addtoany", "AddToAny", TypeArg0);
+        BlockingCollectionStaticRule(builder, "clockwork.blockingcollection.addtoany.token", "AddToAny", TypeArg0, CancellationToken);
+        BlockingCollectionStaticRule(builder, "clockwork.blockingcollection.tryaddtoany", "TryAddToAny", TypeArg0);
+        BlockingCollectionStaticRule(builder, "clockwork.blockingcollection.tryaddtoany.timespan", "TryAddToAny", TypeArg0, TimeSpan);
+        BlockingCollectionStaticRule(builder, "clockwork.blockingcollection.tryaddtoany.milliseconds", "TryAddToAny", TypeArg0, Int32);
+        BlockingCollectionStaticRule(builder, "clockwork.blockingcollection.tryaddtoany.milliseconds.token", "TryAddToAny", TypeArg0, Int32, CancellationToken);
+        BlockingCollectionStaticRule(builder, "clockwork.blockingcollection.takefromany", "TakeFromAny", TypeArg0Ref);
+        BlockingCollectionStaticRule(builder, "clockwork.blockingcollection.takefromany.token", "TakeFromAny", TypeArg0Ref, CancellationToken);
+        BlockingCollectionStaticRule(builder, "clockwork.blockingcollection.trytakefromany", "TryTakeFromAny", TypeArg0Ref);
+        BlockingCollectionStaticRule(builder, "clockwork.blockingcollection.trytakefromany.timespan", "TryTakeFromAny", TypeArg0Ref, TimeSpan);
+        BlockingCollectionStaticRule(builder, "clockwork.blockingcollection.trytakefromany.milliseconds", "TryTakeFromAny", TypeArg0Ref, Int32);
+        BlockingCollectionStaticRule(builder, "clockwork.blockingcollection.trytakefromany.milliseconds.token", "TryTakeFromAny", TypeArg0Ref, Int32, CancellationToken);
+
+        // ---- Async I/O: the asynchronous members of Stream, TextReader, and TextWriter whose base implementations run the
+        // synchronous member on the thread pool, block on a semaphore or task, or await the other members through BCL
+        // awaits. A virtual member calls an override as written and otherwise runs the base algorithm on the
+        // coordinator; its base calls run the base algorithm. A non-virtual member runs the BCL's algorithm over the
+        // controlled virtual members. ----
+        AsyncIORule(builder, "clockwork.io.stream.readasync.array", StreamType, StreamShim, "ReadAsync", isVirtual: true, ByteArray, Int32, Int32, CancellationToken);
+        AsyncIORule(builder, "clockwork.io.stream.readasync.memory", StreamType, StreamShim, "ReadAsync", isVirtual: true, MemoryOfByte, CancellationToken);
+        AsyncIORule(builder, "clockwork.io.stream.writeasync.array", StreamType, StreamShim, "WriteAsync", isVirtual: true, ByteArray, Int32, Int32, CancellationToken);
+        AsyncIORule(builder, "clockwork.io.stream.writeasync.memory", StreamType, StreamShim, "WriteAsync", isVirtual: true, ReadOnlyMemoryOfByte, CancellationToken);
+        AsyncIORule(builder, "clockwork.io.stream.flushasync.token", StreamType, StreamShim, "FlushAsync", isVirtual: true, CancellationToken);
+        AsyncIORule(builder, "clockwork.io.stream.copytoasync.buffersize.token", StreamType, StreamShim, "CopyToAsync", isVirtual: true, StreamType, Int32, CancellationToken);
+        AsyncIORule(builder, "clockwork.io.stream.beginread", StreamType, StreamShim, "BeginRead", isVirtual: true, ByteArray, Int32, Int32, AsyncCallbackType, ObjectType);
+        AsyncIORule(builder, "clockwork.io.stream.endread", StreamType, StreamShim, "EndRead", isVirtual: true, AsyncResultType);
+        AsyncIORule(builder, "clockwork.io.stream.beginwrite", StreamType, StreamShim, "BeginWrite", isVirtual: true, ByteArray, Int32, Int32, AsyncCallbackType, ObjectType);
+        AsyncIORule(builder, "clockwork.io.stream.endwrite", StreamType, StreamShim, "EndWrite", isVirtual: true, AsyncResultType);
+        AsyncIORule(builder, "clockwork.io.stream.readasync.array.notoken", StreamType, StreamShim, "ReadAsync", isVirtual: false, ByteArray, Int32, Int32);
+        AsyncIORule(builder, "clockwork.io.stream.writeasync.array.notoken", StreamType, StreamShim, "WriteAsync", isVirtual: false, ByteArray, Int32, Int32);
+        AsyncIORule(builder, "clockwork.io.stream.flushasync", StreamType, StreamShim, "FlushAsync", isVirtual: false);
+        AsyncIORule(builder, "clockwork.io.stream.copytoasync", StreamType, StreamShim, "CopyToAsync", isVirtual: false, StreamType);
+        AsyncIORule(builder, "clockwork.io.stream.copytoasync.buffersize", StreamType, StreamShim, "CopyToAsync", isVirtual: false, StreamType, Int32);
+        AsyncIORule(builder, "clockwork.io.stream.copytoasync.token", StreamType, StreamShim, "CopyToAsync", isVirtual: false, StreamType, CancellationToken);
+        AsyncIORule(builder, "clockwork.io.stream.readexactlyasync.memory", StreamType, StreamShim, "ReadExactlyAsync", isVirtual: false, MemoryOfByte, CancellationToken);
+        AsyncIORule(builder, "clockwork.io.stream.readexactlyasync.array", StreamType, StreamShim, "ReadExactlyAsync", isVirtual: false, ByteArray, Int32, Int32, CancellationToken);
+        AsyncIORule(builder, "clockwork.io.stream.readatleastasync", StreamType, StreamShim, "ReadAtLeastAsync", isVirtual: false, MemoryOfByte, Int32, Boolean, CancellationToken);
+        AsyncIORule(builder, "clockwork.io.textreader.readlineasync", TextReaderType, TextReaderShim, "ReadLineAsync", isVirtual: true);
+        AsyncIORule(builder, "clockwork.io.textreader.readlineasync.token", TextReaderType, TextReaderShim, "ReadLineAsync", isVirtual: true, CancellationToken);
+        AsyncIORule(builder, "clockwork.io.textreader.readtoendasync", TextReaderType, TextReaderShim, "ReadToEndAsync", isVirtual: true);
+        AsyncIORule(builder, "clockwork.io.textreader.readtoendasync.token", TextReaderType, TextReaderShim, "ReadToEndAsync", isVirtual: true, CancellationToken);
+        AsyncIORule(builder, "clockwork.io.textreader.readasync.array", TextReaderType, TextReaderShim, "ReadAsync", isVirtual: true, CharArray, Int32, Int32);
+        AsyncIORule(builder, "clockwork.io.textreader.readasync.memory", TextReaderType, TextReaderShim, "ReadAsync", isVirtual: true, MemoryOfChar, CancellationToken);
+        AsyncIORule(builder, "clockwork.io.textreader.readblockasync.array", TextReaderType, TextReaderShim, "ReadBlockAsync", isVirtual: true, CharArray, Int32, Int32);
+        AsyncIORule(builder, "clockwork.io.textreader.readblockasync.memory", TextReaderType, TextReaderShim, "ReadBlockAsync", isVirtual: true, MemoryOfChar, CancellationToken);
+        AsyncIORule(builder, "clockwork.io.textwriter.writeasync.char", TextWriterType, TextWriterShim, "WriteAsync", isVirtual: true, CharType);
+        AsyncIORule(builder, "clockwork.io.textwriter.writeasync.rune", TextWriterType, TextWriterShim, "WriteAsync", isVirtual: true, RuneType);
+        AsyncIORule(builder, "clockwork.io.textwriter.writeasync.string", TextWriterType, TextWriterShim, "WriteAsync", isVirtual: true, String);
+        AsyncIORule(builder, "clockwork.io.textwriter.writeasync.stringbuilder", TextWriterType, TextWriterShim, "WriteAsync", isVirtual: true, StringBuilderType, CancellationToken);
+        AsyncIORule(builder, "clockwork.io.textwriter.writeasync.array", TextWriterType, TextWriterShim, "WriteAsync", isVirtual: true, CharArray, Int32, Int32);
+        AsyncIORule(builder, "clockwork.io.textwriter.writeasync.memory", TextWriterType, TextWriterShim, "WriteAsync", isVirtual: true, ReadOnlyMemoryOfChar, CancellationToken);
+        AsyncIORule(builder, "clockwork.io.textwriter.writelineasync.char", TextWriterType, TextWriterShim, "WriteLineAsync", isVirtual: true, CharType);
+        AsyncIORule(builder, "clockwork.io.textwriter.writelineasync.rune", TextWriterType, TextWriterShim, "WriteLineAsync", isVirtual: true, RuneType);
+        AsyncIORule(builder, "clockwork.io.textwriter.writelineasync.string", TextWriterType, TextWriterShim, "WriteLineAsync", isVirtual: true, String);
+        AsyncIORule(builder, "clockwork.io.textwriter.writelineasync.stringbuilder", TextWriterType, TextWriterShim, "WriteLineAsync", isVirtual: true, StringBuilderType, CancellationToken);
+        AsyncIORule(builder, "clockwork.io.textwriter.writelineasync.array", TextWriterType, TextWriterShim, "WriteLineAsync", isVirtual: true, CharArray, Int32, Int32);
+        AsyncIORule(builder, "clockwork.io.textwriter.writelineasync.memory", TextWriterType, TextWriterShim, "WriteLineAsync", isVirtual: true, ReadOnlyMemoryOfChar, CancellationToken);
+        AsyncIORule(builder, "clockwork.io.textwriter.writelineasync", TextWriterType, TextWriterShim, "WriteLineAsync", isVirtual: true);
+        AsyncIORule(builder, "clockwork.io.textwriter.flushasync", TextWriterType, TextWriterShim, "FlushAsync", isVirtual: true);
+        AsyncIORule(builder, "clockwork.io.textwriter.flushasync.token", TextWriterType, TextWriterShim, "FlushAsync", isVirtual: true, CancellationToken);
+        AsyncIORule(builder, "clockwork.io.textwriter.writeasync.string.token", TextWriterType, TextWriterShim, "WriteAsync", isVirtual: false, String, CancellationToken);
+        AsyncIORule(builder, "clockwork.io.textwriter.writeasync.chararray", TextWriterType, TextWriterShim, "WriteAsync", isVirtual: false, CharArray);
+        AsyncIORule(builder, "clockwork.io.textwriter.writelineasync.string.token", TextWriterType, TextWriterShim, "WriteLineAsync", isVirtual: false, String, CancellationToken);
+        AsyncIORule(builder, "clockwork.io.textwriter.writelineasync.chararray", TextWriterType, TextWriterShim, "WriteLineAsync", isVirtual: false, CharArray);
+        AsyncIORule(builder, "clockwork.io.textwriter.writelineasync.token", TextWriterType, TextWriterShim, "WriteLineAsync", isVirtual: false, CancellationToken);
 
         // ---- Uncontrolled invocation: process control and abrupt host termination. A
         // rewritten assembly must never launch, kill, signal, wait on, reschedule, or terminate a real OS process out from
@@ -1806,6 +2073,70 @@ public static class BuiltInRuleSets
             Shim(ParallelShim, "RejectUnsupported", String))));
     }
 
+    // Redirects an asynchronous member of Stream, TextReader, or TextWriter to its receiver-first shim. A virtual member's
+    // base calls (a non-virtual `call` from an override) redirect to the shim's `Base` form, which runs the base
+    // algorithm, since dispatching would re-enter the override.
+    private static void AsyncIORule(
+        ImmutableArray<BuiltInRuleEntry>.Builder builder,
+        string id,
+        string declaringType,
+        string shimType,
+        string member,
+        bool isVirtual,
+        params string[] parameterTypes)
+    {
+        string[] shimParameters = [declaringType, .. parameterTypes];
+        RewriteRule rule = RewriteRule.RedirectCall(
+            id,
+            MemberSignature.Method(declaringType, member, parameterTypes),
+            Shim(shimType, member, shimParameters));
+        builder.Add(new BuiltInRuleEntry(
+            BuiltInRuleFamily.AsyncIO,
+            isVirtual ? rule with { BaseCallReplacement = Shim(shimType, "Base" + member, shimParameters) } : rule));
+    }
+
+    // Redirects an instance member of BlockingCollection<T> to its receiver-first generic shim.
+    private static void BlockingCollectionInstanceRule(
+        ImmutableArray<BuiltInRuleEntry>.Builder builder,
+        string id,
+        string member,
+        string[] targetParameters,
+        string[] shimParameters)
+    {
+        TaskRule(builder, BuiltInRuleFamily.BlockingCollection, id,
+            MemberSignature.Method(BlockingCollectionType, member, targetParameters),
+            Shim(BlockingCollectionShim, member, [BlockingCollectionTDecl, .. shimParameters]));
+    }
+
+    // Redirects a static *Any member of BlockingCollection<T>, whose first two parameters are the collections and the
+    // item, to the generic shim of the same shape; the declaring type's argument binds the shim's T.
+    private static void BlockingCollectionStaticRule(
+        ImmutableArray<BuiltInRuleEntry>.Builder builder,
+        string id,
+        string member,
+        string item,
+        params string[] rest)
+    {
+        string itemDecl = item == TypeArg0Ref ? GenericTRefDecl : GenericTDecl;
+        TaskRule(builder, BuiltInRuleFamily.BlockingCollection, id,
+            MemberSignature.Method(BlockingCollectionType, member, [BlockingCollectionArrayVar, item, .. rest]),
+            Shim(BlockingCollectionShim, member, [BlockingCollectionArrayDecl, itemDecl, .. rest]));
+    }
+
+    // Rejects a PLINQ entry point at the call site. The targets return a ParallelQuery, so InjectRejection prepends the
+    // throwing RejectUnsupported(string) and keeps the original call for stack balance.
+    private static void PlinqRejection(
+        ImmutableArray<BuiltInRuleEntry>.Builder builder,
+        string id,
+        string method,
+        params string[] parameterTypes)
+    {
+        builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.Plinq, RewriteRule.InjectRejection(
+            id,
+            MemberSignature.Method(ParallelEnumerableType, method, parameterTypes),
+            Shim(ParallelEnumerableShim, "RejectUnsupported", String))));
+    }
+
     // Rejects an uncontrolled process/termination call at the call site. The targets have varied return
     // types (Process, Boolean, Task, void), so InjectRejection is used uniformly: it prepends a throwing
     // Reject(string) before the original invocation, which therefore never executes at runtime while the
@@ -1876,6 +2207,61 @@ public static class BuiltInRuleSets
             id, targetTypeFullName, RewriteReplacement.Type(ShimAssemblyName, controlledTypeFullName))));
     }
 
+    // Every Task and Task<TResult> constructor redirects to the matching ControlledTask.Create factory, whose
+    // parameters are the constructor's, with TResult for the type parameter.
+    private static void AddTaskConstructorRules(ImmutableArray<BuiltInRuleEntry>.Builder builder)
+    {
+        string[][] taskShapes =
+        [
+            [Action],
+            [Action, CancellationTokenType],
+            [Action, TaskCreationOptions],
+            [Action, CancellationTokenType, TaskCreationOptions],
+            [ActionOfObject, ObjectType],
+            [ActionOfObject, ObjectType, CancellationTokenType],
+            [ActionOfObject, ObjectType, TaskCreationOptions],
+            [ActionOfObject, ObjectType, CancellationTokenType, TaskCreationOptions],
+        ];
+        foreach (string[] parameters in taskShapes)
+        {
+            builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.TaskScheduling, RewriteRule.RedirectNewObj(
+                "clockwork.tasks.ctor" + ConstructorRuleSuffix(parameters),
+                MemberSignature.Constructor(Task, parameters),
+                Shim(TaskShim, "Create", parameters))));
+        }
+
+        (string Target, string Shim)[][] genericShapes =
+        [
+            [("System.Func`1<!0>", FuncOfResultDecl)],
+            [("System.Func`1<!0>", FuncOfResultDecl), (CancellationTokenType, CancellationTokenType)],
+            [("System.Func`1<!0>", FuncOfResultDecl), (TaskCreationOptions, TaskCreationOptions)],
+            [("System.Func`1<!0>", FuncOfResultDecl), (CancellationTokenType, CancellationTokenType), (TaskCreationOptions, TaskCreationOptions)],
+            [("System.Func`2<System.Object,!0>", "System.Func`2<System.Object,TResult>"), (ObjectType, ObjectType)],
+            [("System.Func`2<System.Object,!0>", "System.Func`2<System.Object,TResult>"), (ObjectType, ObjectType), (CancellationTokenType, CancellationTokenType)],
+            [("System.Func`2<System.Object,!0>", "System.Func`2<System.Object,TResult>"), (ObjectType, ObjectType), (TaskCreationOptions, TaskCreationOptions)],
+            [("System.Func`2<System.Object,!0>", "System.Func`2<System.Object,TResult>"), (ObjectType, ObjectType), (CancellationTokenType, CancellationTokenType), (TaskCreationOptions, TaskCreationOptions)],
+        ];
+        foreach ((string Target, string Shim)[] parameters in genericShapes)
+        {
+            string[] targetParameters = [.. parameters.Select(static parameter => parameter.Target)];
+            builder.Add(new BuiltInRuleEntry(BuiltInRuleFamily.TaskScheduling, RewriteRule.RedirectNewObj(
+                "clockwork.tasks.generic.ctor" + ConstructorRuleSuffix(targetParameters),
+                MemberSignature.Constructor(TaskTType, targetParameters),
+                Shim(TaskShim, "Create", [.. parameters.Select(static parameter => parameter.Shim)]))));
+        }
+    }
+
+    // A rule-id suffix naming a constructor's shape: ".func", ".action.state.cancellationtoken", and so on.
+    private static string ConstructorRuleSuffix(string[] parameters) =>
+        string.Concat(parameters.Select(static parameter => parameter switch
+        {
+            Action or "System.Func`1<!0>" => ".action",
+            ActionOfObject or "System.Func`2<System.Object,!0>" => ".action.state",
+            ObjectType => string.Empty,
+            CancellationTokenType => ".cancellationtoken",
+            TaskCreationOptions => ".options",
+            _ => throw new ArgumentOutOfRangeException(nameof(parameters), parameter, "An unexpected Task constructor parameter."),
+        }));
     private static void TaskRule(
         ImmutableArray<BuiltInRuleEntry>.Builder builder,
         BuiltInRuleFamily family,
@@ -1884,6 +2270,26 @@ public static class BuiltInRuleSets
         RewriteReplacement replacement)
     {
         builder.Add(new BuiltInRuleEntry(family, RewriteRule.RedirectCall(id, target, replacement)));
+    }
+
+    // Redirects a virtual channel member to a shim which dispatches to an override, and its base calls to the shim's
+    // `Base` form, which runs the base algorithm.
+    private static void ChannelRule(
+        ImmutableArray<BuiltInRuleEntry>.Builder builder,
+        string id,
+        string declaringType,
+        string member,
+        string shimType,
+        string[] targetParameters,
+        string[] shimParameters)
+    {
+        builder.Add(new BuiltInRuleEntry(
+            BuiltInRuleFamily.Channels,
+            RewriteRule.RedirectCall(id, MemberSignature.Method(declaringType, member, targetParameters), Shim(shimType, member, shimParameters))
+                with
+            {
+                BaseCallReplacement = Shim(shimType, "Base" + member, shimParameters),
+            }));
     }
 
     // Adds the five overloads of one ContinueWith shape: the plain form, then the CancellationToken, TaskScheduler,

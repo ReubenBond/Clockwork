@@ -121,7 +121,7 @@ public sealed class ParallelConformanceTests : IDisposable
 
     [Theory]
     [MemberData(nameof(Optimize))]
-    public void ParallelBranchesUseFreshControlledStrandsWithRepeatableTrace(bool optimize)
+    public void ParallelBranchesRunTheFirstOnTheCallerAndTheOthersOnFreshControlledStrandsWithRepeatableTrace(bool optimize)
     {
         long[] Run()
         {
@@ -136,12 +136,20 @@ public sealed class ParallelConformanceTests : IDisposable
         Assert.NotEqual(Clockwork.Runtime.Threading.SimulationSynchronizationFlow.None, first[1]);
         Assert.Equal(123, first[8]);
         Assert.Equal(first[8], second[8]);
+
+        // The caller runs the first worker, as the BCL's root replica does, so it takes the first element as its own
+        // strand; every other worker is a fresh strand.
+        Assert.Equal(first[1], first[3]);
         for (int i = 0; i < 3; i++)
         {
             Assert.Equal(first[0], first[2 + i * 2]);
             Assert.NotEqual(Clockwork.Runtime.Threading.SimulationSynchronizationFlow.None, first[3 + i * 2]);
-            Assert.NotEqual(first[1], first[3 + i * 2]);
         }
+
+        // The caller's worker takes the first iteration, as the caller's strand, as the BCL's root replica runs on the
+        // caller's thread; while it runs, the worker it launched takes the second, on a fresh strand.
+        Assert.Equal(first[1], first[3]);
+        Assert.NotEqual(first[1], first[5]);
     }
 
     [Fact]

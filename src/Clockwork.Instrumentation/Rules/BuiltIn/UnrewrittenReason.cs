@@ -57,4 +57,16 @@ internal enum UnrewrittenReason
 
     /// <summary>A protected member of a substituted type, which only a derived type can call.</summary>
     SubstitutedTypeProtected,
+
+    /// <summary>Reads or changes a channel's state on the calling thread, or returns a waiter which that state completes.</summary>
+    Channel,
+
+    /// <summary>Operates on a PLINQ query, which rewritten code can create only through the rejected PLINQ entry points.</summary>
+    ParallelQuery,
+
+    /// <summary>Reads, writes, flushes, or disposes on the calling thread.</summary>
+    SynchronousIO,
+
+    /// <summary>Returns a framework wrapper whose calls to the wrapped instances are framework calls.</summary>
+    FrameworkWrapper,
 }

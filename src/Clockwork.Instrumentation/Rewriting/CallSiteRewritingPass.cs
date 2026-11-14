@@ -47,7 +47,10 @@ internal sealed class CallSiteRewritingPass : RewritePass
     private Instruction RedirectCall(Instruction instruction, MethodReference method, RewriteRule rule)
     {
         int offset = instruction.Offset;
-        if (!TryResolveMethod(rule, method, offset, out MethodReference open, out MethodDefinition definition))
+        RewriteReplacement replacement = instruction.OpCode.Code == Code.Call && rule.BaseCallReplacement is { } baseCall
+            ? baseCall
+            : rule.Replacement;
+        if (!TryResolveMethod(rule, replacement, offset, out MethodReference open, out MethodDefinition definition))
         {
             return instruction;
         }
@@ -58,16 +61,16 @@ internal sealed class CallSiteRewritingPass : RewritePass
             return instruction;
         }
 
-        var replacement = Instruction.Create(OpCodes.Call, target);
-        Record(rule, offset, TransformationOutcome.Transformed);
-        Replace(instruction, replacement);
-        return replacement;
+        var redirected = Instruction.Create(OpCodes.Call, target);
+        Record(rule, replacement, offset, TransformationOutcome.Transformed);
+        Replace(instruction, redirected);
+        return redirected;
     }
 
     private Instruction WrapAfterCall(Instruction instruction, MethodReference method, RewriteRule rule)
     {
         int offset = instruction.Offset;
-        if (!TryResolveMethod(rule, method, offset, out MethodReference open, out MethodDefinition definition))
+        if (!TryResolveMethod(rule, rule.Replacement, offset, out MethodReference open, out MethodDefinition definition))
         {
             return instruction;
         }
@@ -95,7 +98,7 @@ internal sealed class CallSiteRewritingPass : RewritePass
         }
 
         var wrap = Instruction.Create(OpCodes.Call, wrapper);
-        Record(rule, offset, TransformationOutcome.Transformed);
+        Record(rule, rule.Replacement, offset, TransformationOutcome.Transformed);
         Processor!.InsertAfter(instruction, wrap);
         IsMethodBodyModified = true;
         return wrap;
@@ -104,7 +107,7 @@ internal sealed class CallSiteRewritingPass : RewritePass
     private Instruction InjectRejection(Instruction instruction, MethodReference method, RewriteRule rule)
     {
         int offset = instruction.Offset;
-        if (!TryResolveMethod(rule, method, offset, out MethodReference open, out _))
+        if (!TryResolveMethod(rule, rule.Replacement, offset, out MethodReference open, out _))
         {
             return instruction;
         }
@@ -120,16 +123,22 @@ internal sealed class CallSiteRewritingPass : RewritePass
         var apiName = Instruction.Create(OpCodes.Ldstr, CecilNames.FullyQualifiedMethodName(method));
         var reject = Instruction.Create(OpCodes.Call, open);
 
-        Record(rule, offset, TransformationOutcome.Rejected);
+        Record(rule, rule.Replacement, offset, TransformationOutcome.Rejected);
         Replace(instruction, apiName);
         Processor!.InsertAfter(apiName, reject);
         Processor.InsertAfter(reject, instruction);
         return instruction;
     }
 
-    private bool TryResolveMethod(RewriteRule rule, MethodReference method, int offset, out MethodReference open, out MethodDefinition definition)
+
+    private bool TryResolveMethod(
+        RewriteRule rule,
+        RewriteReplacement replacement,
+        int offset,
+        out MethodReference open,
+        out MethodDefinition definition)
     {
-        if (Session.Resolver.TryResolveMethod(Session.TargetModule, rule.Replacement, out open, out definition, out string? error))
+        if (Session.Resolver.TryResolveMethod(Session.TargetModule, replacement, out open, out definition, out string? error))
         {
             return true;
         }
@@ -141,7 +150,7 @@ internal sealed class CallSiteRewritingPass : RewritePass
             containing,
             offset));
 
-        Session.AddUnresolvedReference(rule.Replacement.ToCanonicalString());
+        Session.AddUnresolvedReference(replacement.ToCanonicalString());
         return false;
     }
 
@@ -431,7 +440,8 @@ internal sealed class CallSiteRewritingPass : RewritePass
             offset));
     }
 
-    private void Record(RewriteRule rule, int offset, TransformationOutcome outcome)
+    // Records the replacement the site was rewritten to, which for a base call is the rule's base-call replacement.
+    private void Record(RewriteRule rule, RewriteReplacement replacement, int offset, TransformationOutcome outcome)
     {
         string containing = CecilNames.FullyQualifiedMethodName(Method!);
         RewriteSession.TryGetSequencePoint(Method!, FindInstruction(offset), out string? file, out int line);
@@ -442,7 +452,7 @@ internal sealed class CallSiteRewritingPass : RewritePass
             outcome,
             rule.Policy,
             rule.Target.ToCanonicalString(),
-            rule.Replacement.ToCanonicalString(),
+            replacement.ToCanonicalString(),
             containing,
             offset,
             file,

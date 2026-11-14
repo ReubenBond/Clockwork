@@ -106,6 +106,53 @@ public sealed class RuleSetJsonTests
     }
 
     [Fact]
+    public void BaseCallReplacementRoundTrips()
+    {
+        const string doc = """
+            {
+              "id": "s", "version": "1",
+              "rules": [
+                { "id": "r", "operation": "RedirectCall", "target": {"type":"T","member":"M"},
+                  "replacement": {"assembly":"A","type":"R","member":"M"},
+                  "baseCallReplacement": {"assembly":"A","type":"R","member":"BaseM","parameters":["T"]} }
+              ]
+            }
+            """;
+
+        RewriteRuleSet original = RuleSetJson.Parse(doc);
+        RewriteRuleSet reparsed = RuleSetJson.Parse(RuleSetJson.Write(original));
+
+        RewriteReplacement baseCall = Assert.Single(reparsed.Rules).BaseCallReplacement!.Value;
+        Assert.Equal("BaseM", baseCall.MemberName);
+        Assert.Equal(["T"], baseCall.ParameterTypeFullNames);
+        Assert.Equal(original.ComputeSignature(), reparsed.ComputeSignature());
+    }
+
+    [Fact]
+    public void RejectsABaseCallReplacementOnARuleOtherThanARedirectCall()
+    {
+        const string doc = """
+            {
+              "id": "s", "version": "1",
+              "rules": [
+                { "id": "r", "operation": "WrapAfterCall", "target": {"type":"T","member":"M"},
+                  "replacement": {"assembly":"A","type":"R","member":"M"},
+                  "baseCallReplacement": {"assembly":"A","type":"R","member":"BaseM"} }
+              ]
+            }
+            """;
+
+        ConfigurationException ex = Assert.Throws<ConfigurationException>(() => RuleSetJson.Parse(doc));
+        Assert.Contains("baseCallReplacement", ex.Message, StringComparison.Ordinal);
+        Assert.Throws<ArgumentException>(() => new RewriteRuleSet("s", "1", [
+            RewriteRule.WrapAfterCall("r", MemberSignature.Method("T", "M"), new RewriteReplacement("A", "R", "M")) with
+            {
+                BaseCallReplacement = new RewriteReplacement("A", "R", "BaseM"),
+            },
+        ]));
+    }
+
+    [Fact]
     public void RejectsDuplicateRuleIds()
     {
         const string doc = """

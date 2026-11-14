@@ -27,8 +27,13 @@ public static class InstrumentedApiInventory
         Api("System.Threading.Tasks.Task", "Delay"),
         Api("System.Threading.Tasks.Task", "WaitAsync"),
         Api("System.Threading.Tasks.Task", "Run"),
+        Api("System.Threading.Tasks.Task", "Start"),
+        Api("System.Threading.Tasks.Task", "RunSynchronously"),
         Api("System.Threading.Tasks.Task", "Yield"),
         Api("System.Threading.Tasks.Task`1", "Result"),
+        Api("System.Threading.Tasks.Task", ".ctor"),
+        Api("System.Threading.Tasks.Task`1", ".ctor"),
+        Api("System.Threading.Tasks.Task", "CreationOptions"),
         Api("System.Threading.Tasks.Task`1", "ContinueWith"),
         Api("System.Threading.Tasks.Task`1", "WaitAsync"),
         Api("System.Threading.Tasks.TaskExtensions", "Unwrap"),
@@ -53,6 +58,7 @@ public static class InstrumentedApiInventory
         Api("System.Threading.Tasks.ValueTask", "Preserve"),
         Api("System.Threading.Tasks.ValueTask`1", "AsTask"),
         Api("System.Threading.Tasks.ValueTask`1", "Preserve"),
+        Api("System.Threading.Tasks.ValueTask`1", "Result"),
         Api("System.Threading.Tasks.TaskFactory", "StartNew"),
         Api("System.Threading.Tasks.TaskFactory`1", "StartNew"),
         Api("System.Threading.Tasks.TaskFactory", "ContinueWhenAll"),
@@ -64,6 +70,7 @@ public static class InstrumentedApiInventory
         Api("System.Environment", "CurrentManagedThreadId"),
         Api("System.Threading.Thread", ".ctor"),
         Api("System.Threading.Thread", "Start"),
+        Api("System.Threading.Thread", "UnsafeStart"),
         Api("System.Threading.Thread", "Join"),
         Api("System.Threading.Thread", "Sleep"),
         Api("System.Threading.Thread", "SpinWait"),
@@ -93,6 +100,44 @@ public static class InstrumentedApiInventory
         Api("System.Threading.Tasks.Parallel", "Invoke"),
         Api("System.Threading.Tasks.Parallel", "For"),
         Api("System.Threading.Tasks.Parallel", "ForEach"),
+        Api("System.Threading.Tasks.Parallel", "ForAsync"),
+        Api("System.Threading.Tasks.Parallel", "ForEachAsync"),
+        Api("System.Environment", "ProcessorCount"),
+        Api("System.Collections.Concurrent.Partitioner", "Create"),
+        Api("System.Threading.Channels.ChannelReader`1", "ReadAllAsync"),
+        Api("System.Threading.Channels.ChannelReader`1", "ReadAsync"),
+        Api("System.Threading.Channels.ChannelWriter`1", "WriteAsync"),
+        Api("System.Linq.ParallelEnumerable", "AsParallel"),
+        Api("System.Linq.ParallelEnumerable", "Range"),
+        Api("System.Linq.ParallelEnumerable", "Repeat"),
+        Api("System.Linq.ParallelEnumerable", "Empty"),
+        Api("System.Collections.Concurrent.BlockingCollection`1", "Add"),
+        Api("System.Collections.Concurrent.BlockingCollection`1", "TryAdd"),
+        Api("System.Collections.Concurrent.BlockingCollection`1", "Take"),
+        Api("System.Collections.Concurrent.BlockingCollection`1", "TryTake"),
+        Api("System.Collections.Concurrent.BlockingCollection`1", "GetConsumingEnumerable"),
+        Api("System.Collections.Concurrent.BlockingCollection`1", "CompleteAdding"),
+        Api("System.Collections.Concurrent.BlockingCollection`1", "AddToAny"),
+        Api("System.Collections.Concurrent.BlockingCollection`1", "TryAddToAny"),
+        Api("System.Collections.Concurrent.BlockingCollection`1", "TakeFromAny"),
+        Api("System.Collections.Concurrent.BlockingCollection`1", "TryTakeFromAny"),
+        Api("System.IO.Stream", "ReadAsync"),
+        Api("System.IO.Stream", "WriteAsync"),
+        Api("System.IO.Stream", "FlushAsync"),
+        Api("System.IO.Stream", "CopyToAsync"),
+        Api("System.IO.Stream", "BeginRead"),
+        Api("System.IO.Stream", "EndRead"),
+        Api("System.IO.Stream", "BeginWrite"),
+        Api("System.IO.Stream", "EndWrite"),
+        Api("System.IO.Stream", "ReadExactlyAsync"),
+        Api("System.IO.Stream", "ReadAtLeastAsync"),
+        Api("System.IO.TextReader", "ReadLineAsync"),
+        Api("System.IO.TextReader", "ReadToEndAsync"),
+        Api("System.IO.TextReader", "ReadAsync"),
+        Api("System.IO.TextReader", "ReadBlockAsync"),
+        Api("System.IO.TextWriter", "WriteAsync"),
+        Api("System.IO.TextWriter", "WriteLineAsync"),
+        Api("System.IO.TextWriter", "FlushAsync"),
         Api("System.Threading.Monitor", "Enter"),
         Api("System.Threading.Monitor", "Exit"),
         Api("System.Threading.Monitor", "IsEntered"),
@@ -143,6 +188,15 @@ public static class InstrumentedApiInventory
         Api("System.Threading.CountdownEvent", Wildcard),
     ];
 
+    // Members which need instrumentation only for their base implementation, an async method whose awaits resume on the
+    // thread pool: the shim calls a receiver's override as written.
+    private static readonly ImmutableHashSet<string> BaseImplementationMembers =
+    [
+        Api("System.Threading.Channels.ChannelReader`1", "ReadAllAsync"),
+        Api("System.Threading.Channels.ChannelReader`1", "ReadAsync"),
+        Api("System.Threading.Channels.ChannelWriter`1", "WriteAsync"),
+    ];
+
     /// <summary>Gets the metadata names of all framework types represented by the inventory.</summary>
     public static ImmutableArray<string> TypeMetadataNames { get; } =
         [.. Members.Select(static entry => entry.Substring(0, entry.IndexOf("::", StringComparison.Ordinal)))
@@ -162,20 +216,6 @@ public static class InstrumentedApiInventory
             return false;
         }
 
-        if (typeMetadataName == "System.Threading.Tasks.Task")
-        {
-            return method.Name switch
-            {
-                "Wait" => method.Parameters.Length == 0,
-                "WaitAll" or "WaitAny" =>
-                    method.Parameters.Length == 1
-                    && method.Parameters[0].Type is IArrayTypeSymbol array
-                    && array.ElementType.ToDisplayString() == "System.Threading.Tasks.Task",
-                "Delay" or "WaitAsync" => true,
-                _ => true,
-            };
-        }
-
         if (typeMetadataName is "System.Threading.Tasks.TaskFactory" or "System.Threading.Tasks.TaskFactory`1")
         {
             return method.Name != "StartNew"
@@ -184,7 +224,56 @@ public static class InstrumentedApiInventory
                         parameter.Type.ToDisplayString() == "System.Threading.Tasks.TaskScheduler"));
         }
 
+        // Only the range factories which size their ranges by the processor count are rewritten.
+        if (typeMetadataName == "System.Collections.Concurrent.Partitioner")
+        {
+            return method.Parameters.Length == 2
+                && method.Parameters.All(static parameter =>
+                    parameter.Type.SpecialType is SpecialType.System_Int32 or SpecialType.System_Int64);
+        }
+
         return true;
+    }
+
+    /// <summary>
+    /// Returns whether a call to a member which needs instrumentation only for its base implementation provably runs an
+    /// override: a virtual call whose receiver's static type, or one of its bases below the member's declaring type,
+    /// overrides the member. A base call (<c>base.ReadAsync()</c>) is not virtual and runs the base implementation; a
+    /// receiver typed as the declaring type (a built-in channel's <c>Reader</c>, say) may run either.
+    /// </summary>
+    /// <param name="typeMetadataName">The metadata name of the member's declaring type.</param>
+    /// <param name="method">The invoked member.</param>
+    /// <param name="isVirtual">Whether the invocation dispatches virtually.</param>
+    /// <param name="receiverType">The static type of the receiver.</param>
+    /// <returns>Whether the call runs an override, which the shim calls as written.</returns>
+    public static bool DispatchesToOverride(
+        string typeMetadataName,
+        IMethodSymbol method,
+        bool isVirtual,
+        ITypeSymbol? receiverType)
+    {
+        if (!isVirtual || !BaseImplementationMembers.Contains(Api(typeMetadataName, method.Name)))
+        {
+            return false;
+        }
+
+        for (INamedTypeSymbol? type = receiverType as INamedTypeSymbol;
+            type is not null && !SymbolEqualityComparer.Default.Equals(type.OriginalDefinition, method.ContainingType.OriginalDefinition);
+            type = type.BaseType)
+        {
+            foreach (IMethodSymbol member in type.GetMembers(method.Name).OfType<IMethodSymbol>())
+            {
+                for (IMethodSymbol? overridden = member.OverriddenMethod; overridden is not null; overridden = overridden.OverriddenMethod)
+                {
+                    if (SymbolEqualityComparer.Default.Equals(overridden.OriginalDefinition, method.OriginalDefinition))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 
     /// <summary>Returns whether all operations over the named framework type are instrumented.</summary>

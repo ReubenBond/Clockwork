@@ -419,7 +419,9 @@ public static class InstrumentationRunner
     {
         var paths = new SortedSet<string>(StringComparer.Ordinal);
         foreach (string name in ruleSet.Rules
-            .Select(r => r.Replacement.AssemblyName)
+            .SelectMany(r => r.BaseCallReplacement is { } baseCall
+                ? [r.Replacement.AssemblyName, baseCall.AssemblyName]
+                : new[] { r.Replacement.AssemblyName })
             .Where(n => !string.IsNullOrEmpty(n))
             .Distinct(StringComparer.OrdinalIgnoreCase))
         {

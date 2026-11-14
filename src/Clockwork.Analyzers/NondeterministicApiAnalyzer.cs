@@ -204,7 +204,8 @@ public sealed class NondeterministicApiAnalyzer : DiagnosticAnalyzer
         }
 
         if (known.TryGetMetadataName(type, out string typeName)
-            && InstrumentedApiInventory.ContainsInvocation(typeName, method))
+            && InstrumentedApiInventory.ContainsInvocation(typeName, method)
+            && !InstrumentedApiInventory.DispatchesToOverride(typeName, method, operation.IsVirtual, operation.Instance?.Type))
         {
             ReportControlled(
                 context,

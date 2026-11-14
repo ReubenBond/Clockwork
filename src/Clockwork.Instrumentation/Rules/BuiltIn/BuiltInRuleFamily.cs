@@ -40,7 +40,7 @@ public enum BuiltInRuleFamily
     TaskCombinators,
 
     /// <summary>
-    /// Task synchronous waits: <c>Task.Wait()</c>, <c>Task.WaitAll</c>, <c>Task.WaitAny</c>, and
+    /// Task synchronous waits: every <c>Task.Wait</c>, <c>Task.WaitAll</c>, and <c>Task.WaitAny</c> overload (timeouts elapse in virtual time), and
     /// <c>TaskAsyncEnumerableExtensions.ToBlockingEnumerable</c>, redirected to controlled waits that pump the
     /// deterministic loop instead of blocking a physical thread (a never-satisfiable wait surfaces as a precise
     /// deadlock diagnostic).
@@ -76,7 +76,8 @@ public enum BuiltInRuleFamily
     /// <see cref="System.Threading.CancellationToken"/>). Redirected to controlled equivalents
     /// that queue the body as a fresh controlled operation on the simulation coordinator - it runs on the
     /// single logical thread interleaved with all other controlled work instead of on an uncontrolled
-    /// physical thread-pool thread - preserving unwrap, cancellation, and fault semantics.
+    /// physical thread-pool thread - preserving unwrap, cancellation, and fault semantics; and <c>Task.Start</c> and
+    /// <c>Task.RunSynchronously</c>, which run a task constructed with <c>new Task(...)</c> on the coordinator's scheduler.
     /// </summary>
     TaskScheduling,
 
@@ -183,19 +184,55 @@ public enum BuiltInRuleFamily
     CancellationTimers,
 
     /// <summary>
-    /// <see cref="System.Threading.Tasks.Parallel"/> surface. The simple-body overloads -
-    /// <c>Invoke</c>, <c>For(int/long, ..., Action&lt;int/long&gt;)</c>, and
-    /// <c>ForEach&lt;TSource&gt;(IEnumerable&lt;TSource&gt;, Action&lt;TSource&gt;)</c>, each with and without a
-    /// <see cref="System.Threading.Tasks.ParallelOptions"/> - are classified <c>Controlled</c>:
-    /// the shim queues each branch as a fresh controlled operation on the coordinator and drains the
-    /// deterministic loop until all branches complete, aggregating faults into an
-    /// <see cref="System.AggregateException"/> and observing the options' cancellation token. The overloads
-    /// whose body receives a <see cref="System.Threading.Tasks.ParallelLoopState"/> (break/stop), the
-    /// thread-local (<c>TLocal</c>) overloads, and the <c>Partitioner</c> overloads are <c>Rejected</c>:
-    /// they cannot be modelled without constructing framework types that have no public surface, so the
-    /// rewritten call site fails precisely under simulation.
+    /// <see cref="System.Threading.Tasks.Parallel"/> surface: the loops whose body takes only the element are
+    /// <c>Controlled</c>, running on a deterministic pool of controlled workers on the coordinator, and the overloads whose
+    /// body receives a <see cref="System.Threading.Tasks.ParallelLoopState"/> are <c>Rejected</c>.
+    /// <see cref="System.Environment.ProcessorCount"/> and the range factories <c>Partitioner.Create(int, int)</c> and
+    /// <c>Partitioner.Create(long, long)</c>, which the BCL sizes by it, are <c>Controlled</c>: they use the simulation's
+    /// processor count, which also sizes the loops without a limit, so one family decides both the loops and the count they
+    /// are sized by. The normative description is <c>docs/compatibility.md#parallel-loops</c>.
     /// </summary>
     Parallel,
+
+    /// <summary>
+    /// <see cref="System.Threading.Channels.ChannelReader{T}"/> <c>ReadAllAsync</c> and <c>ReadAsync</c> and
+    /// <see cref="System.Threading.Channels.ChannelWriter{T}"/> <c>WriteAsync</c>, whose BCL implementations are async
+    /// methods compiled into the channels assembly, are classified <c>Controlled</c>: the shim calls a reader's or writer's
+    /// override as written, and otherwise runs the BCL's algorithm with controlled awaits on the coordinator.
+    /// </summary>
+    Channels,
+
+    /// <summary>
+    /// The PLINQ entry points of <see cref="System.Linq.ParallelEnumerable"/>: every <c>AsParallel</c> overload, and
+    /// <c>Range</c>, <c>Repeat</c>, and <c>Empty</c>, which are the only public ways to create a
+    /// <see cref="System.Linq.ParallelQuery{TSource}"/>. Classified <c>Rejected</c>: PLINQ runs a query on worker tasks
+    /// of <see cref="System.Threading.Tasks.TaskScheduler.Default"/> and blocks the calling thread on framework waits
+    /// until they finish, so the rewritten call site throws a precise diagnostic. The operators over a parallel query stay
+    /// BCL calls, since rewritten code has no parallel query to apply them to.
+    /// </summary>
+    Plinq,
+
+    /// <summary>
+    /// The <see cref="System.Collections.Concurrent.BlockingCollection{T}"/> members which add, take, or complete adding,
+    /// including the static <c>AddToAny</c>/<c>TakeFromAny</c> families and <c>GetConsumingEnumerable</c>. Classified
+    /// <c>Controlled</c>: the BCL blocks a taker on an empty collection, and an adder on a full bounded one, on framework
+    /// semaphores and wait handles. Each shim makes the BCL's own zero-timeout attempt on the real collection and, when
+    /// that would have waited, parks the caller on the coordinator until the collection can satisfy it, adding is
+    /// completed, the token is cancelled, or the timeout elapses in virtual time.
+    /// </summary>
+    BlockingCollection,
+
+    /// <summary>
+    /// The asynchronous members of <see cref="System.IO.Stream"/>, <see cref="System.IO.TextReader"/>, and
+    /// <see cref="System.IO.TextWriter"/> whose base implementations, which a type that does not override them inherits,
+    /// run the synchronous member on the thread pool, block the caller on a semaphore or a task (<c>BeginRead</c>,
+    /// <c>EndRead</c>, and the write pair), or await the other members through BCL awaits. Classified <c>Controlled</c>:
+    /// the shim calls an override as written and otherwise runs the BCL's base algorithm on the coordinator, each
+    /// synchronous read, write, or flush as a fresh controlled operation; an override's base call runs the base
+    /// algorithm. The non-virtual members which forward to them (<c>ReadExactlyAsync</c>, <c>ReadAtLeastAsync</c>, and
+    /// the overloads without a token or buffer size) run the BCL's algorithm over the controlled virtual members.
+    /// </summary>
+    AsyncIO,
 
     /// <summary>
     /// Process control and abrupt-termination surfaces that cannot be modelled by the deterministic

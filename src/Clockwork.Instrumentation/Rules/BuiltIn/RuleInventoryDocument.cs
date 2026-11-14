@@ -6,14 +6,47 @@ namespace Clockwork.Instrumentation.Rules.BuiltIn;
 
 /// <summary>
 /// Renders the built-in rule inventories (<see cref="BuiltInRuleSets.DeterministicBclInventory"/> and
-/// <see cref="BuiltInRuleSets.ControlledTasksInventory"/>) and the members of their targeted types that stay BCL calls
-/// (<see cref="UnrewrittenMembers"/>) as stable Markdown. The output is committed to <c>docs/rule-inventory.md</c> and
+/// <see cref="BuiltInRuleSets.ControlledTasksInventory"/>), the members of their targeted types that stay BCL calls
+/// (<see cref="UnrewrittenMembers"/>), and the concurrency status table with the audited framework members
+/// (<see cref="ConcurrencyEscapeAudit"/>) as stable Markdown. The output is committed to <c>docs/rule-inventory.md</c> and
 /// verified against this renderer by a test, so the published inventory can never silently drift from the shipped rule
 /// set. The rendering is deterministic: families and rules follow their canonical declared order, and listed members
 /// are grouped by declaring type in ordinal order, then by reason.
 /// </summary>
 public static class RuleInventoryDocument
 {
+    /// <summary>
+    /// Gets the families whose rules control or reject a concurrency entry point: the members which start, schedule,
+    /// await, or wait for work. The concurrency status table has a row for each, and a test checks that every family
+    /// whose rules classify a member the concurrency-escape audit finds is among them.
+    /// </summary>
+    internal static ImmutableArray<BuiltInRuleFamily> ConcurrencyFamilies { get; } =
+    [
+        BuiltInRuleFamily.TaskScheduling,
+        BuiltInRuleFamily.TaskFactory,
+        BuiltInRuleFamily.TaskContinuations,
+        BuiltInRuleFamily.TaskFactoryContinuations,
+        BuiltInRuleFamily.TaskFactoryFromAsync,
+        BuiltInRuleFamily.TaskCompletionSource,
+        BuiltInRuleFamily.TaskCombinators,
+        BuiltInRuleFamily.TaskSynchronization,
+        BuiltInRuleFamily.TaskTime,
+        BuiltInRuleFamily.AsyncMachinery,
+        BuiltInRuleFamily.ValueTaskMachinery,
+        BuiltInRuleFamily.ValueTaskConversions,
+        BuiltInRuleFamily.Thread,
+        BuiltInRuleFamily.ThreadPool,
+        BuiltInRuleFamily.Timers,
+        BuiltInRuleFamily.CancellationTimers,
+        BuiltInRuleFamily.Parallel,
+        BuiltInRuleFamily.Plinq,
+        BuiltInRuleFamily.Channels,
+        BuiltInRuleFamily.BlockingCollection,
+        BuiltInRuleFamily.AsyncIO,
+        BuiltInRuleFamily.Semaphore,
+        BuiltInRuleFamily.SynchronizationContext,
+    ];
+
     /// <summary>Renders the full inventory document.</summary>
     /// <returns>The Markdown text, using <c>\n</c> line endings and a trailing newline.</returns>
     public static string Render()
@@ -68,6 +101,8 @@ public static class RuleInventoryDocument
 
         RenderUnrewrittenMembers(sb);
 
+        RenderConcurrencyStatus(sb);
+
         Line("# Documented holes (not rewritten in these rule sets)");
         Line();
         Line("These nondeterministic or entropy-drawing surfaces are intentionally **not** covered and");
@@ -78,6 +113,7 @@ public static class RuleInventoryDocument
         Line("- A delegate created from a member, such as `Func<bool> responds = process.CloseMainWindow`, calls the BCL member: the rules rewrite `call`, `callvirt`, and `newobj` sites, and a delegate is created with `ldftn` or `ldvirtftn`.");
         Line("- Blocking `ValueTask<T>.Result` reads: the accessor is not rewritten, so it would block the logical thread on an incomplete value task. `await`, or `GetAwaiter().GetResult()` through the controlled awaiter (which pumps until the value task completes), is the supported controlled path.");
         Line("- Continuations registered by uninstrumented code (an assembly excluded from rewriting, or the framework itself) follow the BCL's dispatch, so a source which runs its continuations asynchronously runs them on the thread pool.");
+        Line("- The framework members listed under [Concurrency entry points: status](#concurrency-entry-points-status) with a reason, and any work a BCL call starts on another thread (the table's last row).");
         Line("- Named/cross-process synchronization (named `EventWaitHandle`/`Mutex`/`Semaphore` and their `OpenExisting`/`TryOpenExisting` APIs): a single-process simulation cannot model kernel-object sharing, so these are rejected.");
         Line("- Custom `TimeProvider` implementations are rejected by timer-consuming controlled APIs unless Clockwork explicitly recognizes them. `System.Timers.Timer` rejects non-null `SynchronizingObject` and designer `Site` integration because those paths can marshal callbacks to uncontrolled UI or native threads. `Timer.Dispose(WaitHandle)` accepts controlled event handles only.");
         Line();
@@ -173,15 +209,200 @@ public static class RuleInventoryDocument
         }
     }
 
+    // The concurrency status table has a row for each concurrency family, for each reason a member which schedules, blocks,
+    // or awaits stays a BCL call, and for each reason a member the concurrency-escape audit finds needs no rule, then a row
+    // for everything else. The audited members follow, grouped by declaring type.
+    private static void RenderConcurrencyStatus(StringBuilder sb)
+    {
+        void Line(string text = "") => sb.Append(text).Append('\n');
+
+        Line("# Concurrency entry points: status");
+        Line();
+        Line(
+            "A test scans the implementation assemblies of the runtime it runs on (" +
+            string.Join(", ", ConcurrencyEscapeAudit.Assemblies.Select(Code)) + ") for the public members, and protected " +
+            "members of unsealed types, of the reference pack which reach a concurrency escape: thread-pool queueing, " +
+            "`TaskScheduler.Default` or a member which schedules onto it (`Task.Run`, `Task.Start`, `TaskFactory.StartNew`), " +
+            "`Thread.Start`, a real timer, or an async method. It follows calls within one assembly, up to " +
+            $"{ConcurrencyEscapeAudit.MaxDepth} deep, not counting a call to another overload or to a local function or " +
+            "lambda compiled from the caller's body. Every member it finds is controlled or rejected by a rule, listed under " +
+            "[Members left as BCL calls](#members-left-as-bcl-calls), or listed under " +
+            "[Audited framework members](#audited-framework-members) with the reason it needs no rule. A runtime which adds " +
+            "or removes such a member fails the test until it is classified.");
+        Line();
+        Line("| Entry points | Status under simulation |");
+        Line("| --- | --- |");
+
+        ImmutableArray<(BuiltInRuleFamily Family, RewriteRule Rule)> inventory =
+            [.. BuiltInRuleSets.DeterministicBclInventory, .. BuiltInRuleSets.ControlledTasksInventory];
+        foreach (BuiltInRuleFamily family in ConcurrencyFamilies)
+        {
+            ImmutableArray<RewriteRule> rules = [.. inventory.Where(entry => entry.Family == family).Select(entry => entry.Rule)];
+            string[] names = [.. rules.Select(EntryPoint).Distinct(StringComparer.Ordinal)];
+            string[] rejected =
+            [
+                .. names
+                    .Select(name => (Name: name, Policies: rules.Where(rule => EntryPoint(rule) == name).Select(rule => rule.Policy).ToArray()))
+                    .Where(entry => entry.Policies.Contains(SimulationApiPolicy.Rejected))
+                    .Select(entry => entry.Policies.All(policy => policy == SimulationApiPolicy.Rejected)
+                        ? Code(entry.Name)
+                        : Code(entry.Name) + " (some overloads)"),
+            ];
+            string status = rejected.Length == 0 ? "Controlled"
+                : rejected.Length == names.Length && rules.All(rule => rule.Policy == SimulationApiPolicy.Rejected) ? "Rejected"
+                : "Controlled; rejected: " + string.Join(", ", rejected);
+            Line($"| {string.Join(", ", names.Select(Code))} | {status} ([`{family}` family](#{family.ToString().ToLowerInvariant()}-family)). |");
+        }
+
+        foreach (UnrewrittenReason reason in (ReadOnlySpan<UnrewrittenReason>)[UnrewrittenReason.Schedules, UnrewrittenReason.Blocks, UnrewrittenReason.Channel, UnrewrittenReason.RuntimeAsync])
+        {
+            string[] names =
+            [
+                .. UnrewrittenMembers.All
+                    .Where(member => member.Reason == reason)
+                    .Select(member => EntryPoint(member.DeclaringTypeFullName, member.MemberKey[..member.MemberKey.IndexOf('(', StringComparison.Ordinal)]))
+                    .Distinct(StringComparer.Ordinal),
+            ];
+            Line($"| {string.Join(", ", names.Select(Code))} | BCL call ({Code(reason.ToString())}): {DescribeReason(reason)} |");
+        }
+
+        foreach (EscapeReason reason in Enum.GetValues<EscapeReason>())
+        {
+            string[] types =
+            [
+                .. ConcurrencyEscapeAudit.All
+                    .Where(member => member.Reason == reason)
+                    .Select(member => ShortTypeName(member.DeclaringTypeFullName))
+                    .Distinct(StringComparer.Ordinal)
+                    .Order(StringComparer.Ordinal)
+                    .Select(Code),
+            ];
+            if (types.Length > 0)
+            {
+                Line($"| {string.Join(", ", types)} ([members](#audited-framework-members)) | {Code(reason.ToString())}: {DescribeEscape(reason)} |");
+            }
+        }
+
+        Line(
+            "| Continuations which uninstrumented code (an assembly excluded from rewriting, or the framework) registers on " +
+            "a task | Follow the BCL's dispatch ([documented holes](#documented-holes-not-rewritten-in-these-rule-sets)). |");
+        Line(
+            "| Everything else | Runs as a BCL call. Work it starts on another thread fails the run at its first call to a " +
+            "controlled API, which throws `SimulationThreadAffinityException` ([thread affinity](compatibility.md#thread-affinity)); " +
+            "work which only computes or changes shared state runs unchecked, racing the logical thread. |");
+        Line();
+
+        Line("## Audited framework members");
+        Line();
+        foreach (IGrouping<string, AuditedEscape> typeMembers in ConcurrencyEscapeAudit.All
+            .GroupBy(member => member.DeclaringTypeFullName)
+            .OrderBy(group => group.Key, StringComparer.Ordinal))
+        {
+            Line($"### {Code(typeMembers.Key)}");
+            Line();
+            foreach (IGrouping<EscapeReason, AuditedEscape> reasonMembers in typeMembers
+                .GroupBy(member => member.Reason)
+                .OrderBy(group => group.Key))
+            {
+                Line($"- {Code(reasonMembers.Key.ToString())}: " + string.Join(", ", reasonMembers.Select(member => Code(member.MemberKey))));
+            }
+
+            Line();
+        }
+    }
+
+    private static string DescribeEscape(EscapeReason reason) => reason switch
+    {
+        EscapeReason.FrameworkAwait =>
+            "A framework async method or adapter. It runs on the caller until it awaits; its continuations follow the BCL's " +
+            "dispatch, running inline where controlled code completes the awaited operation, or on the thread pool when " +
+            "that operation runs its continuations asynchronously, where the thread-affinity check catches their first " +
+            "controlled call.",
+        EscapeReason.OsResource =>
+            "Performs I/O on an OS file, socket, or network connection, which completes on the operating system's I/O " +
+            "threads or the thread pool. A simulation performs I/O through the system under test's own abstractions, " +
+            "which it substitutes.",
+        EscapeReason.SchedulerValue =>
+            "Reads or stores `TaskScheduler.Default` or the current scheduler without queueing work to it. The controlled " +
+            "APIs which take a scheduler accept `TaskScheduler.Default` and run the work on the coordinator.",
+        EscapeReason.CustomScheduler =>
+            "Belongs to a task scheduler other than the coordinator's, which queues to the thread pool. Every controlled " +
+            "API which takes a scheduler rejects it, so controlled work never reaches it.",
+        EscapeReason.ValueTaskSource =>
+            "Completes, or registers a continuation on, an `IValueTaskSource`, whose continuations can run on the thread " +
+            "pool. Controlled awaits poll the source's status and register no continuation, so such a continuation comes " +
+            "only from uninstrumented code.",
+        EscapeReason.UnhandledException =>
+            "Rethrows an exception on the thread pool when it escapes an `async void` method or an awaiter's `OnCompleted` " +
+            "throws, which ends the process, as in .NET.",
+        EscapeReason.AffinityBackstop =>
+            "Runs a callback of the caller's on a thread of the BCL's choosing. The thread-affinity check fails the run at " +
+            "the callback's first controlled call; a callback which only computes or changes shared state runs unchecked.",
+        EscapeReason.CompletesOnCaller =>
+            "Completes on the caller: the receiver's overrides of the members it awaits complete synchronously.",
+        _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, null),
+    };
+
+    // The API a rule targets, as source code names it: Type.Member, new Type, or Type for a substituted type.
+    private static string EntryPoint(RewriteRule rule) =>
+        rule.Operation == RewriteOperationKind.SubstituteType
+            ? ShortTypeName(rule.Target.DeclaringTypeFullName)
+            : EntryPoint(rule.Target.DeclaringTypeFullName, rule.Operation == RewriteOperationKind.RedirectNewObj ? ".ctor" : rule.Target.MemberName);
+
+    private static string EntryPoint(string declaringTypeFullName, string? memberName)
+    {
+        string type = ShortTypeName(declaringTypeFullName);
+        if (memberName is null)
+        {
+            return type;
+        }
+
+        int arity = memberName.IndexOf("``", StringComparison.Ordinal);
+        string name = arity < 0 ? memberName : memberName[..arity];
+        if (name == ".ctor")
+        {
+            return "new " + type;
+        }
+
+        foreach (string accessor in (ReadOnlySpan<string>)["get_", "set_", "add_", "remove_"])
+        {
+            if (name.StartsWith(accessor, StringComparison.Ordinal))
+            {
+                return type + "." + name[accessor.Length..];
+            }
+        }
+
+        return type + "." + name;
+    }
+
+    // A type as source code names it: no namespace, a dot before a nested type, and <T> (or <T1,T2>) for its arity.
+    private static string ShortTypeName(string fullName)
+    {
+        string[] segments = fullName.Split('/');
+        segments[0] = segments[0][(segments[0].LastIndexOf('.') + 1)..];
+        for (int i = 0; i < segments.Length; i++)
+        {
+            int tick = segments[i].IndexOf('`', StringComparison.Ordinal);
+            if (tick >= 0)
+            {
+                int arity = int.Parse(segments[i][(tick + 1)..], System.Globalization.CultureInfo.InvariantCulture);
+                segments[i] = segments[i][..tick] + (arity == 1 ? "<T>" : "<" + string.Join(",", Enumerable.Range(1, arity).Select(n => "T" + n)) + ">");
+            }
+        }
+
+        return string.Join(".", segments);
+    }
+
     // A documented hole is a member whose BCL behavior can differ between runs or hosts, or escape the coordinator.
     private static bool IsDocumentedHole(UnrewrittenReason reason) => reason switch
     {
         UnrewrittenReason.Value or UnrewrittenReason.Dispatch or UnrewrittenReason.Fence or UnrewrittenReason.RuntimeAsync
-            or UnrewrittenReason.AlwaysThrows or UnrewrittenReason.SubstitutedTypeProtected => false,
+            or UnrewrittenReason.AlwaysThrows or UnrewrittenReason.SubstitutedTypeProtected or UnrewrittenReason.Channel
+            or UnrewrittenReason.SynchronousIO => false,
         UnrewrittenReason.CultureOrTimeZone or UnrewrittenReason.HostState or UnrewrittenReason.Process
             or UnrewrittenReason.RealClock or UnrewrittenReason.ProcessWideId or UnrewrittenReason.CurrentThread
             or UnrewrittenReason.IdentityHandle or UnrewrittenReason.ConstructorCall or UnrewrittenReason.Blocks
-            or UnrewrittenReason.Schedules => true,
+            or UnrewrittenReason.Schedules or UnrewrittenReason.ParallelQuery or UnrewrittenReason.FrameworkWrapper => true,
         _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, null),
     };
 
@@ -237,6 +458,24 @@ public static class RuleInventoryDocument
         UnrewrittenReason.SubstitutedTypeProtected =>
             "Protected member of a substituted type, which only a derived type can call. Rewriting a type derived from " +
             "a substituted type fails.",
+        UnrewrittenReason.Channel =>
+            "Reads or changes the channel's state on the calling thread, or returns a waiter which a later change to that " +
+            "state completes. Controlled code makes those changes on the logical thread and awaits the waiter through a " +
+            "controlled awaiter, so the member keeps its BCL behavior.",
+        UnrewrittenReason.ParallelQuery =>
+            "Operates on a PLINQ `ParallelQuery<T>`, which only the rejected `AsParallel`, `Range`, `Repeat`, and `Empty` " +
+            "create (`Plinq` family). A query that uninstrumented code creates and passes to rewritten code runs on worker " +
+            "tasks of `TaskScheduler.Default`, as in the BCL.",
+        UnrewrittenReason.SynchronousIO =>
+            "Reads, writes, flushes, or disposes on the calling thread, which is the logical thread: a synchronous I/O " +
+            "member, or `DisposeAsync`, whose base implementation calls `Dispose`. The asynchronous members whose base " +
+            "implementations run these on the thread pool are controlled (`AsyncIO` family).",
+        UnrewrittenReason.FrameworkWrapper =>
+            "Returns a framework wrapper over the given instances (`Stream.Synchronized`, `TextReader.Synchronized`, " +
+            "`TextWriter.Synchronized`, `TextWriter.CreateBroadcasting`). The wrapper's own members are classified with its " +
+            "type, but its calls to a wrapped instance are framework calls, so they reach that instance's base " +
+            "asynchronous members as in the BCL: `Stream.Synchronized` reads and writes through the wrapped stream's " +
+            "`BeginRead`/`BeginWrite`, and a broadcasting writer awaits each writer's asynchronous members.",
         _ => throw new ArgumentOutOfRangeException(nameof(reason), reason, null),
     };
 
@@ -294,8 +533,9 @@ public static class RuleInventoryDocument
             "coordinator observes them complete, from the call on, through an enumerator whose `MoveNextAsync` a " +
             "controlled operation completes, with the BCL's validation, single enumeration, and cancellation.",
         BuiltInRuleFamily.TaskSynchronization =>
-            "Blocking `Task.Wait()`, `Task.WaitAll`, and `Task.WaitAny` redirect to controlled waits that pump " +
-            "the deterministic loop rather than blocking a physical thread; a never-satisfiable wait surfaces " +
+            "Every `Task.Wait`, `Task.WaitAll`, and `Task.WaitAny` overload redirects to a controlled wait that pumps " +
+            "the deterministic loop rather than blocking a physical thread, with timeouts that elapse in virtual time and the " +
+            "BCL's results and exceptions; a never-satisfiable wait surfaces " +
             "as a precise deadlock diagnostic instead of hanging the scheduler. " +
             "`TaskAsyncEnumerableExtensions.ToBlockingEnumerable` redirects to an enumerable that pumps the loop " +
             "until each `MoveNextAsync` and the final `DisposeAsync` complete, with the BCL's token, early-exit " +
@@ -322,7 +562,9 @@ public static class RuleInventoryDocument
             "`Task.Run` (all `Action`/`Func<TResult>`/`Func<Task>`/`Func<Task<TResult>>` overloads, with and " +
             "without a `CancellationToken`) redirects thread-pool scheduling into controlled operations. " +
             "Each overload redirects to a controlled equivalent that schedules the delegate as a controlled " +
-            "operation on the simulation coordinator, preserving cancellation and unwrap semantics.",
+            "operation on the simulation coordinator, preserving cancellation and unwrap semantics. `Task.Start` and " +
+            "`Task.RunSynchronously` run a task constructed with `new Task(...)` on the coordinator's `TaskScheduler`, " +
+            "with the BCL's validation and status transitions; a custom scheduler is rejected.",
         BuiltInRuleFamily.AsyncMachinery =>
             "The compiler-generated builder and awaiter types of an `async` state machine " +
             "(`AsyncTaskMethodBuilder`, `TaskAwaiter`, `ConfiguredTaskAwaitable`/`YieldAwaitable` and their " +
@@ -375,7 +617,8 @@ public static class RuleInventoryDocument
             "control. Await a task-returning API instead.",
         BuiltInRuleFamily.Thread =>
             "`Thread` construction (`ThreadStart`/`ParameterizedThreadStart`, with and without a stack size), " +
-            "`Start`, `Join` (all overloads), `Sleep`, `Yield`, and `SpinWait` redirect to a controlled thread " +
+            "`Start`, `UnsafeStart` (which does not flow the `ExecutionContext`), `Join` (all overloads), `Sleep`, `Yield`, " +
+            "and `SpinWait` redirect to a controlled thread " +
             "that maps each thread to a controlled operation on the simulation coordinator; `Join`/`Sleep` " +
             "yield the logical thread via the deterministic loop rather than blocking a physical thread or " +
             "consuming real time. OS-specific priority, apartment-state, and `Interrupt` operations cannot be " +
@@ -402,12 +645,43 @@ public static class RuleInventoryDocument
             "`CancellationTokenSource` timed constructors and `CancelAfter` use resettable virtual deadlines. " +
             "Manual cancellation, reset, and disposal remove stale registrations before they can fire.",
         BuiltInRuleFamily.Parallel =>
-            "`Parallel.Invoke`, `Parallel.For` (`int`/`long`, with and without `ParallelOptions`), and " +
-            "`Parallel.ForEach(IEnumerable<T>)` run their bodies as controlled operations on the simulation " +
-            "coordinator, preserving results, cancellation, and exception aggregation. The overloads whose body takes a " +
-            "`ParallelLoopState` (break/stop) or thread-local state (`TLocal`), and the `Partitioner`/" +
-            "`OrderablePartitioner` overloads, cannot be modelled deterministically yet and are rejected with a precise " +
-            "diagnostic.",
+            "`Parallel.ForEachAsync`, `Parallel.ForAsync`, `Parallel.Invoke`, `Parallel.For`, and `Parallel.ForEach` run on " +
+            "a deterministic pool of controlled workers on the simulation coordinator, and the overloads whose body " +
+            "receives a `ParallelLoopState` are rejected. `Environment.ProcessorCount` and the range factories " +
+            "`Partitioner.Create(fromInclusive, toExclusive)` use the simulation's processor count, which sizes the loops " +
+            "without a limit. [Parallel loops](compatibility.md#parallel-loops) describes their behavior.",
+        BuiltInRuleFamily.Channels =>
+            "`ChannelReader<T>.ReadAllAsync` and the base `ChannelReader<T>.ReadAsync` and `ChannelWriter<T>.WriteAsync`, " +
+            "which the BCL implements as async methods in the channels assembly whose awaits resume on the thread pool, " +
+            "call a reader's or writer's override as written and otherwise run the BCL's algorithm with controlled " +
+            "awaits on the coordinator. The members left as BCL calls complete through the channel's own state, which " +
+            "controlled code changes on the logical thread.",
+        BuiltInRuleFamily.Plinq =>
+            "Every `ParallelEnumerable.AsParallel` overload, and `ParallelEnumerable.Range`, `Repeat`, and `Empty`, are " +
+            "rejected at the call site with a precise diagnostic: PLINQ runs a query on worker tasks of " +
+            "`TaskScheduler.Default` and blocks the calling thread on framework waits until they finish. These members are " +
+            "the only public way to create a `ParallelQuery<T>`, so the operators over one stay BCL calls.",
+        BuiltInRuleFamily.BlockingCollection =>
+            "The `BlockingCollection<T>` members which add, take, or complete adding (`Add`, `TryAdd`, `Take`, `TryTake`, " +
+            "`GetConsumingEnumerable`, `CompleteAdding`, and the static `AddToAny`, `TryAddToAny`, `TakeFromAny`, and " +
+            "`TryTakeFromAny`) redirect to controlled shims over the real collection. Each makes the BCL's own " +
+            "zero-timeout attempt, which validates, adds, or takes as the BCL does, and when that would have waited on the " +
+            "framework's semaphores, parks the caller on the coordinator until the collection can satisfy it, adding is " +
+            "completed (a waiting adder then throws and a waiting taker returns `false`, as in the BCL), the token is " +
+            "cancelled, or the timeout elapses in virtual time. A wait which nothing can satisfy is reported as a deadlock. " +
+            "Adds and `CompleteAdding` publish a race-detection edge which takes acquire.",
+        BuiltInRuleFamily.AsyncIO =>
+            "The asynchronous members of `Stream`, `TextReader`, and `TextWriter` whose base implementations run the " +
+            "synchronous member on the thread pool (`ReadAsync`, `WriteAsync`, `FlushAsync`, `ReadLineAsync`, " +
+            "`ReadToEndAsync`, `ReadBlockAsync`, `WriteLineAsync`), block the caller on a semaphore or task (`Stream." +
+            "BeginRead`/`EndRead`/`BeginWrite`/`EndWrite`), or await the other members through BCL awaits " +
+            "(`Stream.CopyToAsync`) call an override as written and otherwise run the BCL's base algorithm on the " +
+            "coordinator: each synchronous read, write, or flush runs as a fresh controlled operation concurrent with " +
+            "the caller, a stream's base reads and writes are serialized in FIFO order as the BCL's semaphore serializes " +
+            "them, and every await is controlled. An override's base call runs the base algorithm. The non-virtual " +
+            "members (`Stream.ReadExactlyAsync`, `ReadAtLeastAsync`, and the overloads which forward to a virtual member) " +
+            "run the BCL's algorithm over the controlled virtual members. `DisposeAsync` and the synchronous members run " +
+            "on the calling thread and stay BCL calls.",
         BuiltInRuleFamily.Monitor =>
             "The complete .NET 11 `Monitor` surface is classified: synchronization and C# `lock (object)` " +
             "lowering are controlled with deterministic virtual-time deadlines, while the process-wide " +

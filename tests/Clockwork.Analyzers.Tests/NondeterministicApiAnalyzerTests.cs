@@ -57,6 +57,21 @@ public sealed class NondeterministicApiAnalyzerTests
     [InlineData("System.Threading.Thread.Sleep(1);", "CW1001")]
     [InlineData("System.Threading.ThreadPool.QueueUserWorkItem(_ => { });", "CW1001")]
     [InlineData("System.Threading.Tasks.Parallel.Invoke(() => { });", "CW1001")]
+    [InlineData("_ = System.Threading.Tasks.Parallel.ForEachAsync(new[] { 1 }, (_, _) => default);", "CW1001")]
+    [InlineData("_ = System.Environment.ProcessorCount;", "CW1001")]
+    [InlineData("_ = System.Collections.Concurrent.Partitioner.Create(0, 10);", "CW1001")]
+    [InlineData("_ = System.Collections.Concurrent.Partitioner.Create(0L, 10L);", "CW1001")]
+    [InlineData("_ = System.Threading.Tasks.Task.CompletedTask.Wait(1);", "CW1001")]
+    [InlineData("System.Threading.Tasks.Task task = System.Threading.Tasks.Task.CompletedTask; task.Start();", "CW1001")]
+    [InlineData("_ = new System.Threading.Tasks.Task(() => { });", "CW1001")]
+    [InlineData("_ = new System.Threading.Tasks.Task<int>(() => 1);", "CW1001")]
+    [InlineData("System.Threading.Tasks.ValueTask<int> value = default; _ = value.Result;", "CW1001")]
+    [InlineData("_ = System.Threading.Channels.Channel.CreateUnbounded<int>().Reader.ReadAllAsync();", "CW1001")]
+    [InlineData("_ = System.Threading.Channels.Channel.CreateUnbounded<int>().Reader.ReadAsync();", "CW1001")]
+    [InlineData("_ = System.Threading.Channels.Channel.CreateUnbounded<int>().Writer.WriteAsync(1);", "CW1001")]
+    [InlineData("_ = System.Linq.ParallelEnumerable.Range(0, 1);", "CW1001")]
+    [InlineData("_ = new System.Collections.Concurrent.BlockingCollection<int>().Take();", "CW1001")]
+    [InlineData("_ = System.IO.Stream.Null.FlushAsync();", "CW1001")]
     [InlineData("System.Threading.Monitor.Enter(new object());", "CW1001")]
     [InlineData("using var semaphore = new System.Threading.SemaphoreSlim(1);", "CW1001")]
     [InlineData("using var readerWriter = new System.Threading.ReaderWriterLockSlim();", "CW1001")]
@@ -101,8 +116,10 @@ public sealed class NondeterministicApiAnalyzerTests
     }
 
     [Theory]
-    [InlineData("System.Threading.Tasks.Task.CompletedTask.Wait(1);")]
-    public async Task DoesNotFlagUninstrumentedTaskOverloads(string statement)
+    [InlineData("_ = System.Collections.Concurrent.Partitioner.Create(0, 10, 2);")]
+    [InlineData("_ = System.Collections.Concurrent.Partitioner.Create(new[] { 1 }, true);")]
+    [InlineData("_ = System.Collections.Concurrent.Partitioner.Create(new System.Collections.Generic.List<int>());")]
+    public async Task PartitionerFactoriesWhichDoNotReadTheProcessorCountAreNotFlagged(string statement)
     {
         ImmutableArray<Diagnostic> diagnostics = await AnalyzeAsync(Wrap(statement));
 
@@ -171,6 +188,55 @@ public sealed class NondeterministicApiAnalyzerTests
     }
 
     [Fact]
+    public async Task ChannelMembersAreReportedUnlessTheReceiverProvablyRunsAnOverride()
+    {
+        const string source = """
+            using System.Threading;
+            using System.Threading.Channels;
+            using System.Threading.Tasks;
+
+            class Reader : ChannelReader<int>
+            {
+                public override bool TryRead(out int item) { item = 0; return false; }
+                public override ValueTask<bool> WaitToReadAsync(CancellationToken token = default) => default;
+                public override ValueTask<int> ReadAsync(CancellationToken token = default) => base.ReadAsync(token);
+            }
+
+            sealed class DerivedReader : Reader
+            {
+            }
+
+            class Writer : ChannelWriter<int>
+            {
+                public override bool TryWrite(int item) => false;
+                public override ValueTask<bool> WaitToWriteAsync(CancellationToken token = default) => default;
+            }
+
+            class Probe
+            {
+                void M(Reader reader, DerivedReader derived, Writer writer, ChannelReader<int> unknown)
+                {
+                    _ = reader.ReadAsync();
+                    _ = derived.ReadAsync();
+                    _ = reader.ReadAllAsync();
+                    _ = writer.WriteAsync(1);
+                    _ = unknown.ReadAsync();
+                }
+            }
+            """;
+
+        ImmutableArray<Diagnostic> diagnostics = await AnalyzeAsync(source);
+
+        // The base call, the inherited ReadAllAsync and WriteAsync, and a receiver whose type may inherit ReadAsync.
+        Assert.Equal(
+            ["base.ReadAsync(token)", "reader.ReadAllAsync()", "unknown.ReadAsync()", "writer.WriteAsync(1)"],
+            diagnostics
+                .Select(diagnostic => diagnostic.Location.SourceTree!.GetText().ToString(diagnostic.Location.SourceSpan))
+                .Order(StringComparer.Ordinal));
+        Assert.All(diagnostics, diagnostic => Assert.Equal("CW1001", diagnostic.Id));
+    }
+
+    [Fact]
     public void InventoryCoversEveryShippedTaskAndSynchronizationRuleMember()
     {
         BuiltInRuleFamily[] analyzerFamilies =
@@ -190,6 +256,7 @@ public sealed class NondeterministicApiAnalyzerTests
             BuiltInRuleFamily.Timers,
             BuiltInRuleFamily.CancellationTimers,
             BuiltInRuleFamily.Parallel,
+            BuiltInRuleFamily.Channels,
             BuiltInRuleFamily.Monitor,
             BuiltInRuleFamily.Lock,
             BuiltInRuleFamily.Semaphore,

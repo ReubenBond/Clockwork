@@ -20,7 +20,8 @@ internal sealed class SimulationHost : IDisposable
         DateTimeOffset start,
         int seed = 1,
         TimeZoneInfo? timeZone = null,
-        IReadOnlyList<string>? nodeAddresses = null)
+        IReadOnlyList<string>? nodeAddresses = null,
+        int? processorCount = null)
     {
         IReadOnlyList<string> addresses = nodeAddresses ?? ["node"];
         _defaultAddress = addresses[0];
@@ -28,7 +29,8 @@ internal sealed class SimulationHost : IDisposable
         _cluster = new SimulationCluster(
             seed,
             start,
-            simulationTimeZone: timeZone);
+            simulationTimeZone: timeZone,
+            processorCount: processorCount);
 
         foreach (string address in addresses)
         {
@@ -38,6 +40,9 @@ internal sealed class SimulationHost : IDisposable
 
     /// <summary>Gets the scheduler which runs the cluster's controlled operations.</summary>
     public SimulationScheduler Scheduler => _cluster.Scheduler;
+
+    /// <summary>Gets the named node's <see cref="SimulationTaskScheduler"/>, which queues work to its lane.</summary>
+    public SimulationTaskScheduler NodeTaskScheduler(string address) => _nodes[address].Context.TaskScheduler;
 
     /// <summary>Invokes the probe method as work on the default node.</summary>
     public object? Invoke(MethodInfo method, params object?[] args) => InvokeOnNode(_defaultAddress, method, args);

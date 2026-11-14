@@ -75,6 +75,24 @@ internal sealed class RewriteFixture : IDisposable
             optimize);
 
     /// <summary>
+    /// Compiles, rewrites with the controlled-task rule set less the rules <paramref name="exclude"/> selects, and loads
+    /// the rewritten probe type: the rewrite a call site received before those rules existed.
+    /// </summary>
+    public StagedProbe StageControlledTasksWithout(
+        string assemblyName,
+        string typeName,
+        string source,
+        Func<RewriteRule, bool> exclude)
+    {
+        RewriteRuleSet full = BuiltInRuleSets.BuildControlledTasks(BuiltInRuleSets.AllFamilies);
+        return StageWith(
+            assemblyName,
+            typeName,
+            source,
+            new RewriteRuleSet(full.Id, full.Version, full.Rules.Where(rule => !exclude(rule))));
+    }
+
+    /// <summary>
     /// Compiles with runtime async and rewrites with the controlled-task rule set, returning the compiled assembly's
     /// path and the rewrite's outcome without loading either.
     /// </summary>

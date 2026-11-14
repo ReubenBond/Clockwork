@@ -29,6 +29,15 @@ public sealed record RewriteRule
     /// <summary>Gets the replacement member or type this rule redirects to.</summary>
     public required RewriteReplacement Replacement { get; init; }
 
+    /// <summary>
+    /// Gets the replacement for a non-virtual <c>call</c> of the target: the base call with which an override invokes
+    /// the implementation it overrides. A <see cref="Replacement"/> which dispatches to an override as a
+    /// <c>callvirt</c> does would re-enter that override, so a rule over a virtual member whose replacement dispatches
+    /// gives its base calls a replacement which runs the base implementation. <see langword="null"/> redirects every
+    /// call site to <see cref="Replacement"/>.
+    /// </summary>
+    public RewriteReplacement? BaseCallReplacement { get; init; }
+
     /// <summary>Gets the simulation API-policy classification of the target. Defaults to <see cref="SimulationApiPolicy.Controlled"/>.</summary>
     public SimulationApiPolicy Policy { get; init; } = SimulationApiPolicy.Controlled;
 
@@ -94,6 +103,10 @@ public sealed record RewriteRule
         canonical.AddString(nameof(Operation), Operation.ToString());
         canonical.AddString(nameof(Target), Target.ToCanonicalString());
         canonical.AddString(nameof(Replacement), Replacement.ToCanonicalString());
+        if (BaseCallReplacement is { } baseCallReplacement)
+        {
+            canonical.AddString(nameof(BaseCallReplacement), baseCallReplacement.ToCanonicalString());
+        }
         canonical.AddString(nameof(Policy), Policy.ToString());
         canonical.AddString(nameof(SupportedRuntimes), SupportedRuntimes.ToCanonicalString());
         canonical.AddString(nameof(Description), Description);

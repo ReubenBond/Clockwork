@@ -36,7 +36,9 @@ namespace Clockwork.Instrumentation.Configuration;
 /// }
 /// </code>
 /// A <c>null</c>/omitted <c>member</c> targets the type itself (type substitution); a <c>null</c>/omitted
-/// <c>parameters</c> matches any overload, while an empty array matches a parameterless overload exactly.
+/// <c>parameters</c> matches any overload, while an empty array matches a parameterless overload exactly. A
+/// <c>RedirectCall</c> rule over a virtual member may give a <c>baseCallReplacement</c>, with the same shape as
+/// <c>replacement</c>, to which the non-virtual <c>call</c> sites (an override's base call) are redirected.
 /// </remarks>
 public static class RuleSetJson
 {
@@ -156,20 +158,26 @@ public static class RuleSetJson
         var ruleArray = new JsonArray();
         foreach (RewriteRule rule in ruleSet.Rules)
         {
-            ruleArray.Add(new JsonObject
+            var ruleObject = new JsonObject
             {
                 ["id"] = rule.Id,
                 ["operation"] = rule.Operation.ToString(),
                 ["target"] = WriteSignature(rule.Target.DeclaringTypeFullName, rule.Target.MemberName, rule.Target.ParameterTypeFullNames, assembly: null),
-                ["replacement"] = WriteSignature(rule.Replacement.DeclaringTypeFullName, rule.Replacement.MemberName, rule.Replacement.ParameterTypeFullNames, rule.Replacement.AssemblyName),
-                ["policy"] = rule.Policy.ToString(),
-                ["supportedRuntimes"] = new JsonObject
-                {
-                    ["min"] = rule.SupportedRuntimes.Minimum?.ToString(),
-                    ["max"] = rule.SupportedRuntimes.Maximum?.ToString(),
-                },
-                ["description"] = rule.Description,
-            });
+                ["replacement"] = WriteReplacement(rule.Replacement),
+            };
+            if (rule.BaseCallReplacement is { } baseCall)
+            {
+                ruleObject["baseCallReplacement"] = WriteReplacement(baseCall);
+            }
+
+            ruleObject["policy"] = rule.Policy.ToString();
+            ruleObject["supportedRuntimes"] = new JsonObject
+            {
+                ["min"] = rule.SupportedRuntimes.Minimum?.ToString(),
+                ["max"] = rule.SupportedRuntimes.Maximum?.ToString(),
+            };
+            ruleObject["description"] = rule.Description;
+            ruleArray.Add(ruleObject);
         }
 
         var root = new JsonObject
@@ -182,6 +190,9 @@ public static class RuleSetJson
 
         return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
     }
+
+    private static JsonObject WriteReplacement(RewriteReplacement replacement) =>
+        WriteSignature(replacement.DeclaringTypeFullName, replacement.MemberName, replacement.ParameterTypeFullNames, replacement.AssemblyName);
 
     private static JsonObject WriteSignature(string type, string? member, ImmutableArray<string> parameters, string? assembly)
     {
@@ -222,6 +233,7 @@ public static class RuleSetJson
             "operation",
             "target",
             "replacement",
+            "baseCallReplacement",
             "policy",
             "supportedRuntimes",
             "description");
@@ -268,6 +280,24 @@ public static class RuleSetJson
             replacementMember,
             replacementParameters);
 
+        RewriteReplacement? baseCallReplacement = null;
+        if (element.TryGetProperty("baseCallReplacement", out JsonElement baseCallElement) && baseCallElement.ValueKind != JsonValueKind.Null)
+        {
+            if (operation != RewriteOperationKind.RedirectCall)
+            {
+                throw new ConfigurationException($"{context}: 'baseCallReplacement' applies only to a RedirectCall rule.");
+            }
+
+            (string? baseCallAssembly, (string baseCallType, string? baseCallMember, ImmutableArray<string> baseCallParameters)) =
+                ParseSignature(element, "baseCallReplacement", context, requireAssembly: true);
+            if (baseCallMember is null)
+            {
+                throw new ConfigurationException($"{context}: 'baseCallReplacement.member' is required.");
+            }
+
+            baseCallReplacement = new RewriteReplacement(baseCallAssembly!, baseCallType, baseCallMember, baseCallParameters);
+        }
+
         SimulationApiPolicy policy = element.TryGetProperty("policy", out JsonElement policyElement) && policyElement.ValueKind != JsonValueKind.Null
             ? ParseEnum<SimulationApiPolicy>(RequireString(policyElement, "policy", context), "policy", context)
             : SimulationApiPolicy.Controlled;
@@ -281,6 +311,7 @@ public static class RuleSetJson
             Operation = operation,
             Target = target,
             Replacement = replacement,
+            BaseCallReplacement = baseCallReplacement,
             Policy = policy,
             SupportedRuntimes = runtimes,
             Description = description,

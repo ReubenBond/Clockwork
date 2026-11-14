@@ -20,7 +20,10 @@ public sealed class RewriteRuleSet
     /// <param name="id">The stable identity of the rule set.</param>
     /// <param name="version">The version of the rule set.</param>
     /// <param name="rules">The rules, applied in order (first matching rule wins at a site).</param>
-    /// <exception cref="ArgumentException">Thrown if <paramref name="rules"/> contains duplicate ids.</exception>
+    /// <exception cref="ArgumentException">
+    /// Thrown if <paramref name="rules"/> contains duplicate ids, or a rule other than a <c>RedirectCall</c> carries a
+    /// <see cref="RewriteRule.BaseCallReplacement"/>.
+    /// </exception>
     public RewriteRuleSet(string id, string version, IEnumerable<RewriteRule> rules)
     {
         ArgumentException.ThrowIfNullOrEmpty(id);
@@ -41,6 +44,13 @@ public sealed class RewriteRuleSet
             if (!seen.Add(rule.Id))
             {
                 throw new ArgumentException($"Duplicate rule id '{rule.Id}' in rule set '{id}'.", nameof(rules));
+            }
+
+            if (rule.BaseCallReplacement is not null && rule.Operation != RewriteOperationKind.RedirectCall)
+            {
+                throw new ArgumentException(
+                    $"Rule '{rule.Id}' has a base-call replacement, which only a RedirectCall rule applies.",
+                    nameof(rules));
             }
         }
     }
