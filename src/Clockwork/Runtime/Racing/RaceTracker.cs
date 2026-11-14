@@ -89,7 +89,7 @@ internal sealed class RaceTracker
 
     /// <summary>Gets the size of the tracker's retained state.</summary>
     public RaceTrackerStatistics Statistics =>
-        new(_operations.Count, _slots.Count, _peakSlots, _largestClock, _locations, _retainedAccesses);
+        new(_operations.Count, _slots.Count, _peakSlots, _nextSlotId, _largestClock, _locations, _retainedAccesses);
 
     /// <summary>Registers <paramref name="operation"/>, ordered after its <paramref name="parent"/>'s events so far.</summary>
     public void RegisterOperation(SimulationOperation operation, SimulationOperation? parent)
@@ -956,6 +956,7 @@ internal sealed class RaceTracker
 /// <param name="Operations">The operations whose state is retained: those which have not ended.</param>
 /// <param name="Slots">The live clock slots: those owned by an operation or naming an access a location keeps.</param>
 /// <param name="PeakSlots">The most clock slots live at once.</param>
+/// <param name="SlotsStarted">The clock slots started: operations which continued no finished slot.</param>
 /// <param name="LargestClock">The most components any clock has held.</param>
 /// <param name="Locations">The tracked locations: every static field and the locations of live objects.</param>
 /// <param name="RetainedAccesses">The accesses locations keep: their last writes and unordered reads.</param>
@@ -963,6 +964,7 @@ internal readonly record struct RaceTrackerStatistics(
     int Operations,
     int Slots,
     int PeakSlots,
+    long SlotsStarted,
     int LargestClock,
     int Locations,
     int RetainedAccesses);

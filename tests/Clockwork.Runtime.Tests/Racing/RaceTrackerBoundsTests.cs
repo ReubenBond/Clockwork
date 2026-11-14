@@ -40,7 +40,7 @@ public sealed class RaceTrackerBoundsTests
 
         AssertRacesWithTheEarlyRead(shortRace);
         AssertRacesWithTheEarlyRead(longRace);
-        Assert.Equal(shortRun, longRun);
+        AssertSameRetainedState(shortRun, longRun);
         Assert.Equal(0, longRun.Operations);
 
         // A link whose first event precedes its acquire of the previous link's completion starts a slot rather than
@@ -76,7 +76,7 @@ public sealed class RaceTrackerBoundsTests
         RaceTrackerStatistics shortRun = RunTimerChain(ticks: 100);
         RaceTrackerStatistics longRun = RunTimerChain(ticks: 5_000);
 
-        Assert.Equal(shortRun, longRun);
+        AssertSameRetainedState(shortRun, longRun);
         Assert.Equal(0, longRun.Operations);
         Assert.InRange(longRun.LargestClock, 1, 4);
         Assert.InRange(longRun.Slots, 1, 2);
@@ -105,7 +105,7 @@ public sealed class RaceTrackerBoundsTests
         RaceTrackerStatistics shortRun = RunUnawaitedFanOut(children: 100);
         RaceTrackerStatistics longRun = RunUnawaitedFanOut(children: 2_000);
 
-        Assert.Equal(shortRun, longRun);
+        AssertSameRetainedState(shortRun, longRun);
         Assert.Equal(0, longRun.Operations);
         Assert.InRange(longRun.LargestClock, 1, 4);
         Assert.Equal(1, longRun.Locations);
@@ -195,6 +195,10 @@ public sealed class RaceTrackerBoundsTests
         tracker.RegisterOperation(operation, parent);
         return operation;
     }
+
+    // The slots a run started count its work, not what it retains.
+    private static void AssertSameRetainedState(RaceTrackerStatistics shortRun, RaceTrackerStatistics longRun) =>
+        Assert.Equal(shortRun with { SlotsStarted = 0 }, longRun with { SlotsStarted = 0 });
 
     private static void AssertRacesWithTheEarlyRead(RaceReport? race)
     {
