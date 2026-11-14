@@ -163,6 +163,7 @@ public sealed class FrameworkTimeoutConformanceTests : IDisposable
             {
                 private readonly TimeSpan _stopDuration;
                 private readonly Lifetime _lifetime = new Lifetime();
+                private readonly TaskCompletionSource _started = new TaskCompletionSource();
 
                 public RecordingHost(TimeSpan stopDuration) => _stopDuration = stopDuration;
 
@@ -176,7 +177,10 @@ public sealed class FrameworkTimeoutConformanceTests : IDisposable
                 {
                     await Task.Delay(10, cancellationToken);
                     Log.Add("started");
+                    _started.TrySetResult();
                 }
+
+                public Task Started => _started.Task;
 
                 public async Task StopAsync(CancellationToken cancellationToken = default)
                 {
@@ -383,12 +387,16 @@ public sealed class FrameworkTimeoutConformanceTests : IDisposable
                 public static async Task<string> StartABuilderAsync() =>
                     string.Join(",", ((RecordingHost)await new RecordingHostBuilder().StartAsync()).Log);
 
-                // Runs a host until a token which a timer cancels triggers its shutdown.
+                // Runs a host until a token which a timer cancels triggers its shutdown. The timer starts once the host
+                // has started, so a slow start under the BCL cannot be cancelled instead.
                 public static async Task<string> RunUntilATokenIsCancelled()
                 {
                     var host = new RecordingHost(TimeSpan.FromMilliseconds(5));
-                    using var shutdown = new CancellationTokenSource(50);
-                    await host.RunAsync(shutdown.Token);
+                    using var shutdown = new CancellationTokenSource();
+                    Task run = host.RunAsync(shutdown.Token);
+                    await host.Started;
+                    shutdown.CancelAfter(50);
+                    await run;
                     return string.Join(",", host.Log);
                 }
 
