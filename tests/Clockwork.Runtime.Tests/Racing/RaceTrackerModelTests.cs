@@ -197,7 +197,7 @@ public sealed class RaceTrackerModelTests
             _main = Start(parent: null);
         }
 
-        // Sweeps for collected objects from four tracked objects up, so short programs exercise it.
+        // Sweeps for collected objects from four object locations up, so short programs exercise it.
         public RaceTracker Tracker { get; } = new(minimumSweepThreshold: 4);
 
         public void Run(Step step)
@@ -328,7 +328,12 @@ public sealed class RaceTrackerModelTests
                 _ => (RaceMemoryLocationKind.ArrayElement, _arrays[second % _arrays.Length], "element", second / 2 % 2),
             };
             var source = new RaceSourceLocation("model", ++_nextOffset, null, -1);
+            int before = Tracker.Statistics.Locations;
             RaceTracker.LocationState location = Tracker.ResolveLocation(locationKind, target, member, element)!;
+            if (Tracker.Statistics.Locations < before)
+            {
+                _counts.Sweeps++;
+            }
             RaceTracker.RacingAccess? actual = Tracker.RecordAccess(operation, kind, location, source, []);
             RaceMemoryLocation oracleLocation = _oracle.ResolveLocation(locationKind, target, member, element)!.Value;
             _oracle.RecordAccess(operation, kind, oracleLocation, source, []);

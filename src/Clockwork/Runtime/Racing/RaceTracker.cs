@@ -37,8 +37,9 @@ namespace Clockwork.Runtime.Racing;
 /// accesses. A clock entry decides nothing once its slot has ended, or has finished and the entry is below every epoch
 /// the slot still keeps: it covers no kept access, and below the slot's last epoch it cannot continue the slot. Copies
 /// keep only deciding entries, and a clock merged into is pruned once more slots have changed since its last prune than
-/// half its size. A location of an object lives as long as the object: a sweep at operation completion releases the
-/// accesses of collected objects. Lock and signal clocks live as long as their synchronization object. So the live slots
+/// half its size. A location of an object lives as long as the object: a sweep, due once the locations of objects have
+/// doubled since the last, releases the accesses of collected objects as an operation completes or an object location
+/// is added. Lock and signal clocks live as long as their synchronization object. So the live slots
 /// are the running operations' plus those of mutually unordered accesses kept on live locations. A copy holds only
 /// entries of live slots; each slot change stops at most one entry of a clock deciding, so a clock just merged into
 /// holds at most twice as many entries as there are live slots, and between merges it grows only by its own slot.
@@ -153,10 +154,7 @@ internal sealed class RaceTracker
             }
         }
 
-        if (_objectLocations >= _sweepThreshold)
-        {
-            SweepCollectedObjects();
-        }
+        SweepIfDue();
     }
 
     /// <summary>Resolves the tracked state of a logical location, or <see langword="null"/> for an untracked access.</summary>
@@ -194,6 +192,7 @@ internal sealed class RaceTracker
             tracked.Locations,
             new RaceMemoryLocation(kind.Value, tracked.Id, locationMember, elementIndex));
         _objectLocations += tracked.Locations.Count - before;
+        SweepIfDue();
         return location;
     }
 
@@ -625,6 +624,16 @@ internal sealed class RaceTracker
     {
         _slots.Remove(slotId);
         _slotChanges++;
+    }
+
+    // Sweeps once the locations of objects reach the threshold, both as an operation completes and as an object location
+    // is added, so a long-running operation which allocates is swept too. The trigger counts locations, never collections.
+    private void SweepIfDue()
+    {
+        if (_objectLocations >= _sweepThreshold)
+        {
+            SweepCollectedObjects();
+        }
     }
 
     // Releases the accesses kept on the locations of collected objects. Which objects have been collected depends on

@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Clockwork.Runtime.Racing;
 using Clockwork.Runtime.Scheduling;
@@ -142,6 +143,27 @@ public sealed class RaceTrackerBoundsTests
     }
 
     [Fact]
+    public void LongRunningOperationReadingFreshObjectsKeepsLocationsBounded()
+    {
+        using SimulationScheduler scheduler = SchedulerTestHarness.NewScheduler();
+        var tracker = new RaceTracker();
+        SimulationOperation operation = Start(scheduler, tracker, parent: null);
+        for (int index = 0; index < 10_000; index++)
+        {
+            ReadFreshObject(tracker, operation);
+            if (index % CollectionInterval == 0)
+            {
+                Collect();
+            }
+        }
+
+        RaceTrackerStatistics statistics = tracker.Statistics;
+        Assert.Equal(1, statistics.Operations);
+        Assert.InRange(statistics.Locations, 1, 4 * CollectionInterval);
+        Assert.InRange(statistics.RetainedAccesses, 1, 4 * CollectionInterval);
+    }
+
+    [Fact]
     public void ClockWhichManyEndedOperationsSignalIsPruned()
     {
         using SimulationScheduler scheduler = SchedulerTestHarness.NewScheduler();
@@ -195,6 +217,15 @@ public sealed class RaceTrackerBoundsTests
         tracker.RegisterOperation(operation, parent);
         return operation;
     }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void ReadFreshObject(RaceTracker tracker, SimulationOperation operation) =>
+        tracker.RecordAccess(
+            operation,
+            RaceAccessKind.Read,
+            tracker.ResolveLocation(RaceMemoryLocationKind.InstanceField, new Box(), "Box::Value", null)!,
+            new RaceSourceLocation("reader", 1, null, -1),
+            []);
 
     // The slots a run started count its work, not what it retains.
     private static void AssertSameRetainedState(RaceTrackerStatistics shortRun, RaceTrackerStatistics longRun) =>
