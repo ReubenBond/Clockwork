@@ -100,8 +100,9 @@ controlled operations (including readiness continuations), resource waits and th
 registrations, plus context-owned shared callbacks such as the cluster-lane resume registered by
 `SuspendFor`. Cancellation unwinds parked controlled-operation stacks cooperatively and releases their
 workers; it does not invoke the discarded callbacks. Work owned by other nodes or by the cluster is
-unchanged, discarded work disappears from pending-work diagnostics, and its deadlines cannot advance
-virtual time during later cluster disposal.
+unchanged, discarded nodes are excluded from `SimulationCluster.ActiveNodes`, discarded work disappears
+from pending-work diagnostics, and its deadlines cannot advance virtual time during later cluster
+disposal.
 
 Discard is a permanent lifecycle transition to `SimulationNodeState.Discarded`. It is idempotent while
 the context remains attached, and every later node-owned enqueue is rejected with

@@ -290,7 +290,8 @@ allowing cluster disposal to drain it. The call permanently transitions the cont
 `SimulationNodeState.Discarded`; it cancels ready and delayed lane callbacks, timers and virtual
 deadlines, controlled operations and resource waits, and context-owned shared callbacks such as a
 `SuspendFor` resume. Their callbacks do not run, their deadlines do not advance virtual time, and
-pending-work diagnostics no longer include them. Other members and cluster-level work are unchanged.
+pending-work diagnostics no longer include them. Other members and cluster-level work are unchanged,
+and discarded nodes are excluded from `SimulationCluster.ActiveNodes`.
 The call is idempotent while the context is attached. New node-owned work is rejected with
 `ObjectDisposedException`, calling it from a callback currently running for that node throws
 `InvalidOperationException` without changing the node, and calling it after cluster disposal throws

@@ -725,6 +725,15 @@ public sealed class SimulationScheduler : IDisposable
         lock (_gate)
         {
             ThrowIfDisposed();
+            ThrowIfNodeDiscardedUnderLock(snapshot.Node);
+            if (operation.IsTerminal)
+            {
+                throw new SimulationSchedulerException(
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"Cannot schedule readiness work for terminal operation {operation.Id}."));
+            }
+
             _readinessWaits.Add(wait);
         }
 
@@ -971,6 +980,7 @@ public sealed class SimulationScheduler : IDisposable
             lock (_gate)
             {
                 ThrowIfDisposed();
+                ThrowIfNodeDiscardedUnderLock(operation.Node);
                 operation.ApplyTransition(SimulationOperationState.Runnable);
             }
 
