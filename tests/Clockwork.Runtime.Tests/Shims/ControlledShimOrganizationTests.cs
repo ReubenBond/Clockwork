@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using Clockwork.Runtime.Shims;
@@ -56,8 +57,7 @@ public sealed partial class ControlledShimOrganizationTests
     [Fact]
     public void ControlledTypeDeclarationsAreUnderShimDirectory()
     {
-        string repositoryRoot = FindRepositoryRoot();
-        string runtimeRoot = Path.Combine(repositoryRoot, "src", "Clockwork", "Runtime");
+        string runtimeRoot = Path.Combine(GetSimulationKernelProjectDirectory(), "Runtime");
         string shimRoot = Path.Combine(runtimeRoot, "Shims") + Path.DirectorySeparatorChar;
         StringComparison pathComparison = OperatingSystem.IsWindows()
             ? StringComparison.OrdinalIgnoreCase
@@ -76,27 +76,34 @@ public sealed partial class ControlledShimOrganizationTests
         }
     }
 
+    [Fact]
+    public void SimulationKernelSourcePathComesFromEvaluatedProjectReference()
+    {
+        string projectPath = GetSimulationKernelProjectPath();
+
+        Assert.True(Path.IsPathFullyQualified(projectPath), $"Expected a fully qualified project path: {projectPath}");
+        Assert.True(File.Exists(projectPath), $"Evaluated kernel ProjectReference does not exist: {projectPath}");
+        Assert.True(
+            Directory.Exists(Path.Combine(Path.GetDirectoryName(projectPath)!, "Runtime", "Shims")),
+            $"Evaluated kernel ProjectReference does not contain Runtime/Shims: {projectPath}");
+    }
+
     private static string TrimGenericArity(string typeName)
     {
         int arityMarker = typeName.IndexOf('`', StringComparison.Ordinal);
         return arityMarker < 0 ? typeName : typeName[..arityMarker];
     }
 
-    // CI builds map source paths (ContinuousIntegrationBuild), so the repository is found from the test binaries.
-    private static string FindRepositoryRoot()
-    {
-        for (DirectoryInfo? directory = new(AppContext.BaseDirectory);
-             directory is not null;
-             directory = directory.Parent)
-        {
-            if (File.Exists(Path.Combine(directory.FullName, "Clockwork.slnx")))
-            {
-                return directory.FullName;
-            }
-        }
+    private static string GetSimulationKernelProjectDirectory() =>
+        Path.GetDirectoryName(GetSimulationKernelProjectPath())
+        ?? throw new InvalidOperationException("The simulation kernel ProjectReference has no directory.");
 
-        throw new DirectoryNotFoundException("Could not locate the Clockwork repository root.");
-    }
+    private static string GetSimulationKernelProjectPath() =>
+        typeof(ControlledShimOrganizationTests).Assembly
+            .GetCustomAttributes<AssemblyMetadataAttribute>()
+            .Single(attribute => attribute.Key == "SimulationKernelProjectPath")
+            .Value
+        ?? throw new InvalidOperationException("The simulation kernel ProjectReference path is missing.");
 
     [GeneratedRegex(
         @"^\s*(?:(?:public|internal|private|protected|file|static|sealed|abstract|partial|readonly|ref)\s+)*(?:class|struct|record(?:\s+(?:class|struct))?|interface|enum)\s+Controlled\w+",
