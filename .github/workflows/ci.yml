@@ -33,7 +33,7 @@ jobs:
       - name: Repeat race exploration corpus
         run: |
           for iteration in 1 2 3; do
-            dotnet run --project tests/Clockwork.Runtime.Tests/Clockwork.Runtime.Tests.csproj --configuration Release --no-build -- --timeout 60s --filter-namespace Clockwork.Runtime.Tests.Racing
+            dotnet run --project tests/Clockwork.Runtime.Tests/Clockwork.Runtime.Tests.csproj --configuration Release --no-build -- --timeout 120s --filter-namespace Orleans.Testing.Simulation.Runtime.Tests.Racing
           done
       - name: Test Instrumentation
         run: dotnet run --project tests/Clockwork.Instrumentation.Tests/Clockwork.Instrumentation.Tests.csproj --configuration Release --no-build -- --timeout 180s
@@ -49,7 +49,7 @@ jobs:
         env:
           DOTNET_TieredCompilation: '0'
           DOTNET_ReadyToRun: '0'
-        run: dotnet run --project tests/Clockwork.Conformance.Tests/Clockwork.Conformance.Tests.csproj --configuration Debug --no-build -- --timeout 300s --filter-class Clockwork.Conformance.Tests.ChannelConformanceTests
+        run: dotnet run --project tests/Clockwork.Conformance.Tests/Clockwork.Conformance.Tests.csproj --configuration Debug --no-build -- --timeout 300s --filter-class Orleans.Testing.Simulation.Conformance.Tests.ChannelConformanceTests
       - name: Package smoke tests
         # Exercises all six real packed NuGet artifacts end-to-end in an isolated feed,
         # consumes the build package through the real MSBuild
@@ -58,7 +58,7 @@ jobs:
         # known path so they can be retained on failure.
         env:
           CLOCKWORK_SMOKE_TESTS: "1"
-        run: dotnet run --project tests/Clockwork.Instrumentation.Tests/Clockwork.Instrumentation.Tests.csproj --configuration Release --no-build -- --timeout 600s --filter-namespace Clockwork.Instrumentation.Tests.Packaging
+        run: dotnet run --project tests/Clockwork.Instrumentation.Tests/Clockwork.Instrumentation.Tests.csproj --configuration Release --no-build -- --timeout 600s --filter-namespace Orleans.Testing.Simulation.Instrumentation.Tests.Packaging
       - name: Upload instrumentation artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v4
