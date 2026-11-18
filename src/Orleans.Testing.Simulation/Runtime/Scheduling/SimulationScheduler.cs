@@ -112,6 +112,8 @@ public sealed class SimulationScheduler : IDisposable
     private int _transitionPublicationDepth;
     private List<CancellationTokenRegistration>? _deferredRegistrationDisposals;
 
+    // The controlling thread dispatches one operation at a time, so one idle worker can serve every
+    // non-pausing operation. Additional workers exist only while operation stacks are parked.
     private const int MaximumIdleWorkerCount = 1;
 
     /// <summary>
@@ -2477,9 +2479,10 @@ public sealed class SimulationScheduler : IDisposable
     private readonly record struct DeadlockEdge(SimulationOperationId OwnerId, SimulationResourceWaiter Waiter);
 
     /// <summary>
-    /// Tears the scheduler down: cancels every non-terminal operation, cooperatively unwinds and
-    /// joins their parked physical threads (bounded by <see cref="ThreadJoinTimeout"/>), and releases
-    /// all wait handles. No operation is aborted unsafely; no thread is left stranded. Idempotent.
+    /// Tears the scheduler down: cancels every non-terminal operation, cooperatively unwinds parked
+    /// operation stacks, joins every worker thread (bounded by <see cref="ThreadJoinTimeout"/>), and
+    /// releases all wait handles. No operation is aborted unsafely; no thread is left stranded.
+    /// Idempotent.
     /// </summary>
     public void Dispose()
     {
@@ -2535,7 +2538,7 @@ public sealed class SimulationScheduler : IDisposable
                 UnwindParkedOperation(victim);
             }
 
-            // As for Cancel, a victim's race tracking ends once its thread has exited.
+            // As for Cancel, a victim's race tracking ends once its stack has detached from the worker.
             lock (_gate)
             {
                 EndRaceTracking(victim);
