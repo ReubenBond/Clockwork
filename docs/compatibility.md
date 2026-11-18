@@ -91,8 +91,28 @@ stops idle workers, and joins every worker before returning.
 `TeardownCancellationToken`, drives pending lane callbacks and node-disposal work to quiescence, and
 advances virtual time to scheduled deadlines when required, subject to the configured execution
 bounds. Pending work is completed rather than discarded; callback and disposal failures are collected
-after cleanup. Call a drive method with an explicit execution bound before disposal when teardown must
-not advance beyond that bound.
+after cleanup.
+
+`SimulationNodeContext.DiscardPendingWork()` is the explicit escape hatch for a member which the
+consumer has already stopped or crashed. The scheduler's node identity is the ownership boundary: the
+call cancels that node's ready and delayed lane callbacks, callback timers and virtual deadlines,
+controlled operations (including readiness continuations), resource waits and their timeout/cancellation
+registrations, plus context-owned shared callbacks such as the cluster-lane resume registered by
+`SuspendFor`. Cancellation unwinds parked controlled-operation stacks cooperatively and releases their
+workers; it does not invoke the discarded callbacks. Work owned by other nodes or by the cluster is
+unchanged, discarded nodes are excluded from `SimulationCluster.ActiveNodes`, discarded work disappears
+from pending-work diagnostics, and its deadlines cannot advance virtual time during later cluster
+disposal.
+
+Discard is a permanent lifecycle transition to `SimulationNodeState.Discarded`. It is idempotent while
+the context remains attached, and every later node-owned enqueue is rejected with
+`ObjectDisposedException`, including task-scheduler, synchronization-context, timer, continuation, and
+direct scheduler paths. A node cannot discard itself from one of its currently running callbacks:
+that call throws `InvalidOperationException` before changing state. Suspended nodes may be discarded.
+After cluster disposal detaches the context, discard throws `ObjectDisposedException`. The consumer
+must complete any shutdown or disposal logic which needs to schedule node work before discarding it;
+the cluster still invokes the node object's disposer, but node-scoped scheduling from that disposer is
+rejected. Nodes which are not explicitly discarded retain the draining teardown behavior.
 
 The reusable resource model provides stable resource identities, ownership and capacity metadata,
 deterministic waiter queues, atomic pause/wakeup, virtual-time deadlines, synchronous cancellation,

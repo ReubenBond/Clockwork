@@ -77,6 +77,7 @@ public sealed class SimulationScheduler : IDisposable
     private readonly List<SimulationOperation> _activeOperations = [];
     private readonly SortedDictionary<SimulationResourceId, SimulationResource> _resources = new();
     private readonly HashSet<string> _suspendedNodes = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _discardedNodes = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _handback = new(0, 1);
     private readonly SimulationLogicalExecutionIdSource _logicalIds = new();
     private readonly SimulationTimerQueue _clock = new();
@@ -596,6 +597,7 @@ public sealed class SimulationScheduler : IDisposable
             lock (_gate)
             {
                 ThrowIfDisposed();
+                ThrowIfNodeDiscardedUnderLock(node);
                 SimulationOperation? parent =
                     t_currentOperation is { } currentParent && ReferenceEquals(currentParent.Scheduler, this)
                         ? currentParent
@@ -723,6 +725,15 @@ public sealed class SimulationScheduler : IDisposable
         lock (_gate)
         {
             ThrowIfDisposed();
+            ThrowIfNodeDiscardedUnderLock(snapshot.Node);
+            if (operation.IsTerminal)
+            {
+                throw new SimulationSchedulerException(
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"Cannot schedule readiness work for terminal operation {operation.Id}."));
+            }
+
             _readinessWaits.Add(wait);
         }
 
@@ -746,6 +757,7 @@ public sealed class SimulationScheduler : IDisposable
         lock (_gate)
         {
             ThrowIfDisposed();
+            ThrowIfNodeDiscardedUnderLock(snapshot.Node);
             Action? scheduleCallback = onElapsed is null
                 ? null
                 : () => Schedule(
@@ -781,6 +793,7 @@ public sealed class SimulationScheduler : IDisposable
         lock (_gate)
         {
             ThrowIfDisposed();
+            ThrowIfNodeDiscardedUnderLock(snapshot.Node);
             timer = _clock.Schedule(
                 delay,
                 () => registration.Schedule(
@@ -967,6 +980,7 @@ public sealed class SimulationScheduler : IDisposable
             lock (_gate)
             {
                 ThrowIfDisposed();
+                ThrowIfNodeDiscardedUnderLock(operation.Node);
                 operation.ApplyTransition(SimulationOperationState.Runnable);
             }
 
@@ -1486,6 +1500,48 @@ public sealed class SimulationScheduler : IDisposable
         }
     }
 
+    internal void EnsureNodeCanDiscardPendingWork(SimulationNodeIdentity node)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            if (_discardedNodes.Contains(node.Address))
+            {
+                return;
+            }
+
+            if (HasRunningOperationUnderLock(node))
+            {
+                throw new InvalidOperationException(
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"Cannot discard pending work for simulation node '{node.Address}' while one of its callbacks is running."));
+            }
+        }
+    }
+
+    internal void DiscardPendingWork(SimulationNodeIdentity node)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            if (HasRunningOperationUnderLock(node))
+            {
+                throw new InvalidOperationException(
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"Cannot discard pending work for simulation node '{node.Address}' while one of its callbacks is running."));
+            }
+
+            _discardedNodes.Add(node.Address);
+            _suspendedNodes.Remove(node.Address);
+        }
+
+        RemovePendingWork(node);
+    }
+
     internal void RemovePendingWork(SimulationNodeIdentity node)
     {
         ArgumentNullException.ThrowIfNull(node);
@@ -1540,6 +1596,14 @@ public sealed class SimulationScheduler : IDisposable
         {
             if (timeoutRegistration is SimulationTimerRegistration timer)
             {
+                lock (_gate)
+                {
+                    if (timer.Node is { } node && _discardedNodes.Contains(node.Address))
+                    {
+                        timer.Cancel();
+                    }
+                }
+
                 if (timer.TryClaimElapsed(out Action? callback))
                 {
                     callback?.Invoke();
@@ -3301,6 +3365,21 @@ public sealed class SimulationScheduler : IDisposable
         _listener?.OnStateChanged(operation, state);
 
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
+
+    private void ThrowIfNodeDiscardedUnderLock(SimulationNodeIdentity? node)
+    {
+        if (node is { } identity && _discardedNodes.Contains(identity.Address))
+        {
+            throw new ObjectDisposedException(
+                identity.Address,
+                "The simulation node discarded its pending work and cannot accept new work.");
+        }
+    }
+
+    private bool HasRunningOperationUnderLock(SimulationNodeIdentity node) =>
+        _activeOperations.Any(
+            operation => operation.Node == node
+                && operation.State == SimulationOperationState.Running);
 
     private sealed class ReadinessWait : ISimulationWorkRegistration
     {

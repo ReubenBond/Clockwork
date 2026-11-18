@@ -219,10 +219,11 @@ public sealed partial class SimulationCluster : IAsyncDisposable
     public IReadOnlyList<SimulationNode> Nodes => [.. _nodes.Values];
 
     /// <summary>
-    /// Gets all active (non-suspended) nodes in the simulation (snapshot).
-    /// Suspended nodes cannot process messages and are excluded from convergence checks.
+    /// Gets all running nodes in the simulation (snapshot).
+    /// Suspended and discarded nodes cannot process messages and are excluded from convergence checks.
     /// </summary>
-    public IReadOnlyList<SimulationNode> ActiveNodes => [.. _nodes.Values.Where(n => !n.IsSuspended)];
+    public IReadOnlyList<SimulationNode> ActiveNodes =>
+        [.. _nodes.Values.Where(static node => node.Context.State == SimulationNodeState.Running)];
 
     /// <summary>
     /// Gets the simulated network for this cluster. The network is available immediately, including

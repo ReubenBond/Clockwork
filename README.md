@@ -284,6 +284,19 @@ cleanup applies when an attachment fails. Disposing the cluster
 from inside an `AddCustomNode` factory is unsupported and throws without changing the
 cluster's state. Clockwork does not provide `IHost` integration.
 
+After a consumer has stopped or crashed a member and completed any member-specific shutdown it
+requires, call `node.Context.DiscardPendingWork()` to remove that member's remaining work instead of
+allowing cluster disposal to drain it. The call permanently transitions the context to
+`SimulationNodeState.Discarded`; it cancels ready and delayed lane callbacks, timers and virtual
+deadlines, controlled operations and resource waits, and context-owned shared callbacks such as a
+`SuspendFor` resume. Their callbacks do not run, their deadlines do not advance virtual time, and
+pending-work diagnostics no longer include them. Other members and cluster-level work are unchanged,
+and discarded nodes are excluded from `SimulationCluster.ActiveNodes`.
+The call is idempotent while the context is attached. New node-owned work is rejected with
+`ObjectDisposedException`, calling it from a callback currently running for that node throws
+`InvalidOperationException` without changing the node, and calling it after cluster disposal throws
+`ObjectDisposedException`. Ordinary nodes retain the disposal-drains behavior above.
+
 ## Drive simulated execution
 
 ```csharp
