@@ -1596,6 +1596,14 @@ public sealed class SimulationScheduler : IDisposable
         {
             if (timeoutRegistration is SimulationTimerRegistration timer)
             {
+                lock (_gate)
+                {
+                    if (timer.Node is { } node && _discardedNodes.Contains(node.Address))
+                    {
+                        timer.Cancel();
+                    }
+                }
+
                 if (timer.TryClaimElapsed(out Action? callback))
                 {
                     callback?.Invoke();

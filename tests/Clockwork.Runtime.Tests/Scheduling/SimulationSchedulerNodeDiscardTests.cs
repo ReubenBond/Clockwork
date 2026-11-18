@@ -219,6 +219,60 @@ public sealed class SimulationSchedulerNodeDiscardTests
     }
 
     [Fact]
+    public void SameDeadlineTimerSchedulingCallbackDiscardSkipsLaterNodeTimerAndPreservesFutureTimer()
+    {
+        var listener = new CallbackListener();
+        using var scheduler = SchedulerTestHarness.NewScheduler(listener);
+        var discardedNode = new SimulationNodeIdentity("discarded");
+        var survivorNode = new SimulationNodeIdentity("survivor");
+        SimulationNodeContext context = CreateContext(scheduler, discardedNode);
+        var trace = new List<string>();
+        var discardedDuringElapsedBatch = false;
+        listener.Callback = (operation, state) =>
+        {
+            // An elapsed scheduler timer registers its callback operation synchronously. Discard
+            // reentrantly while ElapseTimers is still walking the already-dequeued same-time batch.
+            if (!discardedDuringElapsedBatch
+                && state == SimulationOperationState.Created
+                && operation.Node is null)
+            {
+                discardedDuringElapsedBatch = true;
+                context.DiscardPendingWork();
+            }
+        };
+        _ = scheduler.RegisterTimer(
+            node: null,
+            TimeSpan.FromMinutes(5),
+            () => trace.Add("first"));
+        _ = scheduler.RegisterTimer(
+            discardedNode,
+            TimeSpan.FromMinutes(5),
+            () => trace.Add("discarded"));
+        _ = scheduler.RegisterTimer(
+            survivorNode,
+            TimeSpan.FromMinutes(7),
+            () => trace.Add("later"));
+
+        Assert.True(scheduler.TryAdvanceVirtualTime());
+        Assert.Equal(TimeSpan.FromMinutes(5), scheduler.VirtualTime);
+        Assert.Equal(SimulationNodeState.Discarded, context.State);
+        Assert.True(discardedDuringElapsedBatch);
+        Assert.Equal(1, scheduler.PendingTimerRegistrationCount);
+
+        scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
+
+        Assert.Equal(["first"], trace);
+        Assert.Equal(TimeSpan.FromMinutes(5), scheduler.VirtualTime);
+        Assert.True(scheduler.TryAdvanceVirtualTime());
+        Assert.Equal(TimeSpan.FromMinutes(7), scheduler.VirtualTime);
+        scheduler.RunUntilIdle(TestContext.Current.CancellationToken);
+
+        Assert.Equal(["first", "later"], trace);
+        Assert.Equal(0, scheduler.PendingTimerRegistrationCount);
+        Assert.False(scheduler.TryAdvanceVirtualTime());
+    }
+
+    [Fact]
     public void DiscardPendingWorkRecordAndReplayConsumeTheSameDecisionStream()
     {
         var log = new SimulationDecisionLog();
