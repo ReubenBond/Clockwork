@@ -1,3 +1,4 @@
+using Orleans.Testing.Simulation.Runtime.Decisions;
 using Orleans.Testing.Simulation.Runtime.Scheduling;
 using Orleans.Testing.Simulation.Runtime.Scheduling.Resources;
 
@@ -46,7 +47,7 @@ public sealed class SimulationSchedulerStressTests
 
         Assert.Equal(0, violations);
         Assert.Equal(1, maxObserved);
-        // Each operation ran on its own dedicated physical thread.
+        // Every yielded stack retains its worker until the operation completes.
         Assert.Equal(operationCount, threadIds.Count);
     }
 
@@ -98,6 +99,34 @@ public sealed class SimulationSchedulerStressTests
             Assert.Equal(SimulationOperationState.Completed, op.State);
             Assert.True(op.Thread is null or { IsAlive: false }, $"Operation {op.Id} leaked a live physical thread.");
         }
+
+        Assert.Equal(1, scheduler.CreatedWorkerThreadCount);
+        Assert.Equal(1, scheduler.IdleWorkerThreadCount);
+    }
+
+    [Fact]
+    public void FiftyThousandShortCallbacksReuseOneWorker()
+    {
+        const int callbackCount = 50_000;
+        using var scheduler = SchedulerTestHarness.NewScheduler();
+        var threadIds = new HashSet<int>();
+        var completed = 0;
+        Action callback = () =>
+        {
+            threadIds.Add(Environment.CurrentManagedThreadId);
+            completed++;
+        };
+
+        for (var index = 0; index < callbackCount; index++)
+        {
+            scheduler.Schedule("short-callback", callback);
+        }
+
+        Assert.Equal(callbackCount, scheduler.Drain(TestContext.Current.CancellationToken));
+        Assert.Equal(callbackCount, completed);
+        Assert.Single(threadIds);
+        Assert.Equal(1, scheduler.CreatedWorkerThreadCount);
+        Assert.Equal(1, scheduler.IdleWorkerThreadCount);
     }
 
     [Fact]
@@ -150,14 +179,19 @@ public sealed class SimulationSchedulerStressTests
 
         Assert.Equal(count, threads.Count);
 
-        // Teardown must cooperatively unwind and reclaim every parked thread.
+        // Teardown must cooperatively unwind and reclaim every parked worker.
         scheduler.Dispose();
 
-        foreach (var op in ops)
+        foreach (Thread thread in threads)
+        {
+            Assert.True(SpinUntilDead(thread), "A parked worker remained alive after teardown.");
+        }
+
+        Assert.All(ops, static op =>
         {
             Assert.Equal(SimulationOperationState.Canceled, op.State);
-            Assert.True(SpinUntilDead(op.Thread!), $"Operation {op.Id} left a stranded thread after teardown.");
-        }
+            Assert.Null(op.Thread);
+        });
     }
 
     [Fact]
@@ -169,13 +203,12 @@ public sealed class SimulationSchedulerStressTests
     }
 
     [Fact]
-    public void OperationsCanBeUsedAfterEarlierOnesCompleteWithoutLeakingThreads()
+    public void OperationsCanReuseAnEarlierWorkersThread()
     {
-        using var scheduler = SchedulerTestHarness.NewScheduler();
+        var scheduler = SchedulerTestHarness.NewScheduler();
         Thread? firstThread = null;
         var first = scheduler.Schedule("first", () => firstThread = Thread.CurrentThread);
         scheduler.Drain(TestContext.Current.CancellationToken);
-        Assert.True(SpinUntilDead(firstThread!));
 
         Thread? secondThread = null;
         var second = scheduler.Schedule("second", () => secondThread = Thread.CurrentThread);
@@ -183,8 +216,71 @@ public sealed class SimulationSchedulerStressTests
 
         Assert.Equal(SimulationOperationState.Completed, first.State);
         Assert.Equal(SimulationOperationState.Completed, second.State);
-        Assert.NotSame(firstThread, secondThread);
+        Assert.Same(firstThread, secondThread);
+        Assert.Equal(1, scheduler.CreatedWorkerThreadCount);
+
+        scheduler.Dispose();
         Assert.True(SpinUntilDead(secondThread!));
+    }
+
+    [Fact]
+    public void ParallelSchedulersOwnIndependentWorkerPools()
+    {
+        using var first = SchedulerTestHarness.NewScheduler(description: "first");
+        using var second = SchedulerTestHarness.NewScheduler(description: "second");
+        Thread? firstThread = null;
+        Thread? secondThread = null;
+        first.Schedule("first", () => firstThread = Thread.CurrentThread);
+        second.Schedule("second", () => secondThread = Thread.CurrentThread);
+
+        using var start = new Barrier(2);
+        var firstDriver = new Thread(() =>
+        {
+            start.SignalAndWait();
+            first.Drain(TestContext.Current.CancellationToken);
+        });
+        var secondDriver = new Thread(() =>
+        {
+            start.SignalAndWait();
+            second.Drain(TestContext.Current.CancellationToken);
+        });
+        firstDriver.Start();
+        secondDriver.Start();
+
+        Assert.True(firstDriver.Join(TimeSpan.FromSeconds(5)));
+        Assert.True(secondDriver.Join(TimeSpan.FromSeconds(5)));
+        Assert.NotSame(firstThread, secondThread);
+        Assert.Equal(1, first.CreatedWorkerThreadCount);
+        Assert.Equal(1, second.CreatedWorkerThreadCount);
+    }
+
+    [Fact]
+    public void DecisionReplayPreservesShortCallbackWorkerReuse()
+    {
+        var log = new SimulationDecisionLog();
+        using (var recorder = SchedulerTestHarness.NewScheduler())
+        {
+            recorder.DecisionLog = log;
+            for (var index = 0; index < 100; index++)
+            {
+                recorder.Schedule($"callback-{index}", static () => { });
+            }
+
+            recorder.Drain(TestContext.Current.CancellationToken);
+            Assert.Equal(1, recorder.CreatedWorkerThreadCount);
+        }
+
+        using var replay = SchedulerTestHarness.NewScheduler();
+        replay.ReplayValidator = new SimulationDecisionReplayValidator(
+            new SimulationInMemoryDecisionReplayReader(log.Records));
+        for (var index = 0; index < 100; index++)
+        {
+            replay.Schedule($"callback-{index}", static () => { });
+        }
+
+        replay.Drain(TestContext.Current.CancellationToken);
+        replay.ValidateReplayComplete();
+        Assert.Equal(1, replay.CreatedWorkerThreadCount);
     }
 
     [Theory]
@@ -212,6 +308,7 @@ public sealed class SimulationSchedulerStressTests
 
             Assert.True(scheduler.RunStep(TestContext.Current.CancellationToken));
             Assert.Equal(SimulationOperationState.Paused, operation.State);
+            Thread workerThread = operation.Thread!;
 
             using var start = new Barrier(2);
             Exception? contenderError = null;
@@ -274,7 +371,8 @@ public sealed class SimulationSchedulerStressTests
                 scheduler.Dispose();
             }
 
-            Assert.True(SpinUntilDead(operation.Thread!), $"Operation {operation.Id} leaked after {race} race.");
+            Assert.True(SpinUntilDead(workerThread), $"Operation {operation.Id} leaked after {race} race.");
+            Assert.Null(operation.Thread);
         }
     }
 

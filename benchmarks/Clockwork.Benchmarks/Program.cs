@@ -1,6 +1,17 @@
 using BenchmarkDotNet.Running;
 using Orleans.Testing.Simulation.Benchmarks;
 
+if (args is ["--trace-callbacks", var callbackCount]
+    && int.TryParse(callbackCount, out var callbacks)
+    && callbacks > 0)
+{
+    SimulationOperationWorkerTrace trace = SimulationOperationWorkerBenchmarks.Run(callbacks);
+    Console.WriteLine(
+        $"callbacks={trace.CallbackCount} completed={trace.CompletedCallbacks} " +
+        $"threads={trace.UniqueWorkerThreads} elapsedMs={trace.Elapsed.TotalMilliseconds:F3}");
+    return;
+}
+
 if (args is ["--trace", var iterationCount]
     && int.TryParse(iterationCount, out var iterations)
     && iterations > 0)

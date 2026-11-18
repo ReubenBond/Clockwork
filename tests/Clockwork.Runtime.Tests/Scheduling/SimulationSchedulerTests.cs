@@ -349,6 +349,7 @@ public sealed class SimulationSchedulerTests
         Assert.Equal(parent.Id, child!.ParentId);
         Assert.Equal(SimulationOperationState.Completed, child.State);
         Assert.True(parent.Id < child.Id);
+        Assert.Equal(1, scheduler.CreatedWorkerThreadCount);
     }
 
     [Fact]
@@ -439,7 +440,7 @@ public sealed class SimulationSchedulerTests
     }
 
     [Fact]
-    public void CancelPausedOperationUnwindsItsParkedThread()
+    public void CancelPausedOperationUnwindsItsStackAndReusesItsWorker()
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();
         var afterPauseRan = false;
@@ -458,7 +459,14 @@ public sealed class SimulationSchedulerTests
 
         Assert.Equal(SimulationOperationState.Canceled, op.State);
         Assert.False(afterPauseRan);
-        Assert.True(SpinUntil(() => bodyThread is { IsAlive: false }), "The parked thread should have unwound and exited.");
+        Assert.Null(op.Thread);
+
+        Thread? reusedThread = null;
+        scheduler.Schedule("next", () => reusedThread = Thread.CurrentThread);
+        scheduler.Drain(TestContext.Current.CancellationToken);
+
+        Assert.Same(bodyThread, reusedThread);
+        Assert.Equal(1, scheduler.CreatedWorkerThreadCount);
     }
 
     [Fact]

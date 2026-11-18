@@ -804,7 +804,17 @@ public sealed partial class SimulationCluster : IAsyncDisposable
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>
+    /// Disposes the cluster after canceling <see cref="TeardownCancellationToken"/> and driving
+    /// pending simulation work and node disposal work to quiescence. Driving may advance virtual
+    /// time to scheduled deadlines, subject to the cluster's configured execution bounds. Pending
+    /// lane work is completed rather than discarded.
+    /// </summary>
+    /// <returns>A completed value task when teardown succeeds.</returns>
+    /// <exception cref="AggregateException">
+    /// One or more pending callbacks or disposal steps failed, or teardown reached an execution
+    /// bound. Cleanup continues before the failures are aggregated.
+    /// </exception>
     public ValueTask DisposeAsync()
     {
         if (_disposed)
