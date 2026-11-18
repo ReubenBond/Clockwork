@@ -40,6 +40,8 @@ public sealed class SimulationOperation
     // operation's physical thread; waited on by that thread. A binary semaphore, so a spurious
     // double-grant would throw rather than silently over-count.
     private readonly SemaphoreSlim _permission = new(0, 1);
+    private object? _workerReleaseGate;
+    private int _workerAttached;
 
     private SimulationOperationState _state = SimulationOperationState.Created;
 
@@ -136,8 +138,8 @@ public sealed class SimulationOperation
 
     // --- Internal mechanics owned by the scheduler ---
 
-    /// <summary>The physical thread carrying this operation, created lazily when first granted the baton.</summary>
-    internal Thread? Thread { get; set; }
+    /// <summary>The physical worker thread currently carrying this operation, assigned lazily on first dispatch.</summary>
+    internal Thread? Thread { get; private set; }
 
     /// <summary>
     /// The resource waiter this operation is currently parked on, or <see langword="null"/> when the
@@ -164,6 +166,56 @@ public sealed class SimulationOperation
     {
         _body = null;
         CapturedContext = null;
+    }
+
+    internal void AssignWorkerThread(Thread thread)
+    {
+        ArgumentNullException.ThrowIfNull(thread);
+        if (Thread is not null)
+        {
+            throw new SimulationSchedulerException($"Operation {Id} already has an assigned worker thread.");
+        }
+
+        Thread = thread;
+        Volatile.Write(ref _workerAttached, 1);
+    }
+
+    internal void ReleaseWorkerThread(Thread thread)
+    {
+        if (!ReferenceEquals(Thread, thread))
+        {
+            throw new SimulationSchedulerException($"Operation {Id} was released by a worker it does not own.");
+        }
+
+        object? releaseGate = Volatile.Read(ref _workerReleaseGate);
+        if (releaseGate is null)
+        {
+            Thread = null;
+            Volatile.Write(ref _workerAttached, 0);
+            return;
+        }
+
+        lock (releaseGate)
+        {
+            Thread = null;
+            Volatile.Write(ref _workerAttached, 0);
+            Monitor.PulseAll(releaseGate);
+        }
+    }
+
+    internal bool WaitForWorkerRelease(TimeSpan timeout)
+    {
+        if (Volatile.Read(ref _workerAttached) == 0)
+        {
+            return true;
+        }
+
+        object created = new();
+        object releaseGate = Interlocked.CompareExchange(ref _workerReleaseGate, created, null) ?? created;
+        lock (releaseGate)
+        {
+            return Volatile.Read(ref _workerAttached) == 0 || Monitor.Wait(releaseGate, timeout);
+        }
     }
 
     /// <summary>Grants the permission baton to this operation's physical thread.</summary>

@@ -32,6 +32,7 @@ public sealed class RaceSchedulingPointTests
         Assert.Equal(42, point.Source.ILOffset);
         Assert.Equal("Subject.cs", point.Source.SourceFile);
         Assert.Equal(17, point.Source.SourceLine);
+        Assert.Equal(1, scheduler.CreatedWorkerThreadCount);
     }
 
     [Fact]
@@ -104,6 +105,7 @@ public sealed class RaceSchedulingPointTests
         scheduler.Drain(TestContext.Current.CancellationToken);
 
         Assert.NotEmpty(scheduler.DecisionLog.Records);
+        Assert.InRange(scheduler.CreatedWorkerThreadCount, 1, 2);
         return string.Join(
             ",",
             scheduler.CaptureRaceSchedulingPoints().Select(point => $"{point.OperationId.Value}:{point.Source.Method}"));

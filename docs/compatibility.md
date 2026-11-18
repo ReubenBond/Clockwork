@@ -81,6 +81,19 @@ system-under-test code at a time. Logical execution ids are independent of physi
 through `SimulationExecutionContext` into decisions and diagnostics. `SimulationSchedulerLane` is only a
 node-scoped scheduling and diagnostic facade; it does not own a separate queue or execution pump.
 
+An operation keeps one physical worker while its stack is live. A controlled synchronous wait or pause
+therefore retains the stack and worker until the operation resumes or is canceled. Once an operation
+completes, faults, or cooperatively unwinds after cancellation, its worker returns to the scheduler's
+bounded idle pool and can execute a later operation. Scheduler disposal unwinds parked operations,
+stops idle workers, and joins every worker before returning.
+
+`SimulationCluster.DisposeAsync` is a draining teardown boundary. It cancels
+`TeardownCancellationToken`, drives pending lane callbacks and node-disposal work to quiescence, and
+advances virtual time to scheduled deadlines when required, subject to the configured execution
+bounds. Pending work is completed rather than discarded; callback and disposal failures are collected
+after cleanup. Call a drive method with an explicit execution bound before disposal when teardown must
+not advance beyond that bound.
+
 The reusable resource model provides stable resource identities, ownership and capacity metadata,
 deterministic waiter queues, atomic pause/wakeup, virtual-time deadlines, synchronous cancellation,
 wait-for graphs, deadlock/liveness diagnostics, and FIFO, round-robin, seeded-random, priority, and exact

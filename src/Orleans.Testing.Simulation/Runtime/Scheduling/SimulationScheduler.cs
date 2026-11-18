@@ -27,13 +27,14 @@ namespace Orleans.Testing.Simulation.Runtime.Scheduling;
 /// layered on in later resource/wait scheduler increments.
 /// </para>
 /// <para>
-/// <b>Physical-thread gating.</b> Each operation runs on its own dedicated physical thread, but the
-/// scheduler grants a single permission baton to at most one operation at a time and blocks the
-/// controlling thread until that operation hands control back (by pausing, yielding, completing, or
-/// faulting). The handoff uses counting wait handles - never busy-spinning - so at most one
-/// operation ever executes system-under-test code, no matter how many physical threads exist. No
-/// operation is ever aborted with an unsafe <c>Thread.Abort</c>; teardown unwinds parked threads
-/// cooperatively.
+/// <b>Physical-thread gating.</b> Each operation is attached to one physical worker thread while its
+/// stack is live. A paused operation retains that worker and stack until it resumes; after a terminal
+/// operation unwinds, its worker may carry a later operation. The scheduler grants a single
+/// permission baton to at most one operation at a time and blocks the controlling thread until that
+/// operation hands control back (by pausing, yielding, completing, or faulting). The handoff uses
+/// counting wait handles - never busy-spinning - so at most one operation ever executes
+/// system-under-test code, no matter how many physical threads exist. No operation is ever aborted
+/// with an unsafe <c>Thread.Abort</c>; teardown unwinds parked threads cooperatively.
 /// </para>
 /// <para>
 /// <b>Threading contract.</b> The "controlling thread" is whichever thread calls
@@ -48,8 +49,9 @@ namespace Orleans.Testing.Simulation.Runtime.Scheduling;
 public sealed class SimulationScheduler : IDisposable
 {
     /// <summary>
-    /// The bounded time the scheduler waits for a torn-down operation's physical thread to unwind
-    /// and exit before giving up. A thread that refuses to exit within this window is a
+    /// The bounded time the scheduler waits for a torn-down operation's stack to unwind from its
+    /// worker, or for a worker to exit during disposal, before giving up. A stack that refuses to
+    /// unwind within this window is a
     /// system-under-test bug (e.g. an infinite loop that never parks); the scheduler surfaces that
     /// rather than blocking teardown forever.
     /// </summary>
@@ -69,6 +71,7 @@ public sealed class SimulationScheduler : IDisposable
         ExceptionDispatchInfo.Capture(new InvalidOperationException("A thread-affinity violation was surfaced."));
 
     private readonly object _gate = new();
+    private readonly object _workerGate = new();
     private readonly object _transitionPublicationGate = new();
     private readonly List<SimulationOperation> _operations = [];
     private readonly List<SimulationOperation> _activeOperations = [];
@@ -83,6 +86,8 @@ public sealed class SimulationScheduler : IDisposable
     private readonly RaceTracker _raceTracker = new();
     private readonly SimulationRuntimeIdentity _runtime;
     private readonly ISimulationOperationListener? _listener;
+    private readonly Queue<OperationWorker> _idleWorkers = new();
+    private readonly HashSet<OperationWorker> _workers = [];
 
     private ISimulationSchedulingStrategy _strategy = SimulationSchedulingStrategies.RoundRobin();
     private ISimulationDecisionLog? _decisionLog;
@@ -90,6 +95,7 @@ public sealed class SimulationScheduler : IDisposable
     private long _nextReplayDecisionId;
 
     private long _nextOperationId;
+    private long _nextWorkerId;
     private long _nextResourceId;
     private long _nextWaiterSequence;
     private long _nextRaceSchedulingPointSequence;
@@ -100,9 +106,13 @@ public sealed class SimulationScheduler : IDisposable
     private bool _controlThreadBusy;
     private ExceptionDispatchInfo? _threadAffinityViolation;
     private bool _disposed;
+    private bool _workerPoolDisposed;
+    private int _createdWorkerThreadCount;
     private SimulationOperation? _pendingTerminalNotification;
     private int _transitionPublicationDepth;
     private List<CancellationTokenRegistration>? _deferredRegistrationDisposals;
+
+    private const int MaximumIdleWorkerCount = 1;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SimulationScheduler"/> class.
@@ -159,6 +169,19 @@ public sealed class SimulationScheduler : IDisposable
 
     /// <summary>Gets the runtime identity every operation in this scheduler runs under.</summary>
     public SimulationRuntimeIdentity Runtime => _runtime;
+
+    internal int CreatedWorkerThreadCount => Volatile.Read(ref _createdWorkerThreadCount);
+
+    internal int IdleWorkerThreadCount
+    {
+        get
+        {
+            lock (_workerGate)
+            {
+                return _idleWorkers.Count;
+            }
+        }
+    }
 
     public DateTimeOffset StartDateTime { get; }
 
@@ -1065,11 +1088,15 @@ public sealed class SimulationScheduler : IDisposable
             Notify(operation, SimulationOperationState.Running);
         }
 
-        EnsureThreadStarted(operation);
+        bool assignedWorker = EnsureThreadStarted(operation);
 
         // Grant the baton and block until the operation hands control back. Only the granted
         // operation executes SUT code between here and the handback.
-        operation.GrantPermission();
+        if (!assignedWorker)
+        {
+            operation.GrantPermission();
+        }
+
         _handback.Wait();
 
         SimulationOperationState resulting;
@@ -1636,7 +1663,7 @@ public sealed class SimulationScheduler : IDisposable
         DisposeRegistration(registration);
         if (needsUnwind)
         {
-            UnwindParkedThread(operation);
+            UnwindParkedOperation(operation);
         }
 
         // The unwound body's finally blocks still record synchronization (a lock statement's exit releases its lock
@@ -2499,12 +2526,13 @@ public sealed class SimulationScheduler : IDisposable
             }
         }
 
+        List<OperationWorker> workers = BeginWorkerPoolShutdown();
         DisposeRegistrations(registrations);
         foreach (var victim in victims)
         {
             if (victim.Thread is not null)
             {
-                UnwindParkedThread(victim);
+                UnwindParkedOperation(victim);
             }
 
             // As for Cancel, a victim's race tracking ends once its thread has exited.
@@ -2519,6 +2547,7 @@ public sealed class SimulationScheduler : IDisposable
             operation.DisposeSignals();
         }
 
+        JoinWorkers(workers);
         _handback.Dispose();
     }
 
@@ -2833,37 +2862,54 @@ public sealed class SimulationScheduler : IDisposable
     private static string FormatOperationId(SimulationOperationId id) =>
         id.Value.ToString(CultureInfo.InvariantCulture);
 
-    private void EnsureThreadStarted(SimulationOperation operation)
+    private bool EnsureThreadStarted(SimulationOperation operation)
     {
         if (operation.Thread is not null)
         {
-            return;
+            return false;
         }
 
-        var thread = new Thread(WorkerLoop)
+        OperationWorker worker;
+        lock (_workerGate)
         {
-            IsBackground = true,
-            Name = string.Create(CultureInfo.InvariantCulture, $"SimulationOperation-{operation.Id.Value}"),
-        };
-        operation.Thread = thread;
-        thread.Start(operation);
+            ObjectDisposedException.ThrowIf(_workerPoolDisposed, this);
+
+            if (!_idleWorkers.TryDequeue(out worker!))
+            {
+                worker = new OperationWorker(this, ++_nextWorkerId);
+                _workers.Add(worker);
+                _createdWorkerThreadCount++;
+                worker.Start();
+            }
+
+            worker.Assign(operation);
+        }
+
+        return true;
     }
 
-    private void WorkerLoop(object? state)
+    private void RunWorkerOperation(OperationWorker worker, SimulationOperation operation)
     {
-        var operation = (SimulationOperation)state!;
+        var handBackController = false;
         try
         {
-            // Park until first granted the baton. If canceled before ever running, this throws the
-            // internal unwind signal and the thread exits without touching scheduler state.
-            operation.WaitForPermission();
+            // Assignment is the first permission grant. Later grants resume this same stack through
+            // the operation's permission signal.
+            RunBody(operation);
+            handBackController = true;
         }
         catch (SimulationOperationAbortSignal)
         {
-            return;
+            // Cancellation or teardown owns the terminal transition.
         }
-
-        RunBody(operation);
+        finally
+        {
+            ReleaseWorker(worker, operation);
+            if (handBackController)
+            {
+                _handback.Release();
+            }
+        }
     }
 
     private void RunBody(SimulationOperation operation)
@@ -2884,8 +2930,9 @@ public sealed class SimulationScheduler : IDisposable
         }
         catch (SimulationOperationAbortSignal)
         {
-            // Teardown/cancellation initiated the unwind; the scheduler already owns the Canceled
-            // transition and joins this thread directly. Do not touch the handback signal.
+            // Let the worker loop distinguish cancellation/teardown unwinding from a terminal body
+            // return, since no controlling thread is waiting for a terminal handback in this path.
+            throw;
         }
         catch (Exception ex)
         {
@@ -2941,7 +2988,6 @@ public sealed class SimulationScheduler : IDisposable
                 // baton). If teardown already forced a terminal state, skip.
                 if (operation.IsTerminal)
                 {
-                    _handback.Release();
                     return;
                 }
 
@@ -2951,16 +2997,12 @@ public sealed class SimulationScheduler : IDisposable
                 _pendingTerminalNotification = operation;
             }
         }
-
-        _handback.Release();
     }
 
     private void FinalizeTerminal(SimulationOperation operation)
     {
-        // The worker thread released the handback and is returning from its loop; join it so no
-        // physical thread outlives the operation, then release its signal and publish the deferred
-        // terminal transition from the controlling thread.
-        operation.Thread?.Join(ThreadJoinTimeout);
+        // The worker hands control back only after its stack has unwound and it has detached this
+        // operation, so execution state can be released without another per-operation handshake.
         operation.ReleaseExecutionState();
         operation.DisposeSignals();
         using (EnterTransitionPublicationScope(waitForPendingTerminal: false))
@@ -3038,23 +3080,159 @@ public sealed class SimulationScheduler : IDisposable
         public void Dispose() => scheduler.ExitTransitionPublicationScope();
     }
 
-    private static void UnwindParkedThread(SimulationOperation operation)
+    private static void UnwindParkedOperation(SimulationOperation operation)
     {
-        var thread = operation.Thread;
-        if (thread is null)
+        if (operation.Thread is null)
         {
             return;
         }
 
-        // Unpark the thread; because termination was requested, its next WaitForPermission throws the
-        // internal unwind signal and the body stack unwinds cooperatively. No unsafe abort.
+        // Unpark the operation; because termination was requested, its next WaitForPermission throws
+        // the internal unwind signal and the body stack unwinds cooperatively. The worker itself may
+        // then be reused, so wait for detachment rather than thread exit.
         operation.GrantPermission();
-        if (!thread.Join(ThreadJoinTimeout))
+        WaitForWorkerRelease(operation);
+    }
+
+    private static void WaitForWorkerRelease(SimulationOperation operation)
+    {
+        if (!operation.WaitForWorkerRelease(ThreadJoinTimeout))
         {
             throw new SimulationSchedulerException(
                 string.Create(
                     CultureInfo.InvariantCulture,
-                    $"Controlled operation {operation.Id} did not unwind within {ThreadJoinTimeout.TotalSeconds:0}s of teardown. Its body is likely stuck in a loop that never parks - this is a system-under-test bug, not a kernel one."));
+                    $"Controlled operation {operation.Id} did not unwind from its worker within {ThreadJoinTimeout.TotalSeconds:0}s. Its body is likely stuck in a loop that never parks - this is a system-under-test bug, not a kernel one."));
+        }
+    }
+
+    private void ReleaseWorker(OperationWorker worker, SimulationOperation operation)
+    {
+        lock (_workerGate)
+        {
+            if (_workerPoolDisposed || _idleWorkers.Count >= MaximumIdleWorkerCount)
+            {
+                worker.RequestStop();
+            }
+            else
+            {
+                _idleWorkers.Enqueue(worker);
+            }
+
+            operation.ReleaseWorkerThread(worker.Thread);
+        }
+    }
+
+    private List<OperationWorker> BeginWorkerPoolShutdown()
+    {
+        lock (_workerGate)
+        {
+            _workerPoolDisposed = true;
+            List<OperationWorker> workers = [.. _workers];
+            _idleWorkers.Clear();
+            foreach (OperationWorker worker in workers)
+            {
+                worker.RequestStop();
+            }
+
+            return workers;
+        }
+    }
+
+    private static void JoinWorkers(List<OperationWorker> workers)
+    {
+        foreach (OperationWorker worker in workers)
+        {
+            if (!worker.Join(ThreadJoinTimeout))
+            {
+                throw new SimulationSchedulerException(
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"Simulation worker {worker.Id} did not exit within {ThreadJoinTimeout.TotalSeconds:0}s of scheduler disposal."));
+            }
+        }
+    }
+
+    private void OnWorkerExited(OperationWorker worker)
+    {
+        lock (_workerGate)
+        {
+            _workers.Remove(worker);
+        }
+    }
+
+    [SuppressMessage(
+        "Design",
+        "CA1001:Types that own disposable fields should be disposable",
+        Justification = "The worker thread owns and disposes its assignment signal when its run loop exits; external disposal could race that loop.")]
+    private sealed class OperationWorker
+    {
+        private readonly SimulationScheduler _scheduler;
+        private readonly SemaphoreSlim _assignmentAvailable = new(0, 1);
+        private SimulationOperation? _operation;
+        private int _stopRequested;
+
+        public OperationWorker(SimulationScheduler scheduler, long id)
+        {
+            _scheduler = scheduler;
+            Id = id;
+            Thread = new Thread(Run)
+            {
+                IsBackground = true,
+                Name = string.Create(CultureInfo.InvariantCulture, $"SimulationOperationWorker-{id}"),
+            };
+        }
+
+        public long Id { get; }
+
+        public Thread Thread { get; }
+
+        public void Start() => Thread.Start();
+
+        public void Assign(SimulationOperation operation)
+        {
+            if (Interlocked.CompareExchange(ref _operation, operation, null) is not null)
+            {
+                throw new SimulationSchedulerException($"Simulation worker {Id} is already assigned.");
+            }
+
+            operation.AssignWorkerThread(Thread);
+            _assignmentAvailable.Release();
+        }
+
+        public void RequestStop()
+        {
+            if (Interlocked.Exchange(ref _stopRequested, 1) == 0)
+            {
+                _assignmentAvailable.Release();
+            }
+        }
+
+        public bool Join(TimeSpan timeout) => Thread.Join(timeout);
+
+        private void Run()
+        {
+            try
+            {
+                while (true)
+                {
+                    _assignmentAvailable.Wait();
+                    SimulationOperation? operation = Interlocked.Exchange(ref _operation, null);
+                    if (operation is not null)
+                    {
+                        _scheduler.RunWorkerOperation(this, operation);
+                    }
+
+                    if (Volatile.Read(ref _stopRequested) != 0)
+                    {
+                        return;
+                    }
+                }
+            }
+            finally
+            {
+                _assignmentAvailable.Dispose();
+                _scheduler.OnWorkerExited(this);
+            }
         }
     }
 
