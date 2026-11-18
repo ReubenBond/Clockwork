@@ -1,8 +1,8 @@
-using Clockwork.Instrumentation.Configuration;
-using Clockwork.Instrumentation.Rewriting;
-using Clockwork.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Configuration;
+using Orleans.Testing.Simulation.Instrumentation.Rewriting;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
 
-namespace Clockwork.Instrumentation.Tests.Rules;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Rules;
 
 /// <summary>Verifies that signature inputs use one unambiguous, versioned canonical encoding.</summary>
 public sealed class CanonicalSignatureTests

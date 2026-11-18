@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Shims;
 
-namespace Clockwork.Runtime.Tests.Shims;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Shims;
 
 /// <summary>
 /// Conformance tests for <see cref="ControlledRandomNumberGenerator"/>: deterministic static and
@@ -61,7 +61,7 @@ public sealed class ControlledRandomNumberGeneratorTests
     [Fact]
     public void OutsideSimulationCryptoShimsRequireActiveSimulation()
     {
-        Assert.False(Clockwork.Runtime.Execution.SimulationExecutionContext.IsActive);
+        Assert.False(Orleans.Testing.Simulation.Runtime.Execution.SimulationExecutionContext.IsActive);
         RandomNumberGenerator? generator = null;
 
         Exception? createException = Record.Exception(
@@ -316,7 +316,7 @@ public sealed class ControlledRandomNumberGeneratorTests
     public void NamedFactoryReturnsNullForUnknownBclName()
     {
         const string UnknownName =
-            "Clockwork.Tests.Unknown.RandomNumberGenerator.7f9c7706-3f19-42a8-b8f2-20af41a52d68";
+            "Orleans.Testing.Simulation.Tests.Unknown.RandomNumberGenerator.7f9c7706-3f19-42a8-b8f2-20af41a52d68";
 
 #pragma warning disable SYSLIB0045 // Verify the obsolete named BCL factory contract mirrored by the shim.
         using RandomNumberGenerator? bclGenerator = RandomNumberGenerator.Create(UnknownName);

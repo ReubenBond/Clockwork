@@ -1,7 +1,7 @@
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Tasks;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Tasks;
 
-namespace Clockwork.Runtime.Tests.Tasks;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Tasks;
 
 /// <summary>
 /// Covers coordinator access through a complete ambient runtime plus continuation and synchronous-wait

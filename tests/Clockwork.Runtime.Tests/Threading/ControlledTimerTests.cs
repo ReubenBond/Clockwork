@@ -1,16 +1,16 @@
-using Clockwork.Runtime.Tasks;
-using Clockwork.Runtime.Tests.Tasks;
-using Clockwork.Runtime.Threading;
+using Orleans.Testing.Simulation.Runtime.Tasks;
+using Orleans.Testing.Simulation.Runtime.Tests.Tasks;
+using Orleans.Testing.Simulation.Runtime.Threading;
 
-namespace Clockwork.Runtime.Tests.Threading;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Threading;
 
 public sealed class ControlledTimerTests
 {
     [Fact]
     public void PublicEntriesRequireActiveSimulation()
     {
-        Assert.Throws<Clockwork.Runtime.Shims.SimulationNotActiveException>(() => new ControlledTimer(_ => { }));
-        Assert.Throws<Clockwork.Runtime.Shims.SimulationNotActiveException>(() => _ = ControlledTimer.ActiveCount);
+        Assert.Throws<Orleans.Testing.Simulation.Runtime.Shims.SimulationNotActiveException>(() => new ControlledTimer(_ => { }));
+        Assert.Throws<Orleans.Testing.Simulation.Runtime.Shims.SimulationNotActiveException>(() => _ = ControlledTimer.ActiveCount);
     }
 
     [Fact]

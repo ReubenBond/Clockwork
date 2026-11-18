@@ -1,4 +1,4 @@
-namespace Clockwork.Instrumentation.Tests.Infrastructure;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 
 /// <summary>
 /// The shared source for the two support assemblies used across the golden corpus: an "API" assembly

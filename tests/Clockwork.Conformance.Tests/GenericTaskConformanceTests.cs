@@ -1,7 +1,7 @@
 using System.Reflection;
 using System.Threading.Tasks;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>
 /// End-to-end conformance for the generic <see cref="Task{TResult}"/> surface that the controlled-task

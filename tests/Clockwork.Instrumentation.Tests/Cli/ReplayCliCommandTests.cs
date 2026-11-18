@@ -1,13 +1,13 @@
 using System.Security.Cryptography;
 using System.Text.Json;
-using Clockwork.Instrumentation.Configuration;
-using Clockwork.Instrumentation.Orchestration;
-using Clockwork.Runtime.Racing;
-using Clockwork.Runtime.Replay;
-using Clockwork.Runtime.Scheduling;
-using Clockwork.Tool;
+using Orleans.Testing.Simulation.Instrumentation.Configuration;
+using Orleans.Testing.Simulation.Instrumentation.Orchestration;
+using Orleans.Testing.Simulation.Runtime.Racing;
+using Orleans.Testing.Simulation.Runtime.Replay;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Tool;
 
-namespace Clockwork.Instrumentation.Tests.Cli;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Cli;
 
 public sealed class ReplayCliCommandTests : IDisposable
 {
@@ -47,7 +47,7 @@ public sealed class ReplayCliCommandTests : IDisposable
         Assert.Empty(traceError);
         Assert.Equal("Completed", JsonElement.Parse(runOutput).GetProperty("outcome").GetString());
         Assert.True(JsonElement.Parse(replayOutput).GetProperty("reproduced").GetBoolean());
-        Assert.Contains("Clockwork replay clockwork.replay/v2", traceOutput, StringComparison.Ordinal);
+        Assert.Contains("Orleans simulation replay clockwork.replay/v2", traceOutput, StringComparison.Ordinal);
     }
 
     [Fact]

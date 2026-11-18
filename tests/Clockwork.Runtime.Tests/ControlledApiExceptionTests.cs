@@ -1,4 +1,4 @@
-namespace Clockwork.Runtime.Tests;
+namespace Orleans.Testing.Simulation.Runtime.Tests;
 
 public sealed class ControlledApiExceptionTests
 {

@@ -1,7 +1,7 @@
-using Clockwork.Instrumentation.Diagnostics;
-using Clockwork.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 
-namespace Clockwork.Instrumentation.Tests.Golden;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Golden;
 
 /// <summary>
 /// Golden tests for symbol handling and source mapping: portable and embedded PDBs are detected and

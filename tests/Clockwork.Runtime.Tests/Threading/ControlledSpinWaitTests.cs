@@ -1,10 +1,10 @@
 using System;
 using System.Threading;
-using Clockwork.Runtime.Tasks;
-using Clockwork.Runtime.Tests.Tasks;
-using Clockwork.Runtime.Threading;
+using Orleans.Testing.Simulation.Runtime.Tasks;
+using Orleans.Testing.Simulation.Runtime.Tests.Tasks;
+using Orleans.Testing.Simulation.Runtime.Threading;
 
-namespace Clockwork.Runtime.Tests.Threading;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Threading;
 
 /// <summary>
 /// Tests for the controlled <see cref="ControlledSpinWait"/> value type. Inside a simulation a spin never

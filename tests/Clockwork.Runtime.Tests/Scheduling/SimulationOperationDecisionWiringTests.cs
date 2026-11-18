@@ -1,10 +1,10 @@
-using Clockwork.Runtime.Decisions;
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Random;
-using Clockwork.Runtime.Scheduling;
-using Clockwork.Runtime.Scheduling.Resources;
+using Orleans.Testing.Simulation.Runtime.Decisions;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Random;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Scheduling.Resources;
 
-namespace Clockwork.Runtime.Tests.Scheduling;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Scheduling;
 
 /// <summary>
 /// Verifies that the controlled-operation scheduler installs a logical execution identity into the

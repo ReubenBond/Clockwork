@@ -1,11 +1,11 @@
 using System.Buffers.Binary;
-using Clockwork.Instrumentation.Imaging;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Signing;
-using Clockwork.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Instrumentation.Imaging;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Signing;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Tests.Signing;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Signing;
 
 /// <summary>
 /// Verifies strong-name detection, key loading, and re-signing: unsigned/signed/delay-signed

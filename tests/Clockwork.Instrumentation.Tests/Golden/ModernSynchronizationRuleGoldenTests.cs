@@ -1,15 +1,15 @@
 using System.Collections.Immutable;
 using System.Reflection;
 using System.Runtime.Loader;
-using Clockwork.Instrumentation.Manifest;
-using Clockwork.Instrumentation.Rewriting;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Rules.BuiltIn;
-using Clockwork.Instrumentation.Tests.Infrastructure;
-using Clockwork.Runtime.Policy;
+using Orleans.Testing.Simulation.Instrumentation.Manifest;
+using Orleans.Testing.Simulation.Instrumentation.Rewriting;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Runtime.Policy;
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Tests.Golden;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Golden;
 
 /// <summary>
 /// Exhaustive end-to-end coverage for the modern synchronization inventory. The direct fixture invokes
@@ -195,7 +195,7 @@ public sealed class ModernSynchronizationRuleGoldenTests
         """;
 
     private static string RuntimeAssemblyPath =>
-        typeof(Clockwork.Shims.System.Threading.ControlledBarrier).Assembly.Location;
+        typeof(Orleans.Testing.Simulation.Shims.System.Threading.ControlledBarrier).Assembly.Location;
 
     [Fact]
     public void EveryModernSynchronizationDirectRuleRewritesToTheControlledRuntimeAndManifest()
@@ -219,9 +219,9 @@ public sealed class ModernSynchronizationRuleGoldenTests
         Assert.False(CecilInspect.AnyMethodCallsContaining(module, "System.Threading.ExecutionContext::Capture"));
         Assert.False(CecilInspect.AnyMethodCallsContaining(module, "System.Threading.SynchronizationContext::Wait"));
 
-        AssertWholeTypeWasRetargeted(module, "System.Threading.SpinLock", "Clockwork.Shims.System.Threading.ControlledSpinLock");
-        AssertWholeTypeWasRetargeted(module, "System.Threading.Barrier", "Clockwork.Shims.System.Threading.ControlledBarrier");
-        AssertWholeTypeWasRetargeted(module, "System.Threading.CountdownEvent", "Clockwork.Shims.System.Threading.ControlledCountdownEvent");
+        AssertWholeTypeWasRetargeted(module, "System.Threading.SpinLock", "Orleans.Testing.Simulation.Shims.System.Threading.ControlledSpinLock");
+        AssertWholeTypeWasRetargeted(module, "System.Threading.Barrier", "Orleans.Testing.Simulation.Shims.System.Threading.ControlledBarrier");
+        AssertWholeTypeWasRetargeted(module, "System.Threading.CountdownEvent", "Orleans.Testing.Simulation.Shims.System.Threading.ControlledCountdownEvent");
 
         BuiltInRuleFamily[] modernSynchronizationFamilies =
         [
@@ -238,7 +238,7 @@ public sealed class ModernSynchronizationRuleGoldenTests
         ImmutableHashSet<string> transformed = result.Manifest.Transformations
             .Select(transformation => transformation.RuleId)
             .ToImmutableHashSet(StringComparer.Ordinal);
-        foreach ((BuiltInRuleFamily _, Clockwork.Instrumentation.Rules.RewriteRule rule) in BuiltInRuleSets.ControlledTasksInventory
+        foreach ((BuiltInRuleFamily _, Orleans.Testing.Simulation.Instrumentation.Rules.RewriteRule rule) in BuiltInRuleSets.ControlledTasksInventory
             .Where(entry => modernSynchronizationFamilies.Contains(entry.Family)))
         {
             Assert.Contains(rule.Id, transformed);
@@ -270,8 +270,8 @@ public sealed class ModernSynchronizationRuleGoldenTests
 
         using ModuleDefinition module = context.LoadModule(
             Path.Combine(context.Directory, "Fx.ModernSynchronizationClosures.rewritten.dll"));
-        AssertWholeTypeWasRetargeted(module, "System.Threading.Barrier", "Clockwork.Shims.System.Threading.ControlledBarrier");
-        AssertWholeTypeWasRetargeted(module, "System.Threading.CountdownEvent", "Clockwork.Shims.System.Threading.ControlledCountdownEvent");
+        AssertWholeTypeWasRetargeted(module, "System.Threading.Barrier", "Orleans.Testing.Simulation.Shims.System.Threading.ControlledBarrier");
+        AssertWholeTypeWasRetargeted(module, "System.Threading.CountdownEvent", "Orleans.Testing.Simulation.Shims.System.Threading.ControlledCountdownEvent");
         Assert.DoesNotContain(
             module.GetTypes().SelectMany(type => type.Fields),
             field => field.FieldType.FullName.Contains("System.Threading.Barrier", StringComparison.Ordinal)

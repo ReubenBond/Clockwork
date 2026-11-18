@@ -1,12 +1,12 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Clockwork.Runtime.Decisions;
-using Clockwork.Runtime.Random;
-using Clockwork.Runtime.Replay;
-using Clockwork.Runtime.Racing;
+using Orleans.Testing.Simulation.Runtime.Decisions;
+using Orleans.Testing.Simulation.Runtime.Random;
+using Orleans.Testing.Simulation.Runtime.Replay;
+using Orleans.Testing.Simulation.Runtime.Racing;
 
-namespace Clockwork.Runtime.Tests.Replay;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Replay;
 
 public sealed class ReplayArtifactTests : IDisposable
 {
@@ -25,6 +25,58 @@ public sealed class ReplayArtifactTests : IDisposable
         Assert.Equal(ReplayArtifactSerializer.ComputeId(artifact), ReplayArtifactSerializer.ComputeId(roundTripped));
         Assert.DoesNotContain(Environment.CommandLine, Encoding.UTF8.GetString(first), StringComparison.Ordinal);
         Assert.DoesNotContain("recordingState", Encoding.UTF8.GetString(first), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ExistingVersionTwoGoldenArtifactRemainsReadableAndCanonical()
+    {
+        string path = Path.Combine(
+            FindRepositoryRoot(),
+            "tests",
+            "Clockwork.Runtime.Tests",
+            "Replay",
+            "Golden",
+            "replay-v2.json");
+        string expected = File.ReadAllText(path).TrimEnd('\r', '\n');
+
+        ReplayArtifact artifact = ReplayArtifactSerializer.Deserialize(Encoding.UTF8.GetBytes(expected));
+
+        Assert.Equal("clockwork.replay", artifact.Format);
+        Assert.Equal(2, artifact.SchemaVersion);
+        Assert.Equal(42, artifact.SimulationSeed);
+        Assert.Equal(expected, ReplayArtifactSerializer.ToJson(artifact));
+    }
+
+    [Fact]
+    public void LegacyVersionTwoBytesWithInstrumentationIdentityAndClockworkAssemblyRemainReadable()
+    {
+        const string legacyArtifact =
+            "{\"format\":\"clockwork.replay\",\"schemaVersion\":2,\"rootSeed\":42," +
+            "\"scheduler\":{\"strategy\":\"seeded-random\",\"scheduleSeed\":17,\"options\":{}}," +
+            "\"instrumentation\":{\"manifestId\":\"legacy-manifest\"," +
+            "\"manifestSha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"," +
+            "\"engineVersion\":\"0.1.0\",\"ruleSetId\":\"clockwork.bcl.deterministic\"," +
+            "\"ruleSetVersion\":\"1\"," +
+            "\"ruleSetSignature\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"," +
+            "\"mode\":\"Controlled\",\"assemblies\":[{\"name\":\"Orleans.Testing.Simulation.dll\"," +
+            "\"sha256\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\"," +
+            "\"runtimeCompatibility\":\".NETCoreApp,Version=v11.0\"}]}," +
+            "\"environment\":{\"clockworkVersion\":\"0.1.0.0\"," +
+            "\"runtimeCompatibility\":\".NETCoreApp,Version=v11.0\"," +
+            "\"processArchitecture\":\"X64\",\"operatingSystem\":\"Windows\"}," +
+            "\"decisions\":[],\"raceSchedulingPoints\":[]," +
+            "\"outcome\":{\"kind\":\"Completed\",\"failureIdentity\":null,\"diagnostic\":null}," +
+            "\"diagnostics\":{\"liveness\":\"Quiescent\",\"virtualTimeTicks\":0,\"operations\":[]," +
+            "\"resources\":[],\"pendingTimers\":[],\"deadlockCycles\":[],\"race\":null}}";
+        byte[] expectedBytes = Encoding.UTF8.GetBytes(legacyArtifact);
+
+        ReplayArtifact artifact = ReplayArtifactSerializer.Deserialize(expectedBytes);
+
+        Assert.Equal("clockwork.replay", artifact.Format);
+        Assert.Equal(2, artifact.SchemaVersion);
+        Assert.Equal("clockwork.bcl.deterministic", artifact.Instrumentation!.RuleSetId);
+        Assert.Equal("Orleans.Testing.Simulation.dll", Assert.Single(artifact.Instrumentation.Assemblies).Name);
+        Assert.Equal(expectedBytes, ReplayArtifactSerializer.Serialize(artifact));
     }
 
     [Fact]
@@ -798,4 +850,20 @@ public sealed class ReplayArtifactTests : IDisposable
             },
         ],
     };
+
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "Clockwork.slnx")))
+            {
+                return directory.FullName;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new InvalidOperationException("Could not locate the repository root (Clockwork.slnx).");
+    }
 }

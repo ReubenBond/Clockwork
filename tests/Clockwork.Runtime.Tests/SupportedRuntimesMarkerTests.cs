@@ -1,6 +1,6 @@
-using Clockwork.Runtime;
+using Orleans.Testing.Simulation.Runtime;
 
-namespace Clockwork.Runtime.Tests;
+namespace Orleans.Testing.Simulation.Runtime.Tests;
 
 public sealed class SupportedRuntimesMarkerTests
 {

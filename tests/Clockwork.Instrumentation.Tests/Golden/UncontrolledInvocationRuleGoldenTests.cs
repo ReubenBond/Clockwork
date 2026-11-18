@@ -1,19 +1,19 @@
 using System.Collections.Immutable;
-using Clockwork.Instrumentation.Manifest;
-using Clockwork.Instrumentation.Rewriting;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Rules.BuiltIn;
-using Clockwork.Instrumentation.Tests.Infrastructure;
-using Clockwork.Runtime.Policy;
+using Orleans.Testing.Simulation.Instrumentation.Manifest;
+using Orleans.Testing.Simulation.Instrumentation.Rewriting;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Runtime.Policy;
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Tests.Golden;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Golden;
 
 /// <summary>
 /// End-to-end golden tests for the shipped uncontrolled-invocation rule family: they
 /// rewrite real <see cref="System.Diagnostics.Process"/> and <see cref="System.Environment"/> call sites in
 /// a compiled fixture against the real <c>Clockwork</c> assembly and assert that each site is
-/// rejected - a throwing <see cref="Clockwork.Runtime.UncontrolledInvocationGuard.Reject(string)"/> is
+/// rejected - a throwing <see cref="Orleans.Testing.Simulation.Runtime.UncontrolledInvocationGuard.Reject(string)"/> is
 /// injected before the original call, which the manifest records as a <see cref="SimulationApiPolicy.Rejected"/>
 /// transformation naming the exact API. This proves a rewritten assembly cannot launch, kill, wait on, reschedule, or
 /// terminate a real OS process.
@@ -99,7 +99,7 @@ public sealed class UncontrolledInvocationRuleGoldenTests
         """;
 
     private static string RuntimeAssemblyPath =>
-        typeof(Clockwork.Runtime.UncontrolledInvocationGuard).Assembly.Location;
+        typeof(Orleans.Testing.Simulation.Runtime.UncontrolledInvocationGuard).Assembly.Location;
 
     private static RewriteResult RewriteFixture(RewriteTestContext context, string assemblyName)
     {

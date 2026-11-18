@@ -1,4 +1,4 @@
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>
 /// End-to-end conformance for whole-type substitutions reaching beyond member signatures: a base type and an

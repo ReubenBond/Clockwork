@@ -97,7 +97,7 @@ opt-in; uninstrumented applications can continue to use cooperative mode directl
 ### Race exploration mode
 
 `RaceExploration` is an explicit instrumentation mode (`--mode RaceExploration`,
-`<ClockworkInstrumentationMode>RaceExploration</ClockworkInstrumentationMode>`, or JSON
+`<OrleansSimulationInstrumentationMode>RaceExploration</OrleansSimulationInstrumentationMode>`, or JSON
 `"mode": "RaceExploration"`). `Controlled` remains the default and runs none of the fine-grained
 passes, so normal controlled binaries incur no memory/control-flow instrumentation calls.
 
@@ -216,7 +216,8 @@ are enforced before use.
 ### Build-time instrumentation boundary
 
 Clockwork's deepest supported instrumentation is opt-in, out-of-place caller rewriting performed
-by `Clockwork.Instrumentation.Build` or `Clockwork.Tool` before execution. It can rewrite
+by `Microsoft.Orleans.Testing.Simulation.Instrumentation.Build` or
+`Microsoft.Orleans.Testing.Simulation.Tool` before execution. It can rewrite
 application and selected dependency assemblies, including third-party managed callers, but does
 not rewrite framework assemblies, mixed-mode/native code, or calls originating inside excluded
 vendor binaries. Those boundaries require an explicit Clockwork model, rejection, or consumer
@@ -233,7 +234,7 @@ The build package and CLI use Mono.Cecil; see
 
 #### Rewrite engine
 
-The **generic IL rewrite engine** in `Clockwork.Instrumentation` uses Mono.Cecil 0.11.6. It is a deterministic,
+The **generic IL rewrite engine** in `Orleans.Testing.Simulation.Instrumentation` uses Mono.Cecil 0.11.6. It is a deterministic,
 rule-driven Cecil transformation pipeline plus an extensive golden test corpus, and
 does not perform runtime interception. The engine (`RewriteEngine.Rewrite`) takes a caller-supplied, versioned
 `RewriteRuleSet` and a set of replacement ("shim") assemblies, applies an ordered set
@@ -334,20 +335,21 @@ mechanics; build and CLI orchestration remain separate opt-in entry points.
 #### Build and tool integration
 
 The build and command-line entry points are generic, strictly opt-in plumbing that fails explicitly rather than
-silently degrading. It ships two packages: `Clockwork.Instrumentation.Build` (an MSBuild
-task with `build/` props and targets, a development dependency) and `Clockwork.Tool`
-(the `clockwork` CLI).
+silently degrading. It ships two packages:
+`Microsoft.Orleans.Testing.Simulation.Instrumentation.Build` (an MSBuild task with
+`build/` props and targets, a development dependency) and
+`Microsoft.Orleans.Testing.Simulation.Tool` (the `orleans-simulation` CLI).
 
-**Opt-in only.** An ordinary build never instruments. The `ClockworkInstrument` target
+**Opt-in only.** An ordinary build never instruments. The `OrleansSimulationInstrument` target
 runs `AfterTargets="Build"` only when the consumer sets
-`ClockworkInstrumentationEnabled=true` and supplies at least one `@(ClockworkRuleSet)`
+`OrleansSimulationInstrumentationEnabled=true` and supplies at least one `@(OrleansSimulationRuleSet)`
 document. It discovers the full resolved managed closure (honoring `.deps.json`, runtimeconfig,
 satellite/resource/native assets, and include/exclude globs). Framework and reference assemblies
 are always copied rather than rewritten, and an explicit include cannot override that safety
 boundary. It rewrites **only managed IL** out-of-place under
-`obj/<Config>/<Tfm>/clockwork/instrumented/`, copies the non-managed assets needed to run
+`obj/<Config>/<Tfm>/orleans-simulation/instrumented/`, copies the non-managed assets needed to run
 the staged app unchanged, and emits a manifest under
-`obj/<Config>/<Tfm>/clockwork/clockwork.manifest.json`. Source and `bin` outputs are never
+`obj/<Config>/<Tfm>/orleans-simulation/orleans-simulation.manifest.json`. Source and `bin` outputs are never
 mutated. The work is incremental, keyed by every input asset's hash, the rule-set signature,
 engine version, manifest schema, configuration, and reference set. Each copied native library,
 dependency/runtime configuration file, symbol file, replacement assembly, and race-runtime asset is
@@ -359,7 +361,7 @@ is rejected rather than interpreted through a compatibility shape. Manifests are
 4,096 assembly entries, 65,536 copied assets, and 8,192 UTF-16 characters per string.
 
 **Instrumented test projects.** Executable test projects can set
-`ClockworkInstrumentedTestProject=true`. After an ordinary project build, the package snapshots the
+`OrleansSimulationInstrumentedTestProject=true`. After an ordinary project build, the package snapshots the
 complete test output under `obj` and automatically selects the test assembly plus every
 eligible managed assembly in its resolved closure. It rewrites that complete simulation closure out
 of place and validates every manifest assembly and rewrite signature before deploying the result to
@@ -374,11 +376,11 @@ incremental compilation and instrumentation-mode changes never consume a previou
 Because the rewritten test copy occupies the project's normal module path, `dotnet build` followed
 by `dotnet test --no-build` uses it without runner-specific dispatch hooks. Production project
 outputs and non-opted-in test projects remain ordinary IL. Instrumentation must be selected per
-project, never using a solution-wide `ClockworkInstrumentationEnabled` global property.
+project, never using a solution-wide `OrleansSimulationInstrumentationEnabled` global property.
 
 **Task package requires the .NET 11 SDK.** The task and its Cecil-based engine target
 `net11.0` and load only under `dotnet build` / `dotnet msbuild`; .NET Framework MSBuild
-(classic `msbuild.exe`) cannot host them. The `Clockwork.Tool` CLI exposes `rewrite`
+(classic `msbuild.exe`) cannot host them. The `Microsoft.Orleans.Testing.Simulation.Tool` CLI exposes `rewrite`
 (with `--dry-run`) and `inspect` (text or `--json`), with nonzero exit codes classified
 by failure kind. The tool also exposes explicit `IReplayScenario` harness commands for
 `run`/`replay`/`explore`/`minimize`/`trace show`; it never discovers a process or scenario type
@@ -386,7 +388,7 @@ implicitly.
 
 **Target runtime.** Rules are classified against a .NET runtime's surface, so every rewrite evaluates them
 against a target runtime, a feature version such as `11.0`. The configuration file's `targetRuntime`, the
-`ClockworkTargetRuntime` MSBuild property, and the CLI's `--target-runtime` set it; when more than one is set, they
+`OrleansSimulationTargetRuntime` MSBuild property, and the CLI's `--target-runtime` set it; when more than one is set, they
 must agree. Without any of them, it is the runtime the entry assembly's `*.runtimeconfig.json` names:
 `Microsoft.NETCore.App`, or the ASP.NET Core or Windows Desktop framework, which ship in lockstep with it. That file
 is what the host reads to choose a runtime, which the target framework stops naming once an app rolls forward. A
@@ -441,8 +443,8 @@ recovered to a rewriteable managed closure.
 
 The built-in simulation rule set `clockwork.bcl.deterministic` (version `3.0.0`),
 redirects the direct **static** time / identity / random BCL surface to Cecil-free runtime
-shims in the `Clockwork` assembly, under namespaces matching
-`Clockwork.Shims.<framework namespace>`. The complete, exhaustive
+shims in the `Orleans.Testing.Simulation` assembly, under namespaces matching
+`Orleans.Testing.Simulation.Shims.<framework namespace>`. The complete, exhaustive
 list of controlled and rejected signatures is generated into
 [`rule-inventory.md`](rule-inventory.md) and verified against the shipped rules by a test, so
 the published inventory can never drift from the code.
@@ -497,7 +499,7 @@ stream isolated from application randomness, identity generation, scheduling, ne
 injection.
 
 **Opt-in.** No JSON authoring is required. MSBuild consumers set
-`<ClockworkUseBuiltInRules>true</ClockworkUseBuiltInRules>`; CLI consumers pass
+`<OrleansSimulationUseBuiltInRules>true</OrleansSimulationUseBuiltInRules>`; CLI consumers pass
 `--builtin clockwork.bcl.deterministic` (or `--builtin all`) with optional
 `--builtin-include`/`--builtin-exclude` family filters. The selected families are versioned and folded into the rule-set signature,
 so incremental rebuilds stay correct.
@@ -514,7 +516,7 @@ verified against the shipped rules by a test.
 
 The rule set has two halves. A **member-aware type substitution** pass retargets the
 compiler-generated builder and awaiter types of an `async` state machine onto controlled
-value-type equivalents in `Clockwork.Shims.System.Runtime.CompilerServices`
+value-type equivalents in `Orleans.Testing.Simulation.Shims.System.Runtime.CompilerServices`
 (`AsyncTaskMethodBuilder`(`<T>`) → `ControlledAsyncTaskMethodBuilder`(`<T>`); `TaskAwaiter`(`<T>`),
 `ConfiguredTaskAwaitable`(`<T>`)`/ConfiguredTaskAwaiter`, and `YieldAwaitable`/`YieldAwaiter` →
 their `Controlled…` counterparts), rewriting field, local, method- and field-reference, and
@@ -560,7 +562,7 @@ generic `Task<T>` overloads** (array, span, enumerable, and the `WhenAny<T>` pai
 `Task.ContinueWith`/`Task<T>.ContinueWith` overloads, all 48 `TaskFactory`/`TaskFactory<T>`
 `ContinueWhenAll`/`ContinueWhenAny` overloads, the `ValueTask`/`ValueTask<T>` `AsTask` and `Preserve`
 conversions, and the completion members of `TaskCompletionSource`/`TaskCompletionSource<T>` to shims in
-`Clockwork.Shims.System.Threading.Tasks`, and rejects every `TaskFactory`/`TaskFactory<T>` `FromAsync` overload at
+`Orleans.Testing.Simulation.Shims.System.Threading.Tasks`, and rejects every `TaskFactory`/`TaskFactory<T>` `FromAsync` overload at
 the call site. Synchronous waits **pump the
 coordinator loop until completion instead of blocking a physical thread**, then delegate to the
 real API to reproduce its exact `AggregateException` semantics, so a synchronous wait or a blocking
@@ -718,7 +720,7 @@ inside a task which hides it, run inline on the logical thread. That covers the 
 `ManualResetValueTaskSourceCore<T>` completion shims, `CancellationTokenSource.Cancel` and the cancellations its
 virtual timer and `CancelAsync` make, the controlled synchronization primitives' waiters, rendezvous, and timers, and the
 promises of the controlled combinators and continuations. A bare continuation of the task then runs inline, on the
-logical thread, as the BCL runs it on a thread-pool thread. Inside the Clockwork assembly, analyzer rule `CW1004` rejects
+logical thread, as the BCL runs it on a thread-pool thread. Inside the `Orleans.Testing.Simulation` assembly, analyzer rule `CW1004` rejects
 any call to these completion members outside that one path.
 
 Around the completion the BCL's behavior is kept where it differs:
@@ -1327,14 +1329,25 @@ The implemented package boundaries under `src/` map to the modes above:
 
 | Project | Depends on | Current purpose |
 |---|---|---|
-| `Clockwork` | *(none)* | Simulation kernel, ambient context, policy, controlled task/thread/synchronization shims, logical strands, and unified scheduling/resource infrastructure. |
-| `Clockwork.Instrumentation` | `Clockwork` | Cecil rewrite engine, manifests, built-in rules, closure orchestration, and diagnostics. |
-| `Clockwork.Instrumentation.Build` | `Clockwork.Instrumentation` | Opt-in MSBuild task + targets that instrument the resolved output closure out-of-place. |
-| `Clockwork.Tool` | `Clockwork.Instrumentation` | `dotnet clockwork instrument` / `inspect` CLI over the shared orchestrator. |
-| `Clockwork.Analyzers` | *(none)* | Roslyn diagnostics aligned with controlled/rejected direct BCL usage. |
-| `Clockwork.Testing` | `Clockwork` | Reusable test helpers, scenario builders, and in-memory log capture for consumers. |
+| `Orleans.Testing.Simulation` | *(none)* | Simulation kernel, ambient context, policy, controlled task/thread/synchronization shims, logical strands, and unified scheduling/resource infrastructure. |
+| `Orleans.Testing.Simulation.Instrumentation` | `Orleans.Testing.Simulation` | Cecil rewrite engine, manifests, built-in rules, closure orchestration, and diagnostics. |
+| `Orleans.Testing.Simulation.Instrumentation.Build` | `Orleans.Testing.Simulation.Instrumentation` | Opt-in MSBuild task + targets that instrument the resolved output closure out-of-place. |
+| `Orleans.Testing.Simulation.Tool` | `Orleans.Testing.Simulation.Instrumentation` | `dotnet orleans-simulation instrument` / `inspect` CLI over the shared orchestrator. |
+| `Orleans.Testing.Simulation.Analyzers` | *(none)* | Roslyn diagnostics aligned with controlled/rejected direct BCL usage. |
+| `Orleans.Testing.Simulation.Testing` | `Orleans.Testing.Simulation` | Reusable test helpers, scenario builders, and in-memory log capture for consumers. |
 
-`Clockwork.Testing` remains a separate helper project and namespace boundary. Application hosting and transport models are
+Source builds can import
+[`eng/Microsoft.Orleans.Testing.Simulation.SourceBuild.props`](../eng/Microsoft.Orleans.Testing.Simulation.SourceBuild.props)
+to enumerate the six package IDs and their source projects, assembly names, target frameworks, and roles.
+The map is declarative and adds no references or build hooks. Clog's future `eng/FastCasPaxos.props`
+owns replacing CASPaxos package references with project references into its vendored Clockwork source.
+That source build must redirect the complete mapped package set, which is preferred, or verify that any
+restored Orleans simulation packages were built from the identical Clockwork revision. Restoring those
+packages beside a different vendored simulation kernel is forbidden because it can load divergent package
+and source-build identities into one process.
+
+`Orleans.Testing.Simulation.Testing` remains a separate helper project while retaining the
+`Orleans.Testing.Simulation.Testing` namespace boundary. Application hosting and transport models are
 consumer-owned and outside the Clockwork core; consumers compose them over `SimulationNetwork` and
 the generic application-composition APIs, and no dedicated hosting or HTTP packages ship. Exact
 shipped interception behavior is defined by [`rule-inventory.md`](rule-inventory.md).

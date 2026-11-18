@@ -1,11 +1,11 @@
 using System.Reflection;
-using Clockwork.Instrumentation.Diagnostics;
-using Clockwork.Instrumentation.Rewriting;
-using Clockwork.Instrumentation.Rules.BuiltIn;
-using Clockwork.Runtime;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Rewriting;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Runtime;
 using Mono.Cecil;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>
 /// A method compiled with runtime async suspends and resumes through the runtime's own continuation machinery, which

@@ -9,6 +9,8 @@
     <PackageReference Include="xunit.v3.mtp-v2" />
     <PackageReference Include="Mono.Cecil" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+    <!-- Seed the isolated package-smoke feed so trim/AOT/single-file analyzer fixtures restore offline. -->
+    <PackageReference Include="Microsoft.NET.ILLink.Tasks" PrivateAssets="all" ExcludeAssets="all" />
   </ItemGroup>
 
   <ItemGroup>
@@ -16,8 +18,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Clockwork.Instrumentation\Clockwork.Instrumentation.csproj" />
-    <ProjectReference Include="..\..\src\Clockwork.Tool\Clockwork.Tool.csproj" />
+    <ProjectReference Include="..\..\src\Orleans.Testing.Simulation.Instrumentation\Orleans.Testing.Simulation.Instrumentation.csproj" />
+    <ProjectReference Include="..\..\src\Orleans.Testing.Simulation.Tool\Orleans.Testing.Simulation.Tool.csproj" />
   </ItemGroup>
 
   <!-- The rule-set completeness test enumerates the reference pack this project compiles against. -->

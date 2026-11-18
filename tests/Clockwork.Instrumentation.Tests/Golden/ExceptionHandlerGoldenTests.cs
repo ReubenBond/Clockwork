@@ -1,8 +1,8 @@
-using Clockwork.Instrumentation.Diagnostics;
-using Clockwork.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Tests.Golden;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Golden;
 
 /// <summary>
 /// Golden tests proving that rewriting inside protected regions (try/catch/filter/finally) preserves

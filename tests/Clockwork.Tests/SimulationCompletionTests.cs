@@ -1,12 +1,12 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks.Sources;
-using Clockwork.Shims.System.Threading.Tasks.Sources;
-using Clockwork.Runtime;
-using Clockwork.Runtime.Scheduling;
-using Clockwork.Runtime.Tasks;
+using Orleans.Testing.Simulation.Shims.System.Threading.Tasks.Sources;
+using Orleans.Testing.Simulation.Runtime;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Tasks;
 
-namespace Clockwork.Tests;
+namespace Orleans.Testing.Simulation.Tests;
 
 // Completions which Clockwork performs for simulation code run as on a thread-pool thread: a bare continuation of the
 // task they complete (a framework await with ConfigureAwait(false)) runs inline, on the simulation's logical thread, as

@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
 
-namespace Clockwork.Instrumentation.Tests.Infrastructure;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 
 /// <summary>
 /// Produces strong-name key material for tests without relying on the Windows-only

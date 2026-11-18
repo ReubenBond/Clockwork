@@ -1,9 +1,9 @@
-using Clockwork.Runtime.Decisions;
-using Clockwork.Runtime.Random;
-using Clockwork.Runtime.Scheduling;
-using Clockwork.Runtime.Scheduling.Strategies;
+using Orleans.Testing.Simulation.Runtime.Decisions;
+using Orleans.Testing.Simulation.Runtime.Random;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Scheduling.Strategies;
 
-namespace Clockwork.Runtime.Tests.Scheduling.Strategies;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Scheduling.Strategies;
 
 /// <summary>
 /// Exercises the pluggable scheduling strategies and their decision recording/replay wiring. Each
@@ -222,7 +222,7 @@ public sealed class SimulationSchedulingStrategyTests
                 "999",
                 Guid.NewGuid(),
                 NodeId: null,
-                Clockwork.Runtime.Execution.SimulationLogicalExecutionId.None),
+                Orleans.Testing.Simulation.Runtime.Execution.SimulationLogicalExecutionId.None),
         };
 
         using var scheduler = SchedulerTestHarness.NewScheduler();
@@ -381,5 +381,5 @@ public sealed class SimulationSchedulingStrategyTests
             selectedResult,
             Guid.NewGuid(),
             NodeId: null,
-            Clockwork.Runtime.Execution.SimulationLogicalExecutionId.None);
+            Orleans.Testing.Simulation.Runtime.Execution.SimulationLogicalExecutionId.None);
 }

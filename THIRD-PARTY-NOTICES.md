@@ -30,7 +30,7 @@ must be updated in the same change with:
   without attribution is not permitted; substantial adaptation should credit Coyote
   in code comments at the adaptation site as well.
 - **Adapted rewrite-engine material:** The following files in
-  `src/Clockwork.Instrumentation/Rewriting/` adapt portions of Coyote's Mono.Cecil
+  `src/Orleans.Testing.Simulation.Instrumentation/Rewriting/` adapt portions of Coyote's Mono.Cecil
   rewriting engine and carry Coyote's copyright/license header at the top of the
   file, per the policy above:
   - `RewritePass.cs` — adapts the IL visitor traversal
@@ -47,8 +47,8 @@ must be updated in the same change with:
   commits separate from the mechanical adaptation.
 
 - **Adapted controlled task/async material:** The controlled task/async machinery
-  (`src/Clockwork.Runtime/Tasks/` and `.../Tasks/CompilerServices/`, and the
-  member-aware substitution pass in `src/Clockwork.Instrumentation/Rewriting/`) is a
+  (`src/Orleans.Testing.Simulation/Runtime/Tasks/` and `.../Tasks/CompilerServices/`, and the
+  member-aware substitution pass in `src/Orleans.Testing.Simulation.Instrumentation/Rewriting/`) is a
   **design-level adaptation** of Coyote's controlled-task model — its
   `Microsoft.Coyote.Runtime.CompilerServices` builder/awaiter types
   (`AsyncTaskMethodBuilder`, `TaskAwaiter`, `ConfiguredTaskAwaitable`, `YieldAwaitable`,
@@ -69,7 +69,7 @@ must be updated in the same change with:
   [docs/rule-inventory.md](docs/rule-inventory.md), not for Coyote's full surface.
 
 - **Adapted exception-hardening material:** The exception-handler hardening pass,
-  `src/Clockwork.Instrumentation/Rewriting/ExceptionHardeningRewritingPass.cs`, is a
+  `src/Orleans.Testing.Simulation.Instrumentation/Rewriting/ExceptionHardeningRewritingPass.cs`, is a
   **source-level adaptation** of Coyote's
   `Source/Test/Rewriting/Passes/Rewriting/ExceptionFilterRewritingPass.cs` and carries a
   Coyote copyright/license attribution header at the top of the file, per the policy
@@ -93,7 +93,7 @@ must be updated in the same change with:
 
 - **Adapted monitor/lock/semaphore material:** Clockwork's controlled `Monitor`, `System.Threading.Lock`,
   and `SemaphoreSlim` runtime surfaces
-  (`src/Clockwork.Runtime/Threading/ControlledMonitor.cs`, `ControlledLock.cs`,
+  (`src/Orleans.Testing.Simulation/Runtime/Threading/ControlledMonitor.cs`, `ControlledLock.cs`,
   `ControlledSemaphoreSlim.cs`) are a **design-level adaptation** of Coyote's controlled
   synchronization model — its `Microsoft.Coyote.Rewriting.Types.Threading.Monitor` and
   `SemaphoreSlim` wrappers and their tests informed the surface (ownership/recursion counts,
@@ -110,7 +110,7 @@ must be updated in the same change with:
   is in [docs/rule-inventory.md](docs/rule-inventory.md).
 
 - **Adapted wait-handle/atomic/spin material:** Clockwork's controlled event / wait-handle, atomic, and spin
-  surfaces (`src/Clockwork.Runtime/Threading/ControlledWaitHandle.cs`,
+  surfaces (`src/Orleans.Testing.Simulation/Runtime/Threading/ControlledWaitHandle.cs`,
   `ControlledEventWaitHandle.cs`, `ControlledRegisteredWaitHandle.cs`, `ControlledInterlocked.cs`,
   `ControlledVolatile.cs`, `ControlledSpinWait.cs`) are a **design-level adaptation** of Coyote's
   controlled synchronization model — its `Microsoft.Coyote.Rewriting.Types.Threading`
@@ -167,11 +167,12 @@ Microsoft Coyote license:
 
 - **License:** MIT
 - **Repository:** https://github.com/jbevain/cecil
-- **Distribution:** `Clockwork.Instrumentation.Build` and `Clockwork.Tool` bundle the
-  Mono.Cecil 0.11.6 binaries so their build task and tool can run without exposing
-  Mono.Cecil as a package dependency. Both packages therefore include this notice and
-  the complete Mono.Cecil MIT copyright/license text below. Mono.Cecil is not
-  referenced by the Clockwork runtime or simulation projects.
+- **Distribution:** `Microsoft.Orleans.Testing.Simulation.Instrumentation.Build` and
+  `Microsoft.Orleans.Testing.Simulation.Tool` bundle the Mono.Cecil 0.11.6 binaries so
+  their build task and tool can run without exposing Mono.Cecil as a package dependency.
+  `Microsoft.Orleans.Testing.Simulation.Instrumentation` references Mono.Cecil as a normal
+  package dependency. These packages include this notice and the complete Mono.Cecil MIT
+  copyright/license text below. Mono.Cecil is not referenced by the simulation kernel.
 - **Adaptation policy:** Mono.Cecil is used through its public API; no Mono.Cecil source
   has been copied or adapted into this repository. If source is copied or adapted in
   the future, the same attribution requirements as Coyote above apply.
@@ -223,7 +224,7 @@ Mono.Cecil license:
 ## General policy
 
 - Clockwork uses the `Mono.Cecil` (0.11.6, MIT) package dependency in
-  `Clockwork.Instrumentation`, and the `Microsoft.CodeAnalysis.CSharp` (Roslyn, MIT)
+  `Orleans.Testing.Simulation.Instrumentation`, and the `Microsoft.CodeAnalysis.CSharp` (Roslyn, MIT)
   package to `Clockwork.Instrumentation.Tests` (used only to compile fixture
   assemblies at test time). It also adapts two Coyote source files as recorded above.
   The runtime and simulation projects remain free of any IL-rewriting dependency.

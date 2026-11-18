@@ -1,6 +1,6 @@
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Shims;
 
-namespace Clockwork.Runtime.Tests.Shims;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Shims;
 
 public sealed class ControlledDateTimeTests
 {
@@ -54,7 +54,7 @@ public sealed class ControlledDateTimeTests
     [Fact]
     public void OutsideSimulationFailsBeforeReadingTheRealClock()
     {
-        Assert.False(Clockwork.Runtime.Execution.SimulationExecutionContext.IsActive);
+        Assert.False(Orleans.Testing.Simulation.Runtime.Execution.SimulationExecutionContext.IsActive);
         DateTime result = DateTime.MinValue;
 
         Exception? exception = Record.Exception(() => result = ControlledDateTime.GetUtcNow());

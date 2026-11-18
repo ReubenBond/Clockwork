@@ -1,13 +1,13 @@
-using Clockwork.Instrumentation.Diagnostics;
-using Clockwork.Instrumentation.Inspection;
-using Clockwork.Instrumentation.Tests.Infrastructure;
-using Clockwork.Runtime.Shims;
-using Clockwork.Tool;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Inspection;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Runtime.Shims;
+using Orleans.Testing.Simulation.Tool;
 
-namespace Clockwork.Instrumentation.Tests.Cli;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Cli;
 
 /// <summary>
-/// Verifies the <c>clockwork</c> CLI in-process by driving <see cref="Program.Run"/> with explicit
+/// Verifies the <c>orleans-simulation</c> CLI in-process by driving <see cref="Program.Run"/> with explicit
 /// streams: the <c>inspect</c> command reports the true managed/strong-name/symbol/idempotence state,
 /// the <c>instrument</c> command stages an instrumented closure and honors <c>--dry-run</c>, and every
 /// failure class maps to its distinct exit code. Process-level packaging execution is covered
@@ -76,6 +76,20 @@ public sealed class CliCommandTests : IDisposable
         (ExitCode code, string output, _) = Invoke("--help");
 
         Assert.Equal(ExitCode.Success, code);
+        Assert.Contains(
+            "dotnet-orleans-simulation - deterministic Orleans simulation tool",
+            output,
+            StringComparison.Ordinal);
+        foreach (string command in new[]
+        {
+            "instrument", "inspect", "record", "replay", "explore", "minimize", "trace show",
+        })
+        {
+            Assert.Contains($"dotnet orleans-simulation {command}", output, StringComparison.Ordinal);
+        }
+
+        Assert.DoesNotContain("dotnet clockwork", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("dotnet-clockwork", output, StringComparison.Ordinal);
         foreach (string option in new[]
         {
             "--config", "--rule-set", "--builtin", "--builtin-include", "--builtin-exclude",
@@ -100,7 +114,7 @@ public sealed class CliCommandTests : IDisposable
         BuildMinimalClosure();
         string ruleSet = WriteEmptyRuleSet();
 
-        (ExitCode code, _, string errors) = Invoke(
+        (ExitCode code, string output, string errors) = Invoke(
             "instrument", "--source", _source, "--output", _staging, "--rule-set", ruleSet,
             "--mode", "RaceExploration");
 
@@ -376,11 +390,13 @@ public sealed class CliCommandTests : IDisposable
         string ruleSet = Path.Combine(_root, "malformed-rules.json");
         File.WriteAllText(ruleSet, """{ "id": "clockwork.test", "version": "1.0" }""");
 
-        (ExitCode code, _, string errors) = Invoke(
+        (ExitCode code, string output, string errors) = Invoke(
             "instrument", "--source", _source, "--output", _staging, "--rule-set", ruleSet);
 
         Assert.Equal(ExitCode.ConfigurationError, code);
         Assert.Contains("'rules' array", errors);
+        Assert.DoesNotContain("success", output, StringComparison.OrdinalIgnoreCase);
+        Assert.False(Directory.Exists(_staging));
     }
 
     [Fact]
@@ -416,7 +432,7 @@ public sealed class CliCommandTests : IDisposable
 
     private string WriteConfiguration(string? targetRuntime)
     {
-        string path = Path.Combine(_root, "clockwork.config.json");
+        string path = Path.Combine(_root, "orleans-simulation.config.json");
         File.WriteAllText(
             path,
             targetRuntime is null
@@ -455,7 +471,7 @@ public sealed class CliCommandTests : IDisposable
             outputKind: Microsoft.CodeAnalysis.OutputKind.ConsoleApplication);
         File.Copy(
             typeof(SimulationNotActiveException).Assembly.Location,
-            Path.Combine(_source, "Clockwork.dll"),
+            Path.Combine(_source, "Orleans.Testing.Simulation.dll"),
             overwrite: true);
         ProcessAppRunner.WriteRuntimeConfig(Path.Combine(_source, "app.dll"));
     }

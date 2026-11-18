@@ -1,10 +1,10 @@
 using System.Runtime.InteropServices;
-using Clockwork.Instrumentation.Closure;
-using Clockwork.Instrumentation.Orchestration;
-using Clockwork.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Instrumentation.Closure;
+using Orleans.Testing.Simulation.Instrumentation.Orchestration;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Tests.Orchestration;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Orchestration;
 
 /// <summary>
 /// The staged closure is checked against the assemblies the runtime binds when it runs from its staging directory: the

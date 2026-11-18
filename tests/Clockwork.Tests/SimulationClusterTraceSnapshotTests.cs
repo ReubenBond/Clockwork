@@ -1,4 +1,4 @@
-namespace Clockwork.Tests;
+namespace Orleans.Testing.Simulation.Tests;
 
 /// <summary>
 /// Characterizes the cluster's execution results as a structured, replayable trace.

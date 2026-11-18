@@ -1,10 +1,10 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
-using Clockwork.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
-namespace Clockwork.Instrumentation.Tests.Infrastructure;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 
 /// <summary>What a concurrency escape a candidate reaches does.</summary>
 internal enum EscapeSink
@@ -54,11 +54,11 @@ internal static class ConcurrencyEscapeScanner
 
     /// <summary>
     /// Gets the directory of the shared framework scanned: the one the tests run on, or the directory named by
-    /// <c>CLOCKWORK_ESCAPE_FRAMEWORK_DIRECTORY</c>, which checks another operating system's implementation assemblies
+    /// <c>ORLEANS_SIMULATION_ESCAPE_FRAMEWORK_DIRECTORY</c>, which checks another operating system's implementation assemblies
     /// (an extracted <c>Microsoft.NETCore.App.Runtime.&lt;rid&gt;</c> pack) against the same reference pack.
     /// </summary>
     public static string FrameworkDirectory { get; } =
-        Environment.GetEnvironmentVariable("CLOCKWORK_ESCAPE_FRAMEWORK_DIRECTORY") is { Length: > 0 } directory
+        Environment.GetEnvironmentVariable("ORLEANS_SIMULATION_ESCAPE_FRAMEWORK_DIRECTORY") is { Length: > 0 } directory
             ? directory
             : Path.GetDirectoryName(typeof(object).Assembly.Location)!;
 

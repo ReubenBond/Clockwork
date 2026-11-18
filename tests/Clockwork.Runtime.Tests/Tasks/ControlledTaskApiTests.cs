@@ -1,8 +1,8 @@
 using System.Threading.Tasks;
-using Clockwork.Runtime.Tasks;
-using Clockwork.Runtime.Threading;
+using Orleans.Testing.Simulation.Runtime.Tasks;
+using Orleans.Testing.Simulation.Runtime.Threading;
 
-namespace Clockwork.Runtime.Tests.Tasks;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Tasks;
 
 /// <summary>
 /// Tests for the <see cref="ControlledTask"/> static shims: combinator determinism, synchronous waits

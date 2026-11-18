@@ -1,6 +1,6 @@
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Shims;
 
-namespace Clockwork.Runtime.Tests;
+namespace Orleans.Testing.Simulation.Runtime.Tests;
 
 internal static class SimulationNotActiveExceptionAssert
 {

@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 
-namespace Clockwork.Instrumentation.Tests.Infrastructure;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 
 /// <summary>
 /// The captured result of running a staged fixture executable in a separate process.

@@ -1,7 +1,7 @@
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
-namespace Clockwork.Instrumentation.Tests.Infrastructure;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 
 /// <summary>
 /// Small Mono.Cecil query helpers for asserting on rewritten IL structure without depending on raw

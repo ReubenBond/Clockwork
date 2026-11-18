@@ -1,9 +1,9 @@
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
-using Clockwork.Runtime.Tasks;
-using Clockwork.Shims.System.Runtime.CompilerServices;
+using Orleans.Testing.Simulation.Runtime.Tasks;
+using Orleans.Testing.Simulation.Shims.System.Runtime.CompilerServices;
 
-namespace Clockwork.Runtime.Tests.Tasks;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Tasks;
 
 /// <summary>
 /// <para>

@@ -1,10 +1,10 @@
 // The race detector as of 07b7944, before clock slots: one clock component per operation, a full clock per kept access,
 // and no state ever dropped. Copied verbatim, apart from its namespace and usings, as the oracle for RaceTrackerModelTests.
 using System.Runtime.CompilerServices;
-using Clockwork.Runtime.Racing;
-using Clockwork.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Racing;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
 
-namespace Clockwork.Runtime.Tests.Racing.Oracle;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Racing.Oracle;
 
 /// <summary>Scheduler-owned vector-clock and lockset race detector.</summary>
 internal sealed class RaceTracker

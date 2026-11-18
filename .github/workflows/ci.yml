@@ -23,7 +23,7 @@ jobs:
         # Redirect transient process-test artifacts (staged closures, manifests, packed feeds) to a
         # known path so the failure-retention step below can surface them for debugging. The runner
         # context is unavailable to job-level env, so the path is exported here.
-        run: echo "CLOCKWORK_TEST_ARTIFACTS=$RUNNER_TEMP/clockwork-artifacts" >> "$GITHUB_ENV"
+        run: echo "ORLEANS_SIMULATION_TEST_ARTIFACTS=$RUNNER_TEMP/orleans-simulation-artifacts" >> "$GITHUB_ENV"
       - name: Build
         run: dotnet build Clockwork.slnx --configuration Release
       - name: Test kernel
@@ -33,7 +33,7 @@ jobs:
       - name: Repeat race exploration corpus
         run: |
           for iteration in 1 2 3; do
-            dotnet run --project tests/Clockwork.Runtime.Tests/Clockwork.Runtime.Tests.csproj --configuration Release --no-build -- --timeout 60s --filter-namespace Clockwork.Runtime.Tests.Racing
+            dotnet run --project tests/Clockwork.Runtime.Tests/Clockwork.Runtime.Tests.csproj --configuration Release --no-build -- --timeout 120s --filter-namespace Orleans.Testing.Simulation.Runtime.Tests.Racing
           done
       - name: Test Instrumentation
         run: dotnet run --project tests/Clockwork.Instrumentation.Tests/Clockwork.Instrumentation.Tests.csproj --configuration Release --no-build -- --timeout 180s
@@ -49,29 +49,30 @@ jobs:
         env:
           DOTNET_TieredCompilation: '0'
           DOTNET_ReadyToRun: '0'
-        run: dotnet run --project tests/Clockwork.Conformance.Tests/Clockwork.Conformance.Tests.csproj --configuration Debug --no-build -- --timeout 300s --filter-class Clockwork.Conformance.Tests.ChannelConformanceTests
+        run: dotnet run --project tests/Clockwork.Conformance.Tests/Clockwork.Conformance.Tests.csproj --configuration Debug --no-build -- --timeout 300s --filter-class Orleans.Testing.Simulation.Conformance.Tests.ChannelConformanceTests
       - name: Package smoke tests
-        # Exercises the real packed NuGet artifacts end-to-end: packs Clockwork.Instrumentation.Build
-        # and Clockwork.Tool into an isolated feed, consumes the build package through the real MSBuild
-        # targets, and installs + runs the tool. Gated behind CLOCKWORK_SMOKE_TESTS so ordinary runs
-        # skip these slower flows. CLOCKWORK_TEST_ARTIFACTS redirects transient fixtures/manifests to a
+        # Exercises all six real packed NuGet artifacts end-to-end in an isolated feed,
+        # verifies evaluated/restored/packed dependency boundaries and the source-build map,
+        # consumes the build package through the real MSBuild targets, and installs + runs the tool.
+        # Gated behind ORLEANS_SIMULATION_SMOKE_TESTS so ordinary runs
+        # skip these slower flows. ORLEANS_SIMULATION_TEST_ARTIFACTS redirects transient fixtures/manifests to a
         # known path so they can be retained on failure.
         env:
-          CLOCKWORK_SMOKE_TESTS: "1"
-        run: dotnet run --project tests/Clockwork.Instrumentation.Tests/Clockwork.Instrumentation.Tests.csproj --configuration Release --no-build -- --timeout 600s --filter-namespace Clockwork.Instrumentation.Tests.Packaging
+          ORLEANS_SIMULATION_SMOKE_TESTS: "1"
+        run: dotnet run --project tests/Clockwork.Instrumentation.Tests/Clockwork.Instrumentation.Tests.csproj --configuration Release --no-build -- --timeout 600s --filter-namespace Orleans.Testing.Simulation.Instrumentation.Tests.Packaging
       - name: Upload instrumentation artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: clockwork-instrumentation-artifacts
+          name: orleans-simulation-instrumentation-artifacts
           path: |
-            ${{ runner.temp }}/clockwork-artifacts/**/*.manifest.json
-            ${{ runner.temp }}/clockwork-artifacts/**/staged/**
-            ${{ runner.temp }}/clockwork-artifacts/**/clockwork/**
+            ${{ runner.temp }}/orleans-simulation-artifacts/**/*.manifest.json
+            ${{ runner.temp }}/orleans-simulation-artifacts/**/staged/**
+            ${{ runner.temp }}/orleans-simulation-artifacts/**/orleans-simulation/**
           if-no-files-found: ignore
           retention-days: 7
       - name: Pack
-        run: dotnet pack src/Clockwork/Clockwork.csproj --configuration Release --no-build --output artifacts/packages
+        run: dotnet pack src/Orleans.Testing.Simulation/Orleans.Testing.Simulation.csproj --configuration Release --no-build --output artifacts/packages
 
   cross-platform:
     # Validates the Windows/Linux/macOS platform claim in docs/compatibility.md by

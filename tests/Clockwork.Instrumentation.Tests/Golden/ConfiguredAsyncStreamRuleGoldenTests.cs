@@ -1,11 +1,11 @@
-using Clockwork.Instrumentation.Diagnostics;
-using Clockwork.Instrumentation.Rewriting;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Rules.BuiltIn;
-using Clockwork.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Rewriting;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Tests.Golden;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Golden;
 
 /// <summary>
 /// Golden tests for the configured async disposable and enumerable substitutions, and for the rule set without them,

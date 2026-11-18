@@ -1,5 +1,5 @@
 using BenchmarkDotNet.Attributes;
-namespace Clockwork.Benchmarks;
+namespace Orleans.Testing.Simulation.Benchmarks;
 
 [MemoryDiagnoser]
 public class DeterministicSchedulerBenchmarks

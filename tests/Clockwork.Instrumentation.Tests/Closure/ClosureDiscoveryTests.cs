@@ -1,8 +1,8 @@
-using Clockwork.Instrumentation.Closure;
-using Clockwork.Instrumentation.Configuration;
-using Clockwork.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Instrumentation.Closure;
+using Orleans.Testing.Simulation.Instrumentation.Configuration;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 
-namespace Clockwork.Instrumentation.Tests.Closure;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Closure;
 
 /// <summary>
 /// Verifies deterministic application-closure discovery: managed application and dependency

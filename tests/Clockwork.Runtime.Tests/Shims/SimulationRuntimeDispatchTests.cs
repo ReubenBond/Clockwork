@@ -1,9 +1,9 @@
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Scheduling;
-using Clockwork.Runtime.Shims;
-using Clockwork.Runtime.Tests.Tasks;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Tests.Tasks;
 
-namespace Clockwork.Runtime.Tests.Shims;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Shims;
 
 public sealed class SimulationRuntimeDispatchTests
 {

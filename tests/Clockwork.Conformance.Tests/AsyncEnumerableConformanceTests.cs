@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>
 /// Conformance for the framework's <c>System.Linq.AsyncEnumerable</c> operators over rewritten sources, which Clockwork

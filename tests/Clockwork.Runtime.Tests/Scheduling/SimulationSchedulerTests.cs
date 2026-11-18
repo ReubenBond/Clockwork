@@ -1,9 +1,9 @@
 using System.Collections.Concurrent;
-using Clockwork.Runtime.Decisions;
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Decisions;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
 
-namespace Clockwork.Runtime.Tests.Scheduling;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Scheduling;
 
 /// <summary>
 /// Behavioral coverage of the unified <see cref="SimulationScheduler"/>: registration/selection,
@@ -288,7 +288,7 @@ public sealed class SimulationSchedulerTests
     {
         using var scheduler = SchedulerTestHarness.NewScheduler();
         var resource = scheduler.CreateResource(
-            Clockwork.Runtime.Scheduling.Resources.SimulationResourceKind.Semaphore,
+            Orleans.Testing.Simulation.Runtime.Scheduling.Resources.SimulationResourceKind.Semaphore,
             "resource-wait");
         var operation = scheduler.Schedule(
             "waiter",
@@ -532,7 +532,7 @@ public sealed class SimulationSchedulerTests
         listener.Scheduler = scheduler;
         using var cancellation = new CancellationTokenSource();
         var resource = scheduler.CreateResource(
-            Clockwork.Runtime.Scheduling.Resources.SimulationResourceKind.Semaphore,
+            Orleans.Testing.Simulation.Runtime.Scheduling.Resources.SimulationResourceKind.Semaphore,
             "listener-race");
         scheduler.Schedule(
             "waiter",
@@ -591,7 +591,7 @@ public sealed class SimulationSchedulerTests
         using var scheduler = SchedulerTestHarness.NewScheduler(listener);
         listener.Scheduler = scheduler;
         var resource = scheduler.CreateResource(
-            Clockwork.Runtime.Scheduling.Resources.SimulationResourceKind.Semaphore,
+            Orleans.Testing.Simulation.Runtime.Scheduling.Resources.SimulationResourceKind.Semaphore,
             "pending-cancellation");
         var victim = scheduler.Schedule(
             "victim",
@@ -650,7 +650,7 @@ public sealed class SimulationSchedulerTests
         using var scheduler = SchedulerTestHarness.NewScheduler(listener);
         listener.Scheduler = scheduler;
         var resource = scheduler.CreateResource(
-            Clockwork.Runtime.Scheduling.Resources.SimulationResourceKind.Semaphore,
+            Orleans.Testing.Simulation.Runtime.Scheduling.Resources.SimulationResourceKind.Semaphore,
             "signal-all");
         var first = scheduler.Schedule(
             "first",

@@ -1,11 +1,11 @@
 using System.Globalization;
-using Clockwork.Runtime.Exploration;
-using Clockwork.Runtime.Replay;
-using Clockwork.Runtime.Scheduling;
-using Clockwork.Runtime.Scheduling.Resources;
-using Clockwork.Runtime.Tasks;
+using Orleans.Testing.Simulation.Runtime.Exploration;
+using Orleans.Testing.Simulation.Runtime.Replay;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Scheduling.Resources;
+using Orleans.Testing.Simulation.Runtime.Tasks;
 
-namespace Clockwork.Runtime.Tests.Replay;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Replay;
 
 /// <summary>
 /// The run outcome comes from races, unhandled faults, deadlocks, and bounds, and otherwise from the

@@ -1,15 +1,15 @@
 using System.Threading;
 using System.Threading.Tasks;
-using Clockwork.Runtime.Tasks;
-using Clockwork.Runtime.Tests.Tasks;
-using Clockwork.Runtime.Threading;
+using Orleans.Testing.Simulation.Runtime.Tasks;
+using Orleans.Testing.Simulation.Runtime.Tests.Tasks;
+using Orleans.Testing.Simulation.Runtime.Threading;
 
 // The controlled shims mirror the BCL surface, so most methods have a CancellationToken overload. These
 // tests intentionally exercise the specific overloads (including token-less and explicit-token ones); the
 // TestContext token guidance does not apply to the deterministic simulation loop.
 #pragma warning disable xUnit1051
 
-namespace Clockwork.Runtime.Tests.Threading;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Threading;
 
 /// <summary>
 /// Tests for the controlled <see cref="ControlledSemaphoreSlim"/> shims: the count and waiter set are

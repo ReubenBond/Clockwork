@@ -1,13 +1,13 @@
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
-using Clockwork.Runtime.Racing;
-using Clockwork.Runtime.Scheduling;
-using Clockwork.Runtime.Shims;
-using Clockwork.Runtime.Tests.Scheduling;
-using Clockwork.Runtime.Tests.Tasks;
-using Clockwork.Shims.System.Runtime.CompilerServices;
+using Orleans.Testing.Simulation.Runtime.Racing;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Tests.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Tests.Tasks;
+using Orleans.Testing.Simulation.Shims.System.Runtime.CompilerServices;
 
-namespace Clockwork.Runtime.Tests.Racing;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Racing;
 
 /// <summary>
 /// The race detector's retained state is bounded by the work in flight, not by the work done. Continuation chains,

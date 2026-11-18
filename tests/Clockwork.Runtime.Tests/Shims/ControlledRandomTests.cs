@@ -1,6 +1,6 @@
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Shims;
 
-namespace Clockwork.Runtime.Tests.Shims;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Shims;
 
 /// <summary>
 /// Semantic conformance tests for <see cref="ControlledRandom"/>: shared-stream stability and
@@ -195,7 +195,7 @@ public sealed class ControlledRandomTests
     [Fact]
     public void OutsideSimulationRandomShimsRequireActiveSimulation()
     {
-        Assert.False(Clockwork.Runtime.Execution.SimulationExecutionContext.IsActive);
+        Assert.False(Orleans.Testing.Simulation.Runtime.Execution.SimulationExecutionContext.IsActive);
         System.Random? random = null;
 
         Exception? sharedException = Record.Exception(() => random = ControlledRandom.GetShared());

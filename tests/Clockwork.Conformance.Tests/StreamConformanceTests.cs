@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>
 /// End-to-end conformance for the controlled asynchronous members of <c>Stream</c>, <c>TextReader</c>, and

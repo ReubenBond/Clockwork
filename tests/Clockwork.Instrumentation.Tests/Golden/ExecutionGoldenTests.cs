@@ -1,9 +1,9 @@
 using System.Collections;
 using System.Reflection;
 using System.Runtime.Loader;
-using Clockwork.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 
-namespace Clockwork.Instrumentation.Tests.Golden;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Golden;
 
 /// <summary>
 /// Focused in-process execution tests that load a rewritten fixture into a collectible

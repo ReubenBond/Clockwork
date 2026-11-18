@@ -2,7 +2,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>
 /// End-to-end conformance for <c>Task.ConfigureAwait</c> and <c>Task&lt;TResult&gt;.ConfigureAwait</c> in

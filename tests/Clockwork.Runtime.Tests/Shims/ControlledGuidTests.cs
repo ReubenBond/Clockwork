@@ -1,6 +1,6 @@
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Shims;
 
-namespace Clockwork.Runtime.Tests.Shims;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Shims;
 
 /// <summary>
 /// Semantic conformance tests for <see cref="ControlledGuid"/>: RFC variant/version shape, V7
@@ -116,7 +116,7 @@ public sealed class ControlledGuidTests
     [Fact]
     public void OutsideSimulationGuidShimsRequireActiveSimulation()
     {
-        Assert.False(Clockwork.Runtime.Execution.SimulationExecutionContext.IsActive);
+        Assert.False(Orleans.Testing.Simulation.Runtime.Execution.SimulationExecutionContext.IsActive);
         Guid result = default;
 
         Exception? newGuidException = Record.Exception(() => result = ControlledGuid.NewGuid());

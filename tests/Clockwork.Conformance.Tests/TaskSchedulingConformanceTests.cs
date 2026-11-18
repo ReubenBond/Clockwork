@@ -1,9 +1,9 @@
 using System.Reflection;
 using System.Threading.Tasks;
-using Clockwork.Runtime;
-using Clockwork.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime;
+using Orleans.Testing.Simulation.Runtime.Execution;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>
 /// End-to-end conformance for the tasks a probe constructs with <c>new Task(...)</c> and for the one scheduler policy of

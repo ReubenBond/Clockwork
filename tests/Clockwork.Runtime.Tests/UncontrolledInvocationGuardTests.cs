@@ -1,4 +1,4 @@
-namespace Clockwork.Runtime.Tests;
+namespace Orleans.Testing.Simulation.Runtime.Tests;
 
 /// <summary>
 /// Tests for the uncontrolled-invocation rejection shim. The instrumentation rule set

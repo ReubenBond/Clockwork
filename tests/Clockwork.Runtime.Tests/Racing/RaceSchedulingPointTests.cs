@@ -1,11 +1,11 @@
-using Clockwork.Runtime.Decisions;
-using Clockwork.Runtime.Racing;
-using Clockwork.Runtime.Replay;
-using Clockwork.Runtime.Scheduling;
-using Clockwork.Runtime.Scheduling.Strategies;
-using Clockwork.Runtime.Tests.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Decisions;
+using Orleans.Testing.Simulation.Runtime.Racing;
+using Orleans.Testing.Simulation.Runtime.Replay;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Scheduling.Strategies;
+using Orleans.Testing.Simulation.Runtime.Tests.Scheduling;
 
-namespace Clockwork.Runtime.Tests.Racing;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Racing;
 
 /// <summary>Verifies injected scheduling points use the controlled scheduler and replayable strategy.</summary>
 public sealed class RaceSchedulingPointTests

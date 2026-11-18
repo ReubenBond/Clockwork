@@ -3,14 +3,14 @@ using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Rules.BuiltIn;
-using Clockwork.Runtime.Policy;
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Runtime.Policy;
+using Orleans.Testing.Simulation.Runtime.Shims;
 using Mono.Cecil;
 using GenericParameterAttributes = System.Reflection.GenericParameterAttributes;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>
 /// Conformance for the controlled APIs' thread affinity: while a simulation is active, every controlled rewrite target
@@ -86,7 +86,7 @@ public sealed class ThreadAffinityConformanceTests : IDisposable
         List<string> failures = InvokeEach(ambient: null, entryPoints, static (entryPoint, exception) =>
             entryPoint.Method.DeclaringType == typeof(ControlledTaskCompletionSource) && entryPoint.Method.Name.StartsWith("Create", StringComparison.Ordinal)
                 ? exception is null
-                : entryPoint.Method.DeclaringType == typeof(Clockwork.Shims.System.Threading.Tasks.Sources.ControlledManualResetValueTaskSourceCore)
+                : entryPoint.Method.DeclaringType == typeof(Orleans.Testing.Simulation.Shims.System.Threading.Tasks.Sources.ControlledManualResetValueTaskSourceCore)
                     ? entryPoint.Method.Name == nameof(System.Threading.Tasks.Sources.ManualResetValueTaskSourceCore<int>.SetException)
                         ? exception is ArgumentNullException
                         : exception is null

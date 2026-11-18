@@ -1,9 +1,9 @@
-using Clockwork.Instrumentation.Configuration;
-using Clockwork.Instrumentation.Orchestration;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Runtime.Policy;
+using Orleans.Testing.Simulation.Instrumentation.Configuration;
+using Orleans.Testing.Simulation.Instrumentation.Orchestration;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Runtime.Policy;
 
-namespace Clockwork.Instrumentation.Tests.Configuration;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Configuration;
 
 /// <summary>
 /// Verifies the strict rule-set JSON loader: valid documents parse to the expected rule model,

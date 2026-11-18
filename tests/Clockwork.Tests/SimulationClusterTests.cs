@@ -1,10 +1,10 @@
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Shims;
-using Clockwork.Runtime.Tasks;
-using Clockwork.Runtime.Threading;
-using Clockwork.Shims.System;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Tasks;
+using Orleans.Testing.Simulation.Runtime.Threading;
+using Orleans.Testing.Simulation.Shims.System;
 
-namespace Clockwork.Tests;
+namespace Orleans.Testing.Simulation.Tests;
 
 public sealed class SimulationClusterTests
 {

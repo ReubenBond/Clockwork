@@ -1,8 +1,8 @@
-using Clockwork.Runtime.Exploration;
-using Clockwork.Runtime.Replay;
-using Clockwork.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Exploration;
+using Orleans.Testing.Simulation.Runtime.Replay;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
 
-namespace Clockwork.Runtime.Tests.Exploration;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Exploration;
 
 public sealed class ReplayTraceMinimizerTests
 {

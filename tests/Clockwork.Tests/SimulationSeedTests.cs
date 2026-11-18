@@ -1,4 +1,4 @@
-namespace Clockwork.Tests;
+namespace Orleans.Testing.Simulation.Tests;
 
 /// <summary>
 /// Covers <see cref="SimulationSeed"/>: deterministic derivation of <see cref="int"/> seeds from

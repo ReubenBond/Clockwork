@@ -1,25 +1,25 @@
-namespace Clockwork.Testing.Tests;
+namespace Orleans.Testing.Simulation.Testing.Tests;
 
 public sealed class TestingScaffoldTests
 {
     [Fact]
     public void TestingAssemblyIsNamedForItsFuturePackage()
     {
-        var assembly = System.Reflection.Assembly.Load("Clockwork.Testing");
+        var assembly = System.Reflection.Assembly.Load("Orleans.Testing.Simulation.Testing");
 
-        Assert.Equal("Clockwork.Testing", assembly.GetName().Name);
+        Assert.Equal("Orleans.Testing.Simulation.Testing", assembly.GetName().Name);
     }
 
     [Fact]
-    public void TestingDependsOnClockworkButNotOnInstrumentationOrTool()
+    public void TestingDependsOnSimulationKernelButNotOnInstrumentationOrTool()
     {
-        // Testing helpers should only need Clockwork, not the instrumentation or
+        // Testing helpers should only need the simulation kernel, not the instrumentation or
         // tooling layers built on top of it.
-        var assembly = System.Reflection.Assembly.Load("Clockwork.Testing");
+        var assembly = System.Reflection.Assembly.Load("Orleans.Testing.Simulation.Testing");
         var referencedNames = assembly.GetReferencedAssemblies().Select(a => a.Name).ToArray();
 
-        Assert.Contains("Clockwork", referencedNames);
-        Assert.DoesNotContain("Clockwork.Instrumentation", referencedNames);
-        Assert.DoesNotContain("Clockwork.Tool", referencedNames);
+        Assert.Contains("Orleans.Testing.Simulation", referencedNames);
+        Assert.DoesNotContain("Orleans.Testing.Simulation.Instrumentation", referencedNames);
+        Assert.DoesNotContain("Orleans.Testing.Simulation.Tool", referencedNames);
     }
 }

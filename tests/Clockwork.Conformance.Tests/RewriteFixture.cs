@@ -1,14 +1,14 @@
 using System.Reflection;
 using System.Text;
-using Clockwork.Instrumentation.Rewriting;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Rules.BuiltIn;
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Instrumentation.Rewriting;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Runtime.Shims;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Emit;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>
 /// Compiles ordinary C# source whose direct calls target the real .NET&#160;11 BCL APIs, rewrites it
@@ -42,6 +42,24 @@ internal sealed class RewriteFixture : IDisposable
             typeName,
             source,
             BuiltInRuleSets.BuildDeterministicBcl(families ?? BuiltInRuleSets.AllFamilies));
+
+    /// <summary>
+    /// Compiles preview-language source with the SDK compiler, rewrites it with the controlled-task
+    /// rule set, and loads the rewritten probe. This is opt-in so ordinary conformance fixtures keep
+    /// their existing language-version contract.
+    /// </summary>
+    public StagedProbe StagePreviewControlledTasks(
+        string assemblyName,
+        string typeName,
+        string source,
+        bool optimize)
+        => StageWith(
+            assemblyName,
+            typeName,
+            source,
+            BuiltInRuleSets.BuildControlledTasks(BuiltInRuleSets.AllFamilies),
+            optimize,
+            LanguageVersion.Preview);
 
     /// <summary>Compiles and loads an ordinary probe without applying instrumentation.</summary>
     public UninstrumentedProbe CompileUninstrumented(
@@ -116,9 +134,10 @@ internal sealed class RewriteFixture : IDisposable
         string typeName,
         string source,
         RewriteRuleSet ruleSet,
-        bool optimize = true)
+        bool optimize = true,
+        LanguageVersion languageVersion = LanguageVersion.Latest)
     {
-        string sourceDll = Compile(assemblyName, source, optimize);
+        string sourceDll = Compile(assemblyName, source, optimize, languageVersion: languageVersion);
         string stagedDll = Path.Combine(StagingDir, assemblyName + ".dll");
 
         RewriteOptions options = CreateOptions();
@@ -145,9 +164,14 @@ internal sealed class RewriteFixture : IDisposable
         TargetRuntime = BuiltInRuleSets.SupportedRuntime,
     };
 
-    private string Compile(string assemblyName, string source, bool optimize = true, bool runtimeAsync = false)
+    private string Compile(
+        string assemblyName,
+        string source,
+        bool optimize = true,
+        bool runtimeAsync = false,
+        LanguageVersion languageVersion = LanguageVersion.Latest)
     {
-        var parseOptions = new CSharpParseOptions(LanguageVersion.Latest);
+        var parseOptions = new CSharpParseOptions(languageVersion);
         if (runtimeAsync)
         {
             parseOptions = parseOptions.WithFeatures([new("runtime-async", "on")]);

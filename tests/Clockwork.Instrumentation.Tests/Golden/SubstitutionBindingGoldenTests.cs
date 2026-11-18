@@ -1,13 +1,13 @@
 using System.Reflection;
 using System.Runtime.Loader;
-using Clockwork.Instrumentation.Diagnostics;
-using Clockwork.Instrumentation.Rewriting;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Rules.BuiltIn;
-using Clockwork.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Rewriting;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Tests.Golden;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Golden;
 
 /// <summary>
 /// Golden tests for the rewrite-time check that fails a rewrite (<c>CWR0001</c>) instead of emitting a member reference
@@ -18,7 +18,7 @@ namespace Clockwork.Instrumentation.Tests.Golden;
 public sealed class SubstitutionBindingGoldenTests
 {
     private const string DoNotRewriteAttributeSource = """
-        namespace Clockwork.Instrumentation.Attributes
+        namespace Orleans.Testing.Simulation.Instrumentation.Attributes
         {
             [System.AttributeUsage(System.AttributeTargets.Class)]
             public sealed class DoNotRewriteAttribute(string reason) : System.Attribute
@@ -56,7 +56,7 @@ public sealed class SubstitutionBindingGoldenTests
         {
             "ExcludedImplementer",
             """
-            [Clockwork.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
+            [Orleans.Testing.Simulation.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
             public sealed class Handler : IHandler
             {
                 public string Handle(LegacyMarker marker) => marker.ToString();
@@ -72,7 +72,7 @@ public sealed class SubstitutionBindingGoldenTests
         {
             "ExcludedExplicitImplementer",
             """
-            [Clockwork.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
+            [Orleans.Testing.Simulation.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
             public sealed class Handler : IHandler
             {
                 string IHandler.Handle(LegacyMarker marker) => marker.ToString();
@@ -114,7 +114,7 @@ public sealed class SubstitutionBindingGoldenTests
         {
             "ExcludedOverride",
             """
-            [Clockwork.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
+            [Orleans.Testing.Simulation.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
             public sealed class Handler : HandlerBase
             {
                 public override string Handle(LegacyMarker marker) => marker.ToString();
@@ -147,7 +147,7 @@ public sealed class SubstitutionBindingGoldenTests
             // names it with the substitute.
             "ExcludedBaseOfAReimplementer",
             """
-            [Clockwork.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
+            [Orleans.Testing.Simulation.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
             public class OrderedBase : IComparable<LegacyMarker>
             {
                 public int CompareTo(LegacyMarker other) => 0;
@@ -176,7 +176,7 @@ public sealed class SubstitutionBindingGoldenTests
                 public abstract string Put(T value);
             }
 
-            [Clockwork.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
+            [Orleans.Testing.Simulation.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
             public abstract class MarkerSlot : Slot<LegacyMarker>
             {
             }
@@ -313,7 +313,7 @@ public sealed class SubstitutionBindingGoldenTests
             // IEnumerable<LegacyMarker>.
             "ExcludedInterface",
             """
-            [Clockwork.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
+            [Orleans.Testing.Simulation.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
             public sealed class OldBag : IEnumerable<LegacyMarker>
             {
                 public IEnumerator<LegacyMarker> GetEnumerator()
@@ -342,7 +342,7 @@ public sealed class SubstitutionBindingGoldenTests
             // The rewritten code instantiates T with List<ModernMarker>, which satisfies only the substituted constraint.
             "ExcludedTypeConstraint",
             """
-            [Clockwork.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
+            [Orleans.Testing.Simulation.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
             public sealed class Holder<T>
                 where T : IEnumerable<LegacyMarker>
             {
@@ -360,7 +360,7 @@ public sealed class SubstitutionBindingGoldenTests
         {
             "ExcludedMethodConstraint",
             """
-            [Clockwork.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
+            [Orleans.Testing.Simulation.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
             public static class Shelf
             {
                 public static string Stock<T>(T items)
@@ -459,7 +459,7 @@ public sealed class SubstitutionBindingGoldenTests
                     public static string Take(LegacyMarker marker) => marker.ToString();
                 }
 
-                [Clockwork.Instrumentation.Attributes.DoNotRewrite("Runs before the simulation starts.")]
+                [Orleans.Testing.Simulation.Instrumentation.Attributes.DoNotRewrite("Runs before the simulation starts.")]
                 public static class Legacy
                 {
                     public static string Call(LegacyMarker marker) => {{call}};
@@ -512,7 +512,7 @@ public sealed class SubstitutionBindingGoldenTests
                         where T : IEnumerable<LegacyMarker> => 1;
                 }
 
-                [Clockwork.Instrumentation.Attributes.DoNotRewrite("Runs before the simulation starts.")]
+                [Orleans.Testing.Simulation.Instrumentation.Attributes.DoNotRewrite("Runs before the simulation starts.")]
                 public static class Legacy
                 {
                     {{use}}
@@ -542,7 +542,7 @@ public sealed class SubstitutionBindingGoldenTests
                 {
                 }
 
-                [Clockwork.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
+                [Orleans.Testing.Simulation.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
                 public sealed class LegacyMarkers : Markers
                 {
                     public LegacyMarker First() => this[0];
@@ -583,12 +583,12 @@ public sealed class SubstitutionBindingGoldenTests
                 {
                 }
 
-                [Clockwork.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
+                [Orleans.Testing.Simulation.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
                 public class Labels : List<string>
                 {
                 }
 
-                [Clockwork.Instrumentation.Attributes.DoNotRewrite("Runs before the simulation starts.")]
+                [Orleans.Testing.Simulation.Instrumentation.Attributes.DoNotRewrite("Runs before the simulation starts.")]
                 public static class Legacy
                 {
                     public static int Use()
@@ -629,12 +629,12 @@ public sealed class SubstitutionBindingGoldenTests
 
             namespace Fx
             {
-                [Clockwork.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
+                [Orleans.Testing.Simulation.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
                 public class Old : List<LegacyMarker>
                 {
                 }
 
-                [Clockwork.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
+                [Orleans.Testing.Simulation.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
                 public class Older : Old
                 {
                 }
@@ -671,7 +671,7 @@ public sealed class SubstitutionBindingGoldenTests
 
             namespace Fx
             {
-                [Clockwork.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
+                [Orleans.Testing.Simulation.Instrumentation.Attributes.DoNotRewrite("Shared with code outside the simulation.")]
                 public static class Globals
                 {
                     public static readonly Lock Gate = new();
@@ -720,7 +720,7 @@ public sealed class SubstitutionBindingGoldenTests
         // nested in its closure are compiler-generated types nested in the excluded type, so they are excluded with
         // it and keep the BCL machinery its stub methods use. An explicitly declared nested type is rewritten.
         using var context = RewriteTestContext.Create();
-        string attribute = byAttribute ? "[Clockwork.Instrumentation.Attributes.DoNotRewrite(\"Runs outside the simulation.\")]" : string.Empty;
+        string attribute = byAttribute ? "[Orleans.Testing.Simulation.Instrumentation.Attributes.DoNotRewrite(\"Runs outside the simulation.\")]" : string.Empty;
         string fixturePath = context.CompileFixture("Fx.ExcludedHelpers", $$"""
             using System;
             using System.Collections.Generic;
@@ -801,7 +801,7 @@ public sealed class SubstitutionBindingGoldenTests
             type.Fields.Single(field => field.Name == "<>t__builder").FieldType.FullName,
             StringComparison.Ordinal));
         Assert.All(NestedTypes(declared).Where(IsAsyncStateMachine), type => Assert.StartsWith(
-            "Clockwork.Shims.System.Runtime.CompilerServices.ControlledAsyncTaskMethodBuilder`1",
+            "Orleans.Testing.Simulation.Shims.System.Runtime.CompilerServices.ControlledAsyncTaskMethodBuilder`1",
             type.Fields.Single(field => field.Name == "<>t__builder").FieldType.FullName,
             StringComparison.Ordinal));
         Assert.Equal(2, generated.Count(IsAsyncStateMachine));
@@ -822,7 +822,7 @@ public sealed class SubstitutionBindingGoldenTests
 
             namespace Fx
             {
-                [Clockwork.Instrumentation.Attributes.DoNotRewrite("Runs outside the simulation.")]
+                [Orleans.Testing.Simulation.Instrumentation.Attributes.DoNotRewrite("Runs outside the simulation.")]
                 public static class Legacy
                 {
                     public static async Task<int> AwaitAsync()

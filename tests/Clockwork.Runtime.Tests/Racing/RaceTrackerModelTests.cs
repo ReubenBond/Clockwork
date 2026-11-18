@@ -1,10 +1,10 @@
 using System.Reflection;
-using Clockwork.Runtime.Racing;
-using Clockwork.Runtime.Scheduling;
-using Clockwork.Runtime.Tests.Scheduling;
-using OracleTracker = Clockwork.Runtime.Tests.Racing.Oracle.RaceTracker;
+using Orleans.Testing.Simulation.Runtime.Racing;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Tests.Scheduling;
+using OracleTracker = Orleans.Testing.Simulation.Runtime.Tests.Racing.Oracle.RaceTracker;
 
-namespace Clockwork.Runtime.Tests.Racing;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Racing;
 
 /// <summary>
 /// Model-based check of the race detector against the detector it replaced (<see cref="OracleTracker"/>), which keeps

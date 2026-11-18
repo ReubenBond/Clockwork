@@ -1,8 +1,8 @@
 using System.Collections.Concurrent;
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
 
-namespace Clockwork.Runtime.Tests.Scheduling;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Scheduling;
 
 /// <summary>
 /// Shared helpers for controlled-operation scheduler tests: a scheduler factory and a listener that

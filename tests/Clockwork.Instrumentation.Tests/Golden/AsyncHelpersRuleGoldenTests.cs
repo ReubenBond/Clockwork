@@ -1,11 +1,11 @@
-using Clockwork.Instrumentation.Manifest;
-using Clockwork.Instrumentation.Rewriting;
-using Clockwork.Instrumentation.Rules.BuiltIn;
-using Clockwork.Instrumentation.Tests.Infrastructure;
-using Clockwork.Runtime.Policy;
+using Orleans.Testing.Simulation.Instrumentation.Manifest;
+using Orleans.Testing.Simulation.Instrumentation.Rewriting;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Runtime.Policy;
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Tests.Golden;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Golden;
 
 /// <summary>
 /// Golden test for the runtime-async <c>AsyncHelpers.Await</c> intrinsics that take a configured awaitable. Their
@@ -36,9 +36,9 @@ public sealed class AsyncHelpersRuleGoldenTests
 
     public static TheoryData<string, string, string> Overloads => new()
     {
-        { "AwaitTask", "clockwork.tasks.asynchelpers.await.configured", "ControlledAsyncHelpers::Await(Clockwork.Shims.System.Runtime.CompilerServices.ControlledConfiguredTaskAwaitable)" },
+        { "AwaitTask", "clockwork.tasks.asynchelpers.await.configured", "ControlledAsyncHelpers::Await(Orleans.Testing.Simulation.Shims.System.Runtime.CompilerServices.ControlledConfiguredTaskAwaitable)" },
         { "AwaitTaskOfT", "clockwork.tasks.asynchelpers.await.configured.generic", "ControlledAsyncHelpers::Await<System.Int32>(" },
-        { "AwaitValueTask", "clockwork.tasks.asynchelpers.await.configured.valuetask", "ControlledAsyncHelpers::Await(Clockwork.Shims.System.Runtime.CompilerServices.ControlledConfiguredValueTaskAwaitable)" },
+        { "AwaitValueTask", "clockwork.tasks.asynchelpers.await.configured.valuetask", "ControlledAsyncHelpers::Await(Orleans.Testing.Simulation.Shims.System.Runtime.CompilerServices.ControlledConfiguredValueTaskAwaitable)" },
         { "AwaitValueTaskOfT", "clockwork.tasks.asynchelpers.await.configured.valuetask.generic", "ControlledAsyncHelpers::Await<System.Int32>(" },
     };
 

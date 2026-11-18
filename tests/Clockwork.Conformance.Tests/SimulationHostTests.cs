@@ -1,6 +1,6 @@
 using System.Reflection;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>The conformance host's watchdog: a probe which blocks the logical thread fails its test instead of hanging.</summary>
 public sealed class SimulationHostTests

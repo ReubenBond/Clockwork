@@ -1,6 +1,6 @@
-using Clockwork.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>
 /// Pins the completions which still send a framework continuation to the real thread pool, and checks that

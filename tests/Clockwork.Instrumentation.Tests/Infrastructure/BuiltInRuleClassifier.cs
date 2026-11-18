@@ -1,10 +1,10 @@
-using Clockwork.Instrumentation.Rewriting;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Rules.BuiltIn;
-using Clockwork.Runtime.Policy;
+using Orleans.Testing.Simulation.Instrumentation.Rewriting;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Runtime.Policy;
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Tests.Infrastructure;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 
 /// <summary>How the rewriter treats a call to a reference-pack member under every built-in rule.</summary>
 internal enum RuleOutcome
@@ -74,7 +74,7 @@ internal sealed class BuiltInRuleClassifier
         resolver.AddSearchDirectory(pack.Directory);
         resolver.AddSearchDirectory(AppContext.BaseDirectory);
         ModuleDefinition probe = ModuleDefinition.CreateModule(
-            "Clockwork.Classification",
+            "Orleans.Testing.Simulation.Classification",
             new ModuleParameters { Kind = ModuleKind.Dll, AssemblyResolver = resolver });
         var replacements = new ReplacementResolver(
             [Path.Combine(AppContext.BaseDirectory, BuiltInRuleSets.ShimAssemblyName + ".dll")],

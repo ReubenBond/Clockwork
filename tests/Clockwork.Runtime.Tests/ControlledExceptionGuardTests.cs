@@ -1,9 +1,9 @@
 using System.IO;
-using Clockwork.Runtime.Scheduling;
-using Clockwork.Runtime.Tasks;
-using Clockwork.Runtime.Tests.Tasks;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Tasks;
+using Orleans.Testing.Simulation.Runtime.Tests.Tasks;
 
-namespace Clockwork.Runtime.Tests;
+namespace Orleans.Testing.Simulation.Runtime.Tests;
 
 /// <summary>
 /// Tests for the exception-handler hardening guard. The instrumentation's

@@ -3,19 +3,19 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Clockwork.Instrumentation.Configuration;
-using Clockwork.Instrumentation.Closure;
-using Clockwork.Instrumentation.Diagnostics;
-using Clockwork.Instrumentation.Imaging;
-using Clockwork.Instrumentation.Orchestration;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Rules.BuiltIn;
-using Clockwork.Instrumentation.Signing;
-using Clockwork.Instrumentation.Tests.Infrastructure;
-using Clockwork.Runtime.Racing;
+using Orleans.Testing.Simulation.Instrumentation.Configuration;
+using Orleans.Testing.Simulation.Instrumentation.Closure;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Imaging;
+using Orleans.Testing.Simulation.Instrumentation.Orchestration;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Instrumentation.Signing;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Runtime.Racing;
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Tests.Orchestration;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Orchestration;
 
 /// <summary>
 /// Verifies the end-to-end instrumentation orchestrator: it stages a runnable closure (rewriting
@@ -1146,8 +1146,8 @@ public sealed class InstrumentationRunnerTests : IDisposable
             }
             """);
         File.Copy(
-            typeof(Clockwork.Runtime.SimulationExceptionGuard).Assembly.Location,
-            Path.Combine(_source, "Clockwork.dll"));
+            typeof(Orleans.Testing.Simulation.Runtime.SimulationExceptionGuard).Assembly.Location,
+            Path.Combine(_source, "Orleans.Testing.Simulation.dll"));
         ProcessAppRunner.WriteRuntimeConfig(Path.Combine(_source, "app.dll"));
 
         InstrumentationResult result = Run(
@@ -1198,8 +1198,8 @@ public sealed class InstrumentationRunnerTests : IDisposable
     {
         BuildMinimalApp();
         FixtureCompiler.Compile(
-            "Clockwork",
-            "namespace Clockwork.Runtime { public static class LegacyRuntime { } }",
+            "Orleans.Testing.Simulation",
+            "namespace Orleans.Testing.Simulation.Runtime { public static class LegacyRuntime { } }",
             _source,
             FixtureSymbols.None,
             optimize: true);
@@ -1218,7 +1218,7 @@ public sealed class InstrumentationRunnerTests : IDisposable
     public void RaceModeRejectsInjectedRuntimeFileDirectoryCollision()
     {
         BuildMinimalApp();
-        string collisionDirectory = Path.Combine(_source, "Clockwork.dll");
+        string collisionDirectory = Path.Combine(_source, "Orleans.Testing.Simulation.dll");
         Directory.CreateDirectory(collisionDirectory);
         File.WriteAllText(Path.Combine(collisionDirectory, "content.bin"), "asset");
 
@@ -1240,7 +1240,7 @@ public sealed class InstrumentationRunnerTests : IDisposable
             Mode = InstrumentationMode.RaceExploration,
         };
         InstrumentationResult first = Run(configuration, EmptyRuleSet());
-        string stagedRuntime = Path.Combine(_staging, "Clockwork.dll");
+        string stagedRuntime = Path.Combine(_staging, "Orleans.Testing.Simulation.dll");
         byte[] expectedRuntime = File.ReadAllBytes(typeof(RaceInstrumentation).Assembly.Location);
         File.WriteAllBytes(stagedRuntime, [0xde, 0xad, 0xbe, 0xef]);
 
@@ -1250,10 +1250,10 @@ public sealed class InstrumentationRunnerTests : IDisposable
         Assert.True(second.Succeeded, string.Join("\n", second.Errors));
         Assert.False(second.WasIncrementalHit);
         Assert.Equal(expectedRuntime, File.ReadAllBytes(stagedRuntime));
-        Assert.Contains("Clockwork.dll", second.CopiedAssets);
+        Assert.Contains("Orleans.Testing.Simulation.dll", second.CopiedAssets);
         AssertCopiedAsset(
             ClosureManifestJson.Read(second.ManifestPath, out _),
-            "Clockwork.dll",
+            "Orleans.Testing.Simulation.dll",
             stagedRuntime);
     }
 

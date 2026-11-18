@@ -1,6 +1,6 @@
 using System.Reflection;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>
 /// End-to-end conformance for <c>TaskAsyncEnumerableExtensions.ToBlockingEnumerable</c> in rewritten code. The BCL

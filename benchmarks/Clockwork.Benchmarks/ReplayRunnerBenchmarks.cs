@@ -1,8 +1,8 @@
 using BenchmarkDotNet.Attributes;
-using Clockwork.Runtime.Replay;
-using Clockwork.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Replay;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
 
-namespace Clockwork.Benchmarks;
+namespace Orleans.Testing.Simulation.Benchmarks;
 
 [MemoryDiagnoser]
 public class ReplayRunnerBenchmarks

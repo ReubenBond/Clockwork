@@ -1,9 +1,9 @@
 using System.Collections.Concurrent;
 using System.Reflection;
 using System.Threading.Tasks;
-using Clockwork.Runtime;
+using Orleans.Testing.Simulation.Runtime;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>
 /// End-to-end conformance for the task and thread entry points which used to leave the coordinator: <c>Task.Start</c>

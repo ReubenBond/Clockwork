@@ -1,8 +1,8 @@
-using Clockwork.Instrumentation.Rewriting;
-using Clockwork.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rewriting;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Tests.Rewriting;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Rewriting;
 
 public sealed class TypeReferenceStructureTests
 {

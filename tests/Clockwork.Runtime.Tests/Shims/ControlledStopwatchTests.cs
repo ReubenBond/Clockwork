@@ -1,7 +1,7 @@
 using System.Diagnostics;
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Shims;
 
-namespace Clockwork.Runtime.Tests.Shims;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Shims;
 
 public sealed class ControlledStopwatchTests
 {

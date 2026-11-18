@@ -1,7 +1,7 @@
 using System.Reflection;
 using System.Threading.Tasks;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>
 /// Focused stress conformance for the controlled async machinery: many controlled async operations

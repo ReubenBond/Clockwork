@@ -1,6 +1,6 @@
-using Clockwork.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
 
-namespace Clockwork.Tests;
+namespace Orleans.Testing.Simulation.Tests;
 
 public sealed class SimulationNodeContextTests
 {

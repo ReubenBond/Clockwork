@@ -1,12 +1,12 @@
-using Clockwork.Instrumentation.Manifest;
-using Clockwork.Instrumentation.Rewriting;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Rules.BuiltIn;
-using Clockwork.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Instrumentation.Manifest;
+using Orleans.Testing.Simulation.Instrumentation.Rewriting;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
-namespace Clockwork.Instrumentation.Tests.Golden;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Golden;
 
 /// <summary>
 /// Golden tests for the multi-task surfaces: every .NET 11 <c>Task.WhenEach</c> overload and every <c>TaskFactory</c> and
@@ -119,10 +119,10 @@ public sealed class MultiTaskRedirectRuleGoldenTests
         }
         """;
 
-    private const string FactoryShim = "Clockwork.Shims.System.Threading.Tasks.ControlledTaskFactory";
+    private const string FactoryShim = "Orleans.Testing.Simulation.Shims.System.Threading.Tasks.ControlledTaskFactory";
 
     private static string RuntimeAssemblyPath =>
-        typeof(Clockwork.Shims.System.Threading.Tasks.ControlledTask).Assembly.Location;
+        typeof(Orleans.Testing.Simulation.Shims.System.Threading.Tasks.ControlledTask).Assembly.Location;
 
     [Fact]
     public void EveryRedirectAndRejectionAppliesAndBinds()

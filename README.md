@@ -15,11 +15,11 @@ Clockwork is a deterministic simulation testing framework for distributed system
 - Scheduler- and cluster-aware recording/replay with bounded seeded schedule exploration
 - Deterministic failure-trace minimization
 - Stable operation/resource wait graphs, deadlock cycles, race pairs, and timer diagnostics
-- `dotnet clockwork record`, `replay`, `explore`, `minimize`, and `trace show` commands
+- `dotnet orleans-simulation record`, `replay`, `explore`, `minimize`, and `trace show` commands
 - Fixed and adaptive `RunUntil`/`RunUntilIdle` execution budgets
 - Stable, cross-process-safe seed derivation from strings (`SimulationSeed`)
 - Reusable rendezvous primitives (`SimulationGate`, `SimulationLatch`, `SimulationBarrier`)
-- In-memory logging for simulation diagnostics in the `Clockwork.Testing` project and namespace
+- In-memory logging for simulation diagnostics in the `Orleans.Testing.Simulation.Testing` project and namespace
 
 Consumers should attach node identity and other context using standard structured `ILogger` scopes or
 properties; Clockwork does not wrap loggers or prefix rendered messages.
@@ -40,7 +40,7 @@ are in [`docs/compatibility.md`](docs/compatibility.md).
 | Area | Current support | Durable limitations |
 |---|---|---|
 | Simulation kernel | Virtual clock, seeded randomness, simulated network, cooperative scheduler lanes, node lifecycle, diagnostics, rendezvous primitives, and controlled scheduling. | Application hosting and transport models are consumer-owned; Clockwork ships no dedicated hosting or HTTP package. |
-| Build and CLI instrumentation | Opt-in, out-of-place Cecil rewriting through `Clockwork.Instrumentation.Build` and `Clockwork.Tool`; direct-call analyzers; deterministic manifests and content-verified incremental outputs. | ReadyToRun inputs are reduced to IL before rewriting; instrument before single-file bundling, trimming, or NativeAOT. Rewritten strong names and closure references are stripped automatically; Authenticode is not re-applied. |
+| Build and CLI instrumentation | Opt-in, out-of-place Cecil rewriting through `Microsoft.Orleans.Testing.Simulation.Instrumentation.Build` and `Microsoft.Orleans.Testing.Simulation.Tool`; direct-call analyzers; deterministic manifests and content-verified incremental outputs. | ReadyToRun inputs are reduced to IL before rewriting; instrument before single-file bundling, trimming, or NativeAOT. Rewritten strong names and closure references are stripped automatically; Authenticode is not re-applied. |
 | Deterministic BCL rules | `clockwork.bcl.deterministic` controls the exact time, identity, and random signatures in the generated inventory. | APIs outside the inventory retain no determinism claim. |
 | Controlled concurrency | `clockwork.tasks.controlled` controls async builders/awaiters, task combinators (including `Task.WhenEach`), continuations (including `TaskFactory.ContinueWhenAll`/`ContinueWhenAny`), value-task conversions, and every `Task.Wait`/`WaitAll`/`WaitAny` overload (timeouts in virtual time), `Task<T>.Result` and `ValueTask<T>.Result`, `Task.Run`, `new Task(...)` with `Task.Start`/`RunSynchronously`, all .NET 11 `TaskFactory`/`TaskFactory<T>.StartNew` overloads, `Thread` (including `UnsafeStart`), `ThreadPool`, `Parallel` (see [Parallel loops](docs/compatibility.md#parallel-loops)), the channel members which await inside the framework (`ReadAllAsync` and the inherited `ReadAsync`/`WriteAsync`), the blocking members of `BlockingCollection<T>`, the base asynchronous members of `Stream`/`TextReader`/`TextWriter` (calling an override as written), `Monitor`, `System.Threading.Lock`, and `SemaphoreSlim`. Clockwork registers no BCL continuation on a task, so a completion source or value-task source which runs continuations asynchronously cannot escape to the thread pool. Debug and Release lowering by the .NET 11 SDK's C# compiler are conformance-tested. | Custom task schedulers, `new Task(...)` with `AttachedToParent` (a constructed task denies child attachment), unsupported task-creation and continuation options, native-overlapped thread-pool work, `TaskFactory.FromAsync`, `Parallel` loops whose body receives a `ParallelLoopState`, the PLINQ entry points (`AsParallel`, `ParallelEnumerable.Range`/`Repeat`/`Empty`), `BackgroundWorker.RunWorkerAsync`, `BackgroundService.StartAsync`, the TPL Dataflow blocks and scheduling helpers, `WebSocket.CreateFromStream`/`CreateClientWebSocket`, and OS-specific thread controls are rejected. Methods compiled with runtime async fail the rewrite (`CWR0013`). Continuations registered by uninstrumented code remain outside the coordinator. |
 | Synchronization | Full .NET 11 `Interlocked` and `Volatile`; `SpinWait`; events and wait handles; registered waits; `ReaderWriterLockSlim`; `ManualResetEventSlim`; unnamed kernel `Mutex`/`Semaphore`; `SpinLock`; `ExecutionContext`; `SynchronizationContext`; `Barrier`; and `CountdownEvent`. | Named/cross-process primitives, open-existing APIs, raw handles, raw `SynchronizationContext.Wait`, and `WaitAll` arrays containing a `Mutex` are rejected. |
@@ -52,26 +52,57 @@ are in [`docs/compatibility.md`](docs/compatibility.md).
 ```powershell
 dotnet build Clockwork.slnx
 dotnet run --project tests\Clockwork.Tests\Clockwork.Tests.csproj -- --timeout 60s
-dotnet pack src/Clockwork/Clockwork.csproj --configuration Release
+dotnet pack src/Orleans.Testing.Simulation/Orleans.Testing.Simulation.csproj --configuration Release
 ```
 
-The core NuGet package ID is `Clockwork.Simulation`; test-runner integration and replay helpers are
-in `Clockwork.Simulation.Testing`. Until packages are published, clone the repository or add it as a
-Git submodule and reference the corresponding project under `src`.
+The core NuGet package ID is `Microsoft.Orleans.Testing.Simulation`; test-runner integration and
+replay helpers are in `Microsoft.Orleans.Testing.Simulation.Testing`. Until packages are published,
+clone the repository or add it as a Git submodule and reference the corresponding project under `src`.
+
+### Public namespace migration
+
+| Previous namespace family | Current namespace family |
+|---|---|
+| `Clockwork` | `Orleans.Testing.Simulation` |
+| `Clockwork.Runtime.*` | `Orleans.Testing.Simulation.Runtime.*` |
+| `Clockwork.Shims.*` | `Orleans.Testing.Simulation.Shims.*` |
+| `Clockwork.Instrumentation.*` | `Orleans.Testing.Simulation.Instrumentation.*` |
+| `Clockwork.Analyzers` | `Orleans.Testing.Simulation.Analyzers` |
+| `Clockwork.Testing` | `Orleans.Testing.Simulation.Testing` |
+| `Clockwork.Tool` | `Orleans.Testing.Simulation.Tool` |
+
+### Integration surface migration
+
+| Previous integration family | Current integration family |
+|---|---|
+| `Clockwork*` MSBuild properties, items, targets, task names, and assembly metadata | `OrleansSimulation*` |
+| `Clockwork.Instrumentation.Build.props` / `.targets` | `Microsoft.Orleans.Testing.Simulation.Instrumentation.Build.props` / `.targets` |
+| `Clockwork.Simulation.Testing.props` and MTP display name | `Microsoft.Orleans.Testing.Simulation.Testing.props` and `Microsoft.Orleans.Testing.Simulation.Testing` |
+| `obj/.../clockwork/...` and `clockwork.config.json` | `obj/.../orleans-simulation/...` and `orleans-simulation.config.json` |
+| `CLOCKWORK_*` environment variables | `ORLEANS_SIMULATION_*` |
+| `--clockwork-progress` | `--orleans-simulation-progress` |
+| `dotnet-clockwork` / `dotnet clockwork` | `dotnet-orleans-simulation` / `dotnet orleans-simulation` |
+| `Clockwork.SimulationProgressOutput` AppContext key | `Orleans.Testing.Simulation.ProgressOutput` |
+
+This clean pre-1.0 migration retains no aliases for the previous integration names. Serialized and
+diagnostic identities remain stable: replay format `clockwork.replay` schema v2, `.cwr.json`,
+instrumentation configuration schema v2, closure manifest schema v3, built-in `clockwork.*` rule
+IDs, CW/CWR diagnostics, and the `Clockwork.RewriteSignature` / `Clockwork.SupportedRuntimes`
+assembly metadata keys.
 
 ## Instrumented simulation test projects
 
 Keep ordinary and simulation tests in separate projects. Only simulation test projects reference
-`Clockwork.Instrumentation.Build` and opt into staged execution:
+`Microsoft.Orleans.Testing.Simulation.Instrumentation.Build` and opt into staged execution:
 
 ```xml
 <PropertyGroup>
-  <ClockworkInstrumentedTestProject>true</ClockworkInstrumentedTestProject>
-  <ClockworkUseBuiltInRules>true</ClockworkUseBuiltInRules>
+  <OrleansSimulationInstrumentedTestProject>true</OrleansSimulationInstrumentedTestProject>
+  <OrleansSimulationUseBuiltInRules>true</OrleansSimulationUseBuiltInRules>
 </PropertyGroup>
 
 <ItemGroup>
-  <PackageReference Include="Clockwork.Instrumentation.Build" PrivateAssets="all" />
+  <PackageReference Include="Microsoft.Orleans.Testing.Simulation.Instrumentation.Build" PrivateAssets="all" />
 </ItemGroup>
 ```
 
@@ -90,11 +121,11 @@ solution command line.
 Race exploration is a build-time opt-in separate from ordinary controlled rewriting:
 
 ```xml
-<ClockworkInstrumentationEnabled>true</ClockworkInstrumentationEnabled>
-<ClockworkInstrumentationMode>RaceExploration</ClockworkInstrumentationMode>
+<OrleansSimulationInstrumentationEnabled>true</OrleansSimulationInstrumentationEnabled>
+<OrleansSimulationInstrumentationMode>RaceExploration</OrleansSimulationInstrumentationMode>
 ```
 
-The CLI equivalent is `dotnet clockwork instrument ... --mode RaceExploration`. JSON configuration
+The CLI equivalent is `dotnet orleans-simulation instrument ... --mode RaceExploration`. JSON configuration
 files require instrumentation-configuration schema version 2:
 
 ```json
@@ -174,7 +205,7 @@ Construct `SimulationCluster` directly. It owns the runtime, scheduler and virtu
 and nodes. Nodes are fully attached and usable as soon as `AddNode` returns:
 
 ```csharp
-using Clockwork;
+using Orleans.Testing.Simulation;
 
 await using var cluster = new SimulationCluster(
     seed: 12345,
@@ -193,6 +224,30 @@ cluster.Network.CreateBidirectionalPartition(node1.NetworkAddress, node2.Network
 The seed is a required constructor argument. Optional constructor arguments configure starting time,
 the simulated local time zone, and teardown cancellation. A
 zero-node cluster is valid and its `Network` is available immediately.
+
+`SimulationNetwork` applies `BaseMessageDelay` and `MaxJitter` globally. Directional overrides model
+asymmetric links while preserving those global values as the fallback:
+
+```csharp
+cluster.Network.SetLinkLatency(
+    node1.NetworkAddress,
+    node2.NetworkAddress,
+    baseDelay: TimeSpan.FromMilliseconds(50),
+    maxJitter: TimeSpan.FromMilliseconds(5));
+cluster.Network.SetBidirectionalLinkLatency(
+    node1.NetworkAddress,
+    node2.NetworkAddress,
+    baseDelay: TimeSpan.FromMilliseconds(20),
+    maxJitter: TimeSpan.Zero);
+
+LinkLatency? configured = cluster.Network.GetLinkLatency(node1.NetworkAddress, node2.NetworkAddress);
+IReadOnlyList<LinkLatencyOverride> snapshot = cluster.Network.GetAllLinkLatencies();
+cluster.Network.ClearLinkLatency(node1.NetworkAddress, node2.NetworkAddress);
+cluster.Network.ClearAllLinkLatencies();
+```
+
+Snapshots are ordered by source and target address using ordinal comparison. Link delays use the
+simulation seed for deterministic jitter, and loopback delay remains zero.
 
 ### Registering custom node subclasses
 
@@ -255,19 +310,19 @@ engine, so time advancement and stuck detection remain consistent. Every drive m
 
 ### Live simulation progress
 
-Set `CLOCKWORK_PROGRESS_INTERVAL` to a positive wall-clock interval to report exact live drive-loop
+Set `ORLEANS_SIMULATION_PROGRESS_INTERVAL` to a positive wall-clock interval to report exact live drive-loop
 counters to standard error from every active cluster:
 
 ```powershell
-$env:CLOCKWORK_PROGRESS_INTERVAL = "5s"
+$env:ORLEANS_SIMULATION_PROGRESS_INTERVAL = "5s"
 dotnet run --project tests\Clockwork.Tests\Clockwork.Tests.csproj
 ```
 
-Test projects which reference `Clockwork.Simulation.Testing` and use Microsoft Testing Platform can
-set the same interval when invoking their generated test executable:
+Test projects which reference `Microsoft.Orleans.Testing.Simulation.Testing` and use Microsoft
+Testing Platform can set the same interval when invoking their generated test executable:
 
 ```powershell
-dotnet run --project tests\Clockwork.Tests\Clockwork.Tests.csproj -- --clockwork-progress 5s
+dotnet run --project tests\Clockwork.Tests\Clockwork.Tests.csproj -- --orleans-simulation-progress 5s
 ```
 
 Each line includes the runtime id and seed, wall-clock elapsed time, drive-loop iterations, scheduled
@@ -442,8 +497,8 @@ NativeAOT, signed assemblies, and profiler conflicts).
 The built-in simulation rule set **`clockwork.bcl.deterministic`** (version `3.0.0`),
 makes ordinary source that calls the direct **static** time / identity / random BCL surface
 deterministic - with no dependency injection, no `TimeProvider` threading, and no manual shim
-wiring. Enabling it rewrites those call sites to runtime shims in the `Clockwork` assembly,
-under namespaces matching `Clockwork.Shims.<framework namespace>`.
+wiring. Enabling it rewrites those call sites to runtime shims in the `Orleans.Testing.Simulation` assembly,
+under namespaces matching `Orleans.Testing.Simulation.Shims.<framework namespace>`.
 The complete, exhaustive list of controlled and rejected signatures is generated into
 [`docs/rule-inventory.md`](docs/rule-inventory.md) and verified against the shipped rules by a
 test, so the documentation cannot drift from the code. The inventory also lists every other public
@@ -455,13 +510,13 @@ when a new runtime adds a member that is neither ruled nor listed.
 ```xml
 <!-- MSBuild -->
 <PropertyGroup>
-  <ClockworkUseBuiltInRules>true</ClockworkUseBuiltInRules>
+  <OrleansSimulationUseBuiltInRules>true</OrleansSimulationUseBuiltInRules>
 </PropertyGroup>
 ```
 
 ```
 # CLI
-dotnet clockwork instrument --source <directory> --output <dir> --builtin clockwork.bcl.deterministic
+dotnet orleans-simulation instrument --source <directory> --output <dir> --builtin clockwork.bcl.deterministic
 #   --builtin all                 enable every shipped rule set
 #   --builtin-include Clock Random restrict to specific families
 #   --builtin-exclude Crypto      drop a family
@@ -500,7 +555,7 @@ APIs and controlled factory instances) draws deterministic, per-node non-cryptog
 stream isolated from application randomness, identity generation, scheduling, networking, and fault
 injection.
 
-**Compile-time guidance.** The `Clockwork.Analyzers` project reports `CW1001` for controlled
+**Compile-time guidance.** The `Orleans.Testing.Simulation.Analyzers` project reports `CW1001` for controlled
 time/identity/random members that require instrumentation and `CW1003` when unordered collection
 enumeration influences deterministic logic.
 
@@ -519,7 +574,7 @@ logical thread instead of the physical thread pool — again with no dependency 
 wiring. It is selected independently of the BCL rule set:
 
 ```
-dotnet clockwork instrument --source <directory> --output <dir> --builtin clockwork.tasks.controlled
+dotnet orleans-simulation instrument --source <directory> --output <dir> --builtin clockwork.tasks.controlled
 #   --builtin all   enable every shipped rule set (BCL + controlled tasks)
 ```
 
@@ -558,7 +613,7 @@ Alongside it, call-site redirects route the `Task.WhenAll`/`Task.WhenAny`/`Task.
 blocking generic `Task<T>.Result` accessor, the `TaskExtensions.Unwrap` extension methods, every
 `Task.ContinueWith`/`Task<T>.ContinueWith` and `TaskFactory`/`TaskFactory<T>` `ContinueWhenAll`/`ContinueWhenAny`
 overload, and the `ValueTask`/`ValueTask<T>` `AsTask` and `Preserve` conversions to controlled shims in
-`Clockwork.Shims.System.Threading.Tasks`; `TaskFactory.FromAsync`, whose `IAsyncResult` completes outside
+`Orleans.Testing.Simulation.Shims.System.Threading.Tasks`; `TaskFactory.FromAsync`, whose `IAsyncResult` completes outside
 Clockwork's control, is rejected. Synchronous waits and blocking `Task<T>.Result` reads
 **pump the coordinator loop until completion instead of blocking a physical thread**, so they never
 deadlock the scheduler, then delegate to the real API for its exact `AggregateException` semantics.

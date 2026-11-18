@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Reflection;
 using System.Threading.Tasks;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>
 /// Conformance of the controlled task and value-task awaiters outside the compiler's await pattern: a

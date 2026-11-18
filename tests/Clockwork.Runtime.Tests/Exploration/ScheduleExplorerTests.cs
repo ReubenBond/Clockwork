@@ -1,10 +1,10 @@
-using Clockwork.Runtime.Exploration;
-using Clockwork.Runtime.Racing;
-using Clockwork.Runtime.Replay;
-using Clockwork.Runtime.Scheduling;
-using Clockwork.Runtime.Scheduling.Resources;
+using Orleans.Testing.Simulation.Runtime.Exploration;
+using Orleans.Testing.Simulation.Runtime.Racing;
+using Orleans.Testing.Simulation.Runtime.Replay;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Scheduling.Resources;
 
-namespace Clockwork.Runtime.Tests.Exploration;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Exploration;
 
 public sealed class ScheduleExplorerTests
 {

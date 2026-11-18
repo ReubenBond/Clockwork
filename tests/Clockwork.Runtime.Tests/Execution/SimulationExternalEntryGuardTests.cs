@@ -1,6 +1,6 @@
-using Clockwork.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Execution;
 
-namespace Clockwork.Runtime.Tests.Execution;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Execution;
 
 /// <summary>
 /// Covers <see cref="SimulationExternalEntryGuard"/>: it must not falsely reject the normal case

@@ -1,6 +1,6 @@
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Tests.Infrastructure;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 
 /// <summary>Writes assemblies that declare no types and forward one type to another assembly.</summary>
 internal static class TypeForwarders

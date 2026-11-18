@@ -1,5 +1,5 @@
 using BenchmarkDotNet.Running;
-using Clockwork.Benchmarks;
+using Orleans.Testing.Simulation.Benchmarks;
 
 if (args is ["--trace", var iterationCount]
     && int.TryParse(iterationCount, out var iterations)

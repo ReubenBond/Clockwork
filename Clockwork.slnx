@@ -3,12 +3,12 @@
     <Project Path="benchmarks/Clockwork.Benchmarks/Clockwork.Benchmarks.csproj" />
   </Folder>
   <Folder Name="/src/">
-    <Project Path="src/Clockwork/Clockwork.csproj" />
-    <Project Path="src/Clockwork.Instrumentation/Clockwork.Instrumentation.csproj" />
-    <Project Path="src/Clockwork.Instrumentation.Build/Clockwork.Instrumentation.Build.csproj" />
-    <Project Path="src/Clockwork.Tool/Clockwork.Tool.csproj" />
-    <Project Path="src/Clockwork.Analyzers/Clockwork.Analyzers.csproj" />
-    <Project Path="src/Clockwork.Testing/Clockwork.Testing.csproj" />
+    <Project Path="src/Orleans.Testing.Simulation/Orleans.Testing.Simulation.csproj" />
+    <Project Path="src/Orleans.Testing.Simulation.Instrumentation/Orleans.Testing.Simulation.Instrumentation.csproj" />
+    <Project Path="src/Orleans.Testing.Simulation.Instrumentation.Build/Orleans.Testing.Simulation.Instrumentation.Build.csproj" />
+    <Project Path="src/Orleans.Testing.Simulation.Tool/Orleans.Testing.Simulation.Tool.csproj" />
+    <Project Path="src/Orleans.Testing.Simulation.Analyzers/Orleans.Testing.Simulation.Analyzers.csproj" />
+    <Project Path="src/Orleans.Testing.Simulation.Testing/Orleans.Testing.Simulation.Testing.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Clockwork.Tests/Clockwork.Tests.csproj" />

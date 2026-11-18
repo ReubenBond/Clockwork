@@ -1,6 +1,6 @@
-using Clockwork.Runtime.Random;
+using Orleans.Testing.Simulation.Runtime.Random;
 
-namespace Clockwork.Runtime.Tests.Random;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Random;
 
 /// <summary>
 /// Covers <see cref="SimulationStableHash"/>: stability, non-triviality relative to

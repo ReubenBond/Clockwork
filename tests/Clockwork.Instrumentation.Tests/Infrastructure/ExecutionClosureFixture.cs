@@ -1,9 +1,9 @@
-using Clockwork.Instrumentation.Configuration;
-using Clockwork.Instrumentation.Orchestration;
-using Clockwork.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Configuration;
+using Orleans.Testing.Simulation.Instrumentation.Orchestration;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
 using Microsoft.CodeAnalysis;
 
-namespace Clockwork.Instrumentation.Tests.Infrastructure;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 
 /// <summary>
 /// Builds a complete, runnable application closure on disk - a console <em>application</em> plus a

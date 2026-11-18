@@ -1,4 +1,4 @@
-namespace Clockwork.Tests;
+namespace Orleans.Testing.Simulation.Tests;
 
 public sealed class SimulationClusterRunToCompletionTests
 {

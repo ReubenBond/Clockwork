@@ -1,11 +1,11 @@
-using Clockwork.Instrumentation.Rewriting;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Rules.BuiltIn;
-using Clockwork.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Instrumentation.Rewriting;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
-namespace Clockwork.Instrumentation.Tests.Golden;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Golden;
 
 /// <summary>
 /// End-to-end golden tests for the exception-hardening pass. They rewrite a compiled
@@ -70,7 +70,7 @@ public sealed class ExceptionHardeningRuleGoldenTests
         """;
 
     private static string RuntimeAssemblyPath =>
-        typeof(Clockwork.Runtime.SimulationExceptionGuard).Assembly.Location;
+        typeof(Orleans.Testing.Simulation.Runtime.SimulationExceptionGuard).Assembly.Location;
 
     private static ModuleDefinition RewriteAndLoad(RewriteTestContext context, string assemblyName)
     {

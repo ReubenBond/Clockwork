@@ -1,9 +1,9 @@
-using Clockwork.Instrumentation.Rules.BuiltIn;
-using Clockwork.Runtime;
-using Clockwork.Runtime.Threading;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Runtime;
+using Orleans.Testing.Simulation.Runtime.Threading;
 using Mono.Cecil;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 public sealed class ModernSynchronizationConformanceTests : IDisposable
 {
@@ -204,7 +204,7 @@ public sealed class ModernSynchronizationConformanceTests : IDisposable
         Assert.Contains(
             closure.Methods.SelectMany(method => method.HasBody ? method.Body.Instructions : []),
             instruction => instruction.Operand is MethodReference reference
-                && reference.DeclaringType.FullName == "Clockwork.Shims.System.Threading.ControlledManualResetEventSlim"
+                && reference.DeclaringType.FullName == "Orleans.Testing.Simulation.Shims.System.Threading.ControlledManualResetEventSlim"
                 && reference.Name == "Set");
     }
 
