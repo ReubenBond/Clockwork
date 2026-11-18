@@ -10,7 +10,7 @@
   -->
 
   <PropertyGroup>
-    <ClockworkInstrumentationTaskAssembly Condition="'$(ClockworkInstrumentationTaskAssembly)' == ''">$(MSBuildThisFileDirectory)..\tasks\net11.0\Clockwork.Instrumentation.Build.dll</ClockworkInstrumentationTaskAssembly>
+    <ClockworkInstrumentationTaskAssembly Condition="'$(ClockworkInstrumentationTaskAssembly)' == ''">$(MSBuildThisFileDirectory)..\tasks\net11.0\Orleans.Testing.Simulation.Instrumentation.Build.dll</ClockworkInstrumentationTaskAssembly>
   </PropertyGroup>
 
   <UsingTask TaskName="Clockwork.Instrumentation.Build.ClockworkInstrumentTask"
@@ -67,6 +67,7 @@
     <ClockworkExclude Include="TUnit%2A.dll" />
     <ClockworkExclude Include="testhost.dll" />
     <ClockworkExclude Include="Clockwork%2A.dll" />
+    <ClockworkExclude Include="Orleans.Testing.Simulation%2A.dll" />
     <ClockworkExclude Include="%2A.Testing.dll" />
     <ClockworkExclude Include="$(TargetFileName)" />
     <AssemblyMetadata Include="ClockworkInstrumentationOutputPath" Value="$(ClockworkStagingDirectoryFullPath)" />

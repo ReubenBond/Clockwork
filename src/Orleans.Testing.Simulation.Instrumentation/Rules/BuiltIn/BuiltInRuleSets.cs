@@ -39,7 +39,7 @@ public static class BuiltInRuleSets
     public const string ControlledTasksVersion = "3.0.0";
 
     /// <summary>The simple name of the assembly declaring every built-in shim.</summary>
-    public const string ShimAssemblyName = "Clockwork";
+    public const string ShimAssemblyName = "Orleans.Testing.Simulation";
 
     private const string DateTimeShim = "Clockwork.Shims.System.ControlledDateTime";
     private const string DateTimeOffsetShim = "Clockwork.Shims.System.ControlledDateTimeOffset";

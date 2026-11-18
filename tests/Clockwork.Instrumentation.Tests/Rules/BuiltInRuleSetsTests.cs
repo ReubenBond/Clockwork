@@ -15,7 +15,7 @@ namespace Clockwork.Instrumentation.Tests.Rules;
 /// </summary>
 public sealed class BuiltInRuleSetsTests
 {
-    private static string ShimAssemblyPath => Path.Combine(AppContext.BaseDirectory, "Clockwork.dll");
+    private static string ShimAssemblyPath => Path.Combine(AppContext.BaseDirectory, "Orleans.Testing.Simulation.dll");
 
     [Fact]
     public void InventoryHasUniqueIdsAndTargetsTheShimAssembly()

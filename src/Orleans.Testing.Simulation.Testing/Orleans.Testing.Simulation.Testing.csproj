@@ -3,7 +3,9 @@
   <PropertyGroup>
     <Description>Test helpers and Microsoft Testing Platform integration for deterministic Clockwork scenarios, including live progress, in-memory log capture, stable test identity seeds, failure artifacts, and environment-driven replay.</Description>
     <RootNamespace>Clockwork.Testing</RootNamespace>
-    <PackageId>Clockwork.Simulation.Testing</PackageId>
+    <AssemblyName>Orleans.Testing.Simulation.Testing</AssemblyName>
+    <PackageId>Microsoft.Orleans.Testing.Simulation.Testing</PackageId>
+    <TargetFramework>net11.0</TargetFramework>
     <Version>0.1.0</Version>
     <PackageTags>simulation;testing;distributed-systems;deterministic;microsoft-testing-platform</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
@@ -18,17 +20,19 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Clockwork\Clockwork.csproj" />
+    <ProjectReference Include="..\Orleans.Testing.Simulation\Orleans.Testing.Simulation.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="buildTransitive/Clockwork.Simulation.Testing.props"
+    <None Include="buildTransitive\Microsoft.Orleans.Testing.Simulation.Testing.props"
           Pack="true"
-          PackagePath="buildTransitive/Clockwork.Simulation.Testing.props" />
-    <None Include="buildTransitive/Clockwork.Simulation.Testing.props"
+          PackagePath="buildTransitive/Microsoft.Orleans.Testing.Simulation.Testing.props" />
+    <None Include="buildTransitive\Microsoft.Orleans.Testing.Simulation.Testing.props"
           Pack="true"
-          PackagePath="buildMultiTargeting/Clockwork.Simulation.Testing.props" />
+          PackagePath="buildMultiTargeting/Microsoft.Orleans.Testing.Simulation.Testing.props" />
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="\" />
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="\" />
     <InternalsVisibleTo Include="Clockwork.Testing.Tests" />
   </ItemGroup>
 

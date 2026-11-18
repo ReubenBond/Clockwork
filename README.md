@@ -40,7 +40,7 @@ are in [`docs/compatibility.md`](docs/compatibility.md).
 | Area | Current support | Durable limitations |
 |---|---|---|
 | Simulation kernel | Virtual clock, seeded randomness, simulated network, cooperative scheduler lanes, node lifecycle, diagnostics, rendezvous primitives, and controlled scheduling. | Application hosting and transport models are consumer-owned; Clockwork ships no dedicated hosting or HTTP package. |
-| Build and CLI instrumentation | Opt-in, out-of-place Cecil rewriting through `Clockwork.Instrumentation.Build` and `Clockwork.Tool`; direct-call analyzers; deterministic manifests and content-verified incremental outputs. | ReadyToRun inputs are reduced to IL before rewriting; instrument before single-file bundling, trimming, or NativeAOT. Rewritten strong names and closure references are stripped automatically; Authenticode is not re-applied. |
+| Build and CLI instrumentation | Opt-in, out-of-place Cecil rewriting through `Microsoft.Orleans.Testing.Simulation.Instrumentation.Build` and `Microsoft.Orleans.Testing.Simulation.Tool`; direct-call analyzers; deterministic manifests and content-verified incremental outputs. | ReadyToRun inputs are reduced to IL before rewriting; instrument before single-file bundling, trimming, or NativeAOT. Rewritten strong names and closure references are stripped automatically; Authenticode is not re-applied. |
 | Deterministic BCL rules | `clockwork.bcl.deterministic` controls the exact time, identity, and random signatures in the generated inventory. | APIs outside the inventory retain no determinism claim. |
 | Controlled concurrency | `clockwork.tasks.controlled` controls async builders/awaiters, task combinators (including `Task.WhenEach`), continuations (including `TaskFactory.ContinueWhenAll`/`ContinueWhenAny`), value-task conversions, and every `Task.Wait`/`WaitAll`/`WaitAny` overload (timeouts in virtual time), `Task<T>.Result` and `ValueTask<T>.Result`, `Task.Run`, `new Task(...)` with `Task.Start`/`RunSynchronously`, all .NET 11 `TaskFactory`/`TaskFactory<T>.StartNew` overloads, `Thread` (including `UnsafeStart`), `ThreadPool`, `Parallel` (see [Parallel loops](docs/compatibility.md#parallel-loops)), the channel members which await inside the framework (`ReadAllAsync` and the inherited `ReadAsync`/`WriteAsync`), the blocking members of `BlockingCollection<T>`, the base asynchronous members of `Stream`/`TextReader`/`TextWriter` (calling an override as written), `Monitor`, `System.Threading.Lock`, and `SemaphoreSlim`. Clockwork registers no BCL continuation on a task, so a completion source or value-task source which runs continuations asynchronously cannot escape to the thread pool. Debug and Release lowering by the .NET 11 SDK's C# compiler are conformance-tested. | Custom task schedulers, `new Task(...)` with `AttachedToParent` (a constructed task denies child attachment), unsupported task-creation and continuation options, native-overlapped thread-pool work, `TaskFactory.FromAsync`, `Parallel` loops whose body receives a `ParallelLoopState`, the PLINQ entry points (`AsParallel`, `ParallelEnumerable.Range`/`Repeat`/`Empty`), `BackgroundWorker.RunWorkerAsync`, `BackgroundService.StartAsync`, the TPL Dataflow blocks and scheduling helpers, `WebSocket.CreateFromStream`/`CreateClientWebSocket`, and OS-specific thread controls are rejected. Methods compiled with runtime async fail the rewrite (`CWR0013`). Continuations registered by uninstrumented code remain outside the coordinator. |
 | Synchronization | Full .NET 11 `Interlocked` and `Volatile`; `SpinWait`; events and wait handles; registered waits; `ReaderWriterLockSlim`; `ManualResetEventSlim`; unnamed kernel `Mutex`/`Semaphore`; `SpinLock`; `ExecutionContext`; `SynchronizationContext`; `Barrier`; and `CountdownEvent`. | Named/cross-process primitives, open-existing APIs, raw handles, raw `SynchronizationContext.Wait`, and `WaitAll` arrays containing a `Mutex` are rejected. |
@@ -52,17 +52,17 @@ are in [`docs/compatibility.md`](docs/compatibility.md).
 ```powershell
 dotnet build Clockwork.slnx
 dotnet run --project tests\Clockwork.Tests\Clockwork.Tests.csproj -- --timeout 60s
-dotnet pack src/Clockwork/Clockwork.csproj --configuration Release
+dotnet pack src/Orleans.Testing.Simulation/Orleans.Testing.Simulation.csproj --configuration Release
 ```
 
-The core NuGet package ID is `Clockwork.Simulation`; test-runner integration and replay helpers are
-in `Clockwork.Simulation.Testing`. Until packages are published, clone the repository or add it as a
-Git submodule and reference the corresponding project under `src`.
+The core NuGet package ID is `Microsoft.Orleans.Testing.Simulation`; test-runner integration and
+replay helpers are in `Microsoft.Orleans.Testing.Simulation.Testing`. Until packages are published,
+clone the repository or add it as a Git submodule and reference the corresponding project under `src`.
 
 ## Instrumented simulation test projects
 
 Keep ordinary and simulation tests in separate projects. Only simulation test projects reference
-`Clockwork.Instrumentation.Build` and opt into staged execution:
+`Microsoft.Orleans.Testing.Simulation.Instrumentation.Build` and opt into staged execution:
 
 ```xml
 <PropertyGroup>
@@ -71,7 +71,7 @@ Keep ordinary and simulation tests in separate projects. Only simulation test pr
 </PropertyGroup>
 
 <ItemGroup>
-  <PackageReference Include="Clockwork.Instrumentation.Build" PrivateAssets="all" />
+  <PackageReference Include="Microsoft.Orleans.Testing.Simulation.Instrumentation.Build" PrivateAssets="all" />
 </ItemGroup>
 ```
 
@@ -287,8 +287,8 @@ $env:CLOCKWORK_PROGRESS_INTERVAL = "5s"
 dotnet run --project tests\Clockwork.Tests\Clockwork.Tests.csproj
 ```
 
-Test projects which reference `Clockwork.Simulation.Testing` and use Microsoft Testing Platform can
-set the same interval when invoking their generated test executable:
+Test projects which reference `Microsoft.Orleans.Testing.Simulation.Testing` and use Microsoft
+Testing Platform can set the same interval when invoking their generated test executable:
 
 ```powershell
 dotnet run --project tests\Clockwork.Tests\Clockwork.Tests.csproj -- --clockwork-progress 5s
@@ -524,7 +524,7 @@ APIs and controlled factory instances) draws deterministic, per-node non-cryptog
 stream isolated from application randomness, identity generation, scheduling, networking, and fault
 injection.
 
-**Compile-time guidance.** The `Clockwork.Analyzers` project reports `CW1001` for controlled
+**Compile-time guidance.** The `Orleans.Testing.Simulation.Analyzers` project reports `CW1001` for controlled
 time/identity/random members that require instrumentation and `CW1003` when unordered collection
 enumeration influences deterministic logic.
 

@@ -216,7 +216,8 @@ are enforced before use.
 ### Build-time instrumentation boundary
 
 Clockwork's deepest supported instrumentation is opt-in, out-of-place caller rewriting performed
-by `Clockwork.Instrumentation.Build` or `Clockwork.Tool` before execution. It can rewrite
+by `Microsoft.Orleans.Testing.Simulation.Instrumentation.Build` or
+`Microsoft.Orleans.Testing.Simulation.Tool` before execution. It can rewrite
 application and selected dependency assemblies, including third-party managed callers, but does
 not rewrite framework assemblies, mixed-mode/native code, or calls originating inside excluded
 vendor binaries. Those boundaries require an explicit Clockwork model, rejection, or consumer
@@ -233,7 +234,7 @@ The build package and CLI use Mono.Cecil; see
 
 #### Rewrite engine
 
-The **generic IL rewrite engine** in `Clockwork.Instrumentation` uses Mono.Cecil 0.11.6. It is a deterministic,
+The **generic IL rewrite engine** in `Orleans.Testing.Simulation.Instrumentation` uses Mono.Cecil 0.11.6. It is a deterministic,
 rule-driven Cecil transformation pipeline plus an extensive golden test corpus, and
 does not perform runtime interception. The engine (`RewriteEngine.Rewrite`) takes a caller-supplied, versioned
 `RewriteRuleSet` and a set of replacement ("shim") assemblies, applies an ordered set
@@ -334,9 +335,10 @@ mechanics; build and CLI orchestration remain separate opt-in entry points.
 #### Build and tool integration
 
 The build and command-line entry points are generic, strictly opt-in plumbing that fails explicitly rather than
-silently degrading. It ships two packages: `Clockwork.Instrumentation.Build` (an MSBuild
-task with `build/` props and targets, a development dependency) and `Clockwork.Tool`
-(the `clockwork` CLI).
+silently degrading. It ships two packages:
+`Microsoft.Orleans.Testing.Simulation.Instrumentation.Build` (an MSBuild task with
+`build/` props and targets, a development dependency) and
+`Microsoft.Orleans.Testing.Simulation.Tool` (the `clockwork` CLI).
 
 **Opt-in only.** An ordinary build never instruments. The `ClockworkInstrument` target
 runs `AfterTargets="Build"` only when the consumer sets
@@ -378,7 +380,7 @@ project, never using a solution-wide `ClockworkInstrumentationEnabled` global pr
 
 **Task package requires the .NET 11 SDK.** The task and its Cecil-based engine target
 `net11.0` and load only under `dotnet build` / `dotnet msbuild`; .NET Framework MSBuild
-(classic `msbuild.exe`) cannot host them. The `Clockwork.Tool` CLI exposes `rewrite`
+(classic `msbuild.exe`) cannot host them. The `Microsoft.Orleans.Testing.Simulation.Tool` CLI exposes `rewrite`
 (with `--dry-run`) and `inspect` (text or `--json`), with nonzero exit codes classified
 by failure kind. The tool also exposes explicit `IReplayScenario` harness commands for
 `run`/`replay`/`explore`/`minimize`/`trace show`; it never discovers a process or scenario type
@@ -1327,14 +1329,15 @@ The implemented package boundaries under `src/` map to the modes above:
 
 | Project | Depends on | Current purpose |
 |---|---|---|
-| `Clockwork` | *(none)* | Simulation kernel, ambient context, policy, controlled task/thread/synchronization shims, logical strands, and unified scheduling/resource infrastructure. |
-| `Clockwork.Instrumentation` | `Clockwork` | Cecil rewrite engine, manifests, built-in rules, closure orchestration, and diagnostics. |
-| `Clockwork.Instrumentation.Build` | `Clockwork.Instrumentation` | Opt-in MSBuild task + targets that instrument the resolved output closure out-of-place. |
-| `Clockwork.Tool` | `Clockwork.Instrumentation` | `dotnet clockwork instrument` / `inspect` CLI over the shared orchestrator. |
-| `Clockwork.Analyzers` | *(none)* | Roslyn diagnostics aligned with controlled/rejected direct BCL usage. |
-| `Clockwork.Testing` | `Clockwork` | Reusable test helpers, scenario builders, and in-memory log capture for consumers. |
+| `Orleans.Testing.Simulation` | *(none)* | Simulation kernel, ambient context, policy, controlled task/thread/synchronization shims, logical strands, and unified scheduling/resource infrastructure. |
+| `Orleans.Testing.Simulation.Instrumentation` | `Orleans.Testing.Simulation` | Cecil rewrite engine, manifests, built-in rules, closure orchestration, and diagnostics. |
+| `Orleans.Testing.Simulation.Instrumentation.Build` | `Orleans.Testing.Simulation.Instrumentation` | Opt-in MSBuild task + targets that instrument the resolved output closure out-of-place. |
+| `Orleans.Testing.Simulation.Tool` | `Orleans.Testing.Simulation.Instrumentation` | `dotnet clockwork instrument` / `inspect` CLI over the shared orchestrator. |
+| `Orleans.Testing.Simulation.Analyzers` | *(none)* | Roslyn diagnostics aligned with controlled/rejected direct BCL usage. |
+| `Orleans.Testing.Simulation.Testing` | `Orleans.Testing.Simulation` | Reusable test helpers, scenario builders, and in-memory log capture for consumers. |
 
-`Clockwork.Testing` remains a separate helper project and namespace boundary. Application hosting and transport models are
+`Orleans.Testing.Simulation.Testing` remains a separate helper project while retaining the
+`Clockwork.Testing` namespace boundary. Application hosting and transport models are
 consumer-owned and outside the Clockwork core; consumers compose them over `SimulationNetwork` and
 the generic application-composition APIs, and no dedicated hosting or HTTP packages ship. Exact
 shipped interception behavior is defined by [`rule-inventory.md`](rule-inventory.md).

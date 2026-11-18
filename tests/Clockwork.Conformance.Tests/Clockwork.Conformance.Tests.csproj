@@ -27,7 +27,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Clockwork.Instrumentation\Clockwork.Instrumentation.csproj" />
-    <ProjectReference Include="..\..\src\Clockwork\Clockwork.csproj" />
+    <ProjectReference Include="..\..\src\Orleans.Testing.Simulation.Instrumentation\Orleans.Testing.Simulation.Instrumentation.csproj" />
+    <ProjectReference Include="..\..\src\Orleans.Testing.Simulation\Orleans.Testing.Simulation.csproj" />
   </ItemGroup>
 </Project>

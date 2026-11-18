@@ -229,7 +229,7 @@ public static class InstrumentationRunner
 
         if (configuration.Mode == InstrumentationMode.RaceExploration)
         {
-            const string runtimeAsset = "Clockwork.dll";
+            const string runtimeAsset = "Orleans.Testing.Simulation.dll";
             File.Copy(
                 typeof(Runtime.Racing.RaceInstrumentation).Assembly.Location,
                 Path.Combine(stagingDirectory, runtimeAsset),
@@ -689,7 +689,7 @@ public static class InstrumentationRunner
 
             if (configuration.Mode == InstrumentationMode.RaceExploration)
             {
-                expectedPaths.Add("Clockwork.dll");
+                expectedPaths.Add("Orleans.Testing.Simulation.dll");
             }
 
             if (!expectedPaths.SetEquals(representedPaths))
@@ -1161,15 +1161,15 @@ public static class InstrumentationRunner
 
         if (configuration.Mode == InstrumentationMode.RaceExploration)
         {
-            string runtimePath = Path.Combine(stagingDirectory, "Clockwork.dll");
+            string runtimePath = Path.Combine(stagingDirectory, "Orleans.Testing.Simulation.dll");
             string canonicalRuntimePath = GetCanonicalIdentity(runtimePath, "Planned race runtime path");
-            if (!plannedPaths.TryAdd(canonicalRuntimePath, "Clockwork.dll"))
+            if (!plannedPaths.TryAdd(canonicalRuntimePath, "Orleans.Testing.Simulation.dll"))
             {
                 throw new ClosureException(
-                    $"Planned race runtime 'Clockwork.dll' collides with closure asset '{plannedPaths[canonicalRuntimePath]}' on this platform.");
+                    $"Planned race runtime 'Orleans.Testing.Simulation.dll' collides with closure asset '{plannedPaths[canonicalRuntimePath]}' on this platform.");
             }
 
-            plannedEntries.Add((runtimePath, "Clockwork.dll"));
+            plannedEntries.Add((runtimePath, "Orleans.Testing.Simulation.dll"));
         }
 
         foreach ((string plannedPath, string relativePath) in plannedEntries)

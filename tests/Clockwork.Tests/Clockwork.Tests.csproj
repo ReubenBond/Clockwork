@@ -14,9 +14,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Clockwork\Clockwork.csproj" />
-    <ProjectReference Include="..\..\src\Clockwork.Testing\Clockwork.Testing.csproj" />
+    <ProjectReference Include="..\..\src\Orleans.Testing.Simulation\Orleans.Testing.Simulation.csproj" />
+    <ProjectReference Include="..\..\src\Orleans.Testing.Simulation.Testing\Orleans.Testing.Simulation.Testing.csproj" />
   </ItemGroup>
 
-  <Import Project="..\..\src\Clockwork.Testing\buildTransitive\Clockwork.Simulation.Testing.props" />
+  <Import Project="..\..\src\Orleans.Testing.Simulation.Testing\buildTransitive\Microsoft.Orleans.Testing.Simulation.Testing.props" />
 </Project>

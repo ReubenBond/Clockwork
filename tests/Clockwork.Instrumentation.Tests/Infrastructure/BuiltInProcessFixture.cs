@@ -256,6 +256,13 @@ internal sealed class BuiltInProcessFixture : IDisposable
             throw new InvalidOperationException("Could not locate Clockwork.slnx.");
         }
 
-        return Path.Combine(current.FullName, "src", "Clockwork", "bin", configuration, "net11.0", "Clockwork.dll");
+        return Path.Combine(
+            current.FullName,
+            "src",
+            "Orleans.Testing.Simulation",
+            "bin",
+            configuration,
+            "net11.0",
+            "Orleans.Testing.Simulation.dll");
     }
 }

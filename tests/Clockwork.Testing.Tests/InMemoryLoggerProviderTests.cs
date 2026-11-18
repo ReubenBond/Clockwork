@@ -343,7 +343,7 @@ public sealed class InMemoryLoggerProviderTests
         Type[] publicTypes = [typeof(InMemoryLogBuffer), typeof(InMemoryLoggerProvider), typeof(LogEntry)];
         Assembly assembly = typeof(InMemoryLoggerProvider).Assembly;
 
-        Assert.Equal("Clockwork.Testing", assembly.GetName().Name);
+        Assert.Equal("Orleans.Testing.Simulation.Testing", assembly.GetName().Name);
         Assert.All(
             publicTypes,
             type =>

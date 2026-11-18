@@ -3,5 +3,5 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("Clockwork.Tests")]
 [assembly: InternalsVisibleTo("Clockwork.Runtime.Tests")]
 [assembly: InternalsVisibleTo("Clockwork.Benchmarks")]
-[assembly: InternalsVisibleTo("Clockwork.Testing")]
-[assembly: InternalsVisibleTo("Clockwork.Instrumentation")]
+[assembly: InternalsVisibleTo("Orleans.Testing.Simulation.Testing")]
+[assembly: InternalsVisibleTo("Orleans.Testing.Simulation.Instrumentation")]

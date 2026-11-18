@@ -35,7 +35,7 @@ public static class RewriteEngine
     /// <see cref="RewriteOptions.ReplacementAssemblyPaths"/> when
     /// <see cref="RewriteOptions.HardenExceptionHandlers"/> is enabled.
     /// </summary>
-    private const string ExceptionGuardShimAssembly = "Clockwork";
+    private const string ExceptionGuardShimAssembly = "Orleans.Testing.Simulation";
 
     /// <summary>Gets the engine version recorded in manifests and idempotence markers.</summary>
     public static string EngineVersion =>

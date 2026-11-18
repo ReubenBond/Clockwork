@@ -22,7 +22,7 @@ namespace Clockwork.Instrumentation.Rewriting;
 internal sealed class CrossAssemblyTaskDetectionPass : RewritePass
 {
     private const string TaskNamespace = "System.Threading.Tasks";
-    private const string ShimAssemblyName = "Clockwork";
+    private const string ShimAssemblyName = "Orleans.Testing.Simulation";
 
     private readonly HashSet<Instruction> _reported = [];
 

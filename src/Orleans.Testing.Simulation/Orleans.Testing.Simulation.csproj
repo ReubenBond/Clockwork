@@ -3,7 +3,9 @@
   <PropertyGroup>
     <Description>A deterministic simulation testing framework for distributed systems.</Description>
     <RootNamespace>Clockwork</RootNamespace>
-    <PackageId>Clockwork.Simulation</PackageId>
+    <AssemblyName>Orleans.Testing.Simulation</AssemblyName>
+    <PackageId>Microsoft.Orleans.Testing.Simulation</PackageId>
+    <TargetFramework>net11.0</TargetFramework>
     <Version>0.1.0</Version>
     <PackageTags>simulation;testing;distributed-systems;deterministic;chaos-testing;time-travel</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
@@ -14,12 +16,17 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Include="..\..\LICENSE" Pack="true" PackagePath="\" />
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
   <ItemGroup>
     <!-- CW1004 holds every completion in this assembly to SimulationCompletion. -->
-    <ProjectReference Include="..\Clockwork.Analyzers\Clockwork.Analyzers.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\Orleans.Testing.Simulation.Analyzers\Orleans.Testing.Simulation.Analyzers.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false"
+                      PrivateAssets="all" />
   </ItemGroup>
 
 </Project>

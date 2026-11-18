@@ -1147,7 +1147,7 @@ public sealed class InstrumentationRunnerTests : IDisposable
             """);
         File.Copy(
             typeof(Clockwork.Runtime.SimulationExceptionGuard).Assembly.Location,
-            Path.Combine(_source, "Clockwork.dll"));
+            Path.Combine(_source, "Orleans.Testing.Simulation.dll"));
         ProcessAppRunner.WriteRuntimeConfig(Path.Combine(_source, "app.dll"));
 
         InstrumentationResult result = Run(
@@ -1198,7 +1198,7 @@ public sealed class InstrumentationRunnerTests : IDisposable
     {
         BuildMinimalApp();
         FixtureCompiler.Compile(
-            "Clockwork",
+            "Orleans.Testing.Simulation",
             "namespace Clockwork.Runtime { public static class LegacyRuntime { } }",
             _source,
             FixtureSymbols.None,
@@ -1218,7 +1218,7 @@ public sealed class InstrumentationRunnerTests : IDisposable
     public void RaceModeRejectsInjectedRuntimeFileDirectoryCollision()
     {
         BuildMinimalApp();
-        string collisionDirectory = Path.Combine(_source, "Clockwork.dll");
+        string collisionDirectory = Path.Combine(_source, "Orleans.Testing.Simulation.dll");
         Directory.CreateDirectory(collisionDirectory);
         File.WriteAllText(Path.Combine(collisionDirectory, "content.bin"), "asset");
 
@@ -1240,7 +1240,7 @@ public sealed class InstrumentationRunnerTests : IDisposable
             Mode = InstrumentationMode.RaceExploration,
         };
         InstrumentationResult first = Run(configuration, EmptyRuleSet());
-        string stagedRuntime = Path.Combine(_staging, "Clockwork.dll");
+        string stagedRuntime = Path.Combine(_staging, "Orleans.Testing.Simulation.dll");
         byte[] expectedRuntime = File.ReadAllBytes(typeof(RaceInstrumentation).Assembly.Location);
         File.WriteAllBytes(stagedRuntime, [0xde, 0xad, 0xbe, 0xef]);
 
@@ -1250,10 +1250,10 @@ public sealed class InstrumentationRunnerTests : IDisposable
         Assert.True(second.Succeeded, string.Join("\n", second.Errors));
         Assert.False(second.WasIncrementalHit);
         Assert.Equal(expectedRuntime, File.ReadAllBytes(stagedRuntime));
-        Assert.Contains("Clockwork.dll", second.CopiedAssets);
+        Assert.Contains("Orleans.Testing.Simulation.dll", second.CopiedAssets);
         AssertCopiedAsset(
             ClosureManifestJson.Read(second.ManifestPath, out _),
-            "Clockwork.dll",
+            "Orleans.Testing.Simulation.dll",
             stagedRuntime);
     }
 
