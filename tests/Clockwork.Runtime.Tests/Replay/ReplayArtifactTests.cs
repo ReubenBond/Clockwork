@@ -48,6 +48,38 @@ public sealed class ReplayArtifactTests : IDisposable
     }
 
     [Fact]
+    public void LegacyVersionTwoBytesWithInstrumentationIdentityAndClockworkAssemblyRemainReadable()
+    {
+        const string legacyArtifact =
+            "{\"format\":\"clockwork.replay\",\"schemaVersion\":2,\"rootSeed\":42," +
+            "\"scheduler\":{\"strategy\":\"seeded-random\",\"scheduleSeed\":17,\"options\":{}}," +
+            "\"instrumentation\":{\"manifestId\":\"legacy-manifest\"," +
+            "\"manifestSha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"," +
+            "\"engineVersion\":\"0.1.0\",\"ruleSetId\":\"clockwork.bcl.deterministic\"," +
+            "\"ruleSetVersion\":\"1\"," +
+            "\"ruleSetSignature\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"," +
+            "\"mode\":\"Controlled\",\"assemblies\":[{\"name\":\"Clockwork.dll\"," +
+            "\"sha256\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\"," +
+            "\"runtimeCompatibility\":\".NETCoreApp,Version=v11.0\"}]}," +
+            "\"environment\":{\"clockworkVersion\":\"0.1.0.0\"," +
+            "\"runtimeCompatibility\":\".NETCoreApp,Version=v11.0\"," +
+            "\"processArchitecture\":\"X64\",\"operatingSystem\":\"Windows\"}," +
+            "\"decisions\":[],\"raceSchedulingPoints\":[]," +
+            "\"outcome\":{\"kind\":\"Completed\",\"failureIdentity\":null,\"diagnostic\":null}," +
+            "\"diagnostics\":{\"liveness\":\"Quiescent\",\"virtualTimeTicks\":0,\"operations\":[]," +
+            "\"resources\":[],\"pendingTimers\":[],\"deadlockCycles\":[],\"race\":null}}";
+        byte[] expectedBytes = Encoding.UTF8.GetBytes(legacyArtifact);
+
+        ReplayArtifact artifact = ReplayArtifactSerializer.Deserialize(expectedBytes);
+
+        Assert.Equal("clockwork.replay", artifact.Format);
+        Assert.Equal(2, artifact.SchemaVersion);
+        Assert.Equal("clockwork.bcl.deterministic", artifact.Instrumentation!.RuleSetId);
+        Assert.Equal("Clockwork.dll", Assert.Single(artifact.Instrumentation.Assemblies).Name);
+        Assert.Equal(expectedBytes, ReplayArtifactSerializer.Serialize(artifact));
+    }
+
+    [Fact]
     public void CanonicalJsonSortsSchedulerOptions()
     {
         ReplayArtifact artifact = CreateArtifact() with

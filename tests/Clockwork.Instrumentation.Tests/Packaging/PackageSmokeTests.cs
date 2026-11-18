@@ -146,7 +146,7 @@ public sealed class PackageSmokeTests
     }
 
     [Fact]
-    public void BuildPackageRunsDotnetTestNoBuildFromStagedClosure()
+    public void MtpStagedClosureKeepsHostKernelAndExcludedDiagnosticsOrdinaryWhileRewritingSubject()
     {
         Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
         ConsumerProject consumer = Artifacts.Value.ScaffoldConsumer(
@@ -165,6 +165,18 @@ public sealed class PackageSmokeTests
         using (Mono.Cecil.ModuleDefinition deployed = Mono.Cecil.ModuleDefinition.ReadModule(consumer.OutputAppPath))
         {
             Assert.False(CecilInspect.HasRewriteSignature(deployed));
+        }
+        using (Mono.Cecil.ModuleDefinition host = Mono.Cecil.ModuleDefinition.ReadModule(consumer.StagedHostPath))
+        {
+            Assert.False(CecilInspect.HasRewriteSignature(host));
+        }
+        using (Mono.Cecil.ModuleDefinition kernel = Mono.Cecil.ModuleDefinition.ReadModule(consumer.StagedKernelPath))
+        {
+            Assert.False(CecilInspect.HasRewriteSignature(kernel));
+        }
+        using (Mono.Cecil.ModuleDefinition diagnostics = Mono.Cecil.ModuleDefinition.ReadModule(consumer.StagedDiagnosticsPath))
+        {
+            Assert.False(CecilInspect.HasRewriteSignature(diagnostics));
         }
         using (Mono.Cecil.ModuleDefinition subject = Mono.Cecil.ModuleDefinition.ReadModule(consumer.StagedSubjectPath))
         {
@@ -462,6 +474,77 @@ public sealed class PackageSmokeTests
         AssertPackageMetadata(artifacts.PackagePath("Clockwork.Tool"));
     }
 
+    [Fact]
+    public void PackedBuildTaskAndToolPayloadsHaveOneClockworkAssemblyAndNoNuGetDependenciesOrCollisions()
+    {
+        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        PackagedArtifacts artifacts = Artifacts.Value;
+
+        AssertPackageTopology(
+            artifacts.PackagePath("Clockwork.Instrumentation.Build"),
+            [
+                "build/Clockwork.Instrumentation.Build.props",
+                "build/Clockwork.Instrumentation.Build.targets",
+                "tasks/net11.0/Clockwork.dll",
+                "tasks/net11.0/Clockwork.Instrumentation.Build.dll",
+                "tasks/net11.0/Clockwork.Instrumentation.dll",
+                "tasks/net11.0/Mono.Cecil.dll",
+                "tasks/net11.0/Mono.Cecil.Mdb.dll",
+                "tasks/net11.0/Mono.Cecil.Pdb.dll",
+                "tasks/net11.0/Mono.Cecil.Rocks.dll",
+            ]);
+        AssertPackageTopology(
+            artifacts.PackagePath("Clockwork.Tool"),
+            [
+                "tools/net11.0/any/Clockwork.dll",
+                "tools/net11.0/any/Clockwork.Instrumentation.dll",
+                "tools/net11.0/any/Clockwork.Instrumentation.xml",
+                "tools/net11.0/any/Clockwork.xml",
+                "tools/net11.0/any/dotnet-clockwork.deps.json",
+                "tools/net11.0/any/dotnet-clockwork.dll",
+                "tools/net11.0/any/dotnet-clockwork.runtimeconfig.json",
+                "tools/net11.0/any/dotnet-clockwork.xml",
+                "tools/net11.0/any/DotnetToolSettings.xml",
+                "tools/net11.0/any/Mono.Cecil.dll",
+                "tools/net11.0/any/Mono.Cecil.Mdb.dll",
+                "tools/net11.0/any/Mono.Cecil.Pdb.dll",
+                "tools/net11.0/any/Mono.Cecil.Rocks.dll",
+            ]);
+    }
+
+    private static void AssertPackageTopology(string packagePath, string[] expectedPayload)
+    {
+        using ZipArchive package = ZipFile.OpenRead(packagePath);
+        string[] payload =
+        [
+            .. package.Entries
+                .Select(static entry => entry.FullName)
+                .Where(static path =>
+                    path.StartsWith("build/", StringComparison.Ordinal) ||
+                    path.StartsWith("tasks/", StringComparison.Ordinal) ||
+                    path.StartsWith("tools/", StringComparison.Ordinal))
+                .Order(StringComparer.Ordinal),
+        ];
+
+        Assert.Equal(expectedPayload.Order(StringComparer.Ordinal), payload);
+        Assert.Single(
+            package.Entries,
+            static entry => string.Equals(
+                Path.GetFileName(entry.FullName),
+                "Clockwork.dll",
+                StringComparison.Ordinal));
+        SimulationAssemblyCollisionGate.AssertNoCollision(packagePath, payload);
+
+        ZipArchiveEntry nuspecEntry = Assert.Single(
+            package.Entries,
+            static entry => entry.FullName.EndsWith(".nuspec", StringComparison.Ordinal));
+        using Stream nuspecStream = nuspecEntry.Open();
+        XDocument nuspec = XDocument.Load(nuspecStream);
+        XNamespace ns = nuspec.Root!.Name.Namespace;
+        Assert.Empty(nuspec.Descendants(ns + "group"));
+        Assert.Empty(nuspec.Descendants(ns + "dependency"));
+    }
+
     private static void AssertPackageMetadata(string packagePath)
     {
         using ZipArchive package = ZipFile.OpenRead(packagePath);
@@ -569,9 +652,18 @@ public sealed class PackageSmokeTests
             string appDir = Path.Combine(rootDir, "app");
             string libDir = Path.Combine(rootDir, "lib");
             string subjectDir = Path.Combine(rootDir, "subject");
+            string hostDir = Path.Combine(rootDir, "host");
+            string kernelDir = Path.Combine(rootDir, "kernel");
+            string diagnosticsDir = Path.Combine(rootDir, "diagnostics");
             Directory.CreateDirectory(appDir);
             Directory.CreateDirectory(libDir);
             Directory.CreateDirectory(subjectDir);
+            if (testingPlatformProject)
+            {
+                CreateOrdinaryAssemblyProject(hostDir, "SmokeHost");
+                CreateOrdinaryAssemblyProject(kernelDir, "SmokeKernel");
+                CreateOrdinaryAssemblyProject(diagnosticsDir, "SmokeDiagnostics");
+            }
 
             // A single nuget.config at the solution root is discovered by both projects via the
             // standard walk-up, wiring in the freshly packed local feed.
@@ -695,6 +787,20 @@ public sealed class PackageSmokeTests
                       <PackageReference Include="xunit.v3.mtp-v2" Version="3.2.1" />
                     """
                 : string.Empty;
+            string ordinaryIlProjectReferences = testingPlatformProject
+                ? """
+                      <ProjectReference Include="../host/SmokeHost.csproj" />
+                      <ProjectReference Include="../kernel/SmokeKernel.csproj" />
+                      <ProjectReference Include="../diagnostics/SmokeDiagnostics.csproj" />
+                    """
+                : string.Empty;
+            string ordinaryIlExclusions = testingPlatformProject
+                ? """
+                      <ClockworkExclude Include="SmokeHost.dll" />
+                      <ClockworkExclude Include="SmokeKernel.dll" />
+                      <ClockworkExclude Include="SmokeDiagnostics.dll" />
+                    """
+                : string.Empty;
             string runtimeReference = useBuiltInRules
                 ? $"""
                       <Reference Include="Clockwork">
@@ -745,9 +851,11 @@ public sealed class PackageSmokeTests
                   </ItemGroup>
                   <ItemGroup>
                     <ProjectReference Include="../subject/SmokeSubject.csproj" />
+                {ordinaryIlProjectReferences}
                   </ItemGroup>
                   <ItemGroup>
                 {ruleSetItem}
+                {ordinaryIlExclusions}
                   </ItemGroup>
                 </Project>
                 """);
@@ -784,6 +892,33 @@ public sealed class PackageSmokeTests
             }
 
             return new ConsumerProject(appDir, _packagesDirectory, mode);
+        }
+
+        private static void CreateOrdinaryAssemblyProject(string directory, string assemblyName)
+        {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(
+                Path.Combine(directory, assemblyName + ".cs"),
+                $$"""
+                namespace {{assemblyName}};
+
+                public static class Marker
+                {
+                    public static string Identity => "{{assemblyName}}";
+                }
+                """);
+            File.WriteAllText(
+                Path.Combine(directory, assemblyName + ".csproj"),
+                $$"""
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup>
+                    <TargetFramework>net11.0</TargetFramework>
+                    <Nullable>enable</Nullable>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <AssemblyName>{{assemblyName}}</AssemblyName>
+                  </PropertyGroup>
+                </Project>
+                """);
         }
 
         public ConsumerProject ScaffoldPackageOnlyMtpConsumer(string name)
@@ -1139,6 +1274,12 @@ public sealed class PackageSmokeTests
         public string StagedAppPath => Path.Combine(StagingDirectory, "SmokeApp.dll");
 
         public string StagedSubjectPath => Path.Combine(StagingDirectory, "SmokeSubject.dll");
+
+        public string StagedHostPath => Path.Combine(StagingDirectory, "SmokeHost.dll");
+
+        public string StagedKernelPath => Path.Combine(StagingDirectory, "SmokeKernel.dll");
+
+        public string StagedDiagnosticsPath => Path.Combine(StagingDirectory, "SmokeDiagnostics.dll");
 
         public string UninstrumentedPackageProbePath =>
             Path.Combine(ProjectDirectory, "obj/Release/net11.0/clockwork/source", "PackageProbe.dll");

@@ -266,15 +266,87 @@ public sealed class SimulationNetworkTests
     }
 
     [Fact]
-    public void SameSeedProducesStableLinkDelayTrace()
+    public void SeededDirectionalAndGlobalJitterTraceIsExactAndDifferentSeedsDiverge()
     {
         var first = CollectLinkDelayTrace(seed: 17);
         var second = CollectLinkDelayTrace(seed: 17);
+        var different = CollectLinkDelayTrace(seed: 18);
 
+        Assert.Equal(
+            [
+                1_030_373L,
+                140_272L,
+                1_032_540L,
+                109_334L,
+                1_044_064L,
+                120_757L,
+                1_026_149L,
+                148_540L,
+                1_004_036L,
+                127_123L,
+                1_040_816L,
+                136_973L,
+            ],
+            first.Select(static delay => delay.Ticks));
         Assert.Equal(first, second);
-        Assert.All(first, delay => Assert.InRange(delay, TimeSpan.FromMilliseconds(10), TimeSpan.FromMilliseconds(105)));
-        Assert.Contains(first, delay => delay < TimeSpan.FromMilliseconds(20));
-        Assert.Contains(first, delay => delay >= TimeSpan.FromMilliseconds(100));
+        Assert.NotEqual(first, different);
+        Assert.All(
+            first.Where((_, index) => index % 2 == 0),
+            delay => Assert.InRange(
+                delay,
+                TimeSpan.FromMilliseconds(100),
+                TimeSpan.FromMilliseconds(105)));
+        Assert.All(
+            first.Where((_, index) => index % 2 != 0),
+            delay => Assert.InRange(
+                delay,
+                TimeSpan.FromMilliseconds(10),
+                TimeSpan.FromMilliseconds(15)));
+    }
+
+    [Fact]
+    public void LinkLatencyPreservesPartitionDropAndLoopbackPrecedence()
+    {
+        var network = CreateNetwork([], seed: 6);
+        network.MessageDropRate = 1.0;
+        network.SetBidirectionalLinkLatency(
+            "node-1",
+            "node-2",
+            TimeSpan.FromSeconds(1),
+            TimeSpan.Zero);
+        network.CreatePartition("node-1", "node-2");
+
+        Assert.Equal(DeliveryStatus.Partitioned, network.CheckDelivery("node-1", "node-2"));
+        Assert.Equal(DeliveryStatus.Dropped, network.CheckDelivery("node-2", "node-1"));
+        Assert.Equal(DeliveryStatus.Success, network.CheckDelivery("node-1", "node-1"));
+        Assert.Equal(TimeSpan.Zero, network.GetMessageDelay("node-1", "node-1"));
+
+        network.HealPartition("node-1", "node-2");
+
+        Assert.Equal(DeliveryStatus.Dropped, network.CheckDelivery("node-1", "node-2"));
+        Assert.Equal(TimeSpan.FromSeconds(1), network.GetMessageDelay("node-1", "node-2"));
+    }
+
+    [Fact]
+    public void LinkLatencyMutationHooksReportStableEventOrdering()
+    {
+        var network = new RecordingNetwork(new SimulationRandom(seed: 7));
+
+        network.SetLinkLatency("b", "a", TimeSpan.FromTicks(1), TimeSpan.FromTicks(2));
+        network.SetBidirectionalLinkLatency("a", "c", TimeSpan.FromTicks(3), TimeSpan.FromTicks(4));
+        Assert.True(network.ClearLinkLatency("b", "a"));
+        Assert.False(network.ClearLinkLatency("b", "a"));
+        network.ClearAllLinkLatencies();
+
+        Assert.Equal(
+            [
+                "set:b->a:1+2",
+                "set:a->c:3+4",
+                "set:c->a:3+4",
+                "clear:b->a",
+                "clear-all:2",
+            ],
+            network.Events);
     }
 
     [Fact]
@@ -334,7 +406,7 @@ public sealed class SimulationNetworkTests
         network.SetLinkLatency("node-1", "node-2", TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(5));
 
         var delays = new List<TimeSpan>();
-        for (var i = 0; i < 20; i++)
+        for (var i = 0; i < 12; i++)
         {
             delays.Add(network.GetMessageDelay("node-1", i % 2 == 0 ? "node-2" : "node-3"));
         }
@@ -343,6 +415,25 @@ public sealed class SimulationNetworkTests
     }
 
     private static SimulationNetwork CreateNetwork(IReadOnlyList<SimulationNode> nodes, int seed) => new(() => nodes, new SimulationRandom(seed));
+
+    private sealed class RecordingNetwork(SimulationRandom random)
+        : SimulationNetwork(() => [], random)
+    {
+        public List<string> Events { get; } = [];
+
+        protected override void OnLinkLatencySet(
+            string source,
+            string target,
+            TimeSpan baseDelay,
+            TimeSpan maxJitter) =>
+            Events.Add($"set:{source}->{target}:{baseDelay.Ticks}+{maxJitter.Ticks}");
+
+        protected override void OnLinkLatencyCleared(string source, string target) =>
+            Events.Add($"clear:{source}->{target}");
+
+        protected override void OnAllLinkLatenciesCleared(int count) =>
+            Events.Add($"clear-all:{count}");
+    }
 
     private sealed class TestNode(string address) : SimulationNode
     {
