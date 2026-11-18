@@ -15,7 +15,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Orleans.Testing.Simulation.Testing\Orleans.Testing.Simulation.Testing.csproj" />
+    <ProjectReference Include="..\..\src\Orleans.Testing.Simulation.Testing.MTP\Orleans.Testing.Simulation.Testing.MTP.csproj" />
   </ItemGroup>
 
-  <Import Project="..\..\src\Orleans.Testing.Simulation.Testing\buildTransitive\Microsoft.Orleans.Testing.Simulation.Testing.props" />
+  <Import Project="..\..\src\Orleans.Testing.Simulation.Testing.MTP\buildTransitive\Microsoft.Orleans.Testing.Simulation.Testing.MTP.props" />
 </Project>

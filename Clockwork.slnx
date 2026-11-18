@@ -9,6 +9,7 @@
     <Project Path="src/Orleans.Testing.Simulation.Tool/Orleans.Testing.Simulation.Tool.csproj" />
     <Project Path="src/Orleans.Testing.Simulation.Analyzers/Orleans.Testing.Simulation.Analyzers.csproj" />
     <Project Path="src/Orleans.Testing.Simulation.Testing/Orleans.Testing.Simulation.Testing.csproj" />
+    <Project Path="src/Orleans.Testing.Simulation.Testing.MTP/Orleans.Testing.Simulation.Testing.MTP.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Clockwork.Tests/Clockwork.Tests.csproj" />

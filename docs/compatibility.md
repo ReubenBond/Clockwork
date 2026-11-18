@@ -1348,10 +1348,11 @@ The implemented package boundaries under `src/` map to the modes above:
 | `Orleans.Testing.Simulation.Tool` | `Orleans.Testing.Simulation.Instrumentation` | `dotnet orleans-simulation instrument` / `inspect` CLI over the shared orchestrator. |
 | `Orleans.Testing.Simulation.Analyzers` | *(none)* | Roslyn diagnostics aligned with controlled/rejected direct BCL usage. |
 | `Orleans.Testing.Simulation.Testing` | `Orleans.Testing.Simulation` | Reusable test helpers, scenario builders, and in-memory log capture for consumers. |
+| `Orleans.Testing.Simulation.Testing.MTP` | `Orleans.Testing.Simulation.Testing`, Microsoft Testing Platform | Explicit MTP test-application hooks for simulation progress command-line options, output, and test-host environment forwarding. |
 
 Source builds can import
 [`eng/Microsoft.Orleans.Testing.Simulation.SourceBuild.props`](../eng/Microsoft.Orleans.Testing.Simulation.SourceBuild.props)
-to enumerate the six package IDs and their source projects, assembly names, target frameworks, and roles.
+to enumerate the seven package IDs and their source projects, assembly names, target frameworks, and roles.
 The map is declarative and adds no references or build hooks. Clog's future `eng/FastCasPaxos.props`
 owns replacing CASPaxos package references with project references into its vendored Clockwork source.
 That source build must redirect the complete mapped package set, which is preferred, or verify that any
@@ -1359,8 +1360,10 @@ restored Orleans simulation packages were built from the identical Clockwork rev
 packages beside a different vendored simulation kernel is forbidden because it can load divergent package
 and source-build identities into one process.
 
-`Orleans.Testing.Simulation.Testing` remains a separate helper project while retaining the
-`Orleans.Testing.Simulation.Testing` namespace boundary. Application hosting and transport models are
-consumer-owned and outside the Clockwork core; consumers compose them over `SimulationNetwork` and
-the generic application-composition APIs, and no dedicated hosting or HTTP packages ship. Exact
-shipped interception behavior is defined by [`rule-inventory.md`](rule-inventory.md).
+`Orleans.Testing.Simulation.Testing` is framework-neutral reusable support and retains the
+`Orleans.Testing.Simulation.Testing` namespace boundary. MTP executables opt into
+`Orleans.Testing.Simulation.Testing.MTP`; its build-transitive hook does not flow through the support
+package into ordinary libraries. Application hosting and transport models are consumer-owned and outside
+the Clockwork core; consumers compose them over `SimulationNetwork` and the generic
+application-composition APIs. Exact shipped interception behavior is defined by
+[`rule-inventory.md`](rule-inventory.md).

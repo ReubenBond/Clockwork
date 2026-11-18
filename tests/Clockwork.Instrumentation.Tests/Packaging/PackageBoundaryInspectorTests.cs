@@ -12,6 +12,7 @@ public sealed class PackageBoundaryInspectorTests
             "Microsoft.Orleans.Testing.Simulation.Instrumentation.Build",
             "Microsoft.Orleans.Testing.Simulation.Analyzers",
             "Microsoft.Orleans.Testing.Simulation.Testing",
+            "Microsoft.Orleans.Testing.Simulation.Testing.MTP",
             "Microsoft.Orleans.Testing.Simulation.Tool",
         ];
 
@@ -28,6 +29,7 @@ public sealed class PackageBoundaryInspectorTests
     [Theory]
     [InlineData("lib/net11.0/Orleans.Testing.Simulation.dll", true)]
     [InlineData("runtimes/win-x64/lib/net11.0/Orleans.Testing.Simulation.Testing.dll", true)]
+    [InlineData("lib/net11.0/Orleans.Testing.Simulation.Testing.MTP.dll", true)]
     [InlineData("lib/net11.0/Orleans.Testing.Simulation.Analyzers.dll", true)]
     [InlineData("analyzers/dotnet/cs/Orleans.Testing.Simulation.Analyzers.dll", false)]
     [InlineData("build/Orleans.Testing.Simulation.Instrumentation.Build.dll", false)]

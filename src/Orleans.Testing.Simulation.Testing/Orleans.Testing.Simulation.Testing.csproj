@@ -1,35 +1,24 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>Test helpers and Microsoft Testing Platform integration for deterministic Orleans simulation scenarios, including live progress, in-memory log capture, stable test identity seeds, failure artifacts, and environment-driven replay.</Description>
+    <Description>Framework-neutral test helpers for deterministic Orleans simulation scenarios, including in-memory log capture, stable test identity seeds, failure artifacts, and environment-driven replay.</Description>
     <RootNamespace>Orleans.Testing.Simulation.Testing</RootNamespace>
     <AssemblyName>Orleans.Testing.Simulation.Testing</AssemblyName>
     <PackageId>Microsoft.Orleans.Testing.Simulation.Testing</PackageId>
     <TargetFramework>net11.0</TargetFramework>
     <Version>0.1.0</Version>
-    <PackageTags>simulation;testing;distributed-systems;deterministic;microsoft-testing-platform</PackageTags>
+    <PackageTags>simulation;testing;distributed-systems;deterministic</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/ReubenBond/Clockwork</RepositoryUrl>
     <IsPackable>true</IsPackable>
-    <IsTestingPlatformApplication>false</IsTestingPlatformApplication>
   </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Microsoft.Testing.Platform" />
-  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Orleans.Testing.Simulation\Orleans.Testing.Simulation.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="buildTransitive\Microsoft.Orleans.Testing.Simulation.Testing.props"
-          Pack="true"
-          PackagePath="buildTransitive/Microsoft.Orleans.Testing.Simulation.Testing.props" />
-    <None Include="buildTransitive\Microsoft.Orleans.Testing.Simulation.Testing.props"
-          Pack="true"
-          PackagePath="buildMultiTargeting/Microsoft.Orleans.Testing.Simulation.Testing.props" />
     <None Include="..\..\LICENSE" Pack="true" PackagePath="\" />
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
     <None Include="..\..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="\" />
