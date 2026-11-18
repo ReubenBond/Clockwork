@@ -1,7 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 
-namespace Clockwork.Runtime.Tests.Tasks;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Tasks;
 
 /// <summary>
 /// A continuation which ignores its antecedent's fault leaves that fault unobserved, as in the BCL: once the faulted

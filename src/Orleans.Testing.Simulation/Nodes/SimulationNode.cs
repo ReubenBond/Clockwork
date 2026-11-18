@@ -1,6 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 
-namespace Clockwork;
+namespace Orleans.Testing.Simulation;
 
 /// <summary>
 /// Abstract base class for simulated nodes in a distributed system simulation.

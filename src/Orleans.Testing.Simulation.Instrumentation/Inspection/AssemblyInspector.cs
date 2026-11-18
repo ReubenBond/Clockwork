@@ -1,10 +1,10 @@
 using System.Reflection.PortableExecutable;
-using Clockwork.Instrumentation.Attributes;
-using Clockwork.Instrumentation.Imaging;
-using Clockwork.Instrumentation.Signing;
+using Orleans.Testing.Simulation.Instrumentation.Attributes;
+using Orleans.Testing.Simulation.Instrumentation.Imaging;
+using Orleans.Testing.Simulation.Instrumentation.Signing;
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Inspection;
+namespace Orleans.Testing.Simulation.Instrumentation.Inspection;
 
 /// <summary>
 /// Produces a read-only, deterministic description of a managed assembly's instrumentation-relevant

@@ -1,4 +1,4 @@
-namespace Clockwork.Instrumentation.Tests.Infrastructure;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 
 /// <summary>Finds files of this repository from the test binaries.</summary>
 internal static class Repository

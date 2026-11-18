@@ -1,8 +1,8 @@
 using System.ComponentModel;
 using System.Security.Cryptography;
-using Clockwork.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Execution;
 
-namespace Clockwork.Shims.System.Security.Cryptography;
+namespace Orleans.Testing.Simulation.Shims.System.Security.Cryptography;
 
 /// <summary>
 /// A <see cref="RandomNumberGenerator"/> that produces deterministic, non-cryptographic bytes from a

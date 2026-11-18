@@ -1,7 +1,7 @@
-using Clockwork.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Rewriting;
+namespace Orleans.Testing.Simulation.Instrumentation.Rewriting;
 
 /// <summary>
 /// Read-only pass that fails the rewrite at every method compiled with runtime async. Such a method carries the

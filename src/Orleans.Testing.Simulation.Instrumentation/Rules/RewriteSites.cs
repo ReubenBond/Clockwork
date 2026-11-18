@@ -1,4 +1,4 @@
-namespace Clockwork.Instrumentation.Rules;
+namespace Orleans.Testing.Simulation.Instrumentation.Rules;
 
 /// <summary>The kinds of site a <see cref="RewriteRule"/> rewrites.</summary>
 [Flags]

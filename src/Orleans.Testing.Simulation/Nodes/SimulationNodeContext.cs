@@ -1,10 +1,10 @@
 using System.Diagnostics;
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace Clockwork;
+namespace Orleans.Testing.Simulation;
 
 /// <summary>
 /// Represents the execution state of a simulated node.

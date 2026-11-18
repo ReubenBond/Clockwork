@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
-using Clockwork.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
 
-namespace Clockwork.Instrumentation.Rules;
+namespace Orleans.Testing.Simulation.Instrumentation.Rules;
 
 /// <summary>
 /// How a rule set's rules support one target runtime. A rule set supports a target when every rule supports it or has

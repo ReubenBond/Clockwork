@@ -1,10 +1,10 @@
-using Clockwork.Instrumentation.Diagnostics;
-using Clockwork.Instrumentation.Manifest;
-using Clockwork.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Manifest;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
-namespace Clockwork.Instrumentation.Rewriting;
+namespace Orleans.Testing.Simulation.Instrumentation.Rewriting;
 
 /// <summary>
 /// Rewrites <c>call</c>/<c>callvirt</c>/<c>newobj</c> sites that match a member-operation rule:

@@ -1,6 +1,6 @@
-using Clockwork.Runtime.Tasks;
+using Orleans.Testing.Simulation.Runtime.Tasks;
 
-namespace Clockwork.Runtime.Tests.Tasks;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Tasks;
 
 public sealed class ControlledTaskTimeoutTests
 {

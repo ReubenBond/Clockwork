@@ -1,20 +1,20 @@
 using System.Collections.Immutable;
-using Clockwork.Instrumentation.Manifest;
-using Clockwork.Instrumentation.Rewriting;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Rules.BuiltIn;
-using Clockwork.Instrumentation.Tests.Infrastructure;
-using Clockwork.Runtime.Policy;
+using Orleans.Testing.Simulation.Instrumentation.Manifest;
+using Orleans.Testing.Simulation.Instrumentation.Rewriting;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Runtime.Policy;
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Tests.Golden;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Golden;
 
 /// <summary>
 /// End-to-end golden tests for the shipped controlled <see cref="System.Threading.ThreadPool"/> rule
 /// family: they rewrite real <c>ThreadPool.QueueUserWorkItem</c> / <c>UnsafeQueueUserWorkItem</c> call
 /// sites in a compiled fixture against the real <c>Clockwork</c> assembly and assert on the
 /// rewritten IL and manifest. This proves the static signatures declared in <c>BuiltInRuleSets</c> line
-/// up with the actual <see cref="Clockwork.Shims.System.Threading.ControlledThreadPool"/> members, and that
+/// up with the actual <see cref="Orleans.Testing.Simulation.Shims.System.Threading.ControlledThreadPool"/> members, and that
 /// the native-overlapped overload is rejected at the call site, while the registered-wait factories are
 /// redirected to controlled shims and the <c>RegisteredWaitHandle</c> type is substituted.
 /// </summary>
@@ -45,7 +45,7 @@ public sealed class ControlledThreadPoolRuleGoldenTests
         """;
 
     private static string RuntimeAssemblyPath =>
-        typeof(Clockwork.Shims.System.Threading.ControlledThreadPool).Assembly.Location;
+        typeof(Orleans.Testing.Simulation.Shims.System.Threading.ControlledThreadPool).Assembly.Location;
 
     private static RewriteResult RewriteFixture(RewriteTestContext context, string assemblyName)
     {

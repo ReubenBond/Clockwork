@@ -1,8 +1,8 @@
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Random;
-using Clockwork.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Random;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
 
-namespace Clockwork.Runtime.Tests;
+namespace Orleans.Testing.Simulation.Runtime.Tests;
 
 // Owns a scheduler for tests that need an active simulation runtime.
 internal sealed class SimulationSchedulerTestHost : IDisposable

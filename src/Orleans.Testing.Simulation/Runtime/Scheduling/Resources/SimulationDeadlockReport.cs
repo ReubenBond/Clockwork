@@ -1,4 +1,4 @@
-namespace Clockwork.Runtime.Scheduling.Resources;
+namespace Orleans.Testing.Simulation.Runtime.Scheduling.Resources;
 
 /// <summary>
 /// The scheduler's deterministic classification of whether outstanding work can still make progress.

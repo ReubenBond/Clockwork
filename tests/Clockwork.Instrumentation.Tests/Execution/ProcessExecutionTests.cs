@@ -1,10 +1,10 @@
-using Clockwork.Instrumentation.Configuration;
-using Clockwork.Instrumentation.Manifest;
-using Clockwork.Instrumentation.Orchestration;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Instrumentation.Configuration;
+using Orleans.Testing.Simulation.Instrumentation.Manifest;
+using Orleans.Testing.Simulation.Instrumentation.Orchestration;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 
-namespace Clockwork.Instrumentation.Tests.Execution;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Execution;
 
 /// <summary>
 /// Full out-of-process execution tests. Each builds a real console-application closure (app +
@@ -43,10 +43,10 @@ public sealed class ProcessExecutionTests
             staged.ExitCode == 0,
             $"Staged process failed ({staged.ExitCode}):\n{staged.StandardOutput}\n{staged.StandardError}");
         Assert.Contains("monitor=rejected", staged.Output);
-        Assert.Contains("lock=Clockwork.Shims.System.Threading.ControlledLock", staged.Output);
+        Assert.Contains("lock=Orleans.Testing.Simulation.Shims.System.Threading.ControlledLock", staged.Output);
         Assert.Contains("semaphore=signaled", staged.Output);
         Assert.Contains("delays=6", staged.Output);
-        Assert.Contains("timer=Clockwork.Shims.System.Threading.ControlledTimer", staged.Output);
+        Assert.Contains("timer=Orleans.Testing.Simulation.Shims.System.Threading.ControlledTimer", staged.Output);
     }
 
     [Fact]

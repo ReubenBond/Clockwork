@@ -1,7 +1,7 @@
-using Clockwork.Runtime.Scheduling;
-using Clockwork.Runtime.Scheduling.Resources;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Scheduling.Resources;
 
-namespace Clockwork.Runtime.Tests.Scheduling;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Scheduling;
 
 /// <summary>
 /// Stress and teardown coverage for the unified <see cref="SimulationScheduler"/>: the

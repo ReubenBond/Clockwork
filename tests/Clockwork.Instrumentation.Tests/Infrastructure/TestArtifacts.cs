@@ -1,4 +1,4 @@
-namespace Clockwork.Instrumentation.Tests.Infrastructure;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 
 /// <summary>
 /// Resolves the base directory under which slow, process-based tests stage their transient

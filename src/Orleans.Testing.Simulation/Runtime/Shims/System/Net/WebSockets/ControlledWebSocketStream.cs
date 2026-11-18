@@ -1,9 +1,9 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Net.WebSockets;
-using Clockwork.Runtime;
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime;
+using Orleans.Testing.Simulation.Runtime.Shims;
 
-namespace Clockwork.Shims.System.Net.WebSockets;
+namespace Orleans.Testing.Simulation.Shims.System.Net.WebSockets;
 
 /// <summary>
 /// Controlled <see cref="WebSocketStream"/> factories which may make the stream own its <see cref="WebSocket"/>. A

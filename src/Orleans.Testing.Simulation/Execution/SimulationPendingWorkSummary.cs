@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text;
 
-namespace Clockwork;
+namespace Orleans.Testing.Simulation;
 
 /// <summary>
 /// <para>

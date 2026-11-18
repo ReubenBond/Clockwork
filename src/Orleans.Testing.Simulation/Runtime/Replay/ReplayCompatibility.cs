@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Reflection;
 using System.Runtime.InteropServices;
 
-namespace Clockwork.Runtime.Replay;
+namespace Orleans.Testing.Simulation.Runtime.Replay;
 
 /// <summary>Describes the expected runtime and instrumentation identity for a replay.</summary>
 public sealed record ReplayCompatibilityRequirements

@@ -9,14 +9,14 @@
 // exact source/IL metadata, stack-preserving receiver/index capture, manifest entries, async/iterator
 // state-machine handling, and exception-region/branch-target retargeting.
 
-using Clockwork.Instrumentation.Manifest;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Runtime.Policy;
-using Clockwork.Runtime.Racing;
+using Orleans.Testing.Simulation.Instrumentation.Manifest;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Runtime.Policy;
+using Orleans.Testing.Simulation.Runtime.Racing;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
-namespace Clockwork.Instrumentation.Rewriting;
+namespace Orleans.Testing.Simulation.Instrumentation.Rewriting;
 
 /// <summary>Injects opt-in scheduling points at supported memory and conditional branch instructions.</summary>
 internal sealed class RaceExplorationRewritingPass : RewritePass

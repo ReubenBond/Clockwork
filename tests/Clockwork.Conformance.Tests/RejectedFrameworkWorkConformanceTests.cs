@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
-using Clockwork.Runtime;
+using Orleans.Testing.Simulation.Runtime;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>
 /// End-to-end conformance for the framework entry points which the concurrency-escape audit found starting work outside

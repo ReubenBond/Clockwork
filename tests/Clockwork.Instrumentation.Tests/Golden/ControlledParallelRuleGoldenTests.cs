@@ -1,20 +1,20 @@
 using System.Collections.Immutable;
-using Clockwork.Instrumentation.Manifest;
-using Clockwork.Instrumentation.Rewriting;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Rules.BuiltIn;
-using Clockwork.Instrumentation.Tests.Infrastructure;
-using Clockwork.Runtime.Policy;
+using Orleans.Testing.Simulation.Instrumentation.Manifest;
+using Orleans.Testing.Simulation.Instrumentation.Rewriting;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Runtime.Policy;
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Tests.Golden;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Golden;
 
 /// <summary>
 /// End-to-end golden tests for the shipped controlled <see cref="System.Threading.Tasks.Parallel"/> rule
 /// family: they rewrite real <c>Parallel.Invoke</c> / <c>For</c> / <c>ForEach</c> / <c>ForAsync</c> /
 /// <c>ForEachAsync</c> call sites in a compiled fixture against the real <c>Clockwork</c> assembly and assert on the
 /// rewritten IL and manifest. This proves the static signatures declared in <c>BuiltInRuleSets</c> line up with the
-/// actual <see cref="Clockwork.Shims.System.Threading.Tasks.ControlledParallel"/> members, and that the overloads whose
+/// actual <see cref="Orleans.Testing.Simulation.Shims.System.Threading.Tasks.ControlledParallel"/> members, and that the overloads whose
 /// body receives a <c>ParallelLoopState</c> (break/stop and thread-local <c>TLocal</c>) are rejected at the call site.
 /// </summary>
 public sealed class ControlledParallelRuleGoldenTests
@@ -62,7 +62,7 @@ public sealed class ControlledParallelRuleGoldenTests
         """;
 
     private static string RuntimeAssemblyPath =>
-        typeof(Clockwork.Shims.System.Threading.Tasks.ControlledParallel).Assembly.Location;
+        typeof(Orleans.Testing.Simulation.Shims.System.Threading.Tasks.ControlledParallel).Assembly.Location;
 
     private static RewriteResult RewriteFixture(RewriteTestContext context, string assemblyName)
     {

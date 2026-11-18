@@ -1,6 +1,6 @@
-using Clockwork.Runtime.Tasks;
+using Orleans.Testing.Simulation.Runtime.Tasks;
 
-namespace Clockwork.Tests;
+namespace Orleans.Testing.Simulation.Tests;
 
 public sealed class SimulationClusterSchedulerFairnessTests
 {

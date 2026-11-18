@@ -1,4 +1,4 @@
-namespace Clockwork.Runtime.Decisions;
+namespace Orleans.Testing.Simulation.Runtime.Decisions;
 
 /// <summary>
 /// Records deterministic decisions in a monotonically ordered, append-only log. Scheduling and

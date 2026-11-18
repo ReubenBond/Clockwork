@@ -1,10 +1,10 @@
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Tasks;
-using Clockwork.Shims.System.Runtime.CompilerServices;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Tasks;
+using Orleans.Testing.Simulation.Shims.System.Runtime.CompilerServices;
 
-namespace Clockwork.Tests;
+namespace Orleans.Testing.Simulation.Tests;
 
 /// <summary>
 /// End-to-end host-wiring tests: a real <see cref="SimulationCluster"/> carries a controlled

@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace Clockwork;
+namespace Orleans.Testing.Simulation;
 
 /// <summary>
 /// <para>

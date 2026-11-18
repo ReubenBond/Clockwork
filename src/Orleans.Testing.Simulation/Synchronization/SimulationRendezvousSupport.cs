@@ -1,4 +1,4 @@
-namespace Clockwork;
+namespace Orleans.Testing.Simulation;
 
 /// <summary>
 /// Shared waiter bookkeeping for the rendezvous primitives (<see cref="SimulationGate"/>,
@@ -6,7 +6,7 @@ namespace Clockwork;
 /// </summary>
 internal static class SimulationRendezvousSupport
 {
-    private const string RendezvousApi = "Clockwork.SimulationRendezvous";
+    private const string RendezvousApi = "Orleans.Testing.Simulation.SimulationRendezvous";
 
     /// <summary>
     /// Adds a waiter while the owning primitive's lock is held.

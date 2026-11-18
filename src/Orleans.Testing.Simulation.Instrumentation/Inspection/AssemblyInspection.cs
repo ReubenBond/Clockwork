@@ -1,7 +1,7 @@
-using Clockwork.Instrumentation.Imaging;
-using Clockwork.Instrumentation.Signing;
+using Orleans.Testing.Simulation.Instrumentation.Imaging;
+using Orleans.Testing.Simulation.Instrumentation.Signing;
 
-namespace Clockwork.Instrumentation.Inspection;
+namespace Orleans.Testing.Simulation.Instrumentation.Inspection;
 
 /// <summary>
 /// The decoded idempotence metadata recorded on an assembly the engine has rewritten.
@@ -41,7 +41,7 @@ public enum SymbolPresence
 /// <param name="Image">The PE/CLI image shape (default when the file is not a valid PE image).</param>
 /// <param name="StrongName">The strong-name state (<see cref="StrongNameStatus.None"/> when unmanaged).</param>
 /// <param name="Symbols">The debug-symbol form.</param>
-/// <param name="Marker">The idempotence marker, or <see langword="null"/> if the assembly has not been rewritten by Clockwork.</param>
+/// <param name="Marker">The idempotence marker, or <see langword="null"/> if the assembly has not been rewritten by Orleans.Testing.Simulation.</param>
 public sealed record AssemblyInspection(
     string Path,
     bool IsManaged,

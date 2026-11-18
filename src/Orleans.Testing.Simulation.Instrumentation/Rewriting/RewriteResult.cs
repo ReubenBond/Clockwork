@@ -1,8 +1,8 @@
 using System.Collections.Immutable;
-using Clockwork.Instrumentation.Diagnostics;
-using Clockwork.Instrumentation.Manifest;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Manifest;
 
-namespace Clockwork.Instrumentation.Rewriting;
+namespace Orleans.Testing.Simulation.Instrumentation.Rewriting;
 
 /// <summary>
 /// The outcome of a single <see cref="RewriteEngine.Rewrite(RewriteRequest)"/> call: whether it

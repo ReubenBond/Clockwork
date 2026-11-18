@@ -1,6 +1,6 @@
 using System.Collections;
 
-namespace Clockwork.Runtime.Racing;
+namespace Orleans.Testing.Simulation.Runtime.Racing;
 
 /// <summary>
 /// The most recent race scheduling points, oldest first. Points before the newest <see cref="Capacity"/> are dropped,

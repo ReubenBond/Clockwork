@@ -1,4 +1,4 @@
-namespace Clockwork.Runtime.Replay;
+namespace Orleans.Testing.Simulation.Runtime.Replay;
 
 /// <summary>Hard parser and recorder limits for replay artifacts.</summary>
 public static class ReplayArtifactLimits

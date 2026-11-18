@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <Description>Test helpers and Microsoft Testing Platform integration for deterministic Clockwork scenarios, including live progress, in-memory log capture, stable test identity seeds, failure artifacts, and environment-driven replay.</Description>
-    <RootNamespace>Clockwork.Testing</RootNamespace>
+    <RootNamespace>Orleans.Testing.Simulation.Testing</RootNamespace>
     <AssemblyName>Orleans.Testing.Simulation.Testing</AssemblyName>
     <PackageId>Microsoft.Orleans.Testing.Simulation.Testing</PackageId>
     <TargetFramework>net11.0</TargetFramework>

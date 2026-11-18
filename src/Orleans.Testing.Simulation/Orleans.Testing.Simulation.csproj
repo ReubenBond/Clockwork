@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <Description>A deterministic simulation testing framework for distributed systems.</Description>
-    <RootNamespace>Clockwork</RootNamespace>
+    <RootNamespace>Orleans.Testing.Simulation</RootNamespace>
     <AssemblyName>Orleans.Testing.Simulation</AssemblyName>
     <PackageId>Microsoft.Orleans.Testing.Simulation</PackageId>
     <TargetFramework>net11.0</TargetFramework>

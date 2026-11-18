@@ -1,4 +1,4 @@
-namespace Clockwork.Runtime.Decisions;
+namespace Orleans.Testing.Simulation.Runtime.Decisions;
 
 /// <summary>
 /// A monotonically increasing identifier assigned by <see cref="ISimulationDecisionLog"/> to each

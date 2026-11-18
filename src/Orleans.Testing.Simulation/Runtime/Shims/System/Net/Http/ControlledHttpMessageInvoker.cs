@@ -1,7 +1,7 @@
 using System.Net.Http;
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Shims;
 
-namespace Clockwork.Shims.System.Net.Http;
+namespace Orleans.Testing.Simulation.Shims.System.Net.Http;
 
 /// <summary>
 /// Controlled <see cref="HttpMessageInvoker"/> <c>Send</c> and <c>SendAsync</c>. A call through an

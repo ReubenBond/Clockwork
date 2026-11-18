@@ -2,7 +2,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace Clockwork.Instrumentation.Orchestration;
+namespace Orleans.Testing.Simulation.Instrumentation.Orchestration;
 
 internal sealed record IncrementalCacheRecord(string IncrementalKey, string ManifestSha256)
 {

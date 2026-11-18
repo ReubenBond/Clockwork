@@ -1,9 +1,9 @@
 using System.Collections.Concurrent;
 using System.Net.Http;
-using Clockwork.Runtime;
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime;
+using Orleans.Testing.Simulation.Runtime.Shims;
 
-namespace Clockwork.Shims.System.Net.Http;
+namespace Orleans.Testing.Simulation.Shims.System.Net.Http;
 
 /// <summary>
 /// Controlled <see cref="HttpClient"/> sending members. The BCL bounds every request with the client's

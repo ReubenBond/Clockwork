@@ -2,11 +2,11 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Clockwork.Runtime.Decisions;
-using Clockwork.Runtime.Random;
-using Clockwork.Runtime.Racing;
+using Orleans.Testing.Simulation.Runtime.Decisions;
+using Orleans.Testing.Simulation.Runtime.Random;
+using Orleans.Testing.Simulation.Runtime.Racing;
 
-namespace Clockwork.Runtime.Replay;
+namespace Orleans.Testing.Simulation.Runtime.Replay;
 
 /// <summary>Reads and writes bounded replay artifacts using stable canonical UTF-8 JSON.</summary>
 public static class ReplayArtifactSerializer

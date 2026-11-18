@@ -1,9 +1,9 @@
 using System.Diagnostics;
 using System.Globalization;
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
 
-namespace Clockwork;
+namespace Orleans.Testing.Simulation;
 
 /// <summary>
 /// A node-scoped facade for scheduling callbacks on a <see cref="SimulationScheduler"/>.

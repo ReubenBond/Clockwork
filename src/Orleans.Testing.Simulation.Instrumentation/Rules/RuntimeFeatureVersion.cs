@@ -1,6 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 
-namespace Clockwork.Instrumentation.Rules;
+namespace Orleans.Testing.Simulation.Instrumentation.Rules;
 
 /// <summary>
 /// Parses .NET runtime feature versions: <c>major.minor</c>, such as <c>11.0</c>. Rules are classified against a

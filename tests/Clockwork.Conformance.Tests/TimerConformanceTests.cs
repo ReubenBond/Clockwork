@@ -1,6 +1,6 @@
 using System.Reflection;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 public sealed class TimerConformanceTests : IDisposable
 {

@@ -1,4 +1,4 @@
-namespace Clockwork.Runtime.Execution;
+namespace Orleans.Testing.Simulation.Runtime.Execution;
 
 /// <summary>
 /// Thrown by <see cref="SimulationExternalEntryGuard"/> when a callback is about to execute inside

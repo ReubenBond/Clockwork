@@ -1,13 +1,13 @@
 using System.Runtime.Loader;
-using Clockwork.Instrumentation.Diagnostics;
-using Clockwork.Instrumentation.Rewriting;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Rules.BuiltIn;
-using Clockwork.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Rewriting;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
-namespace Clockwork.Instrumentation.Tests.Golden;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Golden;
 
 /// <summary>
 /// Golden tests for the places a whole-type substitution reaches beyond member signatures, using the
@@ -21,8 +21,8 @@ public sealed class SubstitutedTypeShapeGoldenTests
 {
     private const string BclBarrier = "System.Threading.Barrier";
     private const string BclCountdownEvent = "System.Threading.CountdownEvent";
-    private const string ControlledBarrier = "Clockwork.Shims.System.Threading.ControlledBarrier";
-    private const string ControlledCountdownEvent = "Clockwork.Shims.System.Threading.ControlledCountdownEvent";
+    private const string ControlledBarrier = "Orleans.Testing.Simulation.Shims.System.Threading.ControlledBarrier";
+    private const string ControlledCountdownEvent = "Orleans.Testing.Simulation.Shims.System.Threading.ControlledCountdownEvent";
 
     internal const string Fixture = """
         using System.Collections;
@@ -131,7 +131,7 @@ public sealed class SubstitutedTypeShapeGoldenTests
         """;
 
     private static string RuntimeAssemblyPath =>
-        typeof(Clockwork.Shims.System.Threading.ControlledBarrier).Assembly.Location;
+        typeof(Orleans.Testing.Simulation.Shims.System.Threading.ControlledBarrier).Assembly.Location;
 
     [Fact]
     public void ComposedBaseTypesInterfacesConstraintsAndConstrainedOperandsAreRetargeted()
@@ -193,10 +193,10 @@ public sealed class SubstitutedTypeShapeGoldenTests
             Type[] loaded = loadContext.LoadFromStream(image).GetTypes();
             Type holder = loaded.Single(type => type.FullName == "Fx.Holder`1");
             Assert.Equal(
-                typeof(IEnumerable<Clockwork.Shims.System.Threading.ControlledBarrier>),
+                typeof(IEnumerable<Orleans.Testing.Simulation.Shims.System.Threading.ControlledBarrier>),
                 Assert.Single(holder.GetGenericArguments()[0].GetGenericParameterConstraints()));
             Assert.Equal(
-                typeof(List<Clockwork.Shims.System.Threading.ControlledBarrier>),
+                typeof(List<Orleans.Testing.Simulation.Shims.System.Threading.ControlledBarrier>),
                 loaded.Single(type => type.FullName == "Fx.Barriers").BaseType);
         }
         finally

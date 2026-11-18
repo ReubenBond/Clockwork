@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace Clockwork.Instrumentation.Rewriting;
+namespace Orleans.Testing.Simulation.Instrumentation.Rewriting;
 
 /// <summary>
 /// Thrown by <see cref="RewriteResult.EnsureSuccess"/> when a rewrite produced error diagnostics. The

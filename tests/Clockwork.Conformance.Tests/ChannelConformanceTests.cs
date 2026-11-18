@@ -4,10 +4,10 @@ using System.Globalization;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
-using Clockwork.Runtime;
-using Clockwork.Runtime.Replay;
+using Orleans.Testing.Simulation.Runtime;
+using Orleans.Testing.Simulation.Runtime.Replay;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>
 /// End-to-end conformance for the controlled <c>ChannelReader&lt;T&gt;.ReadAllAsync</c>, <c>ReadAsync</c>, and

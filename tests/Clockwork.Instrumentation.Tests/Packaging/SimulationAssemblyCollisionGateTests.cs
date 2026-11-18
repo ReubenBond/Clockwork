@@ -1,6 +1,6 @@
-using Clockwork.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 
-namespace Clockwork.Instrumentation.Tests.Packaging;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Packaging;
 
 public sealed class SimulationAssemblyCollisionGateTests
 {

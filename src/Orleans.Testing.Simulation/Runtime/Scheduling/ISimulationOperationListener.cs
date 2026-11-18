@@ -1,4 +1,4 @@
-namespace Clockwork.Runtime.Scheduling;
+namespace Orleans.Testing.Simulation.Runtime.Scheduling;
 
 /// <summary>
 /// An optional observer of <see cref="SimulationOperation"/> lifecycle transitions within a

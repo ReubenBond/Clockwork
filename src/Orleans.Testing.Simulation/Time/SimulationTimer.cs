@@ -1,4 +1,4 @@
-namespace Clockwork;
+namespace Orleans.Testing.Simulation;
 
 /// <summary>
 /// A timer implementation for the simulation time provider.

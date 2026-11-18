@@ -1,4 +1,4 @@
-namespace Clockwork;
+namespace Orleans.Testing.Simulation;
 
 /// <summary>
 /// Adaptive execution-budget overloads for <see cref="SimulationCluster"/> that spare callers from

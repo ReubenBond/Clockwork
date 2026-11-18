@@ -1,4 +1,4 @@
-namespace Clockwork.Runtime.Scheduling.Strategies;
+namespace Orleans.Testing.Simulation.Runtime.Scheduling.Strategies;
 
 /// <summary>
 /// The immutable input an <see cref="ISimulationSchedulingStrategy"/> reasons over when picking the

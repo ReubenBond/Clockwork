@@ -1,4 +1,4 @@
-namespace Clockwork.Instrumentation.Rules;
+namespace Orleans.Testing.Simulation.Instrumentation.Rules;
 
 /// <summary>
 /// The kind of IL transformation a <see cref="RewriteRule"/> performs at a matched site. Each kind

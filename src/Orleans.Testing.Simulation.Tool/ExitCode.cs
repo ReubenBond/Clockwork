@@ -1,4 +1,4 @@
-namespace Clockwork.Tool;
+namespace Orleans.Testing.Simulation.Tool;
 
 /// <summary>
 /// Process exit codes, grouped by failure class so that callers and CI can branch on the kind of

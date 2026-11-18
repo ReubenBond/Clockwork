@@ -1,9 +1,9 @@
 using System.Runtime.ExceptionServices;
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Scheduling;
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Shims;
 
-namespace Clockwork.Runtime;
+namespace Orleans.Testing.Simulation.Runtime;
 
 /// <summary>
 /// The runtime half of Clockwork's exception-handler hardening. The instrumentation's
@@ -33,7 +33,7 @@ public static class SimulationExceptionGuard
     {
         if (!SimulationExecutionContext.IsActive)
         {
-            throw new SimulationNotActiveException("Clockwork.Runtime.SimulationExceptionGuard.ThrowIfControlSignal");
+            throw new SimulationNotActiveException("Orleans.Testing.Simulation.Runtime.SimulationExceptionGuard.ThrowIfControlSignal");
         }
 
         if (exception is SimulationOperationAbortSignal signal)

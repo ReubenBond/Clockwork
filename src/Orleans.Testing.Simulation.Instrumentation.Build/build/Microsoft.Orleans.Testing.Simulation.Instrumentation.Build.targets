@@ -13,9 +13,9 @@
     <ClockworkInstrumentationTaskAssembly Condition="'$(ClockworkInstrumentationTaskAssembly)' == ''">$(MSBuildThisFileDirectory)..\tasks\net11.0\Orleans.Testing.Simulation.Instrumentation.Build.dll</ClockworkInstrumentationTaskAssembly>
   </PropertyGroup>
 
-  <UsingTask TaskName="Clockwork.Instrumentation.Build.ClockworkInstrumentTask"
+  <UsingTask TaskName="Orleans.Testing.Simulation.Instrumentation.Build.ClockworkInstrumentTask"
              AssemblyFile="$(ClockworkInstrumentationTaskAssembly)" />
-  <UsingTask TaskName="Clockwork.Instrumentation.Build.ClockworkValidateInstrumentedTestTask"
+  <UsingTask TaskName="Orleans.Testing.Simulation.Instrumentation.Build.ClockworkValidateInstrumentedTestTask"
              AssemblyFile="$(ClockworkInstrumentationTaskAssembly)" />
 
   <PropertyGroup>

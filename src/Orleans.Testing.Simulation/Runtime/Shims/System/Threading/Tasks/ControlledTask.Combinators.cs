@@ -1,9 +1,9 @@
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
-using Clockwork.Runtime.Racing;
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Racing;
+using Orleans.Testing.Simulation.Runtime.Shims;
 
-namespace Clockwork.Shims.System.Threading.Tasks;
+namespace Orleans.Testing.Simulation.Shims.System.Threading.Tasks;
 
 /// <summary>
 /// Controlled task combinators. The BCL combinators register completion actions on their antecedents, and those

@@ -1,4 +1,4 @@
-namespace Clockwork.Instrumentation.Configuration;
+namespace Orleans.Testing.Simulation.Instrumentation.Configuration;
 
 /// <summary>
 /// Selects the granularity of IL instrumentation applied to a controlled application closure.

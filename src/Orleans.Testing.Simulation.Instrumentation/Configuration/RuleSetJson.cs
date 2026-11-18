@@ -1,11 +1,11 @@
 using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Clockwork.Instrumentation.Orchestration;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Runtime.Policy;
+using Orleans.Testing.Simulation.Instrumentation.Orchestration;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Runtime.Policy;
 
-namespace Clockwork.Instrumentation.Configuration;
+namespace Orleans.Testing.Simulation.Instrumentation.Configuration;
 
 /// <summary>
 /// Reads and writes a <see cref="RewriteRuleSet"/> as a strict, declarative JSON document. This is

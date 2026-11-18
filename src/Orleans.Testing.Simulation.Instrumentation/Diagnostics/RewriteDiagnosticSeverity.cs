@@ -1,4 +1,4 @@
-namespace Clockwork.Instrumentation.Diagnostics;
+namespace Orleans.Testing.Simulation.Instrumentation.Diagnostics;
 
 /// <summary>
 /// The severity of a <see cref="RewriteDiagnostic"/> emitted by the rewrite engine.

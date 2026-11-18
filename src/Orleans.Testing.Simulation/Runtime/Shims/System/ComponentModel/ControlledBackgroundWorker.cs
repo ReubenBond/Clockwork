@@ -1,7 +1,7 @@
-using Clockwork.Runtime;
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime;
+using Orleans.Testing.Simulation.Runtime.Shims;
 
-namespace Clockwork.Shims.System.ComponentModel;
+namespace Orleans.Testing.Simulation.Shims.System.ComponentModel;
 
 /// <summary>
 /// Rejection of <see cref="global::System.ComponentModel.BackgroundWorker.RunWorkerAsync()"/> and its overload with an

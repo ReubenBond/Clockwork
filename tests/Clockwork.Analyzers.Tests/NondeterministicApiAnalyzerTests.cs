@@ -1,12 +1,12 @@
 using System.Collections.Immutable;
 using System.Linq;
-using Clockwork.Analyzers;
-using Clockwork.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Analyzers;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Diagnostics;
 
-namespace Clockwork.Analyzers.Tests;
+namespace Orleans.Testing.Simulation.Analyzers.Tests;
 
 /// <summary>
 /// Verifies that <see cref="NondeterministicApiAnalyzer"/> reports the same controlled
@@ -292,7 +292,7 @@ public sealed class NondeterministicApiAnalyzerTests
             BuiltInRuleFamily.CountdownEvent,
         ];
 
-        foreach ((BuiltInRuleFamily family, Clockwork.Instrumentation.Rules.RewriteRule rule) in
+        foreach ((BuiltInRuleFamily family, Orleans.Testing.Simulation.Instrumentation.Rules.RewriteRule rule) in
             BuiltInRuleSets.ControlledTasksInventory.Where(entry => analyzerFamilies.Contains(entry.Family)))
         {
             string typeName = rule.Target.DeclaringTypeFullName.Replace('/', '+');

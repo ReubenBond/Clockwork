@@ -1,12 +1,12 @@
 using System.Reflection;
 using System.Runtime.Loader;
-using Clockwork.Instrumentation.Configuration;
-using Clockwork.Instrumentation.Diagnostics;
-using Clockwork.Instrumentation.Orchestration;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Instrumentation.Configuration;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Orchestration;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 
-namespace Clockwork.Instrumentation.Tests.Orchestration;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Orchestration;
 
 /// <summary>
 /// Closure-level checks that a member reference, interface implementation, or override whose signature a type
@@ -83,7 +83,7 @@ public sealed class ClosureBindingTests : IDisposable
         using ClockworkFixtures.Api;
         using Fx.Lib;
 
-        namespace Clockwork.Instrumentation.Attributes
+        namespace Orleans.Testing.Simulation.Instrumentation.Attributes
         {
             [System.AttributeUsage(System.AttributeTargets.Class)]
             public sealed class DoNotRewriteAttribute(string reason) : System.Attribute
@@ -125,7 +125,7 @@ public sealed class ClosureBindingTests : IDisposable
         using ClockworkFixtures.Api;
         using Fx.Lib;
 
-        namespace Clockwork.Instrumentation.Attributes
+        namespace Orleans.Testing.Simulation.Instrumentation.Attributes
         {
             [System.AttributeUsage(System.AttributeTargets.Class)]
             public sealed class DoNotRewriteAttribute(string reason) : System.Attribute
@@ -136,7 +136,7 @@ public sealed class ClosureBindingTests : IDisposable
 
         namespace Fx.App
         {
-            [Clockwork.Instrumentation.Attributes.DoNotRewrite("Runs before the simulation starts.")]
+            [Orleans.Testing.Simulation.Instrumentation.Attributes.DoNotRewrite("Runs before the simulation starts.")]
             public static class LegacyCaller
             {
                 public static string Run() => Sink.Take(new LegacyMarker());
@@ -167,7 +167,7 @@ public sealed class ClosureBindingTests : IDisposable
             using ClockworkFixtures.Api;
             using Fx.Lib;
 
-            namespace Clockwork.Instrumentation.Attributes
+            namespace Orleans.Testing.Simulation.Instrumentation.Attributes
             {
                 [System.AttributeUsage(System.AttributeTargets.Class)]
                 public sealed class DoNotRewriteAttribute(string reason) : System.Attribute
@@ -196,7 +196,7 @@ public sealed class ClosureBindingTests : IDisposable
             """;
 
     private const string DoNotRewriteAttributeSource = """
-        namespace Clockwork.Instrumentation.Attributes
+        namespace Orleans.Testing.Simulation.Instrumentation.Attributes
         {
             [System.AttributeUsage(System.AttributeTargets.Class)]
             public sealed class DoNotRewriteAttribute(string reason) : System.Attribute
@@ -663,25 +663,25 @@ public sealed class ClosureBindingTests : IDisposable
     private static string ShapeOnlyAppSource(bool doNotRewrite) =>
         ShapeOnlyAppTemplate.Replace(
             "[ATTRIBUTE]",
-            doNotRewrite ? "[Clockwork.Instrumentation.Attributes.DoNotRewrite(\"Shared with code outside the simulation.\")]" : string.Empty,
+            doNotRewrite ? "[Orleans.Testing.Simulation.Instrumentation.Attributes.DoNotRewrite(\"Shared with code outside the simulation.\")]" : string.Empty,
             StringComparison.Ordinal);
 
     private static string ReshapeAppSource(bool doNotRewrite) =>
         ReshapeAppTemplate.Replace(
             "[ATTRIBUTE]",
-            doNotRewrite ? "[Clockwork.Instrumentation.Attributes.DoNotRewrite(\"Runs before the simulation starts.\")]" : string.Empty,
+            doNotRewrite ? "[Orleans.Testing.Simulation.Instrumentation.Attributes.DoNotRewrite(\"Runs before the simulation starts.\")]" : string.Empty,
             StringComparison.Ordinal);
 
     private static string KeptShapeLib(bool doNotRewrite) =>
         KeptShapeLibTemplate.Replace(
             "[LIB]",
-            doNotRewrite ? "[Clockwork.Instrumentation.Attributes.DoNotRewrite(\"Shared with code outside the simulation.\")]" : string.Empty,
+            doNotRewrite ? "[Orleans.Testing.Simulation.Instrumentation.Attributes.DoNotRewrite(\"Shared with code outside the simulation.\")]" : string.Empty,
             StringComparison.Ordinal);
 
     private static string KeptShapeApp(bool doNotRewrite) =>
         KeptShapeAppTemplate.Replace(
             "[APP]",
-            doNotRewrite ? "[Clockwork.Instrumentation.Attributes.DoNotRewrite(\"Shared with code outside the simulation.\")]" : string.Empty,
+            doNotRewrite ? "[Orleans.Testing.Simulation.Instrumentation.Attributes.DoNotRewrite(\"Shared with code outside the simulation.\")]" : string.Empty,
             StringComparison.Ordinal);
 
     private static void AssertReshapeErrors(InstrumentationResult result, string method, params string[] reasons)

@@ -2,15 +2,15 @@ using System.Runtime.InteropServices;
 using System.IO.Compression;
 using System.Text.Json;
 using System.Xml.Linq;
-using Clockwork.Instrumentation.Configuration;
-using Clockwork.Instrumentation.Diagnostics;
-using Clockwork.Instrumentation.Orchestration;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Rules.BuiltIn;
-using Clockwork.Instrumentation.Tests.Infrastructure;
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Instrumentation.Configuration;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Orchestration;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Runtime.Shims;
 
-namespace Clockwork.Instrumentation.Tests.Packaging;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Packaging;
 
 /// <summary>
 /// End-to-end package smoke tests. These pack the six production NuGet packages into an isolated
@@ -134,7 +134,7 @@ public sealed class PackageSmokeTests
             ReadPackageEntry(packagePath, propsPath),
             StringComparison.Ordinal);
         Assert.Contains(
-            "TaskName=\"Clockwork.Instrumentation.Build.ClockworkInstrumentTask\"",
+            "TaskName=\"Orleans.Testing.Simulation.Instrumentation.Build.ClockworkInstrumentTask\"",
             ReadPackageEntry(packagePath, targetsPath),
             StringComparison.Ordinal);
         Assert.Equal(
@@ -213,7 +213,7 @@ public sealed class PackageSmokeTests
                 entry.StartsWith("buildMultiTargeting/", StringComparison.Ordinal)
                 && entry.EndsWith(".props", StringComparison.Ordinal));
         Assert.Contains(
-            "<TypeFullName>Clockwork.Testing.TestingPlatformBuilderHook</TypeFullName>",
+            "<TypeFullName>Orleans.Testing.Simulation.Testing.TestingPlatformBuilderHook</TypeFullName>",
             ReadPackageEntry(packagePath, propsPath),
             StringComparison.Ordinal);
         Assert.Equal(
@@ -408,7 +408,7 @@ public sealed class PackageSmokeTests
         Assert.Contains(SimulationPackageId, packageReferences);
         Assert.Contains(TestingPackageId, packageReferences);
         Assert.Contains(BuildPackageId, packageReferences);
-        Assert.Contains("Clockwork.PackageProbe", packageReferences);
+        Assert.Contains("Orleans.Testing.Simulation.PackageProbe", packageReferences);
         Assert.Contains("Orleans.Durable.Storage.Diagnostics", packageReferences);
 
         AppRunResult build = consumer.Build();
@@ -532,11 +532,11 @@ public sealed class PackageSmokeTests
 
         Assert.True(build.ExitCode == 0, $"Build failed:\n{build.StandardOutput}\n{build.StandardError}");
         Assert.Equal(
-            Clockwork.Instrumentation.Signing.StrongNameStatus.StrongNameSigned,
-            Clockwork.Instrumentation.Signing.StrongNameInspector.Inspect(consumer.OutputAppPath).Status);
+            Orleans.Testing.Simulation.Instrumentation.Signing.StrongNameStatus.StrongNameSigned,
+            Orleans.Testing.Simulation.Instrumentation.Signing.StrongNameInspector.Inspect(consumer.OutputAppPath).Status);
         Assert.Equal(
-            Clockwork.Instrumentation.Signing.StrongNameStatus.None,
-            Clockwork.Instrumentation.Signing.StrongNameInspector.Inspect(consumer.StagedAppPath).Status);
+            Orleans.Testing.Simulation.Instrumentation.Signing.StrongNameStatus.None,
+            Orleans.Testing.Simulation.Instrumentation.Signing.StrongNameInspector.Inspect(consumer.StagedAppPath).Status);
         Assert.Contains("ticks=999", ProcessAppRunner.Run(consumer.StagedAppPath).Output);
         Assert.True(File.Exists(consumer.SuccessPath));
     }
@@ -1290,9 +1290,9 @@ public sealed class PackageSmokeTests
             WriteNuGetConfig(rootDir);
 
             File.WriteAllText(Path.Combine(appDir, "Program.cs"), """
-                using Clockwork;
-                using Clockwork.PackageProbe;
-                using Clockwork.Testing;
+                using Orleans.Testing.Simulation;
+                using Orleans.Testing.Simulation.PackageProbe;
+                using Orleans.Testing.Simulation.Testing;
                 using Orleans.Durable.Storage.Diagnostics;
                 using Xunit;
 
@@ -1338,7 +1338,7 @@ public sealed class PackageSmokeTests
                     <PackageReference Include="{SimulationPackageId}" Version="{_version}" />
                     <PackageReference Include="{TestingPackageId}" Version="{_version}" />
                     <PackageReference Include="{BuildPackageId}" Version="{_version}" />
-                    <PackageReference Include="Clockwork.PackageProbe" Version="{_version}" />
+                    <PackageReference Include="Orleans.Testing.Simulation.PackageProbe" Version="{_version}" />
                     <PackageReference Include="Orleans.Durable.Storage.Diagnostics" Version="{_version}" />
                   </ItemGroup>
                   <ItemGroup>
@@ -1365,10 +1365,10 @@ public sealed class PackageSmokeTests
                 [
                     RewriteRule.RedirectCall(
                         "redirect-package-probe",
-                        MemberSignature.Method("Clockwork.PackageApi.RealClock", "UtcNowTicks"),
+                        MemberSignature.Method("Orleans.Testing.Simulation.PackageApi.RealClock", "UtcNowTicks"),
                         RewriteReplacement.Method(
                             "PackageApi",
-                            "Clockwork.PackageApi.Shim",
+                            "Orleans.Testing.Simulation.PackageApi.Shim",
                             "UtcNowTicks")),
                 ]);
             File.WriteAllText(Path.Combine(appDir, "clockwork.rules.json"), RuleSetJson.Write(ruleSet));
@@ -1383,7 +1383,7 @@ public sealed class PackageSmokeTests
             WriteNuGetConfig(rootDir);
 
             File.WriteAllText(Path.Combine(appDir, "Program.cs"), """
-                using Clockwork;
+                using Orleans.Testing.Simulation;
 
                 Console.WriteLine(typeof(SimulationCluster).Assembly.GetName().Name);
                 """);
@@ -1449,19 +1449,19 @@ public sealed class PackageSmokeTests
                 </configuration>
                 """);
 
-            File.WriteAllText(Path.Combine(api, "Clockwork.PackageApi.csproj"), """
+            File.WriteAllText(Path.Combine(api, "Orleans.Testing.Simulation.PackageApi.csproj"), """
                 <Project Sdk="Microsoft.NET.Sdk">
                   <PropertyGroup>
                     <TargetFramework>net11.0</TargetFramework>
                     <Nullable>enable</Nullable>
                     <ImplicitUsings>enable</ImplicitUsings>
                     <AssemblyName>PackageApi</AssemblyName>
-                    <PackageId>Clockwork.PackageApi</PackageId>
+                    <PackageId>Orleans.Testing.Simulation.PackageApi</PackageId>
                   </PropertyGroup>
                 </Project>
                 """);
             File.WriteAllText(Path.Combine(api, "Api.cs"), """
-                namespace Clockwork.PackageApi;
+                namespace Orleans.Testing.Simulation.PackageApi;
 
                 public static class RealClock
                 {
@@ -1474,24 +1474,24 @@ public sealed class PackageSmokeTests
                 }
                 """);
 
-            File.WriteAllText(Path.Combine(probe, "Clockwork.PackageProbe.csproj"), $"""
+            File.WriteAllText(Path.Combine(probe, "Orleans.Testing.Simulation.PackageProbe.csproj"), $"""
                 <Project Sdk="Microsoft.NET.Sdk">
                   <PropertyGroup>
                     <TargetFramework>net11.0</TargetFramework>
                     <Nullable>enable</Nullable>
                     <ImplicitUsings>enable</ImplicitUsings>
                     <AssemblyName>PackageProbe</AssemblyName>
-                    <PackageId>Clockwork.PackageProbe</PackageId>
+                    <PackageId>Orleans.Testing.Simulation.PackageProbe</PackageId>
                   </PropertyGroup>
                   <ItemGroup>
-                    <PackageReference Include="Clockwork.PackageApi" Version="{version}" />
+                    <PackageReference Include="Orleans.Testing.Simulation.PackageApi" Version="{version}" />
                   </ItemGroup>
                 </Project>
                 """);
             File.WriteAllText(Path.Combine(probe, "Probe.cs"), """
-                using Clockwork.PackageApi;
+                using Orleans.Testing.Simulation.PackageApi;
 
-                namespace Clockwork.PackageProbe;
+                namespace Orleans.Testing.Simulation.PackageProbe;
 
                 public static class Subject
                 {
@@ -1520,13 +1520,13 @@ public sealed class PackageSmokeTests
                 """);
 
             PackProject(
-                Path.Combine(api, "Clockwork.PackageApi.csproj"),
+                Path.Combine(api, "Orleans.Testing.Simulation.PackageApi.csproj"),
                 api,
                 version,
                 feed,
                 packages);
             PackProject(
-                Path.Combine(probe, "Clockwork.PackageProbe.csproj"),
+                Path.Combine(probe, "Orleans.Testing.Simulation.PackageProbe.csproj"),
                 probe,
                 version,
                 feed,

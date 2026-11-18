@@ -1,12 +1,12 @@
 using System.Collections.Immutable;
-using Clockwork.Instrumentation.Manifest;
-using Clockwork.Instrumentation.Rewriting;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Rules.BuiltIn;
-using Clockwork.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Instrumentation.Manifest;
+using Orleans.Testing.Simulation.Instrumentation.Rewriting;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Tests.Golden;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Golden;
 
 /// <summary>
 /// Golden tests for <see cref="RewriteRule.BaseCallReplacement"/>: a rule over a virtual member redirects a virtual
@@ -46,7 +46,7 @@ public sealed class BaseCallReplacementGoldenTests
     private const string ReadAsyncRule = "clockwork.channels.reader.readasync";
 
     private static string RuntimeAssemblyPath =>
-        typeof(Clockwork.Shims.System.Threading.Channels.ControlledChannelReader).Assembly.Location;
+        typeof(Orleans.Testing.Simulation.Shims.System.Threading.Channels.ControlledChannelReader).Assembly.Location;
 
     [Fact]
     public void BaseCallsAndVirtualCallsAreRedirectedToTheirOwnReplacements()

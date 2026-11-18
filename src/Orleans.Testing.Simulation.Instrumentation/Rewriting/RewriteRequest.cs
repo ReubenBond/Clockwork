@@ -1,6 +1,6 @@
-using Clockwork.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
 
-namespace Clockwork.Instrumentation.Rewriting;
+namespace Orleans.Testing.Simulation.Instrumentation.Rewriting;
 
 /// <summary>
 /// A single request to the <see cref="RewriteEngine"/>: the assembly to read, where to write the

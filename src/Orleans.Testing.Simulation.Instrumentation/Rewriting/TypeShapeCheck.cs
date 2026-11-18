@@ -1,8 +1,8 @@
 using System.Text;
-using Clockwork.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Rewriting;
+namespace Orleans.Testing.Simulation.Instrumentation.Rewriting;
 
 /// <summary>
 /// Finds a type's interface implementations and method overrides that no longer match the member they implement or

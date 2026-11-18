@@ -1,10 +1,10 @@
 using System.Runtime.CompilerServices;
-using Clockwork.Runtime.Racing;
-using Clockwork.Runtime.Scheduling;
-using Clockwork.Runtime.Scheduling.Strategies;
-using Clockwork.Runtime.Tests.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Racing;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Scheduling.Strategies;
+using Orleans.Testing.Simulation.Runtime.Tests.Scheduling;
 
-namespace Clockwork.Runtime.Tests.Racing;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Racing;
 
 /// <summary>
 /// No race verdict, race report, or scheduling decision depends on clock-slot identity or GC timing. Each worker writes

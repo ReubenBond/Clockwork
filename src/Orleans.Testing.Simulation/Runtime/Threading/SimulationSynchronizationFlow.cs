@@ -1,6 +1,6 @@
 using System.Threading;
 
-namespace Clockwork.Runtime.Threading;
+namespace Orleans.Testing.Simulation.Runtime.Threading;
 
 /// <summary>
 /// <para>
@@ -13,13 +13,13 @@ namespace Clockwork.Runtime.Threading;
 /// </para>
 /// <para>
 /// A fresh, process-unique id is assigned at the single point where a new controlled strand begins -
-/// <see cref="Clockwork.Runtime.Tasks.SimulationTaskRuntime.QueueWork"/> - via <see cref="RunAsNewStrand"/>,
+/// <see cref="Orleans.Testing.Simulation.Runtime.Tasks.SimulationTaskRuntime.QueueWork"/> - via <see cref="RunAsNewStrand"/>,
 /// and restored when
 /// that synchronous run segment returns. Because every Monitor/Lock operation is synchronous, the id
 /// only has to be stable across a synchronous run segment (between cooperative yield points), which the
 /// save/restore guarantees even when a strand blocks and re-entrantly pumps the loop (a nested strand
 /// sets and restores its own id around its run). Strands scheduled directly onto a node's work queue
-/// (rather than through <see cref="Clockwork.Runtime.Tasks.SimulationTaskRuntime.QueueWork"/>) observe
+/// (rather than through <see cref="Orleans.Testing.Simulation.Runtime.Tasks.SimulationTaskRuntime.QueueWork"/>) observe
 /// the root id <see cref="None"/>.
 /// </para>
 /// <para>

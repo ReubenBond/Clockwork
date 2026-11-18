@@ -1,7 +1,7 @@
-using Clockwork.Instrumentation.Configuration;
-using Clockwork.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Configuration;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
 
-namespace Clockwork.Instrumentation.Tests.Configuration;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Configuration;
 
 /// <summary>
 /// Verifies deterministic rule-set merging: a single source passes through unchanged, a later

@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace Clockwork.Runtime.Scheduling;
+namespace Orleans.Testing.Simulation.Runtime.Scheduling;
 
 /// <summary>
 /// <para>

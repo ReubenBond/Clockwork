@@ -1,10 +1,10 @@
 using System.Runtime.CompilerServices;
 using System.Threading;
-using Clockwork.Runtime.Shims;
-using Clockwork.Runtime.Tasks;
-using Clockwork.Runtime.Racing;
+using Orleans.Testing.Simulation.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Tasks;
+using Orleans.Testing.Simulation.Runtime.Racing;
 
-namespace Clockwork.Shims.System.Threading;
+namespace Orleans.Testing.Simulation.Shims.System.Threading;
 
 /// <summary>
 /// Controlled receiver-first shims for <see cref="ReaderWriterLockSlim"/>. The real lock is retained only

@@ -1,9 +1,9 @@
 using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Clockwork.Instrumentation.Configuration;
+using Orleans.Testing.Simulation.Instrumentation.Configuration;
 
-namespace Clockwork.Instrumentation.Orchestration;
+namespace Orleans.Testing.Simulation.Instrumentation.Orchestration;
 
 /// <summary>Reads and validates bounded, versioned closure-manifest JSON.</summary>
 public static class ClosureManifestJson

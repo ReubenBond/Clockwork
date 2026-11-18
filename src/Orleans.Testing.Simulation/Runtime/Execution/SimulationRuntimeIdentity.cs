@@ -1,7 +1,7 @@
-using Clockwork.Runtime.Shims;
-using Clockwork.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
 
-namespace Clockwork.Runtime.Execution;
+namespace Orleans.Testing.Simulation.Runtime.Execution;
 
 /// <summary>
 /// <para>

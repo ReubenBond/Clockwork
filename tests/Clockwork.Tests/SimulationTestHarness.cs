@@ -1,8 +1,8 @@
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Random;
-using Clockwork.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Random;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
 
-namespace Clockwork.Tests;
+namespace Orleans.Testing.Simulation.Tests;
 
 internal static class SimulationTestHarness
 {

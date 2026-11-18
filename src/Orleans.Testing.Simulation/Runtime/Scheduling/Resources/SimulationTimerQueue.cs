@@ -1,7 +1,7 @@
 using System.Globalization;
-using Clockwork.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Execution;
 
-namespace Clockwork.Runtime.Scheduling.Resources;
+namespace Orleans.Testing.Simulation.Runtime.Scheduling.Resources;
 
 /// <summary>
 /// <para>

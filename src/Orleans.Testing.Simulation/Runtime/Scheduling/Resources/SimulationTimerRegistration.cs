@@ -1,8 +1,8 @@
 using System.Globalization;
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Tasks;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Tasks;
 
-namespace Clockwork.Runtime.Scheduling.Resources;
+namespace Orleans.Testing.Simulation.Runtime.Scheduling.Resources;
 
 internal interface ISimulationTimerEntry
 {

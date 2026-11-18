@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace Clockwork;
+namespace Orleans.Testing.Simulation;
 
 /// <summary>
 /// The configured limits that were in effect for a single drive-loop execution, captured

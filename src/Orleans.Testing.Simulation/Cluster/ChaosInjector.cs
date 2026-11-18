@@ -1,4 +1,4 @@
-namespace Clockwork;
+namespace Orleans.Testing.Simulation;
 
 /// <summary>
 /// Generic chaos injector for injecting random faults into simulations.

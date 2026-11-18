@@ -1,4 +1,4 @@
-namespace Clockwork.Runtime;
+namespace Orleans.Testing.Simulation.Runtime;
 
 /// <summary>Identifies the controlled API surface that rejected an unsupported operation.</summary>
 public enum SimulationApiCategory

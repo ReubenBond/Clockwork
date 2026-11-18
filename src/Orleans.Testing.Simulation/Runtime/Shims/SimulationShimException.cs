@@ -1,4 +1,4 @@
-namespace Clockwork.Runtime.Shims;
+namespace Orleans.Testing.Simulation.Runtime.Shims;
 
 /// <summary>
 /// The base type for failures reported by a deterministic BCL shim while a simulation is active,

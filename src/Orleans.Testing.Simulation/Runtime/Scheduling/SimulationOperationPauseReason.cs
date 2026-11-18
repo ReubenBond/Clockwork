@@ -1,4 +1,4 @@
-namespace Clockwork.Runtime.Scheduling;
+namespace Orleans.Testing.Simulation.Runtime.Scheduling;
 
 /// <summary>
 /// A coarse classification of <em>why</em> a <see cref="SimulationOperation"/> released the

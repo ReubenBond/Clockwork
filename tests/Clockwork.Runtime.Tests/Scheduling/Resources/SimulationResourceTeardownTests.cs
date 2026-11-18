@@ -1,7 +1,7 @@
-using Clockwork.Runtime.Scheduling;
-using Clockwork.Runtime.Scheduling.Resources;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Scheduling.Resources;
 
-namespace Clockwork.Runtime.Tests.Scheduling.Resources;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Scheduling.Resources;
 
 /// <summary>
 /// Teardown/disposal coverage for the resource/wait states: an operation parked on an infinite

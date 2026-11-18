@@ -1,6 +1,6 @@
-using Clockwork.Runtime.Policy;
+using Orleans.Testing.Simulation.Runtime.Policy;
 
-namespace Clockwork.Instrumentation.Rules;
+namespace Orleans.Testing.Simulation.Instrumentation.Rules;
 
 /// <summary>
 /// A single versioned instruction to the rewrite engine: at every site matching <see cref="Target"/>,

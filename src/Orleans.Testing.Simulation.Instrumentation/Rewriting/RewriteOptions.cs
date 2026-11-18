@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace Clockwork.Instrumentation.Rewriting;
+namespace Orleans.Testing.Simulation.Instrumentation.Rewriting;
 
 /// <summary>
 /// Configures a single rewrite: where to resolve replacement ("shim") assemblies and additional
@@ -52,7 +52,7 @@ public sealed record RewriteOptions
     /// start of every broad <c>catch (Exception)</c> / <c>catch</c> block and every exception <c>filter</c>
     /// so a rewritten assembly's user handlers cannot swallow the scheduler's internal control-flow signal.
     /// When enabled, the shim assembly declaring
-    /// <c>Clockwork.Runtime.SimulationExceptionGuard.ThrowIfControlSignal</c> must be supplied in
+    /// <c>Orleans.Testing.Simulation.Runtime.SimulationExceptionGuard.ThrowIfControlSignal</c> must be supplied in
     /// <see cref="ReplacementAssemblyPaths"/>. Defaults to <see langword="false"/> (the built-in
     /// controlled-task activation turns it on); narrow typed catches, finally blocks, rethrow-only
     /// handlers, and compiler-generated async-state-machine handlers are never instrumented, so normal

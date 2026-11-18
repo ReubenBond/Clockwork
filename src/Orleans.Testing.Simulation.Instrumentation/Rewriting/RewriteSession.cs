@@ -1,10 +1,10 @@
 using System.Collections.Immutable;
-using Clockwork.Instrumentation.Diagnostics;
-using Clockwork.Instrumentation.Manifest;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Manifest;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
-namespace Clockwork.Instrumentation.Rewriting;
+namespace Orleans.Testing.Simulation.Instrumentation.Rewriting;
 
 /// <summary>
 /// Shared, mutable state threaded through every <see cref="RewritePass"/> for a single rewrite of a

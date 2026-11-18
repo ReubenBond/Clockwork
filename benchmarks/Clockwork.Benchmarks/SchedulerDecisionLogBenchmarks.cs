@@ -1,7 +1,7 @@
 using BenchmarkDotNet.Attributes;
-using Clockwork.Runtime.Decisions;
+using Orleans.Testing.Simulation.Runtime.Decisions;
 
-namespace Clockwork.Benchmarks;
+namespace Orleans.Testing.Simulation.Benchmarks;
 
 [MemoryDiagnoser]
 public class SchedulerDecisionLogBenchmarks

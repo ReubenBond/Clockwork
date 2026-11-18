@@ -1,6 +1,6 @@
 using Microsoft.CodeAnalysis;
 
-namespace Clockwork.Analyzers;
+namespace Orleans.Testing.Simulation.Analyzers;
 
 /// <summary>
 /// The diagnostic descriptors raised by <see cref="NondeterministicApiAnalyzer"/>. They deliberately

@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 
-namespace Clockwork.Instrumentation.Rules.BuiltIn;
+namespace Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
 
 /// <summary>A framework member which reaches a concurrency escape and needs no rule, with the reason.</summary>
 /// <param name="DeclaringTypeFullName">The Cecil full name of the declaring type.</param>

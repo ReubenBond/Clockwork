@@ -1,4 +1,4 @@
-namespace Clockwork.Runtime.Racing;
+namespace Orleans.Testing.Simulation.Runtime.Racing;
 
 /// <summary>Classifies an instrumented race-exploration scheduling point.</summary>
 public enum RaceAccessKind

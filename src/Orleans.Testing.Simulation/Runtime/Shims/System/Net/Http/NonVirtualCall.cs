@@ -1,7 +1,7 @@
 using System.Reflection;
 using System.Reflection.Emit;
 
-namespace Clockwork.Shims.System.Net.Http;
+namespace Orleans.Testing.Simulation.Shims.System.Net.Http;
 
 /// <summary>
 /// Builds a delegate which calls a virtual instance method without virtual dispatch, as an override's base call does. A

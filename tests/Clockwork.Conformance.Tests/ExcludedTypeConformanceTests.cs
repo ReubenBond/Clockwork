@@ -1,6 +1,6 @@
 using System.Reflection;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>
 /// A type marked <c>[DoNotRewrite]</c> is excluded from rewriting together with the compiler-generated types nested in
@@ -17,7 +17,7 @@ public sealed class ExcludedTypeConformanceTests : IDisposable
         using System.Runtime.CompilerServices;
         using System.Threading;
         using System.Threading.Tasks;
-        namespace Clockwork.Instrumentation.Attributes
+        namespace Orleans.Testing.Simulation.Instrumentation.Attributes
         {
             [AttributeUsage(AttributeTargets.Class)]
             public sealed class DoNotRewriteAttribute(string reason) : Attribute
@@ -26,7 +26,7 @@ public sealed class ExcludedTypeConformanceTests : IDisposable
             }
         }
         namespace Conf {
-            [Clockwork.Instrumentation.Attributes.DoNotRewrite("Runs outside the simulation.")]
+            [Orleans.Testing.Simulation.Instrumentation.Attributes.DoNotRewrite("Runs outside the simulation.")]
             public static class LegacyProbe
             {
                 // The BCL awaiters resume on thread-pool threads, and Task.Delay waits on a real timer.

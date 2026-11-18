@@ -1,9 +1,9 @@
 using System.Collections.Immutable;
 using System.Text.Json;
-using Clockwork.Instrumentation.Orchestration;
-using Clockwork.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Orchestration;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
 
-namespace Clockwork.Instrumentation.Configuration;
+namespace Orleans.Testing.Simulation.Instrumentation.Configuration;
 
 /// <summary>
 /// Loads and strictly validates an <see cref="InstrumentationConfiguration"/> from a JSON document.

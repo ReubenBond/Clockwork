@@ -1,9 +1,9 @@
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Shims;
 
-namespace Clockwork.Runtime.Tests.Shims;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Shims;
 
 public sealed partial class ControlledShimOrganizationTests
 {
@@ -43,9 +43,9 @@ public sealed partial class ControlledShimOrganizationTests
         foreach (Type controlledType in controlledTypes)
         {
             string shimNamespace = Assert.IsType<string>(controlledType.Namespace);
-            Assert.StartsWith("Clockwork.Shims.", shimNamespace, StringComparison.Ordinal);
+            Assert.StartsWith("Orleans.Testing.Simulation.Shims.", shimNamespace, StringComparison.Ordinal);
 
-            string frameworkNamespace = shimNamespace["Clockwork.Shims.".Length..];
+            string frameworkNamespace = shimNamespace["Orleans.Testing.Simulation.Shims.".Length..];
             string frameworkName = TrimGenericArity(controlledType.Name["Controlled".Length..]);
             Assert.True(
                 frameworkTypes.Any(

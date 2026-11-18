@@ -1,4 +1,4 @@
-namespace Clockwork.Instrumentation.Rewriting;
+namespace Orleans.Testing.Simulation.Instrumentation.Rewriting;
 
 /// <summary>
 /// The form of debug symbols detected for an assembly being rewritten. Determines whether, and how,

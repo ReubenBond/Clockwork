@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 
-namespace Clockwork.Instrumentation.Rules.BuiltIn;
+namespace Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
 
 /// <summary>A member of a type the built-in rules target that no built-in rule rewrites, with the reason it stays a BCL call.</summary>
 /// <param name="DeclaringTypeFullName">The Cecil full name of the declaring type.</param>

@@ -1,10 +1,10 @@
 using BenchmarkDotNet.Attributes;
 using System.Diagnostics.CodeAnalysis;
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Racing;
-using Clockwork.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Racing;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
 
-namespace Clockwork.Benchmarks;
+namespace Orleans.Testing.Simulation.Benchmarks;
 
 [MemoryDiagnoser]
 [SuppressMessage(

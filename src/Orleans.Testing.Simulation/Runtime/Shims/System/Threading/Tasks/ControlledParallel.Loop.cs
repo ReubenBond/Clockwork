@@ -4,12 +4,12 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Racing;
-using Clockwork.Runtime.Tasks;
-using Clockwork.Shims.System.Runtime.CompilerServices;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Racing;
+using Orleans.Testing.Simulation.Runtime.Tasks;
+using Orleans.Testing.Simulation.Shims.System.Runtime.CompilerServices;
 
-namespace Clockwork.Shims.System.Threading.Tasks;
+namespace Orleans.Testing.Simulation.Shims.System.Threading.Tasks;
 
 public static partial class ControlledParallel
 {

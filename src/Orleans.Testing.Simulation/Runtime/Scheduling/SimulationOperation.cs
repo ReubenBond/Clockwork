@@ -1,8 +1,8 @@
 using System.Diagnostics;
 using System.Globalization;
-using Clockwork.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Execution;
 
-namespace Clockwork.Runtime.Scheduling;
+namespace Orleans.Testing.Simulation.Runtime.Scheduling;
 
 /// <summary>
 /// <para>
@@ -104,7 +104,7 @@ public sealed class SimulationOperation
     /// <summary>
     /// Gets this operation's scheduling priority. Higher values are preferred by the
     /// the priority strategy created by
-    /// <see cref="Clockwork.Runtime.Scheduling.Strategies.SimulationSchedulingStrategies"/>; it has no
+    /// <see cref="Orleans.Testing.Simulation.Runtime.Scheduling.Strategies.SimulationSchedulingStrategies"/>; it has no
     /// effect under the other strategies. Defaults to <c>0</c>. This is a crisp, caller-supplied
     /// integer (not a BCL <see cref="System.Threading.ThreadPriority"/>): the scheduler never infers
     /// or mutates it, so priority-ordered schedules stay reproducible.

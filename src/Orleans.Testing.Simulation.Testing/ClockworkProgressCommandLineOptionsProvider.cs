@@ -10,7 +10,7 @@ using Microsoft.Testing.Platform.Extensions.TestHostControllers;
 using Microsoft.Testing.Platform.OutputDevice;
 using Microsoft.Testing.Platform.Services;
 
-namespace Clockwork.Testing;
+namespace Orleans.Testing.Simulation.Testing;
 
 /// <summary>Registers Clockwork's Microsoft Testing Platform command-line options.</summary>
 public static class TestingPlatformBuilderHook

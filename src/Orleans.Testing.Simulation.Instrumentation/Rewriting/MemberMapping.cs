@@ -1,6 +1,6 @@
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Rewriting;
+namespace Orleans.Testing.Simulation.Instrumentation.Rewriting;
 
 /// <summary>The outcome of projecting the type substitutions onto a method or field reference.</summary>
 internal enum MemberMappingKind

@@ -1,9 +1,9 @@
 using System.Collections.Immutable;
-using Clockwork.Instrumentation.Configuration;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Instrumentation.Configuration;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
 
-namespace Clockwork.Tool;
+namespace Orleans.Testing.Simulation.Tool;
 
 /// <summary>
 /// Builds an <see cref="InstrumentationConfiguration"/> from command-line options, optionally layered

@@ -1,10 +1,10 @@
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Shims;
-using Clockwork.Runtime.Tasks;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Tasks;
 
-namespace Clockwork.Shims.System.Threading;
+namespace Orleans.Testing.Simulation.Shims.System.Threading;
 
 /// <summary>
 /// Controlled rewrite targets for <see cref="SynchronizationContext"/>.

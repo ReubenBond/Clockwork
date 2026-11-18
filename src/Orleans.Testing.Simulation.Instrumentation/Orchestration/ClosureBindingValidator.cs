@@ -1,10 +1,10 @@
-using Clockwork.Instrumentation.Closure;
-using Clockwork.Instrumentation.Diagnostics;
-using Clockwork.Instrumentation.Rewriting;
-using Clockwork.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Closure;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Rewriting;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Orchestration;
+namespace Orleans.Testing.Simulation.Instrumentation.Orchestration;
 
 /// <summary>
 /// Checks, once every assembly of a closure is staged, that the code of each staged assembly still binds to its

@@ -2,9 +2,9 @@ using System.Collections.Immutable;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Clockwork.Instrumentation.Configuration;
+using Orleans.Testing.Simulation.Instrumentation.Configuration;
 
-namespace Clockwork.Instrumentation.Orchestration;
+namespace Orleans.Testing.Simulation.Instrumentation.Orchestration;
 
 /// <summary>
 /// A single assembly's entry in a <see cref="ClosureManifest"/>: its closure-relative path, what

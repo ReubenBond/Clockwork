@@ -1,9 +1,9 @@
 using System.Globalization;
-using Clockwork.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
-namespace Clockwork.Instrumentation.Rewriting;
+namespace Orleans.Testing.Simulation.Instrumentation.Rewriting;
 
 /// <summary>
 /// Read-only rewriting pass that enforces cross-assembly task control. It flags every call site

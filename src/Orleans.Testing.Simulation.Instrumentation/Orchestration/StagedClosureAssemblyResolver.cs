@@ -1,9 +1,9 @@
 using System.Runtime.InteropServices;
-using Clockwork.Instrumentation.Closure;
-using Clockwork.Instrumentation.Rewriting;
+using Orleans.Testing.Simulation.Instrumentation.Closure;
+using Orleans.Testing.Simulation.Instrumentation.Rewriting;
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Orchestration;
+namespace Orleans.Testing.Simulation.Instrumentation.Orchestration;
 
 /// <summary>
 /// Resolves the assemblies a staged closure references the way the runtime binds them when the closure runs from its

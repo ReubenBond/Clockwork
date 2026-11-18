@@ -1,10 +1,10 @@
 using System.Threading;
 using System.Threading.Tasks;
-using Clockwork.Runtime.Shims;
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Racing;
+using Orleans.Testing.Simulation.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Racing;
 
-namespace Clockwork.Shims.System.Threading.Tasks;
+namespace Orleans.Testing.Simulation.Shims.System.Threading.Tasks;
 
 #pragma warning disable CA1068 // Signatures intentionally mirror the BCL TaskFactory overload order.
 

@@ -1,6 +1,6 @@
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Rewriting;
+namespace Orleans.Testing.Simulation.Instrumentation.Rewriting;
 
 /// <summary>Finds which of a set of named types a member reference's signature mentions.</summary>
 internal static class SignatureMentions

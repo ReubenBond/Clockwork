@@ -1,4 +1,4 @@
-namespace Clockwork.Runtime.Policy;
+namespace Orleans.Testing.Simulation.Runtime.Policy;
 
 /// <summary>
 /// Classifies how a rewrite rule treats a targeted API. Rules are the sole source of API policy;

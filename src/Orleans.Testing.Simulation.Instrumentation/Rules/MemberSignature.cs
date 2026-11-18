@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 
-namespace Clockwork.Instrumentation.Rules;
+namespace Orleans.Testing.Simulation.Instrumentation.Rules;
 
 /// <summary>
 /// A stable, tooling-authored identifier for a member (or a whole type) targeted by a

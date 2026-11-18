@@ -1,4 +1,4 @@
-namespace Clockwork.Runtime.Scheduling.Strategies;
+namespace Orleans.Testing.Simulation.Runtime.Scheduling.Strategies;
 
 /// <summary>
 /// The legacy/compatibility policy: always run the runnable operation with the smallest id. Because

@@ -1,10 +1,10 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Clockwork.Instrumentation.Configuration;
-using Clockwork.Instrumentation.Orchestration;
+using Orleans.Testing.Simulation.Instrumentation.Configuration;
+using Orleans.Testing.Simulation.Instrumentation.Orchestration;
 
-namespace Clockwork.Instrumentation.Tests.Orchestration;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Orchestration;
 
 public sealed class ClosureManifestJsonTests
 {

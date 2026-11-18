@@ -1,7 +1,7 @@
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Shims;
 using Microsoft.Extensions.Hosting;
 
-namespace Clockwork.Shims.Microsoft.Extensions.Hosting;
+namespace Orleans.Testing.Simulation.Shims.Microsoft.Extensions.Hosting;
 
 /// <summary>
 /// Controlled <see cref="HostingAbstractionsHostBuilderExtensions"/>. The BCL's <c>StartAsync</c> builds the host and

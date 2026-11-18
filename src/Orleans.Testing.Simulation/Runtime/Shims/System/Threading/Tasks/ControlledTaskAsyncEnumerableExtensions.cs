@@ -1,8 +1,8 @@
 using System.Threading;
-using Clockwork.Runtime.Shims;
-using Clockwork.Shims.System.Runtime.CompilerServices;
+using Orleans.Testing.Simulation.Runtime.Shims;
+using Orleans.Testing.Simulation.Shims.System.Runtime.CompilerServices;
 
-namespace Clockwork.Shims.System.Threading.Tasks;
+namespace Orleans.Testing.Simulation.Shims.System.Threading.Tasks;
 
 /// <summary>
 /// Controlled <see cref="global::System.Threading.Tasks.TaskAsyncEnumerableExtensions"/>. The rewriter redirects the

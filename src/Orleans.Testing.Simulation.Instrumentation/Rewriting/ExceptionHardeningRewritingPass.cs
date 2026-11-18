@@ -11,14 +11,14 @@
 // async-state-machine detection recognises Clockwork's substituted controlled builder types as well as the
 // BCL builders; and the pass records a manifest transformation for every hardened handler.
 
-using Clockwork.Instrumentation.Diagnostics;
-using Clockwork.Instrumentation.Manifest;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Runtime.Policy;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Manifest;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Runtime.Policy;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
-namespace Clockwork.Instrumentation.Rewriting;
+namespace Orleans.Testing.Simulation.Instrumentation.Rewriting;
 
 /// <summary>
 /// Rewriting pass that hardens user exception handling so a rewritten assembly's broad
@@ -31,7 +31,7 @@ namespace Clockwork.Instrumentation.Rewriting;
 /// </summary>
 internal sealed class ExceptionHardeningRewritingPass : RewritePass
 {
-    private const string GuardType = "Clockwork.Runtime.SimulationExceptionGuard";
+    private const string GuardType = "Orleans.Testing.Simulation.Runtime.SimulationExceptionGuard";
     private const string GuardMethod = "ThrowIfControlSignal";
     private const string ObjectFullName = "System.Object";
 

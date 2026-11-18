@@ -1,15 +1,15 @@
 using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Clockwork.Instrumentation.Closure;
-using Clockwork.Instrumentation.Configuration;
-using Clockwork.Instrumentation.Diagnostics;
-using Clockwork.Instrumentation.Imaging;
-using Clockwork.Instrumentation.Orchestration;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Signing;
+using Orleans.Testing.Simulation.Instrumentation.Closure;
+using Orleans.Testing.Simulation.Instrumentation.Configuration;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Imaging;
+using Orleans.Testing.Simulation.Instrumentation.Orchestration;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Signing;
 
-namespace Clockwork.Tool;
+namespace Orleans.Testing.Simulation.Tool;
 
 /// <summary>
 /// The <c>instrument</c> command: instruments an application closure from an explicit source directory

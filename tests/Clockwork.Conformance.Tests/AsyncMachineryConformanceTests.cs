@@ -1,7 +1,7 @@
 using System.Reflection;
 using System.Threading.Tasks;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>
 /// End-to-end semantic conformance for the controlled async machinery: ordinary

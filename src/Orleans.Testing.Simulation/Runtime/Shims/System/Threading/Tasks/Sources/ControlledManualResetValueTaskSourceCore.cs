@@ -1,8 +1,8 @@
 using System.Threading.Tasks.Sources;
-using Clockwork.Runtime.Shims;
-using Clockwork.Runtime.Tasks;
+using Orleans.Testing.Simulation.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Tasks;
 
-namespace Clockwork.Shims.System.Threading.Tasks.Sources;
+namespace Orleans.Testing.Simulation.Shims.System.Threading.Tasks.Sources;
 
 /// <summary>
 /// Controlled completion members of <see cref="ManualResetValueTaskSourceCore{TResult}"/>. Each completes the core

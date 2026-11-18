@@ -1,7 +1,7 @@
-using Clockwork.Instrumentation.Diagnostics;
-using Clockwork.Instrumentation.Configuration;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Configuration;
 
-namespace Clockwork.Instrumentation.Signing;
+namespace Orleans.Testing.Simulation.Instrumentation.Signing;
 
 /// <summary>Loads an optional configured strong-name key and produces a blocking diagnostic on failure.</summary>
 public static class StrongNameKeyLoader

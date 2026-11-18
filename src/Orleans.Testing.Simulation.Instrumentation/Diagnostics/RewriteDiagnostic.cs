@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace Clockwork.Instrumentation.Diagnostics;
+namespace Orleans.Testing.Simulation.Instrumentation.Diagnostics;
 
 /// <summary>
 /// A single deterministic diagnostic produced while rewriting an assembly. Diagnostics carry a

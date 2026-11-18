@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace Clockwork;
+namespace Orleans.Testing.Simulation;
 
 /// <summary>
 /// Diagnostic information about a single scheduled item found in a cluster or node queue while

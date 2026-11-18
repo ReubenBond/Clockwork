@@ -1,7 +1,7 @@
-using Clockwork.Runtime.Exploration;
-using Clockwork.Runtime.Replay;
+using Orleans.Testing.Simulation.Runtime.Exploration;
+using Orleans.Testing.Simulation.Runtime.Replay;
 
-namespace Clockwork.Runtime.Tests.Replay;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Replay;
 
 public sealed class ClusterReplayRunnerTests
 {

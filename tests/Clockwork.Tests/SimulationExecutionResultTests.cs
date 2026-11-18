@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace Clockwork.Tests;
+namespace Orleans.Testing.Simulation.Tests;
 
 /// <summary>
 /// Covers the structured execution outcome API (<see cref="SimulationExecutionResult"/> and

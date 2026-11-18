@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace Clockwork.Instrumentation.Configuration;
+namespace Orleans.Testing.Simulation.Instrumentation.Configuration;
 
 /// <summary>
 /// The declarative, serializable configuration that drives the build task and CLI: which rule-set

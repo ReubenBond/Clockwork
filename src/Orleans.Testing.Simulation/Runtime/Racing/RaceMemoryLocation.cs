@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace Clockwork.Runtime.Racing;
+namespace Orleans.Testing.Simulation.Runtime.Racing;
 
 /// <summary>Classifies a logical memory location tracked during race exploration.</summary>
 public enum RaceMemoryLocationKind

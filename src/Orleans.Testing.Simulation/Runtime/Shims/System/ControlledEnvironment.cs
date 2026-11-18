@@ -1,6 +1,6 @@
 using System.ComponentModel;
 
-namespace Clockwork.Shims.System;
+namespace Orleans.Testing.Simulation.Shims.System;
 
 /// <summary>Controlled rewrite targets for <see cref="Environment"/> APIs.</summary>
 [EditorBrowsable(EditorBrowsableState.Never)]
@@ -11,7 +11,7 @@ public static class ControlledEnvironment
     public static int GetCurrentManagedThreadId()
     {
         _ = SimulationRuntimeDispatch.RequireEnvironment("System.Environment.CurrentManagedThreadId");
-        return Clockwork.Runtime.Scheduling.SimulationScheduler.SimulationLogicalThreadOwnerId;
+        return Orleans.Testing.Simulation.Runtime.Scheduling.SimulationScheduler.SimulationLogicalThreadOwnerId;
     }
 
     /// <summary>

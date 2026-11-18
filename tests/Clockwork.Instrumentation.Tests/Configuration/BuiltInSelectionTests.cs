@@ -1,9 +1,9 @@
 using System.Collections.Immutable;
-using Clockwork.Instrumentation.Configuration;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Instrumentation.Configuration;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
 
-namespace Clockwork.Instrumentation.Tests.Configuration;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Configuration;
 
 /// <summary>
 /// Verifies the built-in rule-set selection plumbing: enabling by id, family include/exclude, the

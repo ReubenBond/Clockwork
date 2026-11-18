@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
-using Clockwork.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
 
-namespace Clockwork.Runtime.Racing;
+namespace Orleans.Testing.Simulation.Runtime.Racing;
 
 /// <summary>One operation's read or write of a logical memory location.</summary>
 /// <param name="OperationId">The accessing controlled operation.</param>

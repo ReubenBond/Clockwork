@@ -1,13 +1,13 @@
-using Clockwork;
+using Orleans.Testing.Simulation;
 using System.Threading.Tasks;
-using Clockwork.Runtime.Racing;
-using Clockwork.Runtime.Scheduling;
-using Clockwork.Runtime.Tests.Scheduling;
-using Clockwork.Runtime.Tests.Tasks;
-using Clockwork.Runtime.Threading;
-using Clockwork.Shims.System.Runtime.CompilerServices;
+using Orleans.Testing.Simulation.Runtime.Racing;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Tests.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Tests.Tasks;
+using Orleans.Testing.Simulation.Runtime.Threading;
+using Orleans.Testing.Simulation.Shims.System.Runtime.CompilerServices;
 
-namespace Clockwork.Runtime.Tests.Racing;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Racing;
 
 /// <summary>
 /// Race-detection edges through task completion. A producer writes a location and then completes a real

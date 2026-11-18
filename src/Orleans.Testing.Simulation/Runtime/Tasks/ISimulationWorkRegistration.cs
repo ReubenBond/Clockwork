@@ -1,4 +1,4 @@
-namespace Clockwork.Runtime.Tasks;
+namespace Orleans.Testing.Simulation.Runtime.Tasks;
 
 /// <summary>A cancellable registration for readiness-gated controlled work.</summary>
 public interface ISimulationWorkRegistration

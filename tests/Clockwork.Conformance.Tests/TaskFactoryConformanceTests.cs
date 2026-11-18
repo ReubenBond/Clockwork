@@ -1,7 +1,7 @@
 using System.Reflection;
 using System.Threading.Tasks;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>
 /// End-to-end conformance for the controlled <see cref="TaskFactory"/> / <see cref="TaskFactory{TResult}"/>
@@ -198,12 +198,12 @@ public sealed class TaskFactoryConformanceTests : IDisposable
         using var host = new SimulationHost(Start);
         var task = (Task<long[]>)host.Invoke(
             Method("Identity", optimize),
-            (Func<long>)(() => Clockwork.Runtime.Threading.SimulationSynchronizationFlow.CurrentId))!;
+            (Func<long>)(() => Orleans.Testing.Simulation.Runtime.Threading.SimulationSynchronizationFlow.CurrentId))!;
         long[] values = Result<long[]>(task);
 
         Assert.Equal(values[0], values[2]);
-        Assert.NotEqual(Clockwork.Runtime.Threading.SimulationSynchronizationFlow.None, values[1]);
-        Assert.NotEqual(Clockwork.Runtime.Threading.SimulationSynchronizationFlow.None, values[3]);
+        Assert.NotEqual(Orleans.Testing.Simulation.Runtime.Threading.SimulationSynchronizationFlow.None, values[1]);
+        Assert.NotEqual(Orleans.Testing.Simulation.Runtime.Threading.SimulationSynchronizationFlow.None, values[3]);
         Assert.NotEqual(values[1], values[3]);
     }
 

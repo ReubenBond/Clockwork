@@ -1,4 +1,4 @@
-namespace Clockwork;
+namespace Orleans.Testing.Simulation;
 
 /// <summary>
 /// Options for a single execution of <see cref="SimulationDriveLoop"/>.

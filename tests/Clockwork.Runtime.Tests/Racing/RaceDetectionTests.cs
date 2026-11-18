@@ -1,14 +1,14 @@
 using System.Runtime.CompilerServices;
-using Clockwork.Runtime.Racing;
-using Clockwork.Runtime.Scheduling;
-using Clockwork.Runtime.Scheduling.Resources;
-using Clockwork.Runtime.Scheduling.Strategies;
-using Clockwork.Runtime.Tests.Scheduling;
-using Clockwork.Runtime.Tasks;
-using Clockwork.Shims.System.Runtime.CompilerServices;
-using Clockwork.Runtime.Threading;
+using Orleans.Testing.Simulation.Runtime.Racing;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Scheduling.Resources;
+using Orleans.Testing.Simulation.Runtime.Scheduling.Strategies;
+using Orleans.Testing.Simulation.Runtime.Tests.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Tasks;
+using Orleans.Testing.Simulation.Shims.System.Runtime.CompilerServices;
+using Orleans.Testing.Simulation.Runtime.Threading;
 
-namespace Clockwork.Runtime.Tests.Racing;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Racing;
 
 /// <summary>Behavioral coverage of logical-location conflict detection and false-positive controls.</summary>
 public sealed class RaceDetectionTests

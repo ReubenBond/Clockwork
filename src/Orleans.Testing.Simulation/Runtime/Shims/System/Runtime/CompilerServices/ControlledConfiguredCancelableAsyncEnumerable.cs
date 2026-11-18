@@ -1,8 +1,8 @@
 using System.Runtime.InteropServices;
 using System.Threading;
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Shims;
 
-namespace Clockwork.Shims.System.Runtime.CompilerServices;
+namespace Orleans.Testing.Simulation.Shims.System.Runtime.CompilerServices;
 
 /// <summary>
 /// The controlled substitute for

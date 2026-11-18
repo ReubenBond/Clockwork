@@ -1,4 +1,4 @@
-namespace Clockwork.Instrumentation.Closure;
+namespace Orleans.Testing.Simulation.Instrumentation.Closure;
 
 /// <summary>
 /// A single file discovered in an application closure, classified by <see cref="Kind"/> and marked

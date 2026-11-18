@@ -1,4 +1,4 @@
-namespace Clockwork;
+namespace Orleans.Testing.Simulation;
 
 /// <summary>
 /// Extension members for <see cref="SimulationSchedulerLane"/> providing query functionality

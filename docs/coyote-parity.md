@@ -161,7 +161,7 @@ Coyote wraps TCS so the produced task is a controlled task. Clockwork keeps the 
 `TaskCompletionSource` and `TaskCompletionSource<TResult>`, with their real `TaskCreationOptions`: the controlled
 awaiters, combinators, and continuations observe the produced task through the coordinator and register no BCL
 continuation on it, so `RunContinuationsAsynchronously` sends none of them to the thread pool. Only the completion
-members redirect, to `Clockwork.Shims.System.Threading.Tasks.ControlledTaskCompletionSource`, which completes the
+members redirect, to `Orleans.Testing.Simulation.Shims.System.Threading.Tasks.ControlledTaskCompletionSource`, which completes the
 source through the same member and publishes the race-detection release edge.
 
 | Coyote surface | Clockwork status | Notes |

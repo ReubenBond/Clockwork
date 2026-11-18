@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace Clockwork.Runtime.Scheduling;
+namespace Orleans.Testing.Simulation.Runtime.Scheduling;
 
 /// <summary>
 /// Base class for exceptions that report misuse of the controlled-operation kernel (for example an

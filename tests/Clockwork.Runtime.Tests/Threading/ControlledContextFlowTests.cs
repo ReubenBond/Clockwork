@@ -1,11 +1,11 @@
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Tasks;
-using Clockwork.Runtime.Tests.Tasks;
-using Clockwork.Runtime.Threading;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Tasks;
+using Orleans.Testing.Simulation.Runtime.Tests.Tasks;
+using Orleans.Testing.Simulation.Runtime.Threading;
 #pragma warning disable SYSLIB0051
 #pragma warning disable CS0618
 
-namespace Clockwork.Runtime.Tests.Threading;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Threading;
 
 /// <summary>Focused coverage for controlled execution- and synchronization-context rewrite targets.</summary>
 public sealed class ControlledContextFlowTests

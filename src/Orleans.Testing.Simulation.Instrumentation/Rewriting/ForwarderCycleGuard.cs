@@ -1,6 +1,6 @@
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Rewriting;
+namespace Orleans.Testing.Simulation.Instrumentation.Rewriting;
 
 /// <summary>
 /// A metadata resolver that stops at a cycle of type forwarders. Cecil follows an exported type to the assembly it

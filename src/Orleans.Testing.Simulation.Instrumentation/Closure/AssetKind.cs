@@ -1,4 +1,4 @@
-namespace Clockwork.Instrumentation.Closure;
+namespace Orleans.Testing.Simulation.Instrumentation.Closure;
 
 /// <summary>
 /// The classification of a file discovered in an application output or publish directory. It

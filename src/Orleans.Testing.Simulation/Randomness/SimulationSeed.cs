@@ -1,6 +1,6 @@
-using Clockwork.Runtime.Random;
+using Orleans.Testing.Simulation.Runtime.Random;
 
-namespace Clockwork;
+namespace Orleans.Testing.Simulation;
 
 /// <summary>
 /// <para>
@@ -20,7 +20,7 @@ namespace Clockwork;
 /// Instead, the seed is derived by SHA-256 hashing the UTF-8 bytes of the input and interpreting
 /// the first four bytes of the digest as a big-endian, signed <see cref="int"/> - see
 /// <see cref="SimulationStableHash"/>, the shared primitive this type delegates to (also used by
-/// <see cref="Clockwork.Runtime.Random.SimulationSeedAuthority"/>'s per-domain derivation, so
+/// <see cref="Orleans.Testing.Simulation.Runtime.Random.SimulationSeedAuthority"/>'s per-domain derivation, so
 /// "derive a stable seed from a string" has exactly one implementation across the codebase).
 /// SHA-256 is a fixed, versioned algorithm with no process- or platform-specific behavior, and
 /// UTF-8 encoding is likewise fixed and unambiguous, so the same string always produces the same

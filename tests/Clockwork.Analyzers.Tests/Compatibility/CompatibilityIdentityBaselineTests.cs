@@ -3,15 +3,15 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Clockwork.Analyzers;
-using Clockwork.Instrumentation.Configuration;
-using Clockwork.Instrumentation.Diagnostics;
-using Clockwork.Instrumentation.Manifest;
-using Clockwork.Instrumentation.Orchestration;
-using Clockwork.Instrumentation.Rules.BuiltIn;
-using Clockwork.Runtime.Replay;
+using Orleans.Testing.Simulation.Analyzers;
+using Orleans.Testing.Simulation.Instrumentation.Configuration;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Manifest;
+using Orleans.Testing.Simulation.Instrumentation.Orchestration;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Runtime.Replay;
 
-namespace Clockwork.Analyzers.Tests.Compatibility;
+namespace Orleans.Testing.Simulation.Analyzers.Tests.Compatibility;
 
 /// <summary>
 /// Pins the external identities which must survive the later package, assembly, namespace, and build
@@ -54,6 +54,10 @@ public sealed class CompatibilityIdentityBaselineTests
             instrumentationEngineName = CreateInstrumentationManifest().EngineName,
             closureEngineName = CreateClosureManifest().EngineName,
             rewriteSignatureMetadataKey = GetRewriteSignatureMetadataKey(),
+            supportedRuntimesMetadataKey = GetConstant(
+                typeof(ReplayArtifact).Assembly,
+                "Orleans.Testing.Simulation.Runtime.SupportedRuntimesMarker",
+                "Key"),
         },
         ruleSets = new
         {
@@ -81,6 +85,11 @@ public sealed class CompatibilityIdentityBaselineTests
         },
         diagnostics = new
         {
+            categories = new[]
+            {
+                CompletionAuthorityAnalyzer.CompletionOutsideAuthority.Category,
+                DeterminismDiagnostics.ControlledApi.Category,
+            }.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(),
             analyzerIds = new[]
             {
                 DeterminismDiagnostics.ControlledApi.Id,
@@ -98,6 +107,13 @@ public sealed class CompatibilityIdentityBaselineTests
                 .OrderBy(static item => item.id, StringComparer.Ordinal)
                 .ThenBy(static item => item.name, StringComparer.Ordinal)
                 .ToArray(),
+        },
+        integration = new
+        {
+            progressOutputAppContextKey = GetConstant(
+                typeof(ReplayArtifact).Assembly,
+                "Orleans.Testing.Simulation.SimulationProgressOutput",
+                "AppContextKey"),
         },
     };
 
@@ -123,10 +139,18 @@ public sealed class CompatibilityIdentityBaselineTests
     private static string GetRewriteSignatureMetadataKey()
     {
         Type type = typeof(InstrumentationManifest).Assembly.GetType(
-            "Clockwork.Instrumentation.Attributes.RewriteSignatureMetadata",
+            "Orleans.Testing.Simulation.Instrumentation.Attributes.RewriteSignatureMetadata",
             throwOnError: true)!;
         return (string)type.GetField("Key", BindingFlags.Public | BindingFlags.Static)!
             .GetRawConstantValue()!;
+    }
+
+    private static string GetConstant(Assembly assembly, string typeName, string fieldName)
+    {
+        Type type = assembly.GetType(typeName, throwOnError: true)!;
+        return (string)type.GetField(
+            fieldName,
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!.GetRawConstantValue()!;
     }
 
     private static string HashIds(IEnumerable<string> ids) =>

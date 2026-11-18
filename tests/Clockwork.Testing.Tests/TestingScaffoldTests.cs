@@ -1,4 +1,4 @@
-namespace Clockwork.Testing.Tests;
+namespace Orleans.Testing.Simulation.Testing.Tests;
 
 public sealed class TestingScaffoldTests
 {

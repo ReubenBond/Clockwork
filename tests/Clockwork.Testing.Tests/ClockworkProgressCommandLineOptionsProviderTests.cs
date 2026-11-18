@@ -1,11 +1,11 @@
 using System.Diagnostics.CodeAnalysis;
-using Clockwork.Testing;
+using Orleans.Testing.Simulation.Testing;
 using Microsoft.Testing.Platform.CommandLine;
 using Microsoft.Testing.Platform.Extensions;
 using Microsoft.Testing.Platform.Extensions.CommandLine;
 using Microsoft.Testing.Platform.Extensions.TestHostControllers;
 
-namespace Clockwork.Testing.Tests;
+namespace Orleans.Testing.Simulation.Testing.Tests;
 
 [Collection("Clockwork progress environment")]
 public sealed class ClockworkProgressCommandLineOptionsProviderTests

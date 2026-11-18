@@ -1,7 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 
-namespace Clockwork.Shims.System.Diagnostics;
+namespace Orleans.Testing.Simulation.Shims.System.Diagnostics;
 
 /// <summary>Controlled rewrite targets for <see cref="Stopwatch"/> timestamp APIs.</summary>
 [EditorBrowsable(EditorBrowsableState.Never)]

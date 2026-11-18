@@ -12,13 +12,13 @@
 // distinguishes portable vs. embedded vs. unsupported forms and reports absence explicitly; and
 // resolution failures surface as structured RewriteDiagnostic values instead of log lines.
 
-using Clockwork.Instrumentation.Attributes;
-using Clockwork.Instrumentation.Diagnostics;
-using Clockwork.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Attributes;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
-namespace Clockwork.Instrumentation.Rewriting;
+namespace Orleans.Testing.Simulation.Instrumentation.Rewriting;
 
 /// <summary>
 /// Loads a single assembly for rewriting, exposes its Mono.Cecil <see cref="AssemblyDefinition"/>,

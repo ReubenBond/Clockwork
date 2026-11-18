@@ -1,4 +1,4 @@
-namespace Clockwork.Instrumentation.Signing;
+namespace Orleans.Testing.Simulation.Instrumentation.Signing;
 
 /// <summary>
 /// The strong-name state of an assembly, as observed from its metadata and CLI header.

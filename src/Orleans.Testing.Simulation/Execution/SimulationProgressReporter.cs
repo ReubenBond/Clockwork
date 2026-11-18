@@ -1,7 +1,7 @@
 using System.Globalization;
-using Clockwork.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Execution;
 
-namespace Clockwork;
+namespace Orleans.Testing.Simulation;
 
 internal readonly record struct SimulationProgressSnapshot(
     int Iterations,

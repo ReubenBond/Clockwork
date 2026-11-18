@@ -443,8 +443,8 @@ recovered to a rewriteable managed closure.
 
 The built-in simulation rule set `clockwork.bcl.deterministic` (version `3.0.0`),
 redirects the direct **static** time / identity / random BCL surface to Cecil-free runtime
-shims in the `Clockwork` assembly, under namespaces matching
-`Clockwork.Shims.<framework namespace>`. The complete, exhaustive
+shims in the `Orleans.Testing.Simulation` assembly, under namespaces matching
+`Orleans.Testing.Simulation.Shims.<framework namespace>`. The complete, exhaustive
 list of controlled and rejected signatures is generated into
 [`rule-inventory.md`](rule-inventory.md) and verified against the shipped rules by a test, so
 the published inventory can never drift from the code.
@@ -516,7 +516,7 @@ verified against the shipped rules by a test.
 
 The rule set has two halves. A **member-aware type substitution** pass retargets the
 compiler-generated builder and awaiter types of an `async` state machine onto controlled
-value-type equivalents in `Clockwork.Shims.System.Runtime.CompilerServices`
+value-type equivalents in `Orleans.Testing.Simulation.Shims.System.Runtime.CompilerServices`
 (`AsyncTaskMethodBuilder`(`<T>`) → `ControlledAsyncTaskMethodBuilder`(`<T>`); `TaskAwaiter`(`<T>`),
 `ConfiguredTaskAwaitable`(`<T>`)`/ConfiguredTaskAwaiter`, and `YieldAwaitable`/`YieldAwaiter` →
 their `Controlled…` counterparts), rewriting field, local, method- and field-reference, and
@@ -562,7 +562,7 @@ generic `Task<T>` overloads** (array, span, enumerable, and the `WhenAny<T>` pai
 `Task.ContinueWith`/`Task<T>.ContinueWith` overloads, all 48 `TaskFactory`/`TaskFactory<T>`
 `ContinueWhenAll`/`ContinueWhenAny` overloads, the `ValueTask`/`ValueTask<T>` `AsTask` and `Preserve`
 conversions, and the completion members of `TaskCompletionSource`/`TaskCompletionSource<T>` to shims in
-`Clockwork.Shims.System.Threading.Tasks`, and rejects every `TaskFactory`/`TaskFactory<T>` `FromAsync` overload at
+`Orleans.Testing.Simulation.Shims.System.Threading.Tasks`, and rejects every `TaskFactory`/`TaskFactory<T>` `FromAsync` overload at
 the call site. Synchronous waits **pump the
 coordinator loop until completion instead of blocking a physical thread**, then delegate to the
 real API to reproduce its exact `AggregateException` semantics, so a synchronous wait or a blocking
@@ -720,7 +720,7 @@ inside a task which hides it, run inline on the logical thread. That covers the 
 `ManualResetValueTaskSourceCore<T>` completion shims, `CancellationTokenSource.Cancel` and the cancellations its
 virtual timer and `CancelAsync` make, the controlled synchronization primitives' waiters, rendezvous, and timers, and the
 promises of the controlled combinators and continuations. A bare continuation of the task then runs inline, on the
-logical thread, as the BCL runs it on a thread-pool thread. Inside the Clockwork assembly, analyzer rule `CW1004` rejects
+logical thread, as the BCL runs it on a thread-pool thread. Inside the `Orleans.Testing.Simulation` assembly, analyzer rule `CW1004` rejects
 any call to these completion members outside that one path.
 
 Around the completion the BCL's behavior is kept where it differs:
@@ -1337,7 +1337,7 @@ The implemented package boundaries under `src/` map to the modes above:
 | `Orleans.Testing.Simulation.Testing` | `Orleans.Testing.Simulation` | Reusable test helpers, scenario builders, and in-memory log capture for consumers. |
 
 `Orleans.Testing.Simulation.Testing` remains a separate helper project while retaining the
-`Clockwork.Testing` namespace boundary. Application hosting and transport models are
+`Orleans.Testing.Simulation.Testing` namespace boundary. Application hosting and transport models are
 consumer-owned and outside the Clockwork core; consumers compose them over `SimulationNetwork` and
 the generic application-composition APIs, and no dedicated hosting or HTTP packages ship. Exact
 shipped interception behavior is defined by [`rule-inventory.md`](rule-inventory.md).

@@ -1,6 +1,6 @@
-using Clockwork.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
 
-namespace Clockwork.Runtime.Racing;
+namespace Orleans.Testing.Simulation.Runtime.Racing;
 
 /// <summary>A deterministic trace entry emitted by one injected scheduling point.</summary>
 /// <param name="Sequence">The scheduler-local, monotonically increasing trace sequence.</param>

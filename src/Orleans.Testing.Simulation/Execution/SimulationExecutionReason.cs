@@ -1,4 +1,4 @@
-namespace Clockwork;
+namespace Orleans.Testing.Simulation;
 
 /// <summary>
 /// Describes why a <see cref="SimulationCluster"/> drive-loop execution

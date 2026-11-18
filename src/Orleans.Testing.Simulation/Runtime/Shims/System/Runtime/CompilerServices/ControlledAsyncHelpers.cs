@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace Clockwork.Shims.System.Runtime.CompilerServices;
+namespace Orleans.Testing.Simulation.Shims.System.Runtime.CompilerServices;
 
 /// <summary>
 /// Controlled <c>System.Runtime.CompilerServices.AsyncHelpers</c> members. The <c>Await</c> overloads that take a

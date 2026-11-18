@@ -4,7 +4,7 @@ using System.Reflection;
 using System.Text;
 using Microsoft.Extensions.Logging;
 
-namespace Clockwork.Testing;
+namespace Orleans.Testing.Simulation.Testing;
 
 /// <summary>
 /// Provides an in-memory log buffer shared by loggers created by an

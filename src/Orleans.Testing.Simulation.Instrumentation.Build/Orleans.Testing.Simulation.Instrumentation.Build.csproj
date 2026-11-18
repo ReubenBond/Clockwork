@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <Description>MSBuild task package that applies Clockwork's deterministic IL instrumentation to a project's resolved output as an opt-in, out-of-place build step. Set ClockworkInstrumentationEnabled=true to activate. Requires the .NET 11 SDK (dotnet build / dotnet msbuild); the task and its Mono.Cecil-based engine target net11.0 and are not loadable by .NET Framework MSBuild. See docs/compatibility.md.</Description>
-    <RootNamespace>Clockwork.Instrumentation.Build</RootNamespace>
+    <RootNamespace>Orleans.Testing.Simulation.Instrumentation.Build</RootNamespace>
     <AssemblyName>Orleans.Testing.Simulation.Instrumentation.Build</AssemblyName>
     <TargetFramework>net11.0</TargetFramework>
 

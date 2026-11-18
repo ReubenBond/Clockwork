@@ -1,8 +1,8 @@
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Decisions;
-using Clockwork.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Decisions;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
 
-namespace Clockwork.Benchmarks;
+namespace Orleans.Testing.Simulation.Benchmarks;
 
 internal static class SchedulerBenchmarkWorkload
 {

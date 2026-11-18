@@ -1,11 +1,11 @@
-using Clockwork.Instrumentation.Configuration;
-using Clockwork.Instrumentation.Orchestration;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Rules.BuiltIn;
-using Clockwork.Runtime.Tasks;
+using Orleans.Testing.Simulation.Instrumentation.Configuration;
+using Orleans.Testing.Simulation.Instrumentation.Orchestration;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Runtime.Tasks;
 using Microsoft.CodeAnalysis;
 
-namespace Clockwork.Instrumentation.Tests.Infrastructure;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 
 /// <summary>
 /// Builds a real executable plus a third-party dependency which uses only ordinary BCL APIs, rewrites
@@ -69,7 +69,7 @@ internal sealed class BuiltInProcessFixture : IDisposable
 
     private const string AppSource = """
         using System;
-        using Clockwork;
+        using Orleans.Testing.Simulation;
         using ThirdParty.Sync;
 
         public static class Program
@@ -96,8 +96,8 @@ internal sealed class BuiltInProcessFixture : IDisposable
     public const string DelegatedAppSource = """
         using System;
         using System.Threading;
-        using Clockwork;
-        using Clockwork.Runtime;
+        using Orleans.Testing.Simulation;
+        using Orleans.Testing.Simulation.Runtime;
         using ThirdParty.Sync;
 
         public static class Program

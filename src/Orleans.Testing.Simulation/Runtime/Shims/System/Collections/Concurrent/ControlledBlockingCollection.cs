@@ -1,11 +1,11 @@
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
-using Clockwork.Runtime.Racing;
-using Clockwork.Runtime.Shims;
-using Clockwork.Runtime.Tasks;
+using Orleans.Testing.Simulation.Runtime.Racing;
+using Orleans.Testing.Simulation.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Tasks;
 
-namespace Clockwork.Shims.System.Collections.Concurrent;
+namespace Orleans.Testing.Simulation.Shims.System.Collections.Concurrent;
 
 /// <summary>
 /// <para>

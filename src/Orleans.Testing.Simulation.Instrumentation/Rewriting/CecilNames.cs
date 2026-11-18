@@ -1,7 +1,7 @@
 using System.Globalization;
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Rewriting;
+namespace Orleans.Testing.Simulation.Instrumentation.Rewriting;
 
 /// <summary>
 /// Helpers for turning Mono.Cecil references into the stable, normalized names the rule model and

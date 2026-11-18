@@ -1,4 +1,4 @@
-namespace Clockwork.Instrumentation.Rules.BuiltIn;
+namespace Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
 
 /// <summary>
 /// The API family a built-in <see cref="RewriteRule"/> belongs to. Families are the unit of granular

@@ -1,6 +1,6 @@
-using Clockwork.Runtime.Scheduling.Resources;
+using Orleans.Testing.Simulation.Runtime.Scheduling.Resources;
 
-namespace Clockwork.Runtime.Tests.Scheduling.Resources;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Scheduling.Resources;
 
 public sealed class SimulationTimerQueueTests
 {

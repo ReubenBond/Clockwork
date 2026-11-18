@@ -1,8 +1,8 @@
 using System.Globalization;
-using Clockwork.Runtime.Decisions;
-using Clockwork.Runtime.Scheduling.Resources;
+using Orleans.Testing.Simulation.Runtime.Decisions;
+using Orleans.Testing.Simulation.Runtime.Scheduling.Resources;
 
-namespace Clockwork.Runtime.Scheduling.Strategies;
+namespace Orleans.Testing.Simulation.Runtime.Scheduling.Strategies;
 
 /// <summary>
 /// <para>

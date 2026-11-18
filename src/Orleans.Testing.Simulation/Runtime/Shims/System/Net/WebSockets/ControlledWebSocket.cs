@@ -1,7 +1,7 @@
-using Clockwork.Runtime;
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime;
+using Orleans.Testing.Simulation.Runtime.Shims;
 
-namespace Clockwork.Shims.System.Net.WebSockets;
+namespace Orleans.Testing.Simulation.Shims.System.Net.WebSockets;
 
 /// <summary>
 /// Rejection of the <see cref="global::System.Net.WebSockets.WebSocket"/> factories over a stream:

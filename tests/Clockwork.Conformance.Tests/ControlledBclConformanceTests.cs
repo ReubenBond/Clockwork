@@ -1,8 +1,8 @@
 using System.Reflection;
-using Clockwork.Instrumentation.Rules.BuiltIn;
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Runtime.Shims;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>
 /// End-to-end semantic conformance for the built-in controlled BCL rule set: ordinary source is
@@ -237,8 +237,8 @@ public sealed class ControlledBclConformanceTests : IDisposable
         StagedProbe probe = _fixture.Stage("Conf.Idem", "Conf.ClockProbe", ClockSource, [BuiltInRuleFamily.Clock]);
 
         // Rewriting the already-rewritten staged assembly with the same rule set is a verified no-op.
-        var second = Clockwork.Instrumentation.Rewriting.RewriteEngine.Rewrite(
-            new Clockwork.Instrumentation.Rewriting.RewriteRequest(
+        var second = Orleans.Testing.Simulation.Instrumentation.Rewriting.RewriteEngine.Rewrite(
+            new Orleans.Testing.Simulation.Instrumentation.Rewriting.RewriteRequest(
                 probe.StagedDll, probe.StagedDll, probe.RuleSet, probe.Options));
 
         Assert.True(second.Succeeded);
@@ -316,7 +316,7 @@ public sealed class ControlledBclConformanceTests : IDisposable
     {
         const string KnownName = "RandomNumberGenerator";
         const string UnknownName =
-            "Clockwork.Tests.Unknown.RandomNumberGenerator.7f9c7706-3f19-42a8-b8f2-20af41a52d68";
+            "Orleans.Testing.Simulation.Tests.Unknown.RandomNumberGenerator.7f9c7706-3f19-42a8-b8f2-20af41a52d68";
         StagedProbe probe = _fixture.Stage(
             "Conf.NamedCryptoContracts",
             "Conf.CryptoContractProbe",

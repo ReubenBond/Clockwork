@@ -1,7 +1,7 @@
-using Clockwork.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Rewriting;
+namespace Orleans.Testing.Simulation.Instrumentation.Rewriting;
 
 /// <summary>
 /// Indexes the rules of a <see cref="RewriteRuleSet"/> that support one target runtime for fast, deterministic

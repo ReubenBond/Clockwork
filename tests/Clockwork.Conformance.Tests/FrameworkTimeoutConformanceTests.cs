@@ -1,7 +1,7 @@
 using System.Reflection;
-using Clockwork.Runtime;
+using Orleans.Testing.Simulation.Runtime;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>
 /// End-to-end conformance for the framework members whose BCL implementations time out on a real timer or block the

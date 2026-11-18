@@ -1,12 +1,12 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Clockwork.Runtime.Decisions;
-using Clockwork.Runtime.Random;
-using Clockwork.Runtime.Replay;
-using Clockwork.Runtime.Racing;
+using Orleans.Testing.Simulation.Runtime.Decisions;
+using Orleans.Testing.Simulation.Runtime.Random;
+using Orleans.Testing.Simulation.Runtime.Replay;
+using Orleans.Testing.Simulation.Runtime.Racing;
 
-namespace Clockwork.Runtime.Tests.Replay;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Replay;
 
 public sealed class ReplayArtifactTests : IDisposable
 {
@@ -58,7 +58,7 @@ public sealed class ReplayArtifactTests : IDisposable
             "\"engineVersion\":\"0.1.0\",\"ruleSetId\":\"clockwork.bcl.deterministic\"," +
             "\"ruleSetVersion\":\"1\"," +
             "\"ruleSetSignature\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"," +
-            "\"mode\":\"Controlled\",\"assemblies\":[{\"name\":\"Clockwork.dll\"," +
+            "\"mode\":\"Controlled\",\"assemblies\":[{\"name\":\"Orleans.Testing.Simulation.dll\"," +
             "\"sha256\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\"," +
             "\"runtimeCompatibility\":\".NETCoreApp,Version=v11.0\"}]}," +
             "\"environment\":{\"clockworkVersion\":\"0.1.0.0\"," +
@@ -75,7 +75,7 @@ public sealed class ReplayArtifactTests : IDisposable
         Assert.Equal("clockwork.replay", artifact.Format);
         Assert.Equal(2, artifact.SchemaVersion);
         Assert.Equal("clockwork.bcl.deterministic", artifact.Instrumentation!.RuleSetId);
-        Assert.Equal("Clockwork.dll", Assert.Single(artifact.Instrumentation.Assemblies).Name);
+        Assert.Equal("Orleans.Testing.Simulation.dll", Assert.Single(artifact.Instrumentation.Assemblies).Name);
         Assert.Equal(expectedBytes, ReplayArtifactSerializer.Serialize(artifact));
     }
 

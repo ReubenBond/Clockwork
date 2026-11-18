@@ -1,6 +1,6 @@
 using System.Runtime.CompilerServices;
 
-namespace Clockwork.Runtime.Racing;
+namespace Orleans.Testing.Simulation.Runtime.Racing;
 
 /// <summary>Weakly associates task proxies with the antecedents whose completion they represent.</summary>
 internal static class RaceTaskDependencies

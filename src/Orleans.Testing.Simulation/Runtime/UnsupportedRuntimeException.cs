@@ -1,4 +1,4 @@
-namespace Clockwork.Runtime;
+namespace Orleans.Testing.Simulation.Runtime;
 
 /// <summary>
 /// Thrown when a simulation runs in a process whose .NET runtime is outside the range an assembly rewritten by

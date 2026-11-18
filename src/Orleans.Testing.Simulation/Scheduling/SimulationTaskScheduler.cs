@@ -1,4 +1,4 @@
-namespace Clockwork;
+namespace Orleans.Testing.Simulation;
 
 /// <summary>
 /// A deterministic task scheduler that queues tasks through a <see cref="SimulationSchedulerLane"/>

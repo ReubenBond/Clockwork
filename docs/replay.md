@@ -236,7 +236,7 @@ by attempt count and optional wall-clock time.
 
 ## Test integration
 
-`Clockwork.Testing.ReplayTestFixture` derives its default simulation seed with
+`Orleans.Testing.Simulation.Testing.ReplayTestFixture` derives its default simulation seed with
 `SimulationSeed.FromStrings(testClass, testMethod)`. Failed runs write an artifact and expose its path
 through `ReplayTestResult.ArtifactPath`, `ToFailureMessage()`, and `GetReplayCommand(...)`.
 

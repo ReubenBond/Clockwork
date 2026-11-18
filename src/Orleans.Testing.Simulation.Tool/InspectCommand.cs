@@ -1,11 +1,11 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Clockwork.Instrumentation.Configuration;
-using Clockwork.Instrumentation.Inspection;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Signing;
+using Orleans.Testing.Simulation.Instrumentation.Configuration;
+using Orleans.Testing.Simulation.Instrumentation.Inspection;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Signing;
 
-namespace Clockwork.Tool;
+namespace Orleans.Testing.Simulation.Tool;
 
 /// <summary>
 /// The <c>inspect</c> command: reports the managed / ReadyToRun / mixed-mode shape, strong-name state,

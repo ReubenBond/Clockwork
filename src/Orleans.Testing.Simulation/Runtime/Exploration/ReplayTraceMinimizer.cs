@@ -1,10 +1,10 @@
 using System.Diagnostics;
 using System.Globalization;
-using Clockwork.Runtime.Decisions;
-using Clockwork.Runtime.Replay;
-using Clockwork.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Decisions;
+using Orleans.Testing.Simulation.Runtime.Replay;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
 
-namespace Clockwork.Runtime.Exploration;
+namespace Orleans.Testing.Simulation.Runtime.Exploration;
 
 /// <summary>Configures bounded deterministic replay trace minimization.</summary>
 public sealed record ReplayMinimizationOptions

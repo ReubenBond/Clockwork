@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace Clockwork.Runtime.Replay;
+namespace Orleans.Testing.Simulation.Runtime.Replay;
 
 internal sealed class StrictJsonStringEnumConverter<TEnum> : JsonConverter<TEnum>
     where TEnum : struct, Enum

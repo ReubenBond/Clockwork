@@ -1,4 +1,4 @@
-namespace Clockwork.Instrumentation.Signing;
+namespace Orleans.Testing.Simulation.Instrumentation.Signing;
 
 /// <summary>
 /// The strong-name identity of an assembly: whether it is signed/delay-signed/unsigned and, if it

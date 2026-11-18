@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace Clockwork;
+namespace Orleans.Testing.Simulation;
 
 /// <summary>
 /// <para>

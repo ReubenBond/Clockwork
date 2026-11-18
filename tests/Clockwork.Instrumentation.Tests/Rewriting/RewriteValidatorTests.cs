@@ -1,10 +1,10 @@
-using Clockwork.Instrumentation.Diagnostics;
-using Clockwork.Instrumentation.Rewriting;
-using Clockwork.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Rewriting;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
-namespace Clockwork.Instrumentation.Tests.Rewriting;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Rewriting;
 
 /// <summary>
 /// Checks the validator's read-back binding check: every member reference whose signature mentions a substituted or

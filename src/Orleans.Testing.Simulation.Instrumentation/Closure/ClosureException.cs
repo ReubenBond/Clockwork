@@ -1,4 +1,4 @@
-namespace Clockwork.Instrumentation.Closure;
+namespace Orleans.Testing.Simulation.Instrumentation.Closure;
 
 /// <summary>The exception thrown when an application closure cannot be discovered or is invalid.</summary>
 public sealed class ClosureException : Exception

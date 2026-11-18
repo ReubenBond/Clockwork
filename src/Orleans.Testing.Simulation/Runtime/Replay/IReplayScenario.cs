@@ -1,6 +1,6 @@
-using Clockwork.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
 
-namespace Clockwork.Runtime.Replay;
+namespace Orleans.Testing.Simulation.Runtime.Replay;
 
 /// <summary>
 /// Explicit scenario harness contract used by replay tooling. Implementations register controlled

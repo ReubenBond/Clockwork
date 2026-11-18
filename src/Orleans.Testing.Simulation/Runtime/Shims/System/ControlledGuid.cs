@@ -1,6 +1,6 @@
 using System.ComponentModel;
 
-namespace Clockwork.Shims.System;
+namespace Orleans.Testing.Simulation.Shims.System;
 
 /// <summary>
 /// <para>
@@ -61,7 +61,7 @@ public static class ControlledGuid
     private static Guid BuildVersion7(
         DateTimeOffset timestamp,
         ISimulationRuntimeEnvironment environment,
-        Clockwork.Runtime.Execution.SimulationNodeIdentity? node)
+        Orleans.Testing.Simulation.Runtime.Execution.SimulationNodeIdentity? node)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(timestamp, DateTimeOffset.UnixEpoch);
 

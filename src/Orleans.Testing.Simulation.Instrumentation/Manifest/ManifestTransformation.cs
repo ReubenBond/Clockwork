@@ -1,7 +1,7 @@
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Runtime.Policy;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Runtime.Policy;
 
-namespace Clockwork.Instrumentation.Manifest;
+namespace Orleans.Testing.Simulation.Instrumentation.Manifest;
 
 /// <summary>
 /// A single entry in the instrumentation manifest describing one site the engine acted on: the rule

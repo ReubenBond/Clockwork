@@ -1,4 +1,4 @@
-namespace Clockwork.Instrumentation.Diagnostics;
+namespace Orleans.Testing.Simulation.Instrumentation.Diagnostics;
 
 /// <summary>
 /// Stable, machine-readable identifiers for the diagnostics the rewrite engine can emit. Kept as

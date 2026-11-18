@@ -1,10 +1,10 @@
 using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Clockwork.Instrumentation.Diagnostics;
-using Clockwork.Instrumentation.Configuration;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Configuration;
 
-namespace Clockwork.Instrumentation.Manifest;
+namespace Orleans.Testing.Simulation.Instrumentation.Manifest;
 
 /// <summary>
 /// The identity of an assembly recorded in a manifest: its simple name, file name, content hash, and

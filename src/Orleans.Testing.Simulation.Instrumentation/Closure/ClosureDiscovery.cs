@@ -1,9 +1,9 @@
 using System.Collections.Immutable;
 using System.IO.Enumeration;
-using Clockwork.Instrumentation.Configuration;
-using Clockwork.Instrumentation.Imaging;
+using Orleans.Testing.Simulation.Instrumentation.Configuration;
+using Orleans.Testing.Simulation.Instrumentation.Imaging;
 
-namespace Clockwork.Instrumentation.Closure;
+namespace Orleans.Testing.Simulation.Instrumentation.Closure;
 
 /// <summary>
 /// Discovers the deterministic set of assets in an application output or publish directory and

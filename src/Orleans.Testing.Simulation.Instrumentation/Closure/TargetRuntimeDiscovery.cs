@@ -1,7 +1,7 @@
 using System.Text.Json;
-using Clockwork.Instrumentation.Configuration;
+using Orleans.Testing.Simulation.Instrumentation.Configuration;
 
-namespace Clockwork.Instrumentation.Closure;
+namespace Orleans.Testing.Simulation.Instrumentation.Closure;
 
 /// <summary>
 /// Resolves the target runtime an instrumentation run evaluates rules against: the configured one, or else the

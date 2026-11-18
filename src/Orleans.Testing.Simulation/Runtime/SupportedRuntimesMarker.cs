@@ -2,7 +2,7 @@ using System.Reflection;
 using System.Reflection.Metadata;
 using System.Runtime.CompilerServices;
 
-namespace Clockwork.Runtime;
+namespace Orleans.Testing.Simulation.Runtime;
 
 /// <summary>
 /// Records on each assembly Clockwork rewrites the .NET runtimes it supports, and checks that the process runs one of
@@ -109,7 +109,7 @@ internal static class SupportedRuntimesMarker
         {
             throw new InvalidOperationException(
                 $"Assembly '{assemblyName}' carries the Clockwork marker '{Key}' with the unreadable value '{marker}'. " +
-                "Instrument it again with this version of Clockwork.");
+                "Instrument it again with this version of Orleans.Testing.Simulation.");
         }
 
         if ((minimum is not null && runtime < minimum) || (maximum is not null && runtime > maximum))

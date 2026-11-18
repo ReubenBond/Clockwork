@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace Clockwork.Tests;
+namespace Orleans.Testing.Simulation.Tests;
 
 /// <summary>
 /// Covers construction validation, defaults, and formatting for <see cref="AdaptiveExecutionBudget"/>.

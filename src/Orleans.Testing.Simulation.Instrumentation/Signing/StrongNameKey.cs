@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 using System.Numerics;
 using System.Security.Cryptography;
 
-namespace Clockwork.Instrumentation.Signing;
+namespace Orleans.Testing.Simulation.Instrumentation.Signing;
 
 /// <summary>
 /// A strong-name key loaded from an <c>.snk</c> file. The file is expected to hold a Microsoft

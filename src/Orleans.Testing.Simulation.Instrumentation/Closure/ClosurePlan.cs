@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 
-namespace Clockwork.Instrumentation.Closure;
+namespace Orleans.Testing.Simulation.Instrumentation.Closure;
 
 /// <summary>
 /// The deterministic result of discovering an application closure: the root directory that was

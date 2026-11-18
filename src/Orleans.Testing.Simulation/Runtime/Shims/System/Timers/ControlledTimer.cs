@@ -1,8 +1,8 @@
 using System.ComponentModel;
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Shims;
 
-namespace Clockwork.Shims.System.Timers;
+namespace Orleans.Testing.Simulation.Shims.System.Timers;
 
 /// <summary>Deterministic virtual-time replacement for <see cref="global::System.Timers.Timer"/>.</summary>
 [DefaultProperty(nameof(Interval))]

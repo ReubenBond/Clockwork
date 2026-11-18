@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace Clockwork.Runtime.Scheduling.Resources;
+namespace Orleans.Testing.Simulation.Runtime.Scheduling.Resources;
 
 /// <summary>
 /// One waiter parked on a <see cref="SimulationResource"/>: the pairing of a paused

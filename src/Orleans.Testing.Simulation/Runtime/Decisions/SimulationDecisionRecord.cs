@@ -1,7 +1,7 @@
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Random;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Random;
 
-namespace Clockwork.Runtime.Decisions;
+namespace Orleans.Testing.Simulation.Runtime.Decisions;
 
 /// <summary>
 /// The information a caller supplies to <see cref="ISimulationDecisionLog.Record"/> to record one
@@ -47,7 +47,7 @@ public readonly record struct SimulationDecisionRequest(
     /// <see cref="LogicalExecutionId"/> are taken from the ambient
     /// <see cref="SimulationExecutionContext.Current"/> at the call site. This is the intended way to
     /// record a decision from inside controlled work (for example a running
-    /// <see cref="Clockwork.Runtime.Scheduling.SimulationOperation"/>, which installs its logical
+    /// <see cref="Orleans.Testing.Simulation.Runtime.Scheduling.SimulationOperation"/>, which installs its logical
     /// execution identity into the ambient context): the correct runtime/node/logical identity is
     /// captured automatically instead of being threaded through by hand. It is purely additive - the
     /// primary constructor remains available for callers that already hold the identity values.

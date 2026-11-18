@@ -1,10 +1,10 @@
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
-using Clockwork.Runtime.Execution;
-using Clockwork.Shims.System.Threading.Tasks;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Shims.System.Threading.Tasks;
 
-namespace Clockwork.Runtime.Tasks;
+namespace Orleans.Testing.Simulation.Runtime.Tasks;
 
 /// <summary>
 /// <para>

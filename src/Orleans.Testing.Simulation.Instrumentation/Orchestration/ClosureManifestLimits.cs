@@ -1,4 +1,4 @@
-namespace Clockwork.Instrumentation.Orchestration;
+namespace Orleans.Testing.Simulation.Instrumentation.Orchestration;
 
 /// <summary>Hard limits shared by closure-manifest readers, writers, and producers.</summary>
 public static class ClosureManifestLimits

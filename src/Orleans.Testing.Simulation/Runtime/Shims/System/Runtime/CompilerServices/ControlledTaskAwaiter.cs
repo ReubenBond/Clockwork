@@ -1,10 +1,10 @@
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
-using Clockwork.Runtime.Racing;
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Racing;
+using Orleans.Testing.Simulation.Runtime.Shims;
 
-namespace Clockwork.Shims.System.Runtime.CompilerServices;
+namespace Orleans.Testing.Simulation.Shims.System.Runtime.CompilerServices;
 
 /// <summary>
 /// The controlled substitute for <see cref="global::System.Runtime.CompilerServices.TaskAwaiter"/>. A rewritten

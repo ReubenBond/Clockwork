@@ -1,4 +1,4 @@
-namespace Clockwork.Runtime.Scheduling.Strategies;
+namespace Orleans.Testing.Simulation.Runtime.Scheduling.Strategies;
 
 /// <summary>
 /// The default policy, identical to the controlled-operation scheduler: run the runnable operation whose id is

@@ -1,4 +1,4 @@
-namespace Clockwork.Runtime.Tasks;
+namespace Orleans.Testing.Simulation.Runtime.Tasks;
 
 /// <summary>
 /// Marks a delegate parameter whose argument runs only through <see cref="SimulationCompletion"/>. Clockwork's analyzer

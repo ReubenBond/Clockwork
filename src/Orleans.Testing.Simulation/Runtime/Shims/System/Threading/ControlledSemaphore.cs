@@ -1,7 +1,7 @@
 using System.Threading;
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Shims;
 
-namespace Clockwork.Shims.System.Threading;
+namespace Orleans.Testing.Simulation.Shims.System.Threading;
 
 /// <summary>
 /// Static shims for the kernel <see cref="Semaphore"/> surface. The returned unnamed semaphore is an

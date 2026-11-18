@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace Clockwork.Runtime.Racing;
+namespace Orleans.Testing.Simulation.Runtime.Racing;
 
 /// <summary>Exact IL and source metadata for an injected race-exploration scheduling point.</summary>
 /// <param name="Method">The Cecil full name of the containing method.</param>

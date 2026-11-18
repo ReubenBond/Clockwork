@@ -1,6 +1,6 @@
-using Clockwork.Instrumentation.Rewriting;
+using Orleans.Testing.Simulation.Instrumentation.Rewriting;
 
-namespace Clockwork.Instrumentation.Signing;
+namespace Orleans.Testing.Simulation.Instrumentation.Signing;
 
 /// <summary>
 /// (Re-)signs a rewritten assembly with a supplied strong-name key. Mono.Cecil drops an assembly's

@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace Clockwork.Instrumentation.Tests.Infrastructure;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 
 /// <summary>
 /// Rejects a boundary which contains both the legacy <c>Clockwork.dll</c> runtime and any assembly

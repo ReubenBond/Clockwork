@@ -1,9 +1,9 @@
 using System.Globalization;
 using System.Runtime.ExceptionServices;
-using Clockwork.Runtime;
-using Clockwork.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
 
-namespace Clockwork;
+namespace Orleans.Testing.Simulation;
 
 /// <summary>
 /// A synchronization context that routes all continuations through a <see cref="SimulationSchedulerLane"/>.

@@ -1,6 +1,6 @@
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Imaging;
+namespace Orleans.Testing.Simulation.Instrumentation.Imaging;
 
 /// <summary>
 /// Produces an IL-only assembly from a ReadyToRun (crossgen'd) input by round-tripping it through

@@ -1,20 +1,20 @@
 using System.Collections.Immutable;
-using Clockwork.Instrumentation.Manifest;
-using Clockwork.Instrumentation.Rewriting;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Rules.BuiltIn;
-using Clockwork.Instrumentation.Tests.Infrastructure;
-using Clockwork.Runtime.Policy;
+using Orleans.Testing.Simulation.Instrumentation.Manifest;
+using Orleans.Testing.Simulation.Instrumentation.Rewriting;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Runtime.Policy;
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Tests.Golden;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Golden;
 
 /// <summary>
 /// End-to-end golden tests for the shipped controlled <see cref="System.Threading.Thread"/> rule family:
 /// they rewrite real <c>Thread</c> call sites in a compiled fixture against the real
 /// <c>Clockwork</c> assembly and assert on the rewritten IL and manifest. This proves the
 /// static/instance signatures declared in <c>BuiltInRuleSets</c> line up with the actual
-/// <see cref="Clockwork.Shims.System.Threading.ControlledThread"/> members - constructors become
+/// <see cref="Orleans.Testing.Simulation.Shims.System.Threading.ControlledThread"/> members - constructors become
 /// <c>Create</c>, instance <c>Start</c>/<c>Join</c> become static shims taking the receiver, the static
 /// <c>Sleep</c>/<c>Yield</c> stay static, and the rejected OS-specific surface (priority) is redirected
 /// to a rejecting shim.
@@ -44,7 +44,7 @@ public sealed class ControlledThreadRuleGoldenTests
         """;
 
     private static string RuntimeAssemblyPath =>
-        typeof(Clockwork.Shims.System.Threading.ControlledThread).Assembly.Location;
+        typeof(Orleans.Testing.Simulation.Shims.System.Threading.ControlledThread).Assembly.Location;
 
     private static RewriteResult RewriteFixture(RewriteTestContext context, string assemblyName)
     {

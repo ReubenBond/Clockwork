@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace Clockwork.Instrumentation.Attributes;
+namespace Orleans.Testing.Simulation.Instrumentation.Attributes;
 
 internal static class RewriteSignatureMetadata
 {

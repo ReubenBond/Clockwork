@@ -1,10 +1,10 @@
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Scheduling;
-using Clockwork.Runtime.Shims;
-using Clockwork.Runtime.Racing;
-using Clockwork.Runtime.Threading;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Racing;
+using Orleans.Testing.Simulation.Runtime.Threading;
 
-namespace Clockwork.Runtime.Tasks;
+namespace Orleans.Testing.Simulation.Runtime.Tasks;
 
 /// <summary>Bridges controlled async/task rewrite targets to the active simulation coordinator.</summary>
 public static class SimulationTaskRuntime
@@ -148,7 +148,7 @@ public static class SimulationTaskRuntime
         ExecutionContext? context = flowExecutionContext ? ExecutionContext.Capture() : null;
         scheduler.Schedule(
             node,
-            () => Clockwork.Runtime.Threading.SimulationSynchronizationFlow.RunAsNewStrand(
+            () => Orleans.Testing.Simulation.Runtime.Threading.SimulationSynchronizationFlow.RunAsNewStrand(
                 () => RunScheduledWork(snapshot, context, work)));
     }
 

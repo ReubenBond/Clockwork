@@ -1,7 +1,7 @@
 using System.Reflection;
 using System.Threading.Tasks;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>End-to-end rewrite and runtime coverage for every .NET 11 <c>Task.Delay</c> overload.</summary>
 public sealed class TaskDelayConformanceTests : IDisposable

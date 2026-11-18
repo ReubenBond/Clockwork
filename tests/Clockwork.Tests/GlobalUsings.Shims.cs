@@ -1,6 +1,6 @@
-global using Clockwork.Shims.System;
-global using Clockwork.Shims.System.Diagnostics;
-global using Clockwork.Shims.System.Runtime.CompilerServices;
-global using Clockwork.Shims.System.Security.Cryptography;
-global using Clockwork.Shims.System.Threading;
-global using Clockwork.Shims.System.Threading.Tasks;
+global using Orleans.Testing.Simulation.Shims.System;
+global using Orleans.Testing.Simulation.Shims.System.Diagnostics;
+global using Orleans.Testing.Simulation.Shims.System.Runtime.CompilerServices;
+global using Orleans.Testing.Simulation.Shims.System.Security.Cryptography;
+global using Orleans.Testing.Simulation.Shims.System.Threading;
+global using Orleans.Testing.Simulation.Shims.System.Threading.Tasks;

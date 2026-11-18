@@ -1,10 +1,10 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json.Serialization;
-using Clockwork.Runtime.Racing;
-using Clockwork.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Racing;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
 
-namespace Clockwork.Runtime.Replay;
+namespace Orleans.Testing.Simulation.Runtime.Replay;
 
 /// <summary>A stable operation status in replay diagnostics.</summary>
 public sealed record ReplayOperationDiagnostic

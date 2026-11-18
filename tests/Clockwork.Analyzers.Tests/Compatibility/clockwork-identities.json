@@ -11,7 +11,8 @@
     "ruleSetSchemaVersion": 2,
     "instrumentationEngineName": "Clockwork.Instrumentation",
     "closureEngineName": "Clockwork.Instrumentation",
-    "rewriteSignatureMetadataKey": "Clockwork.RewriteSignature"
+    "rewriteSignatureMetadataKey": "Clockwork.RewriteSignature",
+    "supportedRuntimesMetadataKey": "Clockwork.SupportedRuntimes"
   },
   "ruleSets": {
     "mergedId": "clockwork.merged",
@@ -29,6 +30,10 @@
     }
   },
   "diagnostics": {
+    "categories": [
+      "Clockwork.Determinism",
+      "Clockwork.Runtime"
+    ],
     "analyzerIds": [
       "CW1001",
       "CW1003",
@@ -112,5 +117,8 @@
         "id": "CWR0201"
       }
     ]
+  },
+  "integration": {
+    "progressOutputAppContextKey": "Clockwork.SimulationProgressOutput"
   }
 }

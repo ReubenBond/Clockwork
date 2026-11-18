@@ -1,12 +1,12 @@
 using System.Collections.Immutable;
-using Clockwork.Instrumentation.Configuration;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Rules.BuiltIn;
-using Clockwork.Runtime.Policy;
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Instrumentation.Configuration;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Runtime.Policy;
+using Orleans.Testing.Simulation.Runtime.Shims;
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Tests.Rules;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Rules;
 
 /// <summary>
 /// Verifies the built-in deterministic BCL rule set: its inventory is coherent (unique ids, expected
@@ -37,13 +37,13 @@ public sealed class BuiltInRuleSetsTests
     {
         string[] expected =
         [
-            "Clockwork.Shims.System.ControlledDateTime",
-            "Clockwork.Shims.System.ControlledDateTimeOffset",
-            "Clockwork.Shims.System.ControlledEnvironment",
-            "Clockwork.Shims.System.ControlledGuid",
-            "Clockwork.Shims.System.ControlledRandom",
-            "Clockwork.Shims.System.Diagnostics.ControlledStopwatch",
-            "Clockwork.Shims.System.Security.Cryptography.ControlledRandomNumberGenerator",
+            "Orleans.Testing.Simulation.Shims.System.ControlledDateTime",
+            "Orleans.Testing.Simulation.Shims.System.ControlledDateTimeOffset",
+            "Orleans.Testing.Simulation.Shims.System.ControlledEnvironment",
+            "Orleans.Testing.Simulation.Shims.System.ControlledGuid",
+            "Orleans.Testing.Simulation.Shims.System.ControlledRandom",
+            "Orleans.Testing.Simulation.Shims.System.Diagnostics.ControlledStopwatch",
+            "Orleans.Testing.Simulation.Shims.System.Security.Cryptography.ControlledRandomNumberGenerator",
         ];
         string[] actual = BuiltInRuleSets.DeterministicBclInventory
             .Select(entry => entry.Rule.Replacement.DeclaringTypeFullName)

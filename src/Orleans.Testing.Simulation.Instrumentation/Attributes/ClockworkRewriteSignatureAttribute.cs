@@ -1,4 +1,4 @@
-namespace Clockwork.Instrumentation.Attributes;
+namespace Orleans.Testing.Simulation.Instrumentation.Attributes;
 
 /// <summary>
 /// <para>

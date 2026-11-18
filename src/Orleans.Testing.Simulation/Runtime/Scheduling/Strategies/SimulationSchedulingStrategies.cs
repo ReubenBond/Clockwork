@@ -1,7 +1,7 @@
-using Clockwork.Runtime.Decisions;
-using Clockwork.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Decisions;
+using Orleans.Testing.Simulation.Runtime.Execution;
 
-namespace Clockwork.Runtime.Scheduling.Strategies;
+namespace Orleans.Testing.Simulation.Runtime.Scheduling.Strategies;
 
 /// <summary>
 /// Creates the built-in simulation scheduling strategies.

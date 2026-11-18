@@ -1,10 +1,10 @@
-using Clockwork.Instrumentation.Inspection;
-using Clockwork.Instrumentation.Orchestration;
+using Orleans.Testing.Simulation.Instrumentation.Inspection;
+using Orleans.Testing.Simulation.Instrumentation.Orchestration;
 using Microsoft.Build.Framework;
 using Microsoft.Build.Utilities;
 using MSBuildTask = Microsoft.Build.Utilities.Task;
 
-namespace Clockwork.Instrumentation.Build;
+namespace Orleans.Testing.Simulation.Instrumentation.Build;
 
 /// <summary>
 /// Verifies that every managed assembly selected from an instrumented test closure was successfully

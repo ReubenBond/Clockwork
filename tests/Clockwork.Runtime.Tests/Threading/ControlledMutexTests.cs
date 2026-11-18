@@ -1,9 +1,9 @@
 using System.Threading;
-using Clockwork.Runtime.Tasks;
-using Clockwork.Runtime.Tests.Tasks;
-using Clockwork.Runtime.Threading;
+using Orleans.Testing.Simulation.Runtime.Tasks;
+using Orleans.Testing.Simulation.Runtime.Tests.Tasks;
+using Orleans.Testing.Simulation.Runtime.Threading;
 
-namespace Clockwork.Runtime.Tests.Threading;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Threading;
 
 public sealed class ControlledMutexTests
 {

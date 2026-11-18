@@ -1,10 +1,10 @@
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
-using Clockwork.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
-namespace Clockwork.Instrumentation.Tests.Infrastructure;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 
 /// <summary>What a concurrency escape a candidate reaches does.</summary>
 internal enum EscapeSink

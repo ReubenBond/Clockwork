@@ -1,13 +1,13 @@
-using Clockwork.Runtime.Racing;
-using Clockwork.Runtime.Shims;
-using Clockwork.Runtime.Tasks;
-using Clockwork.Shims.System.Runtime.CompilerServices;
-using Clockwork.Shims.System.Threading;
-using Clockwork.Shims.System.Threading.Tasks;
+using Orleans.Testing.Simulation.Runtime.Racing;
+using Orleans.Testing.Simulation.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Tasks;
+using Orleans.Testing.Simulation.Shims.System.Runtime.CompilerServices;
+using Orleans.Testing.Simulation.Shims.System.Threading;
+using Orleans.Testing.Simulation.Shims.System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
-namespace Clockwork.Shims.Microsoft.Extensions.Hosting;
+namespace Orleans.Testing.Simulation.Shims.Microsoft.Extensions.Hosting;
 
 /// <summary>
 /// Controlled <see cref="HostingAbstractionsHostExtensions"/>. The BCL's members await the host's work in framework code,

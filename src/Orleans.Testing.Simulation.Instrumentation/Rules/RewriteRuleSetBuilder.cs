@@ -1,4 +1,4 @@
-namespace Clockwork.Instrumentation.Rules;
+namespace Orleans.Testing.Simulation.Instrumentation.Rules;
 
 /// <summary>
 /// A fluent builder for <see cref="RewriteRuleSet"/>. Rules are added in order; the first rule that

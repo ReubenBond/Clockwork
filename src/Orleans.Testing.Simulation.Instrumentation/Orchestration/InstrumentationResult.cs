@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
-using Clockwork.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
 
-namespace Clockwork.Instrumentation.Orchestration;
+namespace Orleans.Testing.Simulation.Instrumentation.Orchestration;
 
 /// <summary>
 /// The outcome of an <see cref="InstrumentationRunner"/> run over an application closure: whether it

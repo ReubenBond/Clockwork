@@ -19,7 +19,7 @@ Clockwork is a deterministic simulation testing framework for distributed system
 - Fixed and adaptive `RunUntil`/`RunUntilIdle` execution budgets
 - Stable, cross-process-safe seed derivation from strings (`SimulationSeed`)
 - Reusable rendezvous primitives (`SimulationGate`, `SimulationLatch`, `SimulationBarrier`)
-- In-memory logging for simulation diagnostics in the `Clockwork.Testing` project and namespace
+- In-memory logging for simulation diagnostics in the `Orleans.Testing.Simulation.Testing` project and namespace
 
 Consumers should attach node identity and other context using standard structured `ILogger` scopes or
 properties; Clockwork does not wrap loggers or prefix rendered messages.
@@ -58,6 +58,18 @@ dotnet pack src/Orleans.Testing.Simulation/Orleans.Testing.Simulation.csproj --c
 The core NuGet package ID is `Microsoft.Orleans.Testing.Simulation`; test-runner integration and
 replay helpers are in `Microsoft.Orleans.Testing.Simulation.Testing`. Until packages are published,
 clone the repository or add it as a Git submodule and reference the corresponding project under `src`.
+
+### Public namespace migration
+
+| Previous namespace family | Current namespace family |
+|---|---|
+| `Clockwork` | `Orleans.Testing.Simulation` |
+| `Clockwork.Runtime.*` | `Orleans.Testing.Simulation.Runtime.*` |
+| `Clockwork.Shims.*` | `Orleans.Testing.Simulation.Shims.*` |
+| `Clockwork.Instrumentation.*` | `Orleans.Testing.Simulation.Instrumentation.*` |
+| `Clockwork.Analyzers` | `Orleans.Testing.Simulation.Analyzers` |
+| `Clockwork.Testing` | `Orleans.Testing.Simulation.Testing` |
+| `Clockwork.Tool` | `Orleans.Testing.Simulation.Tool` |
 
 ## Instrumented simulation test projects
 
@@ -174,7 +186,7 @@ Construct `SimulationCluster` directly. It owns the runtime, scheduler and virtu
 and nodes. Nodes are fully attached and usable as soon as `AddNode` returns:
 
 ```csharp
-using Clockwork;
+using Orleans.Testing.Simulation;
 
 await using var cluster = new SimulationCluster(
     seed: 12345,
@@ -466,8 +478,8 @@ NativeAOT, signed assemblies, and profiler conflicts).
 The built-in simulation rule set **`clockwork.bcl.deterministic`** (version `3.0.0`),
 makes ordinary source that calls the direct **static** time / identity / random BCL surface
 deterministic - with no dependency injection, no `TimeProvider` threading, and no manual shim
-wiring. Enabling it rewrites those call sites to runtime shims in the `Clockwork` assembly,
-under namespaces matching `Clockwork.Shims.<framework namespace>`.
+wiring. Enabling it rewrites those call sites to runtime shims in the `Orleans.Testing.Simulation` assembly,
+under namespaces matching `Orleans.Testing.Simulation.Shims.<framework namespace>`.
 The complete, exhaustive list of controlled and rejected signatures is generated into
 [`docs/rule-inventory.md`](docs/rule-inventory.md) and verified against the shipped rules by a
 test, so the documentation cannot drift from the code. The inventory also lists every other public
@@ -582,7 +594,7 @@ Alongside it, call-site redirects route the `Task.WhenAll`/`Task.WhenAny`/`Task.
 blocking generic `Task<T>.Result` accessor, the `TaskExtensions.Unwrap` extension methods, every
 `Task.ContinueWith`/`Task<T>.ContinueWith` and `TaskFactory`/`TaskFactory<T>` `ContinueWhenAll`/`ContinueWhenAny`
 overload, and the `ValueTask`/`ValueTask<T>` `AsTask` and `Preserve` conversions to controlled shims in
-`Clockwork.Shims.System.Threading.Tasks`; `TaskFactory.FromAsync`, whose `IAsyncResult` completes outside
+`Orleans.Testing.Simulation.Shims.System.Threading.Tasks`; `TaskFactory.FromAsync`, whose `IAsyncResult` completes outside
 Clockwork's control, is rejected. Synchronous waits and blocking `Task<T>.Result` reads
 **pump the coordinator loop until completion instead of blocking a physical thread**, so they never
 deadlock the scheduler, then delegate to the real API for its exact `AggregateException` semantics.

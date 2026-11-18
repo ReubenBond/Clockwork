@@ -4,10 +4,10 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Clockwork.Runtime.Shims;
-using Clockwork.Shims.System.Runtime.CompilerServices;
+using Orleans.Testing.Simulation.Runtime.Shims;
+using Orleans.Testing.Simulation.Shims.System.Runtime.CompilerServices;
 
-namespace Clockwork.Shims.System.IO;
+namespace Orleans.Testing.Simulation.Shims.System.IO;
 
 /// <summary>
 /// Controlled asynchronous members of <see cref="TextWriter"/>. The BCL's base implementations, which a writer that does

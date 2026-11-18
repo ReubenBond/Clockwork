@@ -1,7 +1,7 @@
-using Clockwork.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Rewriting;
+namespace Orleans.Testing.Simulation.Instrumentation.Rewriting;
 
 /// <summary>Validates replacement method stack contracts before call-site IL is edited.</summary>
 internal static class ReplacementContractValidator

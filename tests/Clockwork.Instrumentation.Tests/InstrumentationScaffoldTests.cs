@@ -1,4 +1,4 @@
-namespace Clockwork.Instrumentation.Tests;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests;
 
 public sealed class InstrumentationScaffoldTests
 {

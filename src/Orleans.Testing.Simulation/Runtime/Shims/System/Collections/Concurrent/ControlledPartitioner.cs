@@ -1,8 +1,8 @@
 using System.Collections.Concurrent;
 using System.ComponentModel;
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Shims;
 
-namespace Clockwork.Shims.System.Collections.Concurrent;
+namespace Orleans.Testing.Simulation.Shims.System.Collections.Concurrent;
 
 /// <summary>
 /// <para>

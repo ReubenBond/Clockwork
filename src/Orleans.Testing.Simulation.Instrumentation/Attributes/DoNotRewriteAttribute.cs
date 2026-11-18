@@ -1,4 +1,4 @@
-namespace Clockwork.Instrumentation.Attributes;
+namespace Orleans.Testing.Simulation.Instrumentation.Attributes;
 
 /// <summary>
 /// Marks a type that <see cref="Rewriting.RewriteEngine"/> must never rewrite. The engine skips the

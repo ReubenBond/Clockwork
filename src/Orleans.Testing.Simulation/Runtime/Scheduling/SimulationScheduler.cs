@@ -4,16 +4,16 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Runtime.ExceptionServices;
 using System.Text;
-using Clockwork.Runtime.Decisions;
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Random;
-using Clockwork.Runtime.Racing;
-using Clockwork.Runtime.Scheduling.Resources;
-using Clockwork.Runtime.Scheduling.Strategies;
-using Clockwork.Runtime.Shims;
-using Clockwork.Runtime.Tasks;
+using Orleans.Testing.Simulation.Runtime.Decisions;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Random;
+using Orleans.Testing.Simulation.Runtime.Racing;
+using Orleans.Testing.Simulation.Runtime.Scheduling.Resources;
+using Orleans.Testing.Simulation.Runtime.Scheduling.Strategies;
+using Orleans.Testing.Simulation.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Tasks;
 
-namespace Clockwork.Runtime.Scheduling;
+namespace Orleans.Testing.Simulation.Runtime.Scheduling;
 
 /// <summary>
 /// <para>
@@ -653,7 +653,7 @@ public sealed class SimulationScheduler : IDisposable
     }
 
     internal void DrainUntil(Func<bool> completed, CancellationToken cancellationToken) =>
-        DrainUntil(completed, "Clockwork.Runtime.Tasks synchronous wait", cancellationToken);
+        DrainUntil(completed, "Orleans.Testing.Simulation.Runtime.Tasks synchronous wait", cancellationToken);
 
     internal ISimulationTimer RegisterTimer(
         SimulationNodeIdentity? node,

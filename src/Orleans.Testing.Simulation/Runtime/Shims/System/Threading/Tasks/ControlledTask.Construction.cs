@@ -1,9 +1,9 @@
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Shims;
 
-namespace Clockwork.Shims.System.Threading.Tasks;
+namespace Orleans.Testing.Simulation.Shims.System.Threading.Tasks;
 
 /// <summary>
 /// Controlled <see cref="Task"/> and <see cref="Task{TResult}"/> constructors. A task constructed with <c>new Task(...)</c>

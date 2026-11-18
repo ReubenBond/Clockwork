@@ -224,7 +224,7 @@ Mono.Cecil license:
 ## General policy
 
 - Clockwork uses the `Mono.Cecil` (0.11.6, MIT) package dependency in
-  `Clockwork.Instrumentation`, and the `Microsoft.CodeAnalysis.CSharp` (Roslyn, MIT)
+  `Orleans.Testing.Simulation.Instrumentation`, and the `Microsoft.CodeAnalysis.CSharp` (Roslyn, MIT)
   package to `Clockwork.Instrumentation.Tests` (used only to compile fixture
   assemblies at test time). It also adapts two Coyote source files as recorded above.
   The runtime and simulation projects remain free of any IL-rewriting dependency.

@@ -1,4 +1,4 @@
-namespace Clockwork.Instrumentation.Rules;
+namespace Orleans.Testing.Simulation.Instrumentation.Rules;
 
 /// <summary>
 /// An inclusive range of .NET runtime feature versions (see <see cref="RuntimeFeatureVersion"/>) a

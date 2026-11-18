@@ -1,11 +1,11 @@
-using Clockwork.Runtime.Tasks;
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Shims;
-using Clockwork.Runtime.Tests.Shims;
-using Clockwork.Runtime.Tests.Tasks;
-using Clockwork.Runtime.Threading;
+using Orleans.Testing.Simulation.Runtime.Tasks;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Tests.Shims;
+using Orleans.Testing.Simulation.Runtime.Tests.Tasks;
+using Orleans.Testing.Simulation.Runtime.Threading;
 
-namespace Clockwork.Runtime.Tests.Threading;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Threading;
 
 public sealed class ControlledTimerFamilyTests
 {
@@ -16,7 +16,7 @@ public sealed class ControlledTimerFamilyTests
         var elapsed = new List<System.Timers.ElapsedEventArgs>();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            using var timer = new Clockwork.Shims.System.Timers.ControlledTimer(TimeSpan.FromMilliseconds(25))
+            using var timer = new Orleans.Testing.Simulation.Shims.System.Timers.ControlledTimer(TimeSpan.FromMilliseconds(25))
             {
                 AutoReset = false,
             };
@@ -40,7 +40,7 @@ public sealed class ControlledTimerFamilyTests
 
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            using var timer = new Clockwork.Shims.System.Timers.ControlledTimer(10);
+            using var timer = new Orleans.Testing.Simulation.Shims.System.Timers.ControlledTimer(10);
             timer.Elapsed += (_, _) => count++;
             timer.Start();
             timer.Stop();
@@ -61,7 +61,7 @@ public sealed class ControlledTimerFamilyTests
         var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(coordinator, () =>
         {
-            using var timer = new Clockwork.Shims.System.Timers.ControlledTimer();
+            using var timer = new Orleans.Testing.Simulation.Shims.System.Timers.ControlledTimer();
             Assert.Throws<SimulationApiException>(
                 () => timer.SynchronizingObject = new SynchronizingObjectStub());
         });
@@ -76,7 +76,7 @@ public sealed class ControlledTimerFamilyTests
         var coordinator = new SimulationSchedulerTestHost();
         TaskTestHarness.RunInSimulation(
             coordinator,
-            () => Assert.Throws<ArgumentException>(() => new Clockwork.Shims.System.Timers.ControlledTimer(interval)));
+            () => Assert.Throws<ArgumentException>(() => new Orleans.Testing.Simulation.Shims.System.Timers.ControlledTimer(interval)));
     }
 
     [Fact]

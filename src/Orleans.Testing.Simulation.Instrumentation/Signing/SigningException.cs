@@ -1,4 +1,4 @@
-namespace Clockwork.Instrumentation.Signing;
+namespace Orleans.Testing.Simulation.Instrumentation.Signing;
 
 /// <summary>
 /// The exception thrown when a strong-name key cannot be loaded or is unusable for the requested

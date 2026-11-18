@@ -1,4 +1,4 @@
-namespace Clockwork.Instrumentation.Configuration;
+namespace Orleans.Testing.Simulation.Instrumentation.Configuration;
 
 /// <summary>
 /// Thrown when <see cref="InstrumentationConfiguration"/> or rule-set content is malformed or fails

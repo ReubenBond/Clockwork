@@ -1,4 +1,4 @@
-namespace Clockwork.Instrumentation.Rules.BuiltIn;
+namespace Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
 
 /// <summary>
 /// Why a framework member which reaches a concurrency escape needs no rule. Each value names one behavior that the

@@ -2,10 +2,10 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
-using Clockwork.Runtime.Replay;
-using Clockwork.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Replay;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
 
-namespace Clockwork.Runtime.Exploration;
+namespace Orleans.Testing.Simulation.Runtime.Exploration;
 
 /// <summary>Exploration stop reason.</summary>
 public enum ExplorationTerminationReason

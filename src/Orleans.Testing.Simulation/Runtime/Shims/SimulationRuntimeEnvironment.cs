@@ -1,8 +1,8 @@
 using System.Collections.Concurrent;
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Random;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Random;
 
-namespace Clockwork.Runtime.Shims;
+namespace Orleans.Testing.Simulation.Runtime.Shims;
 
 /// <summary>
 /// <para>

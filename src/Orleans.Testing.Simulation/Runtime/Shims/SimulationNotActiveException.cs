@@ -1,4 +1,4 @@
-namespace Clockwork.Runtime.Shims;
+namespace Orleans.Testing.Simulation.Runtime.Shims;
 
 /// <summary>Thrown when a controlled rewrite target is invoked without an active simulation.</summary>
 public sealed class SimulationNotActiveException : InvalidOperationException

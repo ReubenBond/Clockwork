@@ -1,10 +1,10 @@
 using System.Runtime.CompilerServices;
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Racing;
-using Clockwork.Runtime.Scheduling;
-using Clockwork.Runtime.Tests.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Racing;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Tests.Scheduling;
 
-namespace Clockwork.Runtime.Tests.Racing;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Racing;
 
 /// <summary>Runs the memory measurements alone, so no other test's allocations reach the heap they measure.</summary>
 [CollectionDefinition(nameof(RaceTrackerMemoryIsolation), DisableParallelization = true)]

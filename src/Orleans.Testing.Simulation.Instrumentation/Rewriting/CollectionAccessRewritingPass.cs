@@ -7,14 +7,14 @@
 // Clockwork preserves the concrete .NET 11 collection types and injects receiver-first access calls
 // at direct concrete member invocations instead of substituting wrapper subclasses.
 
-using Clockwork.Instrumentation.Manifest;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Runtime.Policy;
-using Clockwork.Runtime.Racing;
+using Orleans.Testing.Simulation.Instrumentation.Manifest;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Runtime.Policy;
+using Orleans.Testing.Simulation.Runtime.Racing;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
-namespace Clockwork.Instrumentation.Rewriting;
+namespace Orleans.Testing.Simulation.Instrumentation.Rewriting;
 
 /// <summary>Instruments direct accesses to supported mutable and concurrent collection types.</summary>
 internal sealed class CollectionAccessRewritingPass : RewritePass

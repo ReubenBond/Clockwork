@@ -1,7 +1,7 @@
 using System.Reflection;
 using System.Threading.Tasks;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>
 /// End-to-end conformance for the controlled event / wait-handle surface. The rule set redirects
@@ -120,7 +120,7 @@ public sealed class EventWaitHandleConformanceTests : IDisposable
                 }
                 catch (Exception ex)
                 {
-                    return Task.FromResult(ex.GetType().FullName == "Clockwork.Runtime.SimulationApiException");
+                    return Task.FromResult(ex.GetType().FullName == "Orleans.Testing.Simulation.Runtime.SimulationApiException");
                 }
             }
 

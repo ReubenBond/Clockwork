@@ -1,6 +1,6 @@
 using System.Reflection;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>
 /// End-to-end conformance for exception-handler hardening. Every fixture in this suite is

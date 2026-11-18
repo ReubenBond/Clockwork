@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection;
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Tests.Infrastructure;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 
 /// <summary>
 /// The reference assemblies of the shared framework this project compiles against, read once per test run, with the

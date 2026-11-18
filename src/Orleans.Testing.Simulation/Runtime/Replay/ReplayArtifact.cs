@@ -1,10 +1,10 @@
-using Clockwork.Runtime.Decisions;
-using Clockwork.Runtime.Random;
-using Clockwork.Runtime.Racing;
+using Orleans.Testing.Simulation.Runtime.Decisions;
+using Orleans.Testing.Simulation.Runtime.Random;
+using Orleans.Testing.Simulation.Runtime.Racing;
 
 using System.Text.Json.Serialization;
 
-namespace Clockwork.Runtime.Replay;
+namespace Orleans.Testing.Simulation.Runtime.Replay;
 
 /// <summary>
 /// <para>

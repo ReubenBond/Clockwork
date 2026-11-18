@@ -1,4 +1,4 @@
-namespace Clockwork.Tests;
+namespace Orleans.Testing.Simulation.Tests;
 
 /// <summary>
 /// Covers <see cref="SimulationBarrier"/>: cyclic N-participant rendezvous semantics, deterministic

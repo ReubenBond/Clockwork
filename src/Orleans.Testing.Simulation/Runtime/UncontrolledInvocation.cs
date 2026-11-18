@@ -1,4 +1,4 @@
-namespace Clockwork.Runtime;
+namespace Orleans.Testing.Simulation.Runtime;
 
 /// <summary>
 /// Thrown at a rewritten call site that invokes an uncontrolled process-control or abrupt

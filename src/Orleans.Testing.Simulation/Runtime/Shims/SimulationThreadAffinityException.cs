@@ -1,7 +1,7 @@
 using System.Globalization;
-using Clockwork.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Execution;
 
-namespace Clockwork.Runtime.Shims;
+namespace Orleans.Testing.Simulation.Runtime.Shims;
 
 /// <summary>
 /// Thrown when a controlled rewrite target runs with a simulation's ambient context on a thread other than that

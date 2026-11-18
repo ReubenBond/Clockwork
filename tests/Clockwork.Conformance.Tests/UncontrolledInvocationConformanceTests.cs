@@ -1,12 +1,12 @@
 using System.Reflection;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>
 /// End-to-end conformance for the uncontrolled-invocation rejection surface. Once a
 /// fixture is rewritten with the controlled-task rule set, real <see cref="System.Diagnostics.Process"/>
 /// and <see cref="System.Environment"/> control call sites throw a
-/// <see cref="Clockwork.Runtime.UncontrolledInvocationException"/> that names the exact API - the rewriter
+/// <see cref="Orleans.Testing.Simulation.Runtime.UncontrolledInvocationException"/> that names the exact API - the rewriter
 /// injected a throwing guard before the original call, so a rewritten assembly can never launch, kill, wait
 /// on, or terminate a real OS process. Unlike the controlled shims, the rejection is unconditional (these
 /// APIs cannot be modelled at all), so it fires whether or not a simulation is active.
@@ -84,7 +84,7 @@ public sealed class UncontrolledInvocationConformanceTests : IDisposable
     {
         Exception unwrapped = Unwrap(ex);
         Assert.Equal(
-            "Clockwork.Runtime.UncontrolledInvocationException",
+            "Orleans.Testing.Simulation.Runtime.UncontrolledInvocationException",
             unwrapped.GetType().FullName);
     }
 

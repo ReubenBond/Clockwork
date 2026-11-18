@@ -2,7 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Rewriting;
+namespace Orleans.Testing.Simulation.Instrumentation.Rewriting;
 
 /// <summary>Compares and inflates Cecil type graphs without assuming that they are acyclic.</summary>
 internal static class TypeReferenceStructure

@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace Clockwork;
+namespace Orleans.Testing.Simulation;
 
 /// <summary>Environment variables which control periodic simulation progress reporting.</summary>
 public static class SimulationProgressEnvironment

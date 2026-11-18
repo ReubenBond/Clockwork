@@ -1,7 +1,7 @@
-using Clockwork.Runtime;
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime;
+using Orleans.Testing.Simulation.Runtime.Shims;
 
-namespace Clockwork.Shims.Microsoft.Extensions.Hosting;
+namespace Orleans.Testing.Simulation.Shims.Microsoft.Extensions.Hosting;
 
 /// <summary>
 /// Rejection of <see cref="global::Microsoft.Extensions.Hosting.BackgroundService.StartAsync"/> where rewritten code calls

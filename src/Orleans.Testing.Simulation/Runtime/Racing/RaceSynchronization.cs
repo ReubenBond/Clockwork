@@ -1,7 +1,7 @@
 using System.ComponentModel;
-using Clockwork.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
 
-namespace Clockwork.Runtime.Racing;
+namespace Orleans.Testing.Simulation.Runtime.Racing;
 
 /// <summary>
 /// Bridges controlled synchronization transitions into the race detector's happens-before and

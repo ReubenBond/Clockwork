@@ -1,4 +1,4 @@
-namespace Clockwork.Runtime.Random;
+namespace Orleans.Testing.Simulation.Runtime.Random;
 
 /// <summary>
 /// <para>

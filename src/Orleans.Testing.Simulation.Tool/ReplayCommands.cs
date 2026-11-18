@@ -3,12 +3,12 @@ using System.Reflection;
 using System.Runtime.Loader;
 using System.Security.Cryptography;
 using System.Text.Json.Nodes;
-using Clockwork.Instrumentation.Orchestration;
-using Clockwork.Runtime.Exploration;
-using Clockwork.Runtime.Replay;
-using Clockwork.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Instrumentation.Orchestration;
+using Orleans.Testing.Simulation.Runtime.Exploration;
+using Orleans.Testing.Simulation.Runtime.Replay;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
 
-namespace Clockwork.Tool;
+namespace Orleans.Testing.Simulation.Tool;
 
 internal static class ReplayCommands
 {

@@ -2,9 +2,9 @@ using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
-using Clockwork.Runtime.Replay;
+using Orleans.Testing.Simulation.Runtime.Replay;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>
 /// End-to-end conformance for the producers whose completions used to escape the coordinator. A task or value-task

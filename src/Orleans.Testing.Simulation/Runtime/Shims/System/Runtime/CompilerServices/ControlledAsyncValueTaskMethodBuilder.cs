@@ -1,10 +1,10 @@
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Shims;
-using Clockwork.Shims.System.Threading.Tasks;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Shims;
+using Orleans.Testing.Simulation.Shims.System.Threading.Tasks;
 
-namespace Clockwork.Shims.System.Runtime.CompilerServices;
+namespace Orleans.Testing.Simulation.Shims.System.Runtime.CompilerServices;
 
 /// <summary>
 /// The controlled substitute for

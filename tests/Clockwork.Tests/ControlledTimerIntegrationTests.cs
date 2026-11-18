@@ -1,6 +1,6 @@
-using Clockwork.Runtime.Threading;
+using Orleans.Testing.Simulation.Runtime.Threading;
 
-namespace Clockwork.Tests;
+namespace Orleans.Testing.Simulation.Tests;
 
 public sealed class ControlledTimerIntegrationTests
 {

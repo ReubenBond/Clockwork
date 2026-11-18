@@ -1,10 +1,10 @@
 using System.Reflection;
 using System.Text.RegularExpressions;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Rules.BuiltIn;
-using Clockwork.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 
-namespace Clockwork.Instrumentation.Tests.Rules;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Rules;
 
 /// <summary>
 /// Verifies the committed rule inventory matches <see cref="RuleInventoryDocument.Render"/> and guards the per-family
@@ -24,7 +24,7 @@ public sealed class RuleInventoryDocumentTests
         }
 
         string refresh =
-            $"Refresh '{path}' with `$env:CLOCKWORK_UPDATE_DOCS='1'; dotnet run --project tests/Clockwork.Instrumentation.Tests/Clockwork.Instrumentation.Tests.csproj -- --filter-class {typeof(RuleInventoryDocumentTests).FullName}`.";
+            $"Refresh '{path}' with `$env:CLOCKWORK_UPDATE_DOCS='1'; dotnet run --project tests/Orleans.Testing.Simulation.Instrumentation.Tests/Orleans.Testing.Simulation.Instrumentation.Tests.csproj -- --filter-class {typeof(RuleInventoryDocumentTests).FullName}`.";
         Assert.True(File.Exists(path), refresh);
         string[] expectedLines = expected.Split('\n');
         string[] actualLines = File.ReadAllText(path).Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
@@ -67,7 +67,7 @@ public sealed class RuleInventoryDocumentTests
         Assert.All(
             BuiltInRuleSets.ControlledTasksInventory.Where(
                 entry => entry.Family == BuiltInRuleFamily.TaskTime && entry.Rule.Target.MemberName == "Delay"),
-            entry => Assert.Equal(Clockwork.Runtime.Policy.SimulationApiPolicy.Controlled, entry.Rule.Policy));
+            entry => Assert.Equal(Orleans.Testing.Simulation.Runtime.Policy.SimulationApiPolicy.Controlled, entry.Rule.Policy));
     }
 
     [Fact]
@@ -86,7 +86,7 @@ public sealed class RuleInventoryDocumentTests
         Assert.Equal(10, frameworkOverloads);
         Assert.Equal(frameworkOverloads, classified.Length);
         Assert.All(classified, rule =>
-            Assert.Equal(Clockwork.Runtime.Policy.SimulationApiPolicy.Controlled, rule.Policy));
+            Assert.Equal(Orleans.Testing.Simulation.Runtime.Policy.SimulationApiPolicy.Controlled, rule.Policy));
     }
 
     [Fact]
@@ -94,9 +94,9 @@ public sealed class RuleInventoryDocumentTests
     {
         (string Target, string Replacement)[] expected =
         [
-            ("System.Threading.Timer", "Clockwork.Shims.System.Threading.ControlledTimer"),
-            ("System.Timers.Timer", "Clockwork.Shims.System.Timers.ControlledTimer"),
-            ("System.Threading.PeriodicTimer", "Clockwork.Shims.System.Threading.ControlledPeriodicTimer"),
+            ("System.Threading.Timer", "Orleans.Testing.Simulation.Shims.System.Threading.ControlledTimer"),
+            ("System.Timers.Timer", "Orleans.Testing.Simulation.Shims.System.Timers.ControlledTimer"),
+            ("System.Threading.PeriodicTimer", "Orleans.Testing.Simulation.Shims.System.Threading.ControlledPeriodicTimer"),
         ];
 
         foreach ((string target, string replacement) in expected)
@@ -124,7 +124,7 @@ public sealed class RuleInventoryDocumentTests
         Assert.Equal(24, frameworkOverloadCount);
         Assert.Equal(frameworkOverloadCount, classified.Length);
         Assert.All(classified, rule =>
-            Assert.Equal(Clockwork.Runtime.Policy.SimulationApiPolicy.Controlled, rule.Policy));
+            Assert.Equal(Orleans.Testing.Simulation.Runtime.Policy.SimulationApiPolicy.Controlled, rule.Policy));
     }
 
     [Fact]
@@ -145,7 +145,7 @@ public sealed class RuleInventoryDocumentTests
         Assert.All(classified, rule =>
         {
             Assert.Equal("ContinueWith", rule.Target.MemberName);
-            Assert.Equal(Clockwork.Runtime.Policy.SimulationApiPolicy.Controlled, rule.Policy);
+            Assert.Equal(Orleans.Testing.Simulation.Runtime.Policy.SimulationApiPolicy.Controlled, rule.Policy);
         });
     }
 
@@ -226,7 +226,7 @@ public sealed class RuleInventoryDocumentTests
         Assert.Equal(6, framework.Length);
         Assert.Equal(framework.Length, classified.Length);
         Assert.Equal(classified.Length, classified.Select(rule => rule.Target.ToCanonicalString()).Distinct().Count());
-        Assert.All(classified, rule => Assert.Equal(Clockwork.Runtime.Policy.SimulationApiPolicy.Controlled, rule.Policy));
+        Assert.All(classified, rule => Assert.Equal(Orleans.Testing.Simulation.Runtime.Policy.SimulationApiPolicy.Controlled, rule.Policy));
     }
 
     [Fact]
@@ -255,7 +255,7 @@ public sealed class RuleInventoryDocumentTests
         Assert.All(classified, rule =>
         {
             Assert.True(rule.Target.MemberName is "ContinueWhenAll" or "ContinueWhenAny", rule.Id);
-            Assert.Equal(Clockwork.Runtime.Policy.SimulationApiPolicy.Controlled, rule.Policy);
+            Assert.Equal(Orleans.Testing.Simulation.Runtime.Policy.SimulationApiPolicy.Controlled, rule.Policy);
         });
     }
 
@@ -277,7 +277,7 @@ public sealed class RuleInventoryDocumentTests
             Assert.Equal("FromAsync", rule.Target.MemberName);
             Assert.False(rule.Target.HasParameterConstraint);
             Assert.Equal(RewriteOperationKind.InjectRejection, rule.Operation);
-            Assert.Equal(Clockwork.Runtime.Policy.SimulationApiPolicy.Rejected, rule.Policy);
+            Assert.Equal(Orleans.Testing.Simulation.Runtime.Policy.SimulationApiPolicy.Rejected, rule.Policy);
         });
         Assert.Contains(typeof(TaskFactory).GetMethods(), method => method.Name == "FromAsync");
         Assert.Contains(typeof(TaskFactory<>).GetMethods(), method => method.Name == "FromAsync");
@@ -374,9 +374,9 @@ public sealed class RuleInventoryDocumentTests
     {
         (string Target, string Replacement)[] expected =
         [
-            ("System.Threading.SpinLock", "Clockwork.Shims.System.Threading.ControlledSpinLock"),
-            ("System.Threading.Barrier", "Clockwork.Shims.System.Threading.ControlledBarrier"),
-            ("System.Threading.CountdownEvent", "Clockwork.Shims.System.Threading.ControlledCountdownEvent"),
+            ("System.Threading.SpinLock", "Orleans.Testing.Simulation.Shims.System.Threading.ControlledSpinLock"),
+            ("System.Threading.Barrier", "Orleans.Testing.Simulation.Shims.System.Threading.ControlledBarrier"),
+            ("System.Threading.CountdownEvent", "Orleans.Testing.Simulation.Shims.System.Threading.ControlledCountdownEvent"),
         ];
 
         foreach ((string target, string replacement) in expected)

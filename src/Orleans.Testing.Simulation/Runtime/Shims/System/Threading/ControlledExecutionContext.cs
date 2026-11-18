@@ -1,9 +1,9 @@
 using System.Runtime.Serialization;
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Shims;
-using Clockwork.Runtime.Tasks;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Tasks;
 
-namespace Clockwork.Shims.System.Threading;
+namespace Orleans.Testing.Simulation.Shims.System.Threading;
 
 /// <summary>Controlled rewrite targets for the public <see cref="ExecutionContext"/> surface.</summary>
 public static class ControlledExecutionContext

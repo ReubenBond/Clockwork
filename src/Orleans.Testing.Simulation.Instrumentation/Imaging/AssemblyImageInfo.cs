@@ -1,6 +1,6 @@
 using System.Reflection.PortableExecutable;
 
-namespace Clockwork.Instrumentation.Imaging;
+namespace Orleans.Testing.Simulation.Instrumentation.Imaging;
 
 /// <summary>
 /// A read-only description of a PE file's image shape, computed directly from the PE and CLI headers

@@ -1,7 +1,7 @@
-using Clockwork.Instrumentation.Configuration;
-using Clockwork.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Configuration;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
 
-namespace Clockwork.Instrumentation.Orchestration;
+namespace Orleans.Testing.Simulation.Instrumentation.Orchestration;
 
 /// <summary>
 /// A request to instrument an application closure: the source directory to read from, the staging

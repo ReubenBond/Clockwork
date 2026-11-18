@@ -1,9 +1,9 @@
 using System.Reflection;
 using System.Text;
-using Clockwork.Testing;
+using Orleans.Testing.Simulation.Testing;
 using Microsoft.Extensions.Logging;
 
-namespace Clockwork.Testing.Tests;
+namespace Orleans.Testing.Simulation.Testing.Tests;
 
 public sealed class InMemoryLoggerProviderTests
 {
@@ -349,23 +349,23 @@ public sealed class InMemoryLoggerProviderTests
             type =>
             {
                 Assert.Same(assembly, type.Assembly);
-                Assert.Equal("Clockwork.Testing", type.Namespace);
+                Assert.Equal("Orleans.Testing.Simulation.Testing", type.Namespace);
                 Assert.True(type.IsPublic);
                 Assert.Contains(type, assembly.ExportedTypes);
             });
         Assert.True(typeof(LogEntry).IsValueType);
         Assert.True(typeof(ILoggerProvider).IsAssignableFrom(typeof(InMemoryLoggerProvider)));
 
-        Type? loggerType = assembly.GetType("Clockwork.Testing.InMemoryLogger");
+        Type? loggerType = assembly.GetType("Orleans.Testing.Simulation.Testing.InMemoryLogger");
         Assert.NotNull(loggerType);
         Assert.True(loggerType.IsNotPublic);
         Assert.DoesNotContain(loggerType, assembly.ExportedTypes);
 
-        Assembly runtimeAssembly = typeof(Clockwork.SimulationCluster).Assembly;
-        Assert.Null(runtimeAssembly.GetType("Clockwork.InMemoryLogBuffer"));
-        Assert.Null(runtimeAssembly.GetType("Clockwork.InMemoryLoggerProvider"));
-        Assert.Null(runtimeAssembly.GetType("Clockwork.InMemoryLogger"));
-        Assert.Null(runtimeAssembly.GetType("Clockwork.LogEntry"));
+        Assembly runtimeAssembly = typeof(Orleans.Testing.Simulation.SimulationCluster).Assembly;
+        Assert.Null(runtimeAssembly.GetType("Orleans.Testing.Simulation.InMemoryLogBuffer"));
+        Assert.Null(runtimeAssembly.GetType("Orleans.Testing.Simulation.InMemoryLoggerProvider"));
+        Assert.Null(runtimeAssembly.GetType("Orleans.Testing.Simulation.InMemoryLogger"));
+        Assert.Null(runtimeAssembly.GetType("Orleans.Testing.Simulation.LogEntry"));
     }
 
     [Fact]

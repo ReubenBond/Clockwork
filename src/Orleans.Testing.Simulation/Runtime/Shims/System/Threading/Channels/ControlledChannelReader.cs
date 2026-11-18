@@ -4,12 +4,12 @@ using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Sources;
-using Clockwork.Runtime.Shims;
-using Clockwork.Runtime.Tasks;
-using Clockwork.Shims.System.Runtime.CompilerServices;
-using Clockwork.Shims.System.Threading.Tasks;
+using Orleans.Testing.Simulation.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Tasks;
+using Orleans.Testing.Simulation.Shims.System.Runtime.CompilerServices;
+using Orleans.Testing.Simulation.Shims.System.Threading.Tasks;
 
-namespace Clockwork.Shims.System.Threading.Channels;
+namespace Orleans.Testing.Simulation.Shims.System.Threading.Channels;
 
 /// <summary>
 /// <para>

@@ -1,4 +1,4 @@
-namespace Clockwork.Tests;
+namespace Orleans.Testing.Simulation.Tests;
 
 /// <summary>
 /// Covers the adaptive execution-budget overloads: escalation across successive

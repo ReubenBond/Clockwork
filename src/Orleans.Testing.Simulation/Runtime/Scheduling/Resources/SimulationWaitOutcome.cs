@@ -1,4 +1,4 @@
-namespace Clockwork.Runtime.Scheduling.Resources;
+namespace Orleans.Testing.Simulation.Runtime.Scheduling.Resources;
 
 /// <summary>
 /// The terminal reason a controlled resource wait ended, returned by

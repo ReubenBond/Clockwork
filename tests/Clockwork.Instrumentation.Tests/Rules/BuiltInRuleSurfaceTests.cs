@@ -1,11 +1,11 @@
 using System.Collections.Immutable;
 using System.Text.RegularExpressions;
-using Clockwork.Instrumentation.Rewriting;
-using Clockwork.Instrumentation.Rules.BuiltIn;
-using Clockwork.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Instrumentation.Rewriting;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Tests.Rules;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Rules;
 
 /// <summary>
 /// Classifies the whole surface of every type the built-in rules target against the reference pack this project
@@ -196,7 +196,7 @@ public sealed class BuiltInRuleSurfaceTests
             "Added: " + string.Join(", ", added) + Environment.NewLine +
             "Removed: " + string.Join(", ", removed) + Environment.NewLine +
             review + $" Then refresh the snapshots with `$env:{SnapshotVariable}='1'; dotnet run --project " +
-            "tests/Clockwork.Instrumentation.Tests/Clockwork.Instrumentation.Tests.csproj -- --filter-class " +
+            "tests/Orleans.Testing.Simulation.Instrumentation.Tests/Orleans.Testing.Simulation.Instrumentation.Tests.csproj -- --filter-class " +
             $"{typeof(BuiltInRuleSurfaceTests).FullName}`.");
     }
 

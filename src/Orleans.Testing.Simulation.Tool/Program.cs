@@ -1,10 +1,10 @@
-using Clockwork.Instrumentation.Closure;
-using Clockwork.Instrumentation.Configuration;
-using Clockwork.Runtime.Decisions;
-using Clockwork.Runtime.Exploration;
-using Clockwork.Runtime.Replay;
+using Orleans.Testing.Simulation.Instrumentation.Closure;
+using Orleans.Testing.Simulation.Instrumentation.Configuration;
+using Orleans.Testing.Simulation.Runtime.Decisions;
+using Orleans.Testing.Simulation.Runtime.Exploration;
+using Orleans.Testing.Simulation.Runtime.Replay;
 
-namespace Clockwork.Tool;
+namespace Orleans.Testing.Simulation.Tool;
 
 /// <summary>
 /// Entry point for the <c>clockwork</c> CLI. It dispatches to a command, maps every failure class to a

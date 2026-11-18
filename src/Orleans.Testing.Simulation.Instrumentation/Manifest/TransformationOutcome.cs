@@ -1,4 +1,4 @@
-namespace Clockwork.Instrumentation.Manifest;
+namespace Orleans.Testing.Simulation.Instrumentation.Manifest;
 
 /// <summary>
 /// The outcome recorded for a site the engine considered while applying a rule.

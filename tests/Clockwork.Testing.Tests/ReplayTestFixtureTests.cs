@@ -1,10 +1,10 @@
 using System.Globalization;
-using Clockwork.Runtime.Exploration;
-using Clockwork.Runtime.Replay;
-using Clockwork.Runtime.Scheduling;
-using Clockwork.Testing;
+using Orleans.Testing.Simulation.Runtime.Exploration;
+using Orleans.Testing.Simulation.Runtime.Replay;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Testing;
 
-namespace Clockwork.Testing.Tests;
+namespace Orleans.Testing.Simulation.Testing.Tests;
 
 [Collection("Replay test environment")]
 public sealed class ReplayTestFixtureTests : IDisposable
@@ -158,7 +158,7 @@ public sealed class ReplayTestFixtureTests : IDisposable
         Assert.False(result.IsSuccessful);
         Assert.Equal(2, result.Exploration.Iterations.Count);
         Assert.Equal(2, result.Exploration.FailureCount);
-        Assert.Equal(Clockwork.Runtime.Exploration.ExplorationTerminationReason.FailureLimit, result.Exploration.TerminationReason);
+        Assert.Equal(Orleans.Testing.Simulation.Runtime.Exploration.ExplorationTerminationReason.FailureLimit, result.Exploration.TerminationReason);
         string path = Assert.Single(result.RetainedFailureArtifactPaths).Value;
         Assert.True(File.Exists(path));
         Assert.Single(result.ArtifactPaths);

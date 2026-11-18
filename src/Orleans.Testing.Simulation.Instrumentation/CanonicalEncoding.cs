@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using System.Text;
 
-namespace Clockwork.Instrumentation;
+namespace Orleans.Testing.Simulation.Instrumentation;
 
 /// <summary>Builds unambiguous, versioned canonical encodings for signatures and cache keys.</summary>
 internal sealed class CanonicalEncoding

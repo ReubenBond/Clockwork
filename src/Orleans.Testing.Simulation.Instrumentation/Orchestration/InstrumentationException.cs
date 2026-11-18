@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace Clockwork.Instrumentation.Orchestration;
+namespace Orleans.Testing.Simulation.Instrumentation.Orchestration;
 
 /// <summary>
 /// Thrown when an <see cref="InstrumentationRunner"/> run fails and the caller opted into fail-fast

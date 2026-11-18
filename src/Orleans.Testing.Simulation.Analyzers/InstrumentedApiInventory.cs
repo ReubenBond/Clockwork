@@ -3,7 +3,7 @@ using System;
 using System.Linq;
 using Microsoft.CodeAnalysis;
 
-namespace Clockwork.Analyzers;
+namespace Orleans.Testing.Simulation.Analyzers;
 
 /// <summary>
 /// The direct task and synchronization API surface whose shipped Clockwork rules require the

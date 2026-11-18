@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 
-namespace Clockwork.Instrumentation.Closure;
+namespace Orleans.Testing.Simulation.Instrumentation.Closure;
 
 /// <summary>
 /// Classifies an assembly (by its simple name) as a framework/reference assembly that must not be

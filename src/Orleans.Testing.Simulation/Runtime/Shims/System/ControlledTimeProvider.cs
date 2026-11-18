@@ -1,8 +1,8 @@
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Shims;
-using Clockwork.Runtime.Tasks;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Tasks;
 
-namespace Clockwork.Shims.System;
+namespace Orleans.Testing.Simulation.Shims.System;
 
 /// <summary>Controlled replacement entry points for <see cref="TimeProvider"/> timer creation.</summary>
 public sealed class ControlledTimeProvider : TimeProvider
@@ -82,6 +82,6 @@ public sealed class ControlledTimeProvider : TimeProvider
         throw new SimulationApiException(
             SimulationApiCategory.Timer,
             apiName,
-            $"the TimeProvider implementation '{provider.GetType().FullName}' is not registered with Clockwork.");
+            $"the TimeProvider implementation '{provider.GetType().FullName}' is not registered with Orleans.Testing.Simulation.");
     }
 }

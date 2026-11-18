@@ -1,4 +1,4 @@
-namespace Clockwork;
+namespace Orleans.Testing.Simulation;
 
 /// <summary>
 /// A disposable scope that restores the previous synchronization context, and the lane the thread was executing, when

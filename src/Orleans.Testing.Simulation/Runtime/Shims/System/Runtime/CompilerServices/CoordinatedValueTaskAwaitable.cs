@@ -1,6 +1,6 @@
 using System.Threading.Tasks;
 
-namespace Clockwork.Shims.System.Runtime.CompilerServices;
+namespace Orleans.Testing.Simulation.Shims.System.Runtime.CompilerServices;
 
 /// <summary>
 /// Awaits a <see cref="ValueTask"/> through <see cref="ControlledValueTaskAwaiter"/>, so an async method in Clockwork

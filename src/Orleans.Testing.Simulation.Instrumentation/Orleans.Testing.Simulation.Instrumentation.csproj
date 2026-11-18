@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <Description>Deterministic Mono.Cecil-based instrumentation engine with versioned rewrite rules, portable-PDB preservation, idempotence markers, deterministic manifests, and built-in BCL and concurrency rule sets. See docs/compatibility.md.</Description>
-    <RootNamespace>Clockwork.Instrumentation</RootNamespace>
+    <RootNamespace>Orleans.Testing.Simulation.Instrumentation</RootNamespace>
     <AssemblyName>Orleans.Testing.Simulation.Instrumentation</AssemblyName>
     <PackageId>Microsoft.Orleans.Testing.Simulation.Instrumentation</PackageId>
     <TargetFramework>net11.0</TargetFramework>

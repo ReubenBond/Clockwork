@@ -1,7 +1,7 @@
-using Clockwork.Runtime;
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime;
+using Orleans.Testing.Simulation.Runtime.Shims;
 
-namespace Clockwork.Shims.System.Threading.Tasks.Dataflow;
+namespace Orleans.Testing.Simulation.Shims.System.Threading.Tasks.Dataflow;
 
 /// <summary>
 /// Rejection of the TPL Dataflow entry points: the constructor of every block, and the

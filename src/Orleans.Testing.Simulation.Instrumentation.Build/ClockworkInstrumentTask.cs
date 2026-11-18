@@ -1,13 +1,13 @@
-using Clockwork.Instrumentation.Closure;
-using Clockwork.Instrumentation.Configuration;
-using Clockwork.Instrumentation.Diagnostics;
-using Clockwork.Instrumentation.Orchestration;
-using Clockwork.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Closure;
+using Orleans.Testing.Simulation.Instrumentation.Configuration;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Orchestration;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
 using Microsoft.Build.Framework;
 using Microsoft.Build.Utilities;
 using MSBuildTask = Microsoft.Build.Utilities.Task;
 
-namespace Clockwork.Instrumentation.Build;
+namespace Orleans.Testing.Simulation.Instrumentation.Build;
 
 /// <summary>
 /// The MSBuild task that runs Clockwork's deterministic IL instrumentation over a resolved

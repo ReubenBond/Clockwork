@@ -1,4 +1,4 @@
-namespace Clockwork.Runtime.Decisions;
+namespace Orleans.Testing.Simulation.Runtime.Decisions;
 
 /// <summary>
 /// Broad categories of deterministic decision recorded via <see cref="ISimulationDecisionLog"/>.

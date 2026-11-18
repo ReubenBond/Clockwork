@@ -3,9 +3,9 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Shims;
 
-namespace Clockwork.Shims.System.Net.Http.Json;
+namespace Orleans.Testing.Simulation.Shims.System.Net.Http.Json;
 
 /// <summary>
 /// Controlled <see cref="HttpClientJsonExtensions"/> members. Each sends its request through the given

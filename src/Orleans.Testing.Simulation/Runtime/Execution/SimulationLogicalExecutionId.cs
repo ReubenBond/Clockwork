@@ -1,11 +1,11 @@
-namespace Clockwork.Runtime.Execution;
+namespace Orleans.Testing.Simulation.Runtime.Execution;
 
 /// <summary>
 /// <para>
 /// Identifies one independently interleavable strand of simulated work (roughly one simulated
 /// fiber/task chain). Controlled schedulers install it in <see cref="SimulationExecutionContext"/>,
 /// and the decision-log model records it in
-/// <see cref="Clockwork.Runtime.Decisions.SimulationDecisionRecord"/>.
+/// <see cref="Orleans.Testing.Simulation.Runtime.Decisions.SimulationDecisionRecord"/>.
 /// </para>
 /// <para>
 /// <see cref="None"/> is the value observed outside any explicitly-entered logical execution scope.

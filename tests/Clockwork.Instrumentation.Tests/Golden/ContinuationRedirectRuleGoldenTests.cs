@@ -1,11 +1,11 @@
-using Clockwork.Instrumentation.Rewriting;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Rules.BuiltIn;
-using Clockwork.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Instrumentation.Rewriting;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
-namespace Clockwork.Instrumentation.Tests.Golden;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Golden;
 
 /// <summary>
 /// Golden tests for the redirects which keep Clockwork from registering BCL continuations: every .NET 11
@@ -157,7 +157,7 @@ public sealed class ContinuationRedirectRuleGoldenTests
     ];
 
     private static string RuntimeAssemblyPath =>
-        typeof(Clockwork.Shims.System.Threading.Tasks.ControlledTask).Assembly.Location;
+        typeof(Orleans.Testing.Simulation.Shims.System.Threading.Tasks.ControlledTask).Assembly.Location;
 
     [Fact]
     public void EveryRedirectAppliesAndBinds()
@@ -217,7 +217,7 @@ public sealed class ContinuationRedirectRuleGoldenTests
             "System.Void System.Threading.Tasks.TaskCompletionSource`1<System.Int32>::.ctor(System.Threading.Tasks.TaskCreationOptions)");
         Assert.True(CecilInspect.CallsAnyContaining(
             CecilInspect.GetMethod(module, "Fx.Completions", "Create"),
-            "Clockwork.Shims.System.Threading.Tasks.ControlledTaskCompletionSource::CreateGeneric<System.Int32>"));
+            "Orleans.Testing.Simulation.Shims.System.Threading.Tasks.ControlledTaskCompletionSource::CreateGeneric<System.Int32>"));
         Assert.Equal(
             "System.Threading.Tasks.TaskCompletionSource`1<System.Int32>",
             module.GetType("Fx.DerivedSource").BaseType.FullName);
@@ -225,10 +225,10 @@ public sealed class ContinuationRedirectRuleGoldenTests
             && call.DeclaringType.FullName.StartsWith("System.Threading.Tasks.Sources.ManualResetValueTaskSourceCore", StringComparison.Ordinal));
         Assert.True(CecilInspect.CallsAnyContaining(
             CecilInspect.GetMethod(module, "Fx.CoreSource", "Resolve"),
-            "Clockwork.Shims.System.Threading.Tasks.Sources.ControlledManualResetValueTaskSourceCore::SetResult<System.Int32>"));
+            "Orleans.Testing.Simulation.Shims.System.Threading.Tasks.Sources.ControlledManualResetValueTaskSourceCore::SetResult<System.Int32>"));
         Assert.True(CecilInspect.CallsAnyContaining(
             CecilInspect.GetMethod(module, "Fx.DerivedSource", "Resolve"),
-            "Clockwork.Shims.System.Threading.Tasks.ControlledTaskCompletionSource::SetResult<System.Int32>"));
+            "Orleans.Testing.Simulation.Shims.System.Threading.Tasks.ControlledTaskCompletionSource::SetResult<System.Int32>"));
     }
 
     private static bool IsBcl(MethodReference call) =>

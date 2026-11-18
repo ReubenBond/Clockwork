@@ -1,4 +1,4 @@
-namespace Clockwork.Tests;
+namespace Orleans.Testing.Simulation.Tests;
 
 /// <summary>
 /// Covers <see cref="SimulationLatch"/>: one-shot countdown semantics, deterministic FIFO release

@@ -2,10 +2,10 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
-using Clockwork.Runtime.Shims;
-using Clockwork.Shims.System.Runtime.CompilerServices;
+using Orleans.Testing.Simulation.Runtime.Shims;
+using Orleans.Testing.Simulation.Shims.System.Runtime.CompilerServices;
 
-namespace Clockwork.Shims.System.Threading.Channels;
+namespace Orleans.Testing.Simulation.Shims.System.Threading.Channels;
 
 /// <summary>
 /// Controlled <see cref="ChannelWriter{T}.WriteAsync"/>. The base implementation, which a writer that does not override

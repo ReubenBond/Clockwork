@@ -1,8 +1,8 @@
-using Clockwork.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
-namespace Clockwork.Instrumentation.Rewriting;
+namespace Orleans.Testing.Simulation.Instrumentation.Rewriting;
 
 /// <summary>
 /// Post-rewrite validation. Reads the written assembly back with Mono.Cecil (proving it is

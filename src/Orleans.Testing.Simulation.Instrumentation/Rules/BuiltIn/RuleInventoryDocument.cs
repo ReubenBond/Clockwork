@@ -1,8 +1,8 @@
 using System.Collections.Immutable;
 using System.Text;
-using Clockwork.Runtime.Policy;
+using Orleans.Testing.Simulation.Runtime.Policy;
 
-namespace Clockwork.Instrumentation.Rules.BuiltIn;
+namespace Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
 
 /// <summary>
 /// Renders the built-in rule inventories (<see cref="BuiltInRuleSets.DeterministicBclInventory"/> and
@@ -62,7 +62,7 @@ public static class RuleInventoryDocument
 
         Line("# Built-in rewrite rule inventory");
         Line();
-        Line("<!-- Generated from Clockwork.Instrumentation.Rules.BuiltIn.RuleInventoryDocument.Render().");
+        Line("<!-- Generated from Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn.RuleInventoryDocument.Render().");
         Line("     Do not edit by hand; a test verifies this file matches the shipped rule set. -->");
         Line();
         Line(

@@ -1,13 +1,13 @@
 using System.Diagnostics;
 using System.Globalization;
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Random;
-using Clockwork.Runtime.Scheduling;
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Random;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Shims;
 using Microsoft.Extensions.Logging;
-using Clockwork.Runtime.Tasks;
+using Orleans.Testing.Simulation.Runtime.Tasks;
 
-namespace Clockwork;
+namespace Orleans.Testing.Simulation;
 
 /// <summary>
 /// A directly constructible deterministic simulation cluster. The cluster owns the scheduler,
@@ -17,7 +17,7 @@ namespace Clockwork;
 [DebuggerDisplay("{DebuggerDisplay,nq}")]
 public sealed partial class SimulationCluster : IAsyncDisposable
 {
-    private const string TeardownApi = "Clockwork.SimulationCluster.TeardownCancellationToken";
+    private const string TeardownApi = "Orleans.Testing.Simulation.SimulationCluster.TeardownCancellationToken";
 
     private const int DisposalMaxIterations = 1_000_000;
 
@@ -51,7 +51,7 @@ public sealed partial class SimulationCluster : IAsyncDisposable
     /// method (<c>RunUntil</c>, <c>RunUntilIdle</c>, <c>RunFor</c>, <c>RunToCompletion</c>) cancels
     /// <see cref="TeardownCancellationToken"/>.
     /// </param>
-    /// <exception cref="Clockwork.Runtime.UnsupportedRuntimeException">
+    /// <exception cref="Orleans.Testing.Simulation.Runtime.UnsupportedRuntimeException">
     /// A loaded assembly rewritten by Clockwork does not support the runtime this process runs.
     /// </exception>
     public SimulationCluster(
@@ -130,7 +130,7 @@ public sealed partial class SimulationCluster : IAsyncDisposable
     /// <para>
     /// Gets this cluster's runtime identity - a process-unique id (plus the seed and this
     /// cluster's concrete type name, for diagnostics) that becomes ambient (see
-    /// <see cref="Clockwork.Runtime.Execution.SimulationExecutionContext"/>) around every piece of
+    /// <see cref="Orleans.Testing.Simulation.Runtime.Execution.SimulationExecutionContext"/>) around every piece of
     /// work this cluster or its nodes execute through an ambient-integrated queue.
     /// </para>
     /// <para>
@@ -143,7 +143,7 @@ public sealed partial class SimulationCluster : IAsyncDisposable
     /// <summary>
     /// Gets the root deterministic seed/decision authority for this cluster, exposing independent
     /// named seed domains (scheduler, network, application, identity, Buggify, model - see
-    /// <see cref="Clockwork.Runtime.Random.SimulationSeedDomain"/>) plus stable per-node/per-site
+    /// <see cref="Orleans.Testing.Simulation.Runtime.Random.SimulationSeedDomain"/>) plus stable per-node/per-site
     /// child derivation, all as pure functions of <see cref="Seed"/> - never of registration or
     /// fork order.
     /// </summary>

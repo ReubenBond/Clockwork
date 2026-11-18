@@ -1,9 +1,9 @@
 using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
-using Clockwork.Instrumentation.Orchestration;
+using Orleans.Testing.Simulation.Instrumentation.Orchestration;
 
-namespace Clockwork.Instrumentation.Rules;
+namespace Orleans.Testing.Simulation.Instrumentation.Rules;
 
 /// <summary>
 /// A versioned, immutable collection of <see cref="RewriteRule"/> values applied together by the

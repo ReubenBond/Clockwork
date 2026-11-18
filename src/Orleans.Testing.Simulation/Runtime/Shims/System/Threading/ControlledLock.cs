@@ -1,8 +1,8 @@
 using System.Threading;
-using Clockwork.Runtime.Shims;
-using Clockwork.Runtime.Tasks;
+using Orleans.Testing.Simulation.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime.Tasks;
 
-namespace Clockwork.Shims.System.Threading;
+namespace Orleans.Testing.Simulation.Shims.System.Threading;
 
 /// <summary>
 /// <para>

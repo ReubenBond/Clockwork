@@ -2,12 +2,12 @@ using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
-using Clockwork.Runtime;
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Replay;
+using Orleans.Testing.Simulation.Runtime;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Replay;
 using LoopOutcome = (System.Threading.Tasks.TaskStatus Status, string[] Faults, string[] Trace, int MaxInFlight);
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>
 /// End-to-end conformance for the controlled <see cref="Parallel"/> loops: every <c>ForEachAsync</c> and <c>ForAsync</c>

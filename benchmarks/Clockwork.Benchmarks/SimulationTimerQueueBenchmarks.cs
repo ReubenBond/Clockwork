@@ -1,7 +1,7 @@
 using BenchmarkDotNet.Attributes;
-using Clockwork.Runtime.Scheduling.Resources;
+using Orleans.Testing.Simulation.Runtime.Scheduling.Resources;
 
-namespace Clockwork.Benchmarks;
+namespace Orleans.Testing.Simulation.Benchmarks;
 
 [MemoryDiagnoser]
 public class SimulationTimerQueueBenchmarks

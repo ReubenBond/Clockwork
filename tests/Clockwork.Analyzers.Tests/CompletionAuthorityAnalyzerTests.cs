@@ -1,11 +1,11 @@
 using System.Collections.Immutable;
 using System.Linq;
-using Clockwork.Analyzers;
+using Orleans.Testing.Simulation.Analyzers;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Diagnostics;
 
-namespace Clockwork.Analyzers.Tests;
+namespace Orleans.Testing.Simulation.Analyzers.Tests;
 
 public sealed class CompletionAuthorityAnalyzerTests
 {
@@ -16,7 +16,7 @@ public sealed class CompletionAuthorityAnalyzerTests
         using System.Threading.Tasks;
         using System.Threading.Tasks.Sources;
 
-        namespace Clockwork.Runtime.Tasks
+        namespace Orleans.Testing.Simulation.Runtime.Tasks
         {
             [AttributeUsage(AttributeTargets.Parameter)]
             internal sealed class CompletionCallbackAttribute : Attribute;
@@ -102,7 +102,7 @@ public sealed class CompletionAuthorityAnalyzerTests
             namespace Probe
             {
                 using System;
-                using Clockwork.Runtime.Tasks;
+                using Orleans.Testing.Simulation.Runtime.Tasks;
 
                 internal static class Probe
                 {
@@ -122,7 +122,7 @@ public sealed class CompletionAuthorityAnalyzerTests
             namespace Probe
             {
                 using System;
-                using Clockwork.Runtime.Tasks;
+                using Orleans.Testing.Simulation.Runtime.Tasks;
 
                 internal static class Probe
                 {
@@ -155,7 +155,7 @@ public sealed class CompletionAuthorityAnalyzerTests
             using System.Threading;
             using System.Threading.Tasks;
             using System.Threading.Tasks.Sources;
-            using Clockwork.Runtime.Tasks;
+            using Orleans.Testing.Simulation.Runtime.Tasks;
 
             internal static class Probe
             {

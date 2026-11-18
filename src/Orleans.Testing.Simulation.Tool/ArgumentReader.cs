@@ -1,4 +1,4 @@
-namespace Clockwork.Tool;
+namespace Orleans.Testing.Simulation.Tool;
 
 /// <summary>
 /// A minimal, dependency-free command-line reader for a single command's arguments. It parses

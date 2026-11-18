@@ -1,6 +1,6 @@
 using System.ComponentModel;
 
-namespace Clockwork.Shims.System;
+namespace Orleans.Testing.Simulation.Shims.System;
 
 /// <summary>
 /// <para>

@@ -1,4 +1,4 @@
-namespace Clockwork.Instrumentation.Rules.BuiltIn;
+namespace Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
 
 /// <summary>
 /// Why a public or protected member of a type the built-in rules target stays a BCL call. Each value names one

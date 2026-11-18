@@ -1,9 +1,9 @@
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
-using Clockwork.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>
 /// A minimal single- or multi-node <see cref="SimulationCluster"/> wrapper that invokes an instrumented

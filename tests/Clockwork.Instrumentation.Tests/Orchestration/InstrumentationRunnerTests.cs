@@ -3,19 +3,19 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Clockwork.Instrumentation.Configuration;
-using Clockwork.Instrumentation.Closure;
-using Clockwork.Instrumentation.Diagnostics;
-using Clockwork.Instrumentation.Imaging;
-using Clockwork.Instrumentation.Orchestration;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Rules.BuiltIn;
-using Clockwork.Instrumentation.Signing;
-using Clockwork.Instrumentation.Tests.Infrastructure;
-using Clockwork.Runtime.Racing;
+using Orleans.Testing.Simulation.Instrumentation.Configuration;
+using Orleans.Testing.Simulation.Instrumentation.Closure;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Imaging;
+using Orleans.Testing.Simulation.Instrumentation.Orchestration;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Instrumentation.Signing;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Runtime.Racing;
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Tests.Orchestration;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Orchestration;
 
 /// <summary>
 /// Verifies the end-to-end instrumentation orchestrator: it stages a runnable closure (rewriting
@@ -1146,7 +1146,7 @@ public sealed class InstrumentationRunnerTests : IDisposable
             }
             """);
         File.Copy(
-            typeof(Clockwork.Runtime.SimulationExceptionGuard).Assembly.Location,
+            typeof(Orleans.Testing.Simulation.Runtime.SimulationExceptionGuard).Assembly.Location,
             Path.Combine(_source, "Orleans.Testing.Simulation.dll"));
         ProcessAppRunner.WriteRuntimeConfig(Path.Combine(_source, "app.dll"));
 
@@ -1199,7 +1199,7 @@ public sealed class InstrumentationRunnerTests : IDisposable
         BuildMinimalApp();
         FixtureCompiler.Compile(
             "Orleans.Testing.Simulation",
-            "namespace Clockwork.Runtime { public static class LegacyRuntime { } }",
+            "namespace Orleans.Testing.Simulation.Runtime { public static class LegacyRuntime { } }",
             _source,
             FixtureSymbols.None,
             optimize: true);

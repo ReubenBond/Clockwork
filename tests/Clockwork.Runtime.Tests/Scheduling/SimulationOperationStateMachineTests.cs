@@ -1,6 +1,6 @@
-using Clockwork.Runtime.Scheduling;
+using Orleans.Testing.Simulation.Runtime.Scheduling;
 
-namespace Clockwork.Runtime.Tests.Scheduling;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Scheduling;
 
 /// <summary>
 /// Exhaustive coverage of the <see cref="SimulationOperation"/> state machine's legality table:

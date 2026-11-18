@@ -1,9 +1,9 @@
-using Clockwork.Instrumentation.Manifest;
-using Clockwork.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Manifest;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
-namespace Clockwork.Instrumentation.Rewriting;
+namespace Orleans.Testing.Simulation.Instrumentation.Rewriting;
 
 /// <summary>
 /// Rewrites type-reference operands in method bodies (<c>newarr</c>, <c>castclass</c>, <c>isinst</c>,

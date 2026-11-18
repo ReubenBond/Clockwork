@@ -1,7 +1,7 @@
-using Clockwork.Runtime;
-using Clockwork.Runtime.Shims;
+using Orleans.Testing.Simulation.Runtime;
+using Orleans.Testing.Simulation.Runtime.Shims;
 
-namespace Clockwork.Shims.System.Linq;
+namespace Orleans.Testing.Simulation.Shims.System.Linq;
 
 /// <summary>
 /// Rejection of the PLINQ entry points of <see cref="global::System.Linq.ParallelEnumerable"/>: every <c>AsParallel</c>

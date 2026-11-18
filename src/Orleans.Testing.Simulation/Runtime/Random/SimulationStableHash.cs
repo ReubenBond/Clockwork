@@ -2,12 +2,12 @@ using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace Clockwork.Runtime.Random;
+namespace Orleans.Testing.Simulation.Runtime.Random;
 
 /// <summary>
 /// <para>
 /// The stable, cross-process-safe string-hashing primitive shared by every deterministic seed
-/// derivation in Clockwork: the <c>SimulationSeed</c> type (in the Clockwork.Simulation
+/// derivation in Clockwork: the <c>SimulationSeed</c> type (in the Orleans.Testing.Simulation.Simulation
 /// package) delegates to this exact algorithm, and <see cref="SimulationSeedAuthority"/> builds
 /// its per-domain/per-site derivation on top of it, so "derive a stable seed from a string" has
 /// exactly one implementation across the codebase.

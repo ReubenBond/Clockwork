@@ -4,12 +4,12 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Operations;
 
-namespace Clockwork.Analyzers;
+namespace Orleans.Testing.Simulation.Analyzers;
 
 /// <summary>
 /// <para>
 /// Enforces, in the Clockwork runtime assembly, that every completion Clockwork performs for simulation code runs through
-/// <c>Clockwork.Runtime.Tasks.SimulationCompletion</c>. The BCL runs a completed task's continuations where the completing
+/// <c>Orleans.Testing.Simulation.Runtime.Tasks.SimulationCompletion</c>. The BCL runs a completed task's continuations where the completing
 /// call runs, and queues them to the real thread pool unless no synchronization context and the default scheduler are
 /// current; <c>SimulationCompletion</c> establishes that, so a completion member called anywhere else can send simulation
 /// work to the thread pool.
@@ -21,7 +21,7 @@ namespace Clockwork.Analyzers;
 /// <c>CancellationTokenSource</c>'s <c>Cancel</c>, <c>CancelAsync</c>, and <c>CancelAfter</c>) unless it is inside
 /// <c>SimulationCompletion</c> outside a lambda or local function, or directly inside a synchronous lambda, or is a
 /// method group, passed to a parameter marked
-/// <c>Clockwork.Runtime.Tasks.CompletionCallbackAttribute</c>, which runs only through <c>SimulationCompletion</c>. Outside
+/// <c>Orleans.Testing.Simulation.Runtime.Tasks.CompletionCallbackAttribute</c>, which runs only through <c>SimulationCompletion</c>. Outside
 /// <c>SimulationCompletion</c>, such a parameter may only be passed on to another such parameter. The rule is active
 /// only in the assembly which defines <c>SimulationCompletion</c>.
 /// </para>
@@ -29,8 +29,8 @@ namespace Clockwork.Analyzers;
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class CompletionAuthorityAnalyzer : DiagnosticAnalyzer
 {
-    private const string AuthorityTypeName = "Clockwork.Runtime.Tasks.SimulationCompletion";
-    private const string CallbackAttributeTypeName = "Clockwork.Runtime.Tasks.CompletionCallbackAttribute";
+    private const string AuthorityTypeName = "Orleans.Testing.Simulation.Runtime.Tasks.SimulationCompletion";
+    private const string CallbackAttributeTypeName = "Orleans.Testing.Simulation.Runtime.Tasks.CompletionCallbackAttribute";
 
     private static readonly ImmutableHashSet<string> TaskCompletionSourceMembers = ImmutableHashSet.Create(
         "SetResult",

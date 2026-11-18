@@ -1,8 +1,8 @@
 using System.Collections.Concurrent;
 using System.Reflection;
-using Clockwork.Runtime;
+using Orleans.Testing.Simulation.Runtime;
 
-namespace Clockwork.Conformance.Tests;
+namespace Orleans.Testing.Simulation.Conformance.Tests;
 
 /// <summary>
 /// End-to-end conformance for the rejected PLINQ entry points. PLINQ runs a query on worker tasks of

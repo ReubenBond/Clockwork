@@ -1,12 +1,12 @@
-using Clockwork.Instrumentation.Configuration;
-using Clockwork.Instrumentation.Diagnostics;
-using Clockwork.Instrumentation.Rewriting;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Rules.BuiltIn;
-using Clockwork.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Instrumentation.Configuration;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Rewriting;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 using Mono.Cecil;
 
-namespace Clockwork.Instrumentation.Tests.Golden;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Golden;
 
 /// <summary>Proves malformed JSON replacement contracts fail before invalid IL is emitted.</summary>
 public sealed class ReplacementContractGoldenTests
@@ -280,7 +280,7 @@ public sealed class ReplacementContractGoldenTests
             """;
         using var context = RewriteTestContext.Create();
         string fixturePath = context.CompileFixture("Fx.RecursiveBuiltIns", source);
-        string runtimePath = typeof(Clockwork.Shims.System.Threading.Tasks.ControlledTask).Assembly.Location;
+        string runtimePath = typeof(Orleans.Testing.Simulation.Shims.System.Threading.Tasks.ControlledTask).Assembly.Location;
         var configuration = new InstrumentationConfiguration
         {
             BuiltInRuleSetIds =

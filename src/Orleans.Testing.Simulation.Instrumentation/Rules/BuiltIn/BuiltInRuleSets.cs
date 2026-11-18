@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
-using Clockwork.Runtime.Policy;
+using Orleans.Testing.Simulation.Runtime.Policy;
 
-namespace Clockwork.Instrumentation.Rules.BuiltIn;
+namespace Orleans.Testing.Simulation.Instrumentation.Rules.BuiltIn;
 
 /// <summary>
 /// The catalogue of Clockwork's built-in, versioned rewrite rule sets. These ship with the
@@ -9,7 +9,7 @@ namespace Clockwork.Instrumentation.Rules.BuiltIn;
 /// hand-authoring JSON signatures. The only rule set today is
 /// <see cref="DeterministicBclId"/> - the built-in deterministic BCL shim set - which
 /// redirects the direct static time / identity / random surface to the runtime shims in the
-/// <c>Clockwork</c> assembly (under the <c>Clockwork.Shims</c> namespace hierarchy).
+/// <c>Clockwork</c> assembly (under the <c>Orleans.Testing.Simulation.Shims</c> namespace hierarchy).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -41,31 +41,31 @@ public static class BuiltInRuleSets
     /// <summary>The simple name of the assembly declaring every built-in shim.</summary>
     public const string ShimAssemblyName = "Orleans.Testing.Simulation";
 
-    private const string DateTimeShim = "Clockwork.Shims.System.ControlledDateTime";
-    private const string DateTimeOffsetShim = "Clockwork.Shims.System.ControlledDateTimeOffset";
-    private const string StopwatchShim = "Clockwork.Shims.System.Diagnostics.ControlledStopwatch";
-    private const string EnvironmentShim = "Clockwork.Shims.System.ControlledEnvironment";
-    private const string GuidShim = "Clockwork.Shims.System.ControlledGuid";
-    private const string RandomShim = "Clockwork.Shims.System.ControlledRandom";
-    private const string CryptoShim = "Clockwork.Shims.System.Security.Cryptography.ControlledRandomNumberGenerator";
-    private const string TaskShim = "Clockwork.Shims.System.Threading.Tasks.ControlledTask";
-    private const string TaskFactoryShim = "Clockwork.Shims.System.Threading.Tasks.ControlledTaskFactory";
-    private const string ThreadShim = "Clockwork.Shims.System.Threading.ControlledThread";
-    private const string ThreadPoolShim = "Clockwork.Shims.System.Threading.ControlledThreadPool";
-    private const string ParallelShim = "Clockwork.Shims.System.Threading.Tasks.ControlledParallel";
-    private const string PartitionerShim = "Clockwork.Shims.System.Collections.Concurrent.ControlledPartitioner";
-    private const string MonitorShim = "Clockwork.Shims.System.Threading.ControlledMonitor";
-    private const string SemaphoreSlimShim = "Clockwork.Shims.System.Threading.ControlledSemaphoreSlim";
-    private const string InterlockedShim = "Clockwork.Shims.System.Threading.ControlledInterlocked";
-    private const string VolatileShim = "Clockwork.Shims.System.Threading.ControlledVolatile";
-    private const string ReaderWriterLockSlimShim = "Clockwork.Shims.System.Threading.ControlledReaderWriterLockSlim";
-    private const string ManualResetEventSlimShim = "Clockwork.Shims.System.Threading.ControlledManualResetEventSlim";
-    private const string MutexShim = "Clockwork.Shims.System.Threading.ControlledMutex";
-    private const string KernelSemaphoreShim = "Clockwork.Shims.System.Threading.ControlledSemaphore";
-    private const string ExecutionContextShim = "Clockwork.Shims.System.Threading.ControlledExecutionContext";
-    private const string SynchronizationContextShim = "Clockwork.Shims.System.Threading.ControlledSynchronizationContext";
-    private const string TimeProviderShim = "Clockwork.Shims.System.ControlledTimeProvider";
-    private const string CancellationTokenSourceShim = "Clockwork.Shims.System.Threading.ControlledCancellationTokenSource";
+    private const string DateTimeShim = "Orleans.Testing.Simulation.Shims.System.ControlledDateTime";
+    private const string DateTimeOffsetShim = "Orleans.Testing.Simulation.Shims.System.ControlledDateTimeOffset";
+    private const string StopwatchShim = "Orleans.Testing.Simulation.Shims.System.Diagnostics.ControlledStopwatch";
+    private const string EnvironmentShim = "Orleans.Testing.Simulation.Shims.System.ControlledEnvironment";
+    private const string GuidShim = "Orleans.Testing.Simulation.Shims.System.ControlledGuid";
+    private const string RandomShim = "Orleans.Testing.Simulation.Shims.System.ControlledRandom";
+    private const string CryptoShim = "Orleans.Testing.Simulation.Shims.System.Security.Cryptography.ControlledRandomNumberGenerator";
+    private const string TaskShim = "Orleans.Testing.Simulation.Shims.System.Threading.Tasks.ControlledTask";
+    private const string TaskFactoryShim = "Orleans.Testing.Simulation.Shims.System.Threading.Tasks.ControlledTaskFactory";
+    private const string ThreadShim = "Orleans.Testing.Simulation.Shims.System.Threading.ControlledThread";
+    private const string ThreadPoolShim = "Orleans.Testing.Simulation.Shims.System.Threading.ControlledThreadPool";
+    private const string ParallelShim = "Orleans.Testing.Simulation.Shims.System.Threading.Tasks.ControlledParallel";
+    private const string PartitionerShim = "Orleans.Testing.Simulation.Shims.System.Collections.Concurrent.ControlledPartitioner";
+    private const string MonitorShim = "Orleans.Testing.Simulation.Shims.System.Threading.ControlledMonitor";
+    private const string SemaphoreSlimShim = "Orleans.Testing.Simulation.Shims.System.Threading.ControlledSemaphoreSlim";
+    private const string InterlockedShim = "Orleans.Testing.Simulation.Shims.System.Threading.ControlledInterlocked";
+    private const string VolatileShim = "Orleans.Testing.Simulation.Shims.System.Threading.ControlledVolatile";
+    private const string ReaderWriterLockSlimShim = "Orleans.Testing.Simulation.Shims.System.Threading.ControlledReaderWriterLockSlim";
+    private const string ManualResetEventSlimShim = "Orleans.Testing.Simulation.Shims.System.Threading.ControlledManualResetEventSlim";
+    private const string MutexShim = "Orleans.Testing.Simulation.Shims.System.Threading.ControlledMutex";
+    private const string KernelSemaphoreShim = "Orleans.Testing.Simulation.Shims.System.Threading.ControlledSemaphore";
+    private const string ExecutionContextShim = "Orleans.Testing.Simulation.Shims.System.Threading.ControlledExecutionContext";
+    private const string SynchronizationContextShim = "Orleans.Testing.Simulation.Shims.System.Threading.ControlledSynchronizationContext";
+    private const string TimeProviderShim = "Orleans.Testing.Simulation.Shims.System.ControlledTimeProvider";
+    private const string CancellationTokenSourceShim = "Orleans.Testing.Simulation.Shims.System.Threading.ControlledCancellationTokenSource";
 
     // Cecil full names for the exact overload parameters (from the net11 reference assemblies).
     private const string Int32 = "System.Int32";
@@ -184,8 +184,8 @@ public static class BuiltInRuleSets
 
     // Cecil full names for the TaskCompletionSource completion members. The generic source's members are
     // non-generic members of the closed generic type (`!0` target), bound to the shim's TResult from the receiver.
-    private const string TaskCompletionSourceShim = "Clockwork.Shims.System.Threading.Tasks.ControlledTaskCompletionSource";
-    private const string ValueTaskSourceCoreShim = "Clockwork.Shims.System.Threading.Tasks.Sources.ControlledManualResetValueTaskSourceCore";
+    private const string TaskCompletionSourceShim = "Orleans.Testing.Simulation.Shims.System.Threading.Tasks.ControlledTaskCompletionSource";
+    private const string ValueTaskSourceCoreShim = "Orleans.Testing.Simulation.Shims.System.Threading.Tasks.Sources.ControlledManualResetValueTaskSourceCore";
     private const string ValueTaskSourceCoreType = "System.Threading.Tasks.Sources.ManualResetValueTaskSourceCore`1";
     private const string ValueTaskSourceCoreRefDecl = "System.Threading.Tasks.Sources.ManualResetValueTaskSourceCore`1<TResult>&";
     private const string TaskCompletionSourceType = "System.Threading.Tasks.TaskCompletionSource";
@@ -198,7 +198,7 @@ public static class BuiltInRuleSets
     private const string IEnumerableOfException = "System.Collections.Generic.IEnumerable`1<System.Exception>";
 
     // Cecil full names for the ValueTask conversions. The receiver is a value type, so each shim takes it by reference.
-    private const string ValueTaskShim = "Clockwork.Shims.System.Threading.Tasks.ControlledValueTask";
+    private const string ValueTaskShim = "Orleans.Testing.Simulation.Shims.System.Threading.Tasks.ControlledValueTask";
     private const string ValueTaskType = "System.Threading.Tasks.ValueTask";
     private const string ValueTaskTType = "System.Threading.Tasks.ValueTask`1";
     private const string ValueTaskRef = "System.Threading.Tasks.ValueTask&";
@@ -210,11 +210,11 @@ public static class BuiltInRuleSets
     // Cecil full names for the controlled System.Threading.Thread surface.
     private const string ThreadType = "System.Threading.Thread";
     private const string TimerType = "System.Threading.Timer";
-    private const string ControlledTimerType = "Clockwork.Shims.System.Threading.ControlledTimer";
+    private const string ControlledTimerType = "Orleans.Testing.Simulation.Shims.System.Threading.ControlledTimer";
     private const string TimersTimerType = "System.Timers.Timer";
-    private const string ControlledComponentTimerType = "Clockwork.Shims.System.Timers.ControlledTimer";
+    private const string ControlledComponentTimerType = "Orleans.Testing.Simulation.Shims.System.Timers.ControlledTimer";
     private const string PeriodicTimerType = "System.Threading.PeriodicTimer";
-    private const string ControlledPeriodicTimerType = "Clockwork.Shims.System.Threading.ControlledPeriodicTimer";
+    private const string ControlledPeriodicTimerType = "Orleans.Testing.Simulation.Shims.System.Threading.ControlledPeriodicTimer";
     private const string CancellationTokenSourceType = "System.Threading.CancellationTokenSource";
     private const string ThreadStart = "System.Threading.ThreadStart";
     private const string ParameterizedThreadStart = "System.Threading.ParameterizedThreadStart";
@@ -241,7 +241,7 @@ public static class BuiltInRuleSets
     // field / parameter and the Unregister instance member remap onto the controlled type, while the static
     // factories are redirected to shims returning it.
     private const string RegisteredWaitHandleType = "System.Threading.RegisteredWaitHandle";
-    private const string ControlledRegisteredWaitHandleType = "Clockwork.Shims.System.Threading.ControlledRegisteredWaitHandle";
+    private const string ControlledRegisteredWaitHandleType = "Orleans.Testing.Simulation.Shims.System.Threading.ControlledRegisteredWaitHandle";
 
     // Cecil full names shared by the registered-wait factory redirects. Each of
     // RegisterWaitForSingleObject and UnsafeRegisterWaitForSingleObject has four timeout overloads
@@ -282,8 +282,8 @@ public static class BuiltInRuleSets
 
     // Cecil full names for the controlled System.Threading.Channels surface: virtual members of the open generic reader
     // and writer (`!0` target), redirected to receiver-first generic shims (`T` replacement).
-    private const string ChannelReaderShim = "Clockwork.Shims.System.Threading.Channels.ControlledChannelReader";
-    private const string ChannelWriterShim = "Clockwork.Shims.System.Threading.Channels.ControlledChannelWriter";
+    private const string ChannelReaderShim = "Orleans.Testing.Simulation.Shims.System.Threading.Channels.ControlledChannelReader";
+    private const string ChannelWriterShim = "Orleans.Testing.Simulation.Shims.System.Threading.Channels.ControlledChannelWriter";
     private const string ChannelReaderType = "System.Threading.Channels.ChannelReader`1";
     private const string ChannelWriterType = "System.Threading.Channels.ChannelWriter`1";
     private const string ChannelReaderTDecl = "System.Threading.Channels.ChannelReader`1<T>";
@@ -291,37 +291,37 @@ public static class BuiltInRuleSets
 
     // Cecil full names for the PLINQ entry points, rejected at the call site.
     private const string ParallelEnumerableType = "System.Linq.ParallelEnumerable";
-    private const string ParallelEnumerableShim = "Clockwork.Shims.System.Linq.ControlledParallelEnumerable";
+    private const string ParallelEnumerableShim = "Orleans.Testing.Simulation.Shims.System.Linq.ControlledParallelEnumerable";
     private const string NonGenericIEnumerable = "System.Collections.IEnumerable";
 
     // Cecil full names for the background-work, TPL Dataflow, and WebSocket entry points, rejected at the call site.
     private const string BackgroundWorkerType = "System.ComponentModel.BackgroundWorker";
-    private const string BackgroundWorkerShim = "Clockwork.Shims.System.ComponentModel.ControlledBackgroundWorker";
+    private const string BackgroundWorkerShim = "Orleans.Testing.Simulation.Shims.System.ComponentModel.ControlledBackgroundWorker";
     private const string BackgroundServiceType = "Microsoft.Extensions.Hosting.BackgroundService";
-    private const string BackgroundServiceShim = "Clockwork.Shims.Microsoft.Extensions.Hosting.ControlledBackgroundService";
+    private const string BackgroundServiceShim = "Orleans.Testing.Simulation.Shims.Microsoft.Extensions.Hosting.ControlledBackgroundService";
     private const string DataflowNamespace = "System.Threading.Tasks.Dataflow.";
-    private const string DataflowShim = "Clockwork.Shims.System.Threading.Tasks.Dataflow.ControlledDataflowBlock";
+    private const string DataflowShim = "Orleans.Testing.Simulation.Shims.System.Threading.Tasks.Dataflow.ControlledDataflowBlock";
     private const string WebSocketType = "System.Net.WebSockets.WebSocket";
-    private const string WebSocketShim = "Clockwork.Shims.System.Net.WebSockets.ControlledWebSocket";
+    private const string WebSocketShim = "Orleans.Testing.Simulation.Shims.System.Net.WebSockets.ControlledWebSocket";
     private const string WebSocketStreamType = "System.Net.WebSockets.WebSocketStream";
-    private const string WebSocketStreamShim = "Clockwork.Shims.System.Net.WebSockets.ControlledWebSocketStream";
+    private const string WebSocketStreamShim = "Orleans.Testing.Simulation.Shims.System.Net.WebSockets.ControlledWebSocketStream";
     private const string WebSocketMessageType = "System.Net.WebSockets.WebSocketMessageType";
 
     // Cecil full names for the hosting extensions which block on the host's work or time out on a real timer.
     private const string HostExtensionsType = "Microsoft.Extensions.Hosting.HostingAbstractionsHostExtensions";
-    private const string HostExtensionsShim = "Clockwork.Shims.Microsoft.Extensions.Hosting.ControlledHostingAbstractionsHostExtensions";
+    private const string HostExtensionsShim = "Orleans.Testing.Simulation.Shims.Microsoft.Extensions.Hosting.ControlledHostingAbstractionsHostExtensions";
     private const string IHostType = "Microsoft.Extensions.Hosting.IHost";
     private const string HostBuilderExtensionsType = "Microsoft.Extensions.Hosting.HostingAbstractionsHostBuilderExtensions";
-    private const string HostBuilderExtensionsShim = "Clockwork.Shims.Microsoft.Extensions.Hosting.ControlledHostingAbstractionsHostBuilderExtensions";
+    private const string HostBuilderExtensionsShim = "Orleans.Testing.Simulation.Shims.Microsoft.Extensions.Hosting.ControlledHostingAbstractionsHostBuilderExtensions";
     private const string IHostBuilderType = "Microsoft.Extensions.Hosting.IHostBuilder";
 
     // Cecil full names for the members which send through an HttpClient, whose timeout runs on a real timer.
     private const string HttpClientType = "System.Net.Http.HttpClient";
-    private const string HttpClientShim = "Clockwork.Shims.System.Net.Http.ControlledHttpClient";
+    private const string HttpClientShim = "Orleans.Testing.Simulation.Shims.System.Net.Http.ControlledHttpClient";
     private const string HttpMessageInvokerType = "System.Net.Http.HttpMessageInvoker";
-    private const string HttpMessageInvokerShim = "Clockwork.Shims.System.Net.Http.ControlledHttpMessageInvoker";
+    private const string HttpMessageInvokerShim = "Orleans.Testing.Simulation.Shims.System.Net.Http.ControlledHttpMessageInvoker";
     private const string HttpClientJsonType = "System.Net.Http.Json.HttpClientJsonExtensions";
-    private const string HttpClientJsonShim = "Clockwork.Shims.System.Net.Http.Json.ControlledHttpClientJsonExtensions";
+    private const string HttpClientJsonShim = "Orleans.Testing.Simulation.Shims.System.Net.Http.Json.ControlledHttpClientJsonExtensions";
     private const string HttpRequestMessageType = "System.Net.Http.HttpRequestMessage";
     private const string HttpCompletionOptionType = "System.Net.Http.HttpCompletionOption";
     private const string HttpContentType = "System.Net.Http.HttpContent";
@@ -380,7 +380,7 @@ public static class BuiltInRuleSets
     // Cecil full names for the controlled BlockingCollection<T> surface: members of the open generic type (`!0` target),
     // redirected to generic shims (`T` replacement), receiver first for the instance members.
     private const string BlockingCollectionType = "System.Collections.Concurrent.BlockingCollection`1";
-    private const string BlockingCollectionShim = "Clockwork.Shims.System.Collections.Concurrent.ControlledBlockingCollection";
+    private const string BlockingCollectionShim = "Orleans.Testing.Simulation.Shims.System.Collections.Concurrent.ControlledBlockingCollection";
     private const string BlockingCollectionTDecl = "System.Collections.Concurrent.BlockingCollection`1<T>";
     private const string BlockingCollectionArrayVar = "System.Collections.Concurrent.BlockingCollection`1<!0>[]";
     private const string BlockingCollectionArrayDecl = "System.Collections.Concurrent.BlockingCollection`1<T>[]";
@@ -392,9 +392,9 @@ public static class BuiltInRuleSets
     private const string StreamType = "System.IO.Stream";
     private const string TextReaderType = "System.IO.TextReader";
     private const string TextWriterType = "System.IO.TextWriter";
-    private const string StreamShim = "Clockwork.Shims.System.IO.ControlledStream";
-    private const string TextReaderShim = "Clockwork.Shims.System.IO.ControlledTextReader";
-    private const string TextWriterShim = "Clockwork.Shims.System.IO.ControlledTextWriter";
+    private const string StreamShim = "Orleans.Testing.Simulation.Shims.System.IO.ControlledStream";
+    private const string TextReaderShim = "Orleans.Testing.Simulation.Shims.System.IO.ControlledTextReader";
+    private const string TextWriterShim = "Orleans.Testing.Simulation.Shims.System.IO.ControlledTextWriter";
     private const string ByteArray = "System.Byte[]";
     private const string CharArray = "System.Char[]";
     private const string CharType = "System.Char";
@@ -443,7 +443,7 @@ public static class BuiltInRuleSets
     private const string UnixProcessStarter = "System.Func`2<System.Runtime.InteropServices.UnixProcessStartArguments,System.Int32>";
     private const string CancellationTokenType = "System.Threading.CancellationToken";
     private const string ExceptionType = "System.Exception";
-    private const string UncontrolledInvocationShim = "Clockwork.Runtime.UncontrolledInvocationGuard";
+    private const string UncontrolledInvocationShim = "Orleans.Testing.Simulation.Runtime.UncontrolledInvocationGuard";
 
     // Cecil full names for the controlled monitor/lock/semaphore control synchronization surface. Monitor is entirely static, so
     // the shim signatures match the BCL targets exactly. `ref bool` renders as `System.Boolean&`.
@@ -455,8 +455,8 @@ public static class BuiltInRuleSets
     private const string BooleanRef = "System.Boolean&";
     private const string LockType = "System.Threading.Lock";
     private const string LockScopeType = "System.Threading.Lock/Scope";
-    private const string ControlledLockType = "Clockwork.Shims.System.Threading.ControlledLock";
-    private const string ControlledLockScopeType = "Clockwork.Shims.System.Threading.ControlledLock/Scope";
+    private const string ControlledLockType = "Orleans.Testing.Simulation.Shims.System.Threading.ControlledLock";
+    private const string ControlledLockScopeType = "Orleans.Testing.Simulation.Shims.System.Threading.ControlledLock/Scope";
     private const string SemaphoreSlimType = "System.Threading.SemaphoreSlim";
 
     // Cecil full names for the controlled wait-handle and atomic control Interlocked atomic surface. Every overload takes its
@@ -501,7 +501,7 @@ public static class BuiltInRuleSets
     // `default`, the instance members (Count, NextSpinWillYield, Reset, SpinOnce overloads) and the static
     // SpinUntil overloads remap onto the controlled struct.
     private const string SpinWaitType = "System.Threading.SpinWait";
-    private const string ControlledSpinWaitType = "Clockwork.Shims.System.Threading.ControlledSpinWait";
+    private const string ControlledSpinWaitType = "Orleans.Testing.Simulation.Shims.System.Threading.ControlledSpinWait";
 
     // Cecil full names for the controlled wait-handle and atomic control event / wait-handle surface. AutoResetEvent,
     // ManualResetEvent and EventWaitHandle are concrete sealed classes: the real objects are retained as
@@ -520,8 +520,8 @@ public static class BuiltInRuleSets
     private const string SafeWaitHandleType = "Microsoft.Win32.SafeHandles.SafeWaitHandle";
     private const string EventWaitHandleRef = "System.Threading.EventWaitHandle&";
     private const string WaitHandleArray = "System.Threading.WaitHandle[]";
-    private const string WaitHandleShim = "Clockwork.Shims.System.Threading.ControlledWaitHandle";
-    private const string EventWaitHandleShim = "Clockwork.Shims.System.Threading.ControlledEventWaitHandle";
+    private const string WaitHandleShim = "Orleans.Testing.Simulation.Shims.System.Threading.ControlledWaitHandle";
+    private const string EventWaitHandleShim = "Orleans.Testing.Simulation.Shims.System.Threading.ControlledEventWaitHandle";
 
     // Cecil full names for the modern synchronization families. ReaderWriterLockSlim and
     // ManualResetEventSlim retain BCL identity objects and use receiver-first static shims. Mutex and the
@@ -542,17 +542,17 @@ public static class BuiltInRuleSets
     private const string SendOrPostCallbackType = "System.Threading.SendOrPostCallback";
     private const string IntPtrArray = "System.IntPtr[]";
     private const string BarrierType = "System.Threading.Barrier";
-    private const string ControlledBarrierType = "Clockwork.Shims.System.Threading.ControlledBarrier";
+    private const string ControlledBarrierType = "Orleans.Testing.Simulation.Shims.System.Threading.ControlledBarrier";
     private const string CountdownEventType = "System.Threading.CountdownEvent";
-    private const string ControlledCountdownEventType = "Clockwork.Shims.System.Threading.ControlledCountdownEvent";
+    private const string ControlledCountdownEventType = "Orleans.Testing.Simulation.Shims.System.Threading.ControlledCountdownEvent";
     private const string SpinLockType = "System.Threading.SpinLock";
-    private const string ControlledSpinLockType = "Clockwork.Shims.System.Threading.ControlledSpinLock";
+    private const string ControlledSpinLockType = "Orleans.Testing.Simulation.Shims.System.Threading.ControlledSpinLock";
 
 
     // Cecil full names for the compiler-generated async machinery (BCL) and their controlled substitutes.
     // Nested awaiter types use Cecil's '/' separator; generic arities carry the backtick.
     private const string CompilerNs = "System.Runtime.CompilerServices.";
-    private const string ControlledNs = "Clockwork.Shims.System.Runtime.CompilerServices.";
+    private const string ControlledNs = "Orleans.Testing.Simulation.Shims.System.Runtime.CompilerServices.";
     private const string BclBuilder = CompilerNs + "AsyncTaskMethodBuilder";
     private const string BclBuilderT = CompilerNs + "AsyncTaskMethodBuilder`1";
     private const string BclTaskAwaiter = CompilerNs + "TaskAwaiter";
@@ -596,7 +596,7 @@ public static class BuiltInRuleSets
     private const string ControlledConfiguredAsyncEnumerable = ControlledNs + "ControlledConfiguredCancelableAsyncEnumerable`1";
     private const string ControlledConfiguredAsyncEnumerator = ControlledNs + "ControlledConfiguredCancelableAsyncEnumerable`1/Enumerator";
     private const string TaskAsyncEnumerableExtensionsType = "System.Threading.Tasks.TaskAsyncEnumerableExtensions";
-    private const string AsyncEnumerableShim = "Clockwork.Shims.System.Threading.Tasks.ControlledTaskAsyncEnumerableExtensions";
+    private const string AsyncEnumerableShim = "Orleans.Testing.Simulation.Shims.System.Threading.Tasks.ControlledTaskAsyncEnumerableExtensions";
     private const string AsyncDisposableType = "System.IAsyncDisposable";
     private const string AsyncEnumerableT = "System.Collections.Generic.IAsyncEnumerable`1<!!0>";
     private const string AsyncEnumerableTDecl = "System.Collections.Generic.IAsyncEnumerable`1<T>";

@@ -1,4 +1,4 @@
-namespace Clockwork.Runtime.Decisions;
+namespace Orleans.Testing.Simulation.Runtime.Decisions;
 
 /// <summary>
 /// Thrown by <see cref="SimulationDecisionReplayValidator"/> at the first decision whose content

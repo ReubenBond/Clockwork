@@ -1,7 +1,7 @@
 using System.ComponentModel;
-using Clockwork.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Execution;
 
-namespace Clockwork.Shims.System;
+namespace Orleans.Testing.Simulation.Shims.System;
 
 /// <summary>Controlled rewrite targets for <see cref="DateTimeOffset"/> clock properties.</summary>
 [EditorBrowsable(EditorBrowsableState.Never)]

@@ -1,8 +1,8 @@
-using Clockwork.Runtime.Decisions;
-using Clockwork.Runtime.Execution;
-using Clockwork.Runtime.Random;
+using Orleans.Testing.Simulation.Runtime.Decisions;
+using Orleans.Testing.Simulation.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Random;
 
-namespace Clockwork.Runtime.Tests.Decisions;
+namespace Orleans.Testing.Simulation.Runtime.Tests.Decisions;
 
 /// <summary>
 /// Covers <see cref="SimulationDecisionLog"/> and the underlying <see cref="SimulationDecisionRecord"/>

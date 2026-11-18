@@ -1,8 +1,8 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
-using Clockwork.Runtime.Execution;
+using Orleans.Testing.Simulation.Runtime.Execution;
 
-namespace Clockwork.Runtime.Shims;
+namespace Orleans.Testing.Simulation.Runtime.Shims;
 
 /// <summary>Centralizes active-simulation assertion and runtime-environment access for rewrite targets.</summary>
 public static class SimulationRuntimeDispatch

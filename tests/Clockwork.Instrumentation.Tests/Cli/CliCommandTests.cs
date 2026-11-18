@@ -1,10 +1,10 @@
-using Clockwork.Instrumentation.Diagnostics;
-using Clockwork.Instrumentation.Inspection;
-using Clockwork.Instrumentation.Tests.Infrastructure;
-using Clockwork.Runtime.Shims;
-using Clockwork.Tool;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Inspection;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Runtime.Shims;
+using Orleans.Testing.Simulation.Tool;
 
-namespace Clockwork.Instrumentation.Tests.Cli;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Cli;
 
 /// <summary>
 /// Verifies the <c>clockwork</c> CLI in-process by driving <see cref="Program.Run"/> with explicit

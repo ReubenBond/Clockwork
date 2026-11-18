@@ -5,7 +5,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Operations;
 
-namespace Clockwork.Analyzers;
+namespace Orleans.Testing.Simulation.Analyzers;
 
 /// <summary>
 /// Flags direct calls to the nondeterministic .NET BCL surface covered by Clockwork's built-in

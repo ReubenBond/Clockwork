@@ -1,11 +1,11 @@
-using Clockwork.Instrumentation.Diagnostics;
-using Clockwork.Instrumentation.Rules;
-using Clockwork.Instrumentation.Rewriting;
-using Clockwork.Instrumentation.Tests.Infrastructure;
+using Orleans.Testing.Simulation.Instrumentation.Diagnostics;
+using Orleans.Testing.Simulation.Instrumentation.Rules;
+using Orleans.Testing.Simulation.Instrumentation.Rewriting;
+using Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
-namespace Clockwork.Instrumentation.Tests.Golden;
+namespace Orleans.Testing.Simulation.Instrumentation.Tests.Golden;
 
 /// <summary>
 /// Verifies member substitution selects methods, and the constructors that replace awaiter-source calls, by
