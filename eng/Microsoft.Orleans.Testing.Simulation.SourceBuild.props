@@ -1,6 +1,6 @@
 <Project>
   <!--
-    Side-effect-free source-build inventory for the six Orleans simulation packages.
+    Side-effect-free source-build inventory for the seven Orleans simulation packages.
     Importing this file only declares items; it does not add references, imports, or targets.
   -->
   <ItemGroup>
@@ -38,6 +38,13 @@
       <AssemblyName>Orleans.Testing.Simulation.Testing</AssemblyName>
       <TargetFramework>net11.0</TargetFramework>
       <Role>TestingSupport</Role>
+    </OrleansSimulationSourceBuildPackage>
+    <OrleansSimulationSourceBuildPackage Include="Microsoft.Orleans.Testing.Simulation.Testing.MTP">
+      <PackageId>Microsoft.Orleans.Testing.Simulation.Testing.MTP</PackageId>
+      <SourceProject>src/Orleans.Testing.Simulation.Testing.MTP/Orleans.Testing.Simulation.Testing.MTP.csproj</SourceProject>
+      <AssemblyName>Orleans.Testing.Simulation.Testing.MTP</AssemblyName>
+      <TargetFramework>net11.0</TargetFramework>
+      <Role>MicrosoftTestingPlatformIntegration</Role>
     </OrleansSimulationSourceBuildPackage>
     <OrleansSimulationSourceBuildPackage Include="Microsoft.Orleans.Testing.Simulation.Tool">
       <PackageId>Microsoft.Orleans.Testing.Simulation.Tool</PackageId>

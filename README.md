@@ -55,9 +55,11 @@ dotnet run --project tests\Clockwork.Tests\Clockwork.Tests.csproj -- --timeout 6
 dotnet pack src/Orleans.Testing.Simulation/Orleans.Testing.Simulation.csproj --configuration Release
 ```
 
-The core NuGet package ID is `Microsoft.Orleans.Testing.Simulation`; test-runner integration and
-replay helpers are in `Microsoft.Orleans.Testing.Simulation.Testing`. Until packages are published,
-clone the repository or add it as a Git submodule and reference the corresponding project under `src`.
+The core NuGet package ID is `Microsoft.Orleans.Testing.Simulation`; framework-neutral logging and
+replay helpers are in `Microsoft.Orleans.Testing.Simulation.Testing`. Microsoft Testing Platform
+applications explicitly reference `Microsoft.Orleans.Testing.Simulation.Testing.MTP` for command-line,
+progress-output, and test-host hooks. Until packages are published, clone the repository or add it as a
+Git submodule and reference the corresponding projects under `src`.
 
 ### Public namespace migration
 
@@ -77,7 +79,7 @@ clone the repository or add it as a Git submodule and reference the correspondin
 |---|---|
 | `Clockwork*` MSBuild properties, items, targets, task names, and assembly metadata | `OrleansSimulation*` |
 | `Clockwork.Instrumentation.Build.props` / `.targets` | `Microsoft.Orleans.Testing.Simulation.Instrumentation.Build.props` / `.targets` |
-| `Clockwork.Simulation.Testing.props` and MTP display name | `Microsoft.Orleans.Testing.Simulation.Testing.props` and `Microsoft.Orleans.Testing.Simulation.Testing` |
+| `Clockwork.Simulation.Testing.props` and MTP display name | `Microsoft.Orleans.Testing.Simulation.Testing.MTP.props` and `Microsoft.Orleans.Testing.Simulation.Testing.MTP` |
 | `obj/.../clockwork/...` and `clockwork.config.json` | `obj/.../orleans-simulation/...` and `orleans-simulation.config.json` |
 | `CLOCKWORK_*` environment variables | `ORLEANS_SIMULATION_*` |
 | `--clockwork-progress` | `--orleans-simulation-progress` |
@@ -318,8 +320,9 @@ $env:ORLEANS_SIMULATION_PROGRESS_INTERVAL = "5s"
 dotnet run --project tests\Clockwork.Tests\Clockwork.Tests.csproj
 ```
 
-Test projects which reference `Microsoft.Orleans.Testing.Simulation.Testing` and use Microsoft
-Testing Platform can set the same interval when invoking their generated test executable:
+Microsoft Testing Platform test applications which reference
+`Microsoft.Orleans.Testing.Simulation.Testing.MTP` can set the same interval when invoking their
+generated test executable:
 
 ```powershell
 dotnet run --project tests\Clockwork.Tests\Clockwork.Tests.csproj -- --orleans-simulation-progress 5s

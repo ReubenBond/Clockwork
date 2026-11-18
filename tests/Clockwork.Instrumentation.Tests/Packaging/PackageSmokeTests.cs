@@ -13,7 +13,7 @@ using Orleans.Testing.Simulation.Runtime.Shims;
 namespace Orleans.Testing.Simulation.Instrumentation.Tests.Packaging;
 
 /// <summary>
-/// End-to-end package smoke tests. These pack the six production NuGet packages into an isolated
+/// End-to-end package smoke tests. These pack the seven production NuGet packages into an isolated
 /// local feed, inspect their package boundaries, then consume them exactly as an end user would -
 /// the build package via a <c>PackageReference</c> that runs the real MSBuild targets during
 /// <c>dotnet build</c>, the kernel and testing packages from ordinary package-only projects, and
@@ -33,11 +33,32 @@ public sealed class PackageSmokeTests
     private const string BuildPackageId = "Microsoft.Orleans.Testing.Simulation.Instrumentation.Build";
     private const string AnalyzersPackageId = "Microsoft.Orleans.Testing.Simulation.Analyzers";
     private const string TestingPackageId = "Microsoft.Orleans.Testing.Simulation.Testing";
+    private const string TestingMtpPackageId = "Microsoft.Orleans.Testing.Simulation.Testing.MTP";
     private const string ToolPackageId = "Microsoft.Orleans.Testing.Simulation.Tool";
     private const string ProductionFixturePackageId = "Clockwork.Fixtures.Production";
 
     private static readonly bool SmokeEnabled =
         string.Equals(Environment.GetEnvironmentVariable(SmokeEnvironmentVariable), "1", StringComparison.Ordinal);
+
+    private static readonly string[] TestingSupportPackagePayload =
+    [
+        "LICENSE",
+        "README.md",
+        "THIRD-PARTY-NOTICES.md",
+        "lib/net11.0/Orleans.Testing.Simulation.Testing.dll",
+        "lib/net11.0/Orleans.Testing.Simulation.Testing.xml",
+    ];
+
+    private static readonly string[] TestingMtpPackagePayload =
+    [
+        "LICENSE",
+        "README.md",
+        "THIRD-PARTY-NOTICES.md",
+        "buildMultiTargeting/Microsoft.Orleans.Testing.Simulation.Testing.MTP.props",
+        "buildTransitive/Microsoft.Orleans.Testing.Simulation.Testing.MTP.props",
+        "lib/net11.0/Orleans.Testing.Simulation.Testing.MTP.dll",
+        "lib/net11.0/Orleans.Testing.Simulation.Testing.MTP.xml",
+    ];
 
     private static readonly Lazy<PackagedArtifacts> Artifacts = new(PackagedArtifacts.Build);
 
@@ -73,6 +94,11 @@ public sealed class PackageSmokeTests
             "Orleans.Testing.Simulation.Testing",
             ".NETCoreApp,Version=v11.0");
         AssertAssemblyAsset(
+            artifacts.PackagePath(TestingMtpPackageId),
+            "lib/net11.0/Orleans.Testing.Simulation.Testing.MTP.dll",
+            "Orleans.Testing.Simulation.Testing.MTP",
+            ".NETCoreApp,Version=v11.0");
+        AssertAssemblyAsset(
             artifacts.PackagePath(ToolPackageId),
             "tools/net11.0/any/Orleans.Testing.Simulation.Tool.dll",
             "Orleans.Testing.Simulation.Tool",
@@ -96,8 +122,12 @@ public sealed class PackageSmokeTests
         AssertDependencyGroup(
             artifacts.PackagePath(TestingPackageId),
             "net11.0",
-            SimulationPackageId,
-            "Microsoft.Testing.Platform");
+            SimulationPackageId);
+        AssertDependencyGroup(
+            artifacts.PackagePath(TestingMtpPackageId),
+            "net11.0",
+            "Microsoft.Testing.Platform",
+            TestingPackageId);
         AssertNoDependencyGroups(artifacts.PackagePath(ToolPackageId));
     }
 
@@ -199,6 +229,59 @@ public sealed class PackageSmokeTests
     }
 
     [Fact]
+    public void TestingSupportPackageKeepsOrdinaryLoggerConsumerFrameworkNeutral()
+    {
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
+        ConsumerProject consumer = Artifacts.Value.ScaffoldOrdinaryTestingSupportConsumer(
+            "OrdinaryTestingSupportConsumer");
+
+        XDocument project = XDocument.Load(consumer.ProjectPath);
+        Assert.Empty(project.Descendants("OutputType"));
+        Assert.Equal(
+            [TestingPackageId],
+            project.Descendants("PackageReference")
+                .Select(static element => (string?)element.Attribute("Include"))
+                .Where(static value => value is not null)
+                .Select(static value => value!)
+                .ToArray());
+
+        AppRunResult build = consumer.Build();
+        Assert.True(build.ExitCode == 0, $"Build failed:\n{build.StandardOutput}\n{build.StandardError}");
+
+        AppRunResult evaluation = consumer.EvaluateProject(
+            "-getProperty:OutputType,IsTestingPlatformApplication",
+            "-getItem:TestingPlatformBuilderHook");
+        Assert.True(
+            evaluation.ExitCode == 0,
+            $"Project evaluation failed:\n{evaluation.StandardOutput}\n{evaluation.StandardError}");
+        using JsonDocument evaluated = JsonDocument.Parse(evaluation.Output);
+        JsonElement properties = evaluated.RootElement.GetProperty("Properties");
+        Assert.Equal("Library", properties.GetProperty("OutputType").GetString());
+        Assert.False(
+            string.Equals(
+                "true",
+                properties.GetProperty("IsTestingPlatformApplication").GetString(),
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Empty(
+            evaluated.RootElement.GetProperty("Items").GetProperty("TestingPlatformBuilderHook").EnumerateArray());
+
+        string[] packageIds = PackageBoundaryInspector.ReadPackageIds(consumer.AssetsPath);
+        Assert.Contains(SimulationPackageId, packageIds);
+        Assert.Contains(TestingPackageId, packageIds);
+        Assert.DoesNotContain(TestingMtpPackageId, packageIds);
+        Assert.DoesNotContain("Microsoft.Testing.Platform", packageIds);
+        Assert.DoesNotContain(
+            Directory.EnumerateFiles(consumer.OutputDirectory, "*.dll", SearchOption.TopDirectoryOnly)
+                .Select(Path.GetFileName),
+            static fileName =>
+                fileName is not null
+                && (fileName.StartsWith("Microsoft.Testing.Platform", StringComparison.OrdinalIgnoreCase)
+                    || fileName.StartsWith(
+                        "Orleans.Testing.Simulation.Testing.MTP",
+                        StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [Fact]
     public void ProductionAppAndPackageRemainSimulationFreeUnderDeploymentAnalyzers()
     {
         Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
@@ -293,7 +376,7 @@ public sealed class PackageSmokeTests
     }
 
     [Fact]
-    public void TestingPackageDependsOnlyOnSimulationAndMicrosoftTestingPlatformAndPreservesMtpHook()
+    public void TestingSupportPackageIsFrameworkNeutralAndContainsNoBuildHooks()
     {
         Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
         string packagePath = Artifacts.Value.PackagePath(TestingPackageId);
@@ -302,8 +385,23 @@ public sealed class PackageSmokeTests
         AssertDependencyGroup(
             packagePath,
             "net11.0",
-            SimulationPackageId,
-            "Microsoft.Testing.Platform");
+            SimulationPackageId);
+        Assert.Equal(TestingSupportPackagePayload, PackagePayloadEntries(entries));
+    }
+
+    [Fact]
+    public void TestingMtpPackageOwnsMicrosoftTestingPlatformDependencyAndBuilderHook()
+    {
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
+        string packagePath = Artifacts.Value.PackagePath(TestingMtpPackageId);
+        string[] entries = PackageEntries(packagePath);
+
+        AssertDependencyGroup(
+            packagePath,
+            "net11.0",
+            "Microsoft.Testing.Platform",
+            TestingPackageId);
+        Assert.Equal(TestingMtpPackagePayload, PackagePayloadEntries(entries));
         string propsPath = Assert.Single(
             entries,
             static entry =>
@@ -319,7 +417,7 @@ public sealed class PackageSmokeTests
             ReadPackageEntry(packagePath, propsPath),
             StringComparison.Ordinal);
         Assert.Contains(
-            "<DisplayName>Microsoft.Orleans.Testing.Simulation.Testing</DisplayName>",
+            "<DisplayName>Microsoft.Orleans.Testing.Simulation.Testing.MTP</DisplayName>",
             ReadPackageEntry(packagePath, propsPath),
             StringComparison.Ordinal);
         Assert.Equal(
@@ -523,7 +621,8 @@ public sealed class PackageSmokeTests
                 .Select(static value => value!),
         ];
         Assert.Contains(SimulationPackageId, packageReferences);
-        Assert.Contains(TestingPackageId, packageReferences);
+        Assert.Contains(TestingMtpPackageId, packageReferences);
+        Assert.DoesNotContain(TestingPackageId, packageReferences);
         Assert.Contains(BuildPackageId, packageReferences);
         Assert.Contains(AnalyzersPackageId, packageReferences);
         Assert.Contains(ProductionFixturePackageId, packageReferences);
@@ -535,6 +634,7 @@ public sealed class PackageSmokeTests
         string[] restoredPackageIds = PackageBoundaryInspector.ReadPackageIds(consumer.AssetsPath);
         Assert.Contains(SimulationPackageId, restoredPackageIds);
         Assert.Contains(TestingPackageId, restoredPackageIds);
+        Assert.Contains(TestingMtpPackageId, restoredPackageIds);
         Assert.Contains(BuildPackageId, restoredPackageIds);
         Assert.Contains(AnalyzersPackageId, restoredPackageIds);
         string[] restoredBuildPackageFiles =
@@ -580,6 +680,11 @@ public sealed class PackageSmokeTests
             "analyzers/dotnet/cs/Orleans.Testing.Simulation.Analyzers.dll",
             normalizedAnalyzerImport,
             StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            evaluatedImports,
+            static line =>
+                line == "mtpHook|Orleans.Testing.Simulation.Testing.TestingPlatformBuilderHook"
+                + "|Microsoft.Orleans.Testing.Simulation.Testing.MTP");
         string[] evaluatedPackageIds =
         [
             .. evaluatedImports
@@ -594,7 +699,7 @@ public sealed class PackageSmokeTests
                 "Orleans.Durable.Storage.Diagnostics",
                 ProductionFixturePackageId,
                 SimulationPackageId,
-                TestingPackageId,
+                TestingMtpPackageId,
                 "xunit.v3.mtp-v2",
             }.Order(StringComparer.OrdinalIgnoreCase),
             evaluatedPackageIds.Order(StringComparer.OrdinalIgnoreCase));
@@ -905,18 +1010,19 @@ public sealed class PackageSmokeTests
         AssertPackageMetadata(artifacts.PackagePath(BuildPackageId), BuildPackageId);
         AssertPackageMetadata(artifacts.PackagePath(AnalyzersPackageId), AnalyzersPackageId);
         AssertPackageMetadata(artifacts.PackagePath(TestingPackageId), TestingPackageId);
+        AssertPackageMetadata(artifacts.PackagePath(TestingMtpPackageId), TestingMtpPackageId);
         AssertPackageMetadata(artifacts.PackagePath(ToolPackageId), ToolPackageId);
     }
 
     [Fact]
-    public void PackedTestingPackageUsesCurrentPackageIdForBuildProps()
+    public void PackedTestingMtpPackageUsesCurrentPackageIdForBuildProps()
     {
-        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
-        using ZipArchive package = ZipFile.OpenRead(Artifacts.Value.PackagePath(TestingPackageId));
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
+        using ZipArchive package = ZipFile.OpenRead(Artifacts.Value.PackagePath(TestingMtpPackageId));
         string[] entries = package.Entries.Select(static entry => entry.FullName).ToArray();
 
-        Assert.Contains("buildTransitive/Microsoft.Orleans.Testing.Simulation.Testing.props", entries);
-        Assert.Contains("buildMultiTargeting/Microsoft.Orleans.Testing.Simulation.Testing.props", entries);
+        Assert.Contains("buildTransitive/Microsoft.Orleans.Testing.Simulation.Testing.MTP.props", entries);
+        Assert.Contains("buildMultiTargeting/Microsoft.Orleans.Testing.Simulation.Testing.MTP.props", entries);
         Assert.DoesNotContain(
             entries,
             static entry =>
@@ -924,7 +1030,7 @@ public sealed class PackageSmokeTests
                 && entry.EndsWith(".props", StringComparison.Ordinal)
                 && !string.Equals(
                     entry,
-                    "buildTransitive/Microsoft.Orleans.Testing.Simulation.Testing.props",
+                    "buildTransitive/Microsoft.Orleans.Testing.Simulation.Testing.MTP.props",
                     StringComparison.Ordinal));
         Assert.DoesNotContain(
             entries,
@@ -933,7 +1039,7 @@ public sealed class PackageSmokeTests
                 && entry.EndsWith(".props", StringComparison.Ordinal)
                 && !string.Equals(
                     entry,
-                    "buildMultiTargeting/Microsoft.Orleans.Testing.Simulation.Testing.props",
+                    "buildMultiTargeting/Microsoft.Orleans.Testing.Simulation.Testing.MTP.props",
                     StringComparison.Ordinal));
     }
 
@@ -1080,6 +1186,17 @@ public sealed class PackageSmokeTests
         return [.. package.Entries.Select(static entry => entry.FullName)];
     }
 
+    private static string[] PackagePayloadEntries(IEnumerable<string> entries) =>
+    [
+        .. entries
+            .Where(static entry =>
+                entry != "[Content_Types].xml"
+                && !entry.StartsWith("_rels/", StringComparison.Ordinal)
+                && !entry.StartsWith("package/services/metadata/core-properties/", StringComparison.Ordinal)
+                && !entry.EndsWith(".nuspec", StringComparison.Ordinal))
+            .Order(StringComparer.Ordinal),
+    ];
+
     private static string ReadPackageEntry(string packagePath, string entryPath)
     {
         using ZipArchive package = ZipFile.OpenRead(packagePath);
@@ -1196,6 +1313,12 @@ public sealed class PackageSmokeTests
             Pack(
                 repoRoot,
                 "src/Orleans.Testing.Simulation.Testing/Orleans.Testing.Simulation.Testing.csproj",
+                version,
+                feed,
+                packages);
+            Pack(
+                repoRoot,
+                "src/Orleans.Testing.Simulation.Testing.MTP/Orleans.Testing.Simulation.Testing.MTP.csproj",
                 version,
                 feed,
                 packages);
@@ -1569,7 +1692,7 @@ public sealed class PackageSmokeTests
                   <ItemGroup>
                     <PackageReference Include="xunit.v3.mtp-v2" Version="3.2.1" />
                     <PackageReference Include="{SimulationPackageId}" Version="{_version}" />
-                    <PackageReference Include="{TestingPackageId}" Version="{_version}" />
+                    <PackageReference Include="{TestingMtpPackageId}" Version="{_version}" />
                     <PackageReference Include="{BuildPackageId}" Version="{_version}" />
                     <PackageReference Include="{AnalyzersPackageId}" Version="{_version}" PrivateAssets="all" />
                     <PackageReference Include="{ProductionFixturePackageId}" Version="{_version}" />
@@ -1592,6 +1715,10 @@ public sealed class PackageSmokeTests
                     <WriteLinesToFile
                         File="$(IntermediateOutputPath)orleans-simulation-evaluated-imports.txt"
                         Lines="buildTask|$(OrleansSimulationInstrumentationTaskAssembly)"
+                        Overwrite="false" />
+                    <WriteLinesToFile
+                        File="$(IntermediateOutputPath)orleans-simulation-evaluated-imports.txt"
+                        Lines="@(TestingPlatformBuilderHook->'mtpHook|%(TypeFullName)|%(DisplayName)')"
                         Overwrite="false" />
                     <WriteLinesToFile
                         File="$(IntermediateOutputPath)orleans-simulation-evaluated-references.txt"
@@ -1644,6 +1771,47 @@ public sealed class PackageSmokeTests
                   </PropertyGroup>
                   <ItemGroup>
                     <PackageReference Include="{SimulationPackageId}" Version="{_version}" />
+                  </ItemGroup>
+                </Project>
+                """);
+
+            return new ConsumerProject(appDir, _packagesDirectory, InstrumentationMode.Controlled);
+        }
+
+        public ConsumerProject ScaffoldOrdinaryTestingSupportConsumer(string name)
+        {
+            string rootDir = Path.Combine(Root, name);
+            string appDir = Path.Combine(rootDir, "app");
+            Directory.CreateDirectory(appDir);
+            WriteNuGetConfig(rootDir);
+
+            File.WriteAllText(Path.Combine(appDir, "SupportConsumer.cs"), """
+                using Microsoft.Extensions.Logging;
+                using Orleans.Testing.Simulation.Testing;
+
+                namespace OrdinaryTestingSupportConsumer;
+
+                public static class SupportConsumer
+                {
+                    public static LogEntry Capture()
+                    {
+                        using var provider = new InMemoryLoggerProvider();
+                        ILogger logger = provider.CreateLogger("ordinary-library");
+                        logger.LogInformation("captured");
+                        return provider.Buffer.AllEntries.Single();
+                    }
+                }
+                """);
+            File.WriteAllText(Path.Combine(appDir, "SmokeApp.csproj"), $"""
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup>
+                    <TargetFramework>net11.0</TargetFramework>
+                    <Nullable>enable</Nullable>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <AssemblyName>SmokeApp</AssemblyName>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <PackageReference Include="{TestingPackageId}" Version="{_version}" />
                   </ItemGroup>
                 </Project>
                 """);
@@ -2228,6 +2396,19 @@ public sealed class PackageSmokeTests
                 ["DOTNET_NOLOGO"] = "1",
             },
             TimeSpan.FromSeconds(300));
+
+        public AppRunResult EvaluateProject(params string[] arguments) => ProcessAppRunner.Execute(
+            "dotnet",
+            ["msbuild", "SmokeApp.csproj", "--nologo", .. arguments],
+            ProjectDirectory,
+            new Dictionary<string, string>
+            {
+                ["NUGET_PACKAGES"] = _packagesDirectory,
+                ["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1",
+                ["DOTNET_SKIP_FIRST_TIME_EXPERIENCE"] = "1",
+                ["DOTNET_NOLOGO"] = "1",
+            },
+            TimeSpan.FromSeconds(120));
 
         public AppRunResult Run(params string[] arguments)
         {

@@ -39,6 +39,12 @@ public sealed class SourceBuildPackageMapTests
             "net11.0",
             "TestingSupport"),
         new(
+            "Microsoft.Orleans.Testing.Simulation.Testing.MTP",
+            "src/Orleans.Testing.Simulation.Testing.MTP/Orleans.Testing.Simulation.Testing.MTP.csproj",
+            "Orleans.Testing.Simulation.Testing.MTP",
+            "net11.0",
+            "MicrosoftTestingPlatformIntegration"),
+        new(
             "Microsoft.Orleans.Testing.Simulation.Tool",
             "src/Orleans.Testing.Simulation.Tool/Orleans.Testing.Simulation.Tool.csproj",
             "Orleans.Testing.Simulation.Tool",

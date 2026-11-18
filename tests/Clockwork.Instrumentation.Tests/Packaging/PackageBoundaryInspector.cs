@@ -25,6 +25,7 @@ internal static class PackageBoundaryInspector
         "Microsoft.Orleans.Testing.Simulation.Instrumentation.Build",
         "Microsoft.Orleans.Testing.Simulation.Analyzers",
         "Microsoft.Orleans.Testing.Simulation.Testing",
+        "Microsoft.Orleans.Testing.Simulation.Testing.MTP",
         "Microsoft.Orleans.Testing.Simulation.Tool",
     ];
 
