@@ -286,7 +286,11 @@ public sealed class SimulationScheduler : IDisposable
     /// scheduler's operation bodies, or the thread inside <see cref="EnterControlScope"/>. Every
     /// controlled rewrite target called with this scheduler's runtime as the ambient context requires
     /// it, and throws <see cref="SimulationThreadAffinityException"/> on any other thread. A
-    /// single-threaded guard also uses it as its logical-owner check.
+    /// single-threaded guard also uses it as its logical-owner check. This is a logical-affinity
+    /// property: code entered directly under <see cref="EnterControlScope"/> can run on the caller
+    /// thread, while queued operations and continuations can run on scheduler-owned
+    /// <c>SimulationOperationWorker-*</c> threads. Physical managed-thread identity is not part of
+    /// the simulation contract.
     /// </summary>
     public bool IsSimulationThread =>
         (t_currentOperation is { } op && ReferenceEquals(op.Scheduler, this))

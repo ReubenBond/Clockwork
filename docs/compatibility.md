@@ -46,6 +46,16 @@ throws `SimulationThreadAffinityException` naming the API, the thread, and the r
 it does anything else. The exception-hardening guard injected into `catch` blocks and filters reads no
 simulation state and runs on any thread, so escaped work's own handlers run as written.
 
+Simulation affinity is logical rather than physical. `SimulationScheduler.IsSimulationThread` is the
+authoritative check. A synchronous callback which `ReplayTestFixture.Run`/`ReplayRunner.Record` invokes
+directly under the control scope runs on the caller thread. More generally, the first synchronous
+segment of code entered directly under that scope can remain on the caller until it queues or yields.
+`SimulationCluster.RunToCompletion` schedules its root task as scheduler-owned work; root-task
+segments, captured continuations, lane callbacks, and other queued operations execute on threads named
+`SimulationOperationWorker-*`. Continuations and later operations can use a different worker from an
+earlier segment while retaining the same `SimulationSynchronizationContext`, runtime identity, and
+logical affinity. `Environment.CurrentManagedThreadId` equality is not a simulation guarantee.
+
 The ambient context flows with the `ExecutionContext`, so work which uninstrumented code moves onto a
 real thread carries it there: the real `Task.Run` with which a host's call to `BackgroundService.StartAsync`
 starts a rewritten `ExecuteAsync` (see the [.NET 11 note](#supported-today)), a timer, thread-pool item, or
