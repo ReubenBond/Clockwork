@@ -258,7 +258,12 @@ public sealed class ReplayTestFixture
         _configuration.TestClassName,
         _configuration.TestMethodName);
 
-    /// <summary>Records or environment-replays a fresh controlled scenario with explicit cancellation.</summary>
+    /// <summary>
+    /// Records or environment-replays a fresh controlled scenario with explicit cancellation.
+    /// The synchronous scenario callback runs inline on the calling thread under the scheduler's
+    /// control scope. Work which it queues runs on scheduler-owned operation workers; both are part
+    /// of the same logical simulation thread.
+    /// </summary>
     public ReplayTestResult Run(
         Action<SimulationScheduler> scenario,
         CancellationToken cancellationToken)

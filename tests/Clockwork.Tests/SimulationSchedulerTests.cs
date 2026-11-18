@@ -1,3 +1,4 @@
+using Orleans.Testing.Simulation.Runtime.Execution;
 using Orleans.Testing.Simulation.Runtime.Scheduling;
 
 namespace Orleans.Testing.Simulation.Tests;
@@ -215,6 +216,62 @@ public sealed class SimulationSchedulerTests
         Assert.False(executed);
         Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
         Assert.True(executed);
+    }
+
+    [Fact]
+    public async Task ControlScopeInitialSegmentAndWorkerContinuationShareLogicalSimulationIdentity()
+    {
+        var (queue, scheduler, _) = CreateComponents();
+        int callerThreadId = Environment.CurrentManagedThreadId;
+        bool initialIsSimulationThread = false;
+        bool continuationIsSimulationThread = false;
+        int initialThreadId = -1;
+        int continuationThreadId = -1;
+        string? continuationThreadName = null;
+        SynchronizationContext? initialSynchronizationContext = null;
+        SynchronizationContext? continuationSynchronizationContext = null;
+        SimulationRuntimeIdentity? initialRuntime = null;
+        SimulationRuntimeIdentity? continuationRuntime = null;
+        Task<int> work;
+
+        using (scheduler.EnterControlScope())
+        using (SimulationExecutionContext.EnterRuntime(scheduler.Runtime))
+        using (queue.SynchronizationContext.Install())
+        {
+            work = ObserveAcrossYieldAsync();
+            Assert.False(work.IsCompleted);
+        }
+
+        Assert.True(queue.RunOnce(TestContext.Current.CancellationToken));
+        Assert.True(work.IsCompletedSuccessfully);
+        Assert.Equal(42, await work);
+        Assert.True(initialIsSimulationThread);
+        Assert.True(continuationIsSimulationThread);
+        Assert.Equal(callerThreadId, initialThreadId);
+        Assert.NotEqual(initialThreadId, continuationThreadId);
+        Assert.NotNull(continuationThreadName);
+        Assert.StartsWith("SimulationOperationWorker-", continuationThreadName, StringComparison.Ordinal);
+        Assert.Same(queue.SynchronizationContext, initialSynchronizationContext);
+        Assert.Same(initialSynchronizationContext, continuationSynchronizationContext);
+        Assert.Same(scheduler.Runtime, initialRuntime);
+        Assert.Same(initialRuntime, continuationRuntime);
+
+        async Task<int> ObserveAcrossYieldAsync()
+        {
+            initialIsSimulationThread = scheduler.IsSimulationThread;
+            initialThreadId = Environment.CurrentManagedThreadId;
+            initialSynchronizationContext = SynchronizationContext.Current;
+            initialRuntime = SimulationExecutionContext.Current?.Runtime;
+
+            await Task.Yield();
+
+            continuationIsSimulationThread = scheduler.IsSimulationThread;
+            continuationThreadId = Environment.CurrentManagedThreadId;
+            continuationThreadName = Thread.CurrentThread.Name;
+            continuationSynchronizationContext = SynchronizationContext.Current;
+            continuationRuntime = SimulationExecutionContext.Current?.Runtime;
+            return 42;
+        }
     }
 
     private static (SimulationSchedulerLane Queue, SimulationScheduler RuntimeScheduler, SimulationTaskScheduler TaskScheduler) CreateComponents()

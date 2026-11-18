@@ -453,7 +453,11 @@ public sealed partial class SimulationCluster : IAsyncDisposable
     /// <summary>
     /// Drives a task to completion by running the simulation.
     /// The task factory is invoked with the cluster's synchronization context installed,
-    /// ensuring async continuations are captured on the simulation scheduler.
+    /// ensuring async continuations are captured on the simulation scheduler. The root task and
+    /// its continuations are scheduler-owned work and can execute on different
+    /// <c>SimulationOperationWorker-*</c> threads while
+    /// <see cref="Runtime.Scheduling.SimulationScheduler.IsSimulationThread"/> remains
+    /// <see langword="true"/>. Managed thread id equality is not part of the contract.
     /// </summary>
     /// <param name="taskFactory">The asynchronous work to execute.</param>
     /// <param name="maxIterations">The maximum number of loop iterations to execute.</param>
@@ -475,7 +479,11 @@ public sealed partial class SimulationCluster : IAsyncDisposable
     }
 
     /// <summary>
-    /// Drives a task to completion using an adaptive execution budget.
+    /// Drives a task to completion using an adaptive execution budget. The root task and its
+    /// continuations are scheduler-owned work and can execute on different
+    /// <c>SimulationOperationWorker-*</c> threads while
+    /// <see cref="Runtime.Scheduling.SimulationScheduler.IsSimulationThread"/> remains
+    /// <see langword="true"/>.
     /// </summary>
     /// <param name="taskFactory">The asynchronous work to execute.</param>
     /// <param name="budget">The adaptive execution budget.</param>
@@ -498,7 +506,10 @@ public sealed partial class SimulationCluster : IAsyncDisposable
     }
 
     /// <summary>
-    /// Drives a task to completion and returns its result.
+    /// Drives a task to completion and returns its result. The root task and its continuations are
+    /// scheduler-owned work and can execute on different <c>SimulationOperationWorker-*</c>
+    /// threads while <see cref="Runtime.Scheduling.SimulationScheduler.IsSimulationThread"/>
+    /// remains <see langword="true"/>.
     /// </summary>
     /// <param name="taskFactory">The asynchronous work to execute.</param>
     /// <param name="maxIterations">The maximum number of loop iterations to execute.</param>
@@ -520,7 +531,11 @@ public sealed partial class SimulationCluster : IAsyncDisposable
     }
 
     /// <summary>
-    /// Drives a task to completion using an adaptive execution budget and returns its result.
+    /// Drives a task to completion using an adaptive execution budget and returns its result. The
+    /// root task and its continuations are scheduler-owned work and can execute on different
+    /// <c>SimulationOperationWorker-*</c> threads while
+    /// <see cref="Runtime.Scheduling.SimulationScheduler.IsSimulationThread"/> remains
+    /// <see langword="true"/>.
     /// </summary>
     /// <param name="taskFactory">The asynchronous work to execute.</param>
     /// <param name="budget">The adaptive execution budget.</param>

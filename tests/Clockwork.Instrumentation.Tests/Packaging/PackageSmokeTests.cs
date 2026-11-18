@@ -34,6 +34,9 @@ public sealed class PackageSmokeTests
     private const string AnalyzersPackageId = "Microsoft.Orleans.Testing.Simulation.Analyzers";
     private const string TestingPackageId = "Microsoft.Orleans.Testing.Simulation.Testing";
     private const string TestingMtpPackageId = "Microsoft.Orleans.Testing.Simulation.Testing.MTP";
+    private const string TestingMtpBuilderHookId = "2E7C3A6B-6F8D-4F4B-9D52-1A0D7C8E5B93";
+    private const string TestingMtpBuilderHookType =
+        "Orleans.Testing.Simulation.Testing.TestingPlatformBuilderHook";
     private const string ToolPackageId = "Microsoft.Orleans.Testing.Simulation.Tool";
     private const string ProductionFixturePackageId = "Clockwork.Fixtures.Production";
 
@@ -412,16 +415,13 @@ public sealed class PackageSmokeTests
             static entry =>
                 entry.StartsWith("buildMultiTargeting/", StringComparison.Ordinal)
                 && entry.EndsWith(".props", StringComparison.Ordinal));
-        Assert.Contains(
-            "<TypeFullName>Orleans.Testing.Simulation.Testing.TestingPlatformBuilderHook</TypeFullName>",
-            ReadPackageEntry(packagePath, propsPath),
-            StringComparison.Ordinal);
-        Assert.Contains(
-            "<DisplayName>Microsoft.Orleans.Testing.Simulation.Testing.MTP</DisplayName>",
-            ReadPackageEntry(packagePath, propsPath),
-            StringComparison.Ordinal);
+        string props = ReadPackageEntry(packagePath, propsPath);
+        XElement hook = Assert.Single(XDocument.Parse(props).Descendants("TestingPlatformBuilderHook"));
+        Assert.Equal(TestingMtpBuilderHookId, hook.Attribute("Include")?.Value);
+        Assert.Equal(TestingMtpBuilderHookType, hook.Element("TypeFullName")?.Value);
+        Assert.Equal(TestingMtpPackageId, hook.Element("DisplayName")?.Value);
         Assert.Equal(
-            ReadPackageEntry(packagePath, propsPath),
+            props,
             ReadPackageEntry(packagePath, multiTargetingPropsPath));
     }
 
@@ -683,8 +683,7 @@ public sealed class PackageSmokeTests
         Assert.Contains(
             evaluatedImports,
             static line =>
-                line == "mtpHook|Orleans.Testing.Simulation.Testing.TestingPlatformBuilderHook"
-                + "|Microsoft.Orleans.Testing.Simulation.Testing.MTP");
+                line == $"mtpHook|{TestingMtpBuilderHookId}|{TestingMtpBuilderHookType}|{TestingMtpPackageId}");
         string[] evaluatedPackageIds =
         [
             .. evaluatedImports
@@ -1718,7 +1717,7 @@ public sealed class PackageSmokeTests
                         Overwrite="false" />
                     <WriteLinesToFile
                         File="$(IntermediateOutputPath)orleans-simulation-evaluated-imports.txt"
-                        Lines="@(TestingPlatformBuilderHook->'mtpHook|%(TypeFullName)|%(DisplayName)')"
+                        Lines="@(TestingPlatformBuilderHook->'mtpHook|%(Identity)|%(TypeFullName)|%(DisplayName)')"
                         Overwrite="false" />
                     <WriteLinesToFile
                         File="$(IntermediateOutputPath)orleans-simulation-evaluated-references.txt"
