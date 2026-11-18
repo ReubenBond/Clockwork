@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using System.Text.Json;
 
 namespace Orleans.Testing.Simulation.Instrumentation.Tests.Infrastructure;
@@ -43,11 +44,23 @@ internal static class SimulationAssemblyCollisionGate
                     AddAssetGroup(library.Value, "compile", assets);
                     AddAssetGroup(library.Value, "runtime", assets);
                     AddAssetGroup(library.Value, "runtimeTargets", assets);
+                    AddAssetGroup(library.Value, "analyzers", assets);
+                    AddAssetGroup(library.Value, "build", assets);
+                    AddAssetGroup(library.Value, "buildMultiTargeting", assets);
+                    AddAssetGroup(library.Value, "buildTransitive", assets);
                 }
             }
         }
 
         AssertNoCollision($"evaluated assets in '{assetsFile}'", assets);
+    }
+
+    public static void AssertNoCollisionInPackage(string packagePath)
+    {
+        using ZipArchive package = ZipFile.OpenRead(packagePath);
+        AssertNoCollision(
+            $"package payload in '{packagePath}'",
+            package.Entries.Select(static entry => entry.FullName));
     }
 
     public static void AssertNoCollisionInFile(string boundary, string path) =>

@@ -52,8 +52,9 @@ jobs:
         run: dotnet run --project tests/Clockwork.Conformance.Tests/Clockwork.Conformance.Tests.csproj --configuration Debug --no-build -- --timeout 300s --filter-class Orleans.Testing.Simulation.Conformance.Tests.ChannelConformanceTests
       - name: Package smoke tests
         # Exercises all six real packed NuGet artifacts end-to-end in an isolated feed,
-        # consumes the build package through the real MSBuild
-        # targets, and installs + runs the tool. Gated behind ORLEANS_SIMULATION_SMOKE_TESTS so ordinary runs
+        # verifies evaluated/restored/packed dependency boundaries and the source-build map,
+        # consumes the build package through the real MSBuild targets, and installs + runs the tool.
+        # Gated behind ORLEANS_SIMULATION_SMOKE_TESTS so ordinary runs
         # skip these slower flows. ORLEANS_SIMULATION_TEST_ARTIFACTS redirects transient fixtures/manifests to a
         # known path so they can be retained on failure.
         env:

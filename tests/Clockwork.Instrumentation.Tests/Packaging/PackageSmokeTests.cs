@@ -34,6 +34,7 @@ public sealed class PackageSmokeTests
     private const string AnalyzersPackageId = "Microsoft.Orleans.Testing.Simulation.Analyzers";
     private const string TestingPackageId = "Microsoft.Orleans.Testing.Simulation.Testing";
     private const string ToolPackageId = "Microsoft.Orleans.Testing.Simulation.Tool";
+    private const string ProductionFixturePackageId = "Clockwork.Fixtures.Production";
 
     private static readonly bool SmokeEnabled =
         string.Equals(Environment.GetEnvironmentVariable(SmokeEnvironmentVariable), "1", StringComparison.Ordinal);
@@ -195,6 +196,100 @@ public sealed class PackageSmokeTests
                         StringComparison.OrdinalIgnoreCase)
                     || fileName.StartsWith("Microsoft.Testing.Platform", StringComparison.OrdinalIgnoreCase)
                     || fileName.StartsWith("Orleans.Testing.Simulation.Tool", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [Fact]
+    public void ProductionAppAndPackageRemainSimulationFreeUnderDeploymentAnalyzers()
+    {
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
+        PackagedArtifacts artifacts = Artifacts.Value;
+        ProductionBoundaryFixture fixture = artifacts.ScaffoldProductionBoundaryFixture("ProductionBoundary");
+
+        AppRunResult build = fixture.Build();
+        Assert.True(build.ExitCode == 0, $"Production build failed:\n{build.StandardOutput}\n{build.StandardError}");
+
+        string[] evaluatedBoundary = fixture.EvaluateDependencyBoundary();
+        Assert.Contains(
+            evaluatedBoundary,
+            line =>
+                line.StartsWith("project|", StringComparison.Ordinal)
+                && line.EndsWith("Clockwork.Fixtures.Production.csproj", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(
+            evaluatedBoundary,
+            line => line.StartsWith("package|", StringComparison.Ordinal)
+                && line.Contains("Orleans.Testing.Simulation.PackageApi", StringComparison.Ordinal));
+        Assert.Contains(
+            evaluatedBoundary,
+            line => line.StartsWith("package|", StringComparison.Ordinal)
+                && line.Contains("Orleans.Durable.Storage.Diagnostics", StringComparison.Ordinal));
+        string[] evaluatedPackageIds =
+        [
+            .. evaluatedBoundary
+                .Where(static line => line.StartsWith("package|", StringComparison.Ordinal))
+                .Select(static line => line.Split('|')[2]),
+        ];
+        Assert.Empty(PackageBoundaryInspector.FindForbiddenPackages(evaluatedPackageIds));
+
+        string[] qualificationLines =
+        [
+            .. evaluatedBoundary.Where(static line => line.StartsWith("qualification|", StringComparison.Ordinal)),
+        ];
+        Assert.Equal(2, qualificationLines.Length);
+        Assert.All(
+            qualificationLines,
+            static line => Assert.EndsWith("|true|true|true|true", line, StringComparison.OrdinalIgnoreCase));
+
+        foreach (string assetsPath in new[] { fixture.AppAssetsPath, fixture.LibraryAssetsPath })
+        {
+            string[] packageIds = PackageBoundaryInspector.ReadPackageIds(assetsPath);
+            Assert.Contains("Orleans.Testing.Simulation.PackageApi", packageIds);
+            Assert.Contains("Orleans.Durable.Storage.Diagnostics", packageIds);
+            Assert.Empty(
+                PackageBoundaryInspector.FindForbiddenPackages(
+                    packageIds));
+            string[] resolvedAssets = PackageBoundaryInspector.ReadResolvedAssets(
+                assetsPath,
+                "compile",
+                "runtime",
+                "runtimeTargets");
+            Assert.Contains(
+                resolvedAssets,
+                static asset => asset.EndsWith("PackageApi.dll", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(
+                resolvedAssets,
+                static asset => asset.EndsWith(
+                    "Orleans.Durable.Storage.Diagnostics.dll",
+                    StringComparison.OrdinalIgnoreCase));
+            Assert.Empty(
+                PackageBoundaryInspector.FindForbiddenRuntimeAssets(
+                    resolvedAssets));
+            SimulationAssemblyCollisionGate.AssertNoCollisionInAssetsFile(assetsPath);
+        }
+
+        string[] outputAssemblies =
+        [
+            .. Directory.EnumerateFiles(fixture.OutputDirectory, "*.dll", SearchOption.TopDirectoryOnly),
+        ];
+        Assert.Contains(outputAssemblies, path => Path.GetFileName(path) == "Clockwork.Fixtures.Production.dll");
+        Assert.Contains(outputAssemblies, path => Path.GetFileName(path) == "Orleans.Durable.Storage.Diagnostics.dll");
+        Assert.Empty(PackageBoundaryInspector.FindForbiddenAssemblyFiles(outputAssemblies));
+        SimulationAssemblyCollisionGate.AssertNoCollisionInDirectory(
+            "production application output",
+            fixture.OutputDirectory);
+
+        PackageArchiveInspection package = PackageBoundaryInspector.InspectPackage(
+            artifacts.PackagePath(ProductionFixturePackageId));
+        Assert.Equal(ProductionFixturePackageId, package.PackageId);
+        Assert.Contains("lib/net11.0/Clockwork.Fixtures.Production.dll", package.Entries);
+        PackageDependencyGroup dependencyGroup = Assert.Single(package.DependencyGroups);
+        Assert.Equal("net11.0", dependencyGroup.TargetFramework);
+        Assert.Equal(
+            ["Orleans.Durable.Storage.Diagnostics", "Orleans.Testing.Simulation.PackageApi"],
+            dependencyGroup.PackageIds);
+        Assert.Empty(PackageBoundaryInspector.FindForbiddenPackages(dependencyGroup.PackageIds));
+        Assert.Empty(PackageBoundaryInspector.FindForbiddenRuntimeAssets(package.Entries));
+        SimulationAssemblyCollisionGate.AssertNoCollisionInPackage(
+            artifacts.PackagePath(ProductionFixturePackageId));
     }
 
     [Fact]
@@ -430,21 +525,93 @@ public sealed class PackageSmokeTests
         Assert.Contains(SimulationPackageId, packageReferences);
         Assert.Contains(TestingPackageId, packageReferences);
         Assert.Contains(BuildPackageId, packageReferences);
-        Assert.Contains("Orleans.Testing.Simulation.PackageProbe", packageReferences);
+        Assert.Contains(AnalyzersPackageId, packageReferences);
+        Assert.Contains(ProductionFixturePackageId, packageReferences);
         Assert.Contains("Orleans.Durable.Storage.Diagnostics", packageReferences);
 
         AppRunResult build = consumer.Build();
         Assert.True(build.ExitCode == 0, $"Build failed:\n{build.StandardOutput}\n{build.StandardError}");
 
+        string[] restoredPackageIds = PackageBoundaryInspector.ReadPackageIds(consumer.AssetsPath);
+        Assert.Contains(SimulationPackageId, restoredPackageIds);
+        Assert.Contains(TestingPackageId, restoredPackageIds);
+        Assert.Contains(BuildPackageId, restoredPackageIds);
+        Assert.Contains(AnalyzersPackageId, restoredPackageIds);
+        string[] restoredBuildPackageFiles =
+            PackageBoundaryInspector.ReadPackageFiles(consumer.AssetsPath, BuildPackageId);
+        Assert.Contains(
+            "build/Microsoft.Orleans.Testing.Simulation.Instrumentation.Build.props",
+            restoredBuildPackageFiles);
+        Assert.Contains(
+            "build/Microsoft.Orleans.Testing.Simulation.Instrumentation.Build.targets",
+            restoredBuildPackageFiles);
+        Assert.Contains(
+            "tasks/net11.0/Orleans.Testing.Simulation.Instrumentation.Build.dll",
+            restoredBuildPackageFiles);
+        string[] restoredAnalyzerPackageFiles =
+            PackageBoundaryInspector.ReadPackageFiles(consumer.AssetsPath, AnalyzersPackageId);
+        Assert.Contains(
+            "analyzers/dotnet/cs/Orleans.Testing.Simulation.Analyzers.dll",
+            restoredAnalyzerPackageFiles);
+        Assert.DoesNotContain(
+            restoredAnalyzerPackageFiles,
+            static path => path.StartsWith("lib/", StringComparison.OrdinalIgnoreCase));
+
+        string[] evaluatedImports = File.ReadAllLines(consumer.EvaluatedImportsPath);
+        string buildTaskImport = Assert.Single(
+            evaluatedImports,
+            static line => line.StartsWith("buildTask|", StringComparison.Ordinal));
+        string normalizedBuildTaskImport = buildTaskImport.Replace('\\', '/');
+        Assert.Contains(BuildPackageId, normalizedBuildTaskImport, StringComparison.OrdinalIgnoreCase);
+        Assert.EndsWith(
+            "tasks/net11.0/Orleans.Testing.Simulation.Instrumentation.Build.dll",
+            normalizedBuildTaskImport,
+            StringComparison.OrdinalIgnoreCase);
+        string analyzerImport = Assert.Single(
+            evaluatedImports,
+            static line =>
+                line.StartsWith("analyzer|", StringComparison.Ordinal)
+                && line.EndsWith(
+                    "Orleans.Testing.Simulation.Analyzers.dll",
+                    StringComparison.OrdinalIgnoreCase));
+        string normalizedAnalyzerImport = analyzerImport.Replace('\\', '/');
+        Assert.Contains(AnalyzersPackageId, normalizedAnalyzerImport, StringComparison.OrdinalIgnoreCase);
+        Assert.EndsWith(
+            "analyzers/dotnet/cs/Orleans.Testing.Simulation.Analyzers.dll",
+            normalizedAnalyzerImport,
+            StringComparison.OrdinalIgnoreCase);
+        string[] evaluatedPackageIds =
+        [
+            .. evaluatedImports
+                .Where(static line => line.StartsWith("package|", StringComparison.Ordinal))
+                .Select(static line => line.Split('|')[1]),
+        ];
+        Assert.Equal(
+            new[]
+            {
+                AnalyzersPackageId,
+                BuildPackageId,
+                "Orleans.Durable.Storage.Diagnostics",
+                ProductionFixturePackageId,
+                SimulationPackageId,
+                TestingPackageId,
+                "xunit.v3.mtp-v2",
+            }.Order(StringComparer.OrdinalIgnoreCase),
+            evaluatedPackageIds.Order(StringComparer.OrdinalIgnoreCase));
+
         using (Mono.Cecil.ModuleDefinition ordinary =
-               Mono.Cecil.ModuleDefinition.ReadModule(consumer.UninstrumentedPackageProbePath))
+               Mono.Cecil.ModuleDefinition.ReadModule(consumer.UninstrumentedProductionLibraryPath))
         {
             Assert.False(CecilInspect.HasRewriteSignature(ordinary));
         }
         using (Mono.Cecil.ModuleDefinition rewritten =
-               Mono.Cecil.ModuleDefinition.ReadModule(consumer.OutputPackageProbePath))
+               Mono.Cecil.ModuleDefinition.ReadModule(consumer.OutputProductionLibraryPath))
         {
             Assert.True(CecilInspect.HasRewriteSignature(rewritten));
+        }
+        using (Mono.Cecil.ModuleDefinition driver = Mono.Cecil.ModuleDefinition.ReadModule(consumer.OutputAppPath))
+        {
+            Assert.False(CecilInspect.HasRewriteSignature(driver));
         }
         using (Mono.Cecil.ModuleDefinition diagnostics =
                Mono.Cecil.ModuleDefinition.ReadModule(consumer.OutputDiagnosticsPath))
@@ -456,9 +623,18 @@ public sealed class PackageSmokeTests
         Assert.Contains(
             manifest.CopiedAssets,
             static asset => asset.RelativePath == "Orleans.Durable.Storage.Diagnostics.dll");
+        Assert.Contains(
+            manifest.CopiedAssets,
+            static asset => asset.RelativePath == "SmokeApp.dll");
         Assert.DoesNotContain(
             manifest.Assemblies,
             static assembly => assembly.RelativePath == "Orleans.Durable.Storage.Diagnostics.dll");
+        Assert.DoesNotContain(
+            manifest.Assemblies,
+            static assembly => assembly.RelativePath == "SmokeApp.dll");
+        Assert.Contains(
+            manifest.Assemblies,
+            static assembly => assembly.RelativePath == "Clockwork.Fixtures.Production.dll");
 
         AppRunResult testRun = consumer.TestNoBuild();
         Assert.True(
@@ -468,15 +644,36 @@ public sealed class PackageSmokeTests
         Assert.Contains("succeeded: 2", testRun.StandardOutput, StringComparison.OrdinalIgnoreCase);
 
         SimulationAssemblyCollisionGate.AssertNoCollisionInAssetsFile(consumer.AssetsPath);
+        string[] compileReferences = File.ReadAllLines(consumer.EvaluatedReferencesPath);
+        Assert.Contains(
+            compileReferences,
+            static path => path.EndsWith("Clockwork.Fixtures.Production.dll", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(
+            compileReferences,
+            static path => path.EndsWith("Orleans.Testing.Simulation.dll", StringComparison.OrdinalIgnoreCase));
         SimulationAssemblyCollisionGate.AssertNoCollisionInFile(
-            "evaluated references",
+            "evaluated compile references",
             consumer.EvaluatedReferencesPath);
+        string[] runtimeReferences = File.ReadAllLines(consumer.CopyLocalReferencesPath);
+        Assert.Contains(
+            runtimeReferences,
+            static path => path.EndsWith("Clockwork.Fixtures.Production.dll", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(
+            runtimeReferences,
+            static path => path.EndsWith(
+                "Orleans.Durable.Storage.Diagnostics.dll",
+                StringComparison.OrdinalIgnoreCase));
         SimulationAssemblyCollisionGate.AssertNoCollisionInFile(
-            "copy-local references",
+            "evaluated runtime references",
             consumer.CopyLocalReferencesPath);
         SimulationAssemblyCollisionGate.AssertNoCollisionInDirectory(
             "copied test output",
             consumer.OutputDirectory);
+        string[] runtimeLoads = File.ReadAllLines(consumer.RuntimeLoadsPath);
+        Assert.Contains("SmokeApp", runtimeLoads);
+        Assert.Contains("Clockwork.Fixtures.Production", runtimeLoads);
+        Assert.Contains("Orleans.Durable.Storage.Diagnostics", runtimeLoads);
+        Assert.Contains("Orleans.Testing.Simulation", runtimeLoads);
         SimulationAssemblyCollisionGate.AssertNoCollisionInFile(
             "runtime loads",
             consumer.RuntimeLoadsPath);
@@ -893,22 +1090,7 @@ public sealed class PackageSmokeTests
 
     private static void AssertAssetsExcludePackages(string assetsPath, params string[] forbiddenPackageIds)
     {
-        using JsonDocument document = JsonDocument.Parse(File.ReadAllBytes(assetsPath));
-        string[] packageIds =
-        [
-            .. document.RootElement.GetProperty("libraries")
-                .EnumerateObject()
-                .Where(static library =>
-                    string.Equals(
-                        library.Value.GetProperty("type").GetString(),
-                        "package",
-                        StringComparison.Ordinal))
-                .Select(static library =>
-                {
-                    int separator = library.Name.LastIndexOf('/');
-                    return separator < 0 ? library.Name : library.Name[..separator];
-                }),
-        ];
+        string[] packageIds = PackageBoundaryInspector.ReadPackageIds(assetsPath);
 
         foreach (string forbiddenPackageId in forbiddenPackageIds)
         {
@@ -1338,9 +1520,9 @@ public sealed class PackageSmokeTests
 
             File.WriteAllText(Path.Combine(appDir, "Program.cs"), """
                 using Orleans.Testing.Simulation;
-                using Orleans.Testing.Simulation.PackageProbe;
                 using Orleans.Testing.Simulation.Testing;
                 using Orleans.Durable.Storage.Diagnostics;
+                using Clockwork.Fixtures.Production;
                 using Xunit;
 
                 public sealed class PackagedSimulationTests
@@ -1350,13 +1532,17 @@ public sealed class PackageSmokeTests
                     {
                         Assert.NotEmpty(typeof(SimulationCluster).Assembly.Location);
                         Assert.NotEmpty(typeof(ReplayTestFixture).Assembly.Location);
-                        Assert.Equal(999L, Subject.Capture());
+                        Assert.Equal(999L, ProductionSubject.Capture());
                     }
 
                     [Fact]
                     public void DurableStorageDiagnosticsRemainsOrdinaryIl()
                     {
                         Assert.True(OrdinaryProbe.UtcNowTicks() > 0);
+                        _ = typeof(PackagedSimulationTests).Assembly;
+                        _ = typeof(ProductionSubject).Assembly;
+                        _ = typeof(SimulationCluster).Assembly;
+                        _ = typeof(ReplayTestFixture).Assembly;
                         string[] loaded = AppDomain.CurrentDomain.GetAssemblies()
                             .Select(static assembly => assembly.GetName().Name)
                             .Where(static name => name is not null)
@@ -1385,7 +1571,8 @@ public sealed class PackageSmokeTests
                     <PackageReference Include="{SimulationPackageId}" Version="{_version}" />
                     <PackageReference Include="{TestingPackageId}" Version="{_version}" />
                     <PackageReference Include="{BuildPackageId}" Version="{_version}" />
-                    <PackageReference Include="Orleans.Testing.Simulation.PackageProbe" Version="{_version}" />
+                    <PackageReference Include="{AnalyzersPackageId}" Version="{_version}" PrivateAssets="all" />
+                    <PackageReference Include="{ProductionFixturePackageId}" Version="{_version}" />
                     <PackageReference Include="Orleans.Durable.Storage.Diagnostics" Version="{_version}" />
                   </ItemGroup>
                   <ItemGroup>
@@ -1394,6 +1581,18 @@ public sealed class PackageSmokeTests
                     <OrleansSimulationExclude Include="Orleans.Durable.Storage.Diagnostics.dll" />
                   </ItemGroup>
                   <Target Name="CapturePackageBoundaryReferences" AfterTargets="ResolveReferences">
+                    <WriteLinesToFile
+                        File="$(IntermediateOutputPath)orleans-simulation-evaluated-imports.txt"
+                        Lines="@(PackageReference->'package|%(Identity)')"
+                        Overwrite="true" />
+                    <WriteLinesToFile
+                        File="$(IntermediateOutputPath)orleans-simulation-evaluated-imports.txt"
+                        Lines="@(Analyzer->'analyzer|%(FullPath)')"
+                        Overwrite="false" />
+                    <WriteLinesToFile
+                        File="$(IntermediateOutputPath)orleans-simulation-evaluated-imports.txt"
+                        Lines="buildTask|$(OrleansSimulationInstrumentationTaskAssembly)"
+                        Overwrite="false" />
                     <WriteLinesToFile
                         File="$(IntermediateOutputPath)orleans-simulation-evaluated-references.txt"
                         Lines="@(ReferencePath->'%(FullPath)')"
@@ -1452,6 +1651,74 @@ public sealed class PackageSmokeTests
             return new ConsumerProject(appDir, _packagesDirectory, InstrumentationMode.Controlled);
         }
 
+        public ProductionBoundaryFixture ScaffoldProductionBoundaryFixture(string name)
+        {
+            string rootDir = Path.Combine(Root, name);
+            string appDir = Path.Combine(rootDir, "app");
+            Directory.CreateDirectory(appDir);
+            WriteNuGetConfig(rootDir);
+
+            string productionProject = Path.Combine(
+                Root,
+                "fixture-packages",
+                "production",
+                "Clockwork.Fixtures.Production.csproj");
+            string relativeProductionProject = Path.GetRelativePath(appDir, productionProject).Replace('\\', '/');
+            File.WriteAllText(Path.Combine(appDir, "Program.cs"), """
+                using Clockwork.Fixtures.Production;
+
+                Console.WriteLine(ProductionSubject.Capture());
+                """);
+            File.WriteAllText(Path.Combine(appDir, "Production.App.csproj"), $"""
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup>
+                    <OutputType>Exe</OutputType>
+                    <TargetFramework>net11.0</TargetFramework>
+                    <Nullable>enable</Nullable>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <AssemblyName>Production.App</AssemblyName>
+                    <IsAotCompatible>true</IsAotCompatible>
+                    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+                    <EnableAotAnalyzer>true</EnableAotAnalyzer>
+                    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <ProjectReference Include="{relativeProductionProject}" />
+                  </ItemGroup>
+                </Project>
+                """);
+
+            string boundaryTargetsPath = Path.Combine(appDir, "DependencyBoundary.targets");
+            File.WriteAllText(boundaryTargetsPath, """
+                <Project>
+                  <Target Name="ReportSimulationDependencyBoundary"
+                          Returns="@(_SimulationDependencyBoundary)">
+                    <MSBuild Projects="@(ProjectReference)"
+                             Targets="ReportSimulationDependencyBoundary"
+                             BuildInParallel="false"
+                             Condition="'@(ProjectReference)' != ''">
+                      <Output TaskParameter="TargetOutputs"
+                              ItemName="_ReferencedSimulationDependencyBoundary" />
+                    </MSBuild>
+                    <ItemGroup>
+                      <_SimulationDependencyBoundary Include="@(_ReferencedSimulationDependencyBoundary)" />
+                      <_SimulationDependencyBoundary Include="project|$(MSBuildProjectFullPath)|%(ProjectReference.FullPath)" />
+                      <_SimulationDependencyBoundary Include="package|$(MSBuildProjectFullPath)|%(PackageReference.Identity)" />
+                      <_SimulationDependencyBoundary Include="qualification|$(MSBuildProjectFullPath)|$(IsAotCompatible)|$(EnableTrimAnalyzer)|$(EnableAotAnalyzer)|$(EnableSingleFileAnalyzer)" />
+                    </ItemGroup>
+                    <Message Importance="high"
+                             Text="SIMULATION_DEPENDENCY_BOUNDARY|%(_SimulationDependencyBoundary.Identity)" />
+                  </Target>
+                </Project>
+                """);
+
+            return new ProductionBoundaryFixture(
+                appDir,
+                productionProject,
+                boundaryTargetsPath,
+                _packagesDirectory);
+        }
+
         private static void Pack(string repoRoot, string relativeProject, string version, string feed, string packages)
             => PackProject(Path.Combine(repoRoot, relativeProject), repoRoot, version, feed, packages);
 
@@ -1482,9 +1749,11 @@ public sealed class PackageSmokeTests
             string api = Path.Combine(fixtures, "api");
             string probe = Path.Combine(fixtures, "probe");
             string diagnostics = Path.Combine(fixtures, "diagnostics");
+            string production = Path.Combine(fixtures, "production");
             Directory.CreateDirectory(api);
             Directory.CreateDirectory(probe);
             Directory.CreateDirectory(diagnostics);
+            Directory.CreateDirectory(production);
 
             File.WriteAllText(Path.Combine(fixtures, "nuget.config"), $"""
                 <?xml version="1.0" encoding="utf-8"?>
@@ -1566,6 +1835,39 @@ public sealed class PackageSmokeTests
                 }
                 """);
 
+            File.WriteAllText(Path.Combine(production, "Clockwork.Fixtures.Production.csproj"), $"""
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup>
+                    <TargetFramework>net11.0</TargetFramework>
+                    <Nullable>enable</Nullable>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <AssemblyName>Clockwork.Fixtures.Production</AssemblyName>
+                    <PackageId>{ProductionFixturePackageId}</PackageId>
+                    <IsAotCompatible>true</IsAotCompatible>
+                    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+                    <EnableAotAnalyzer>true</EnableAotAnalyzer>
+                    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <PackageReference Include="Orleans.Testing.Simulation.PackageApi" Version="{version}" />
+                    <PackageReference Include="Orleans.Durable.Storage.Diagnostics" Version="{version}" />
+                  </ItemGroup>
+                </Project>
+                """);
+            File.WriteAllText(Path.Combine(production, "ProductionSubject.cs"), """
+                using Orleans.Durable.Storage.Diagnostics;
+                using Orleans.Testing.Simulation.PackageApi;
+
+                namespace Clockwork.Fixtures.Production;
+
+                public static class ProductionSubject
+                {
+                    public static long Capture() => RealClock.UtcNowTicks();
+
+                    public static long CaptureDiagnosticTimestamp() => OrdinaryProbe.UtcNowTicks();
+                }
+                """);
+
             PackProject(
                 Path.Combine(api, "Orleans.Testing.Simulation.PackageApi.csproj"),
                 api,
@@ -1581,6 +1883,12 @@ public sealed class PackageSmokeTests
             PackProject(
                 Path.Combine(diagnostics, "Orleans.Durable.Storage.Diagnostics.csproj"),
                 diagnostics,
+                version,
+                feed,
+                packages);
+            PackProject(
+                Path.Combine(production, "Clockwork.Fixtures.Production.csproj"),
+                production,
                 version,
                 feed,
                 packages);
@@ -1697,6 +2005,87 @@ public sealed class PackageSmokeTests
         }
     }
 
+    private sealed class ProductionBoundaryFixture
+    {
+        private readonly string _productionProjectPath;
+        private readonly string _boundaryTargetsPath;
+        private readonly string _packagesDirectory;
+
+        public ProductionBoundaryFixture(
+            string appDirectory,
+            string productionProjectPath,
+            string boundaryTargetsPath,
+            string packagesDirectory)
+        {
+            AppDirectory = appDirectory;
+            _productionProjectPath = productionProjectPath;
+            _boundaryTargetsPath = boundaryTargetsPath;
+            _packagesDirectory = packagesDirectory;
+        }
+
+        public string AppDirectory { get; }
+
+        public string OutputDirectory => Path.Combine(AppDirectory, "bin", "Release", "net11.0");
+
+        public string AppAssetsPath => Path.Combine(AppDirectory, "obj", "project.assets.json");
+
+        public string LibraryAssetsPath =>
+            Path.Combine(Path.GetDirectoryName(_productionProjectPath)!, "obj", "project.assets.json");
+
+        public AppRunResult Build() => ProcessAppRunner.Execute(
+            "dotnet",
+            ["build", "Production.App.csproj", "-c", "Release", "--nologo", "--disable-build-servers"],
+            AppDirectory,
+            Environment(),
+            TimeSpan.FromSeconds(300));
+
+        public string[] EvaluateDependencyBoundary()
+        {
+            AppRunResult result = ProcessAppRunner.Execute(
+                "dotnet",
+                [
+                    "msbuild",
+                    "Production.App.csproj",
+                    "-t:ReportSimulationDependencyBoundary",
+                    $"-p:CustomAfterMicrosoftCommonTargets={_boundaryTargetsPath}",
+                    "-p:Configuration=Release",
+                    "--nologo",
+                    "--disable-build-servers",
+                ],
+                AppDirectory,
+                Environment(),
+                TimeSpan.FromSeconds(120));
+            if (result.ExitCode != 0)
+            {
+                throw new InvalidOperationException(
+                    $"Evaluating the production dependency boundary failed:\n"
+                    + $"{result.StandardOutput}\n{result.StandardError}");
+            }
+
+            const string prefix = "SIMULATION_DEPENDENCY_BOUNDARY|";
+            return
+            [
+                .. result.StandardOutput
+                    .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
+                    .Select(line => line.IndexOf(prefix, StringComparison.Ordinal) is int index && index >= 0
+                        ? line[(index + prefix.Length)..]
+                        : null)
+                    .Where(static line => line is not null)
+                    .Select(static line => line!)
+                    .Distinct(StringComparer.Ordinal)
+                    .Order(StringComparer.Ordinal),
+            ];
+        }
+
+        private Dictionary<string, string> Environment() => new()
+        {
+            ["NUGET_PACKAGES"] = _packagesDirectory,
+            ["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1",
+            ["DOTNET_SKIP_FIRST_TIME_EXPERIENCE"] = "1",
+            ["DOTNET_NOLOGO"] = "1",
+        };
+    }
+
     /// <summary>A scaffolded consumer project that references the packed build package.</summary>
     private sealed class ConsumerProject
     {
@@ -1740,11 +2129,14 @@ public sealed class PackageSmokeTests
 
         public string StagedDiagnosticsPath => Path.Combine(StagingDirectory, "SmokeDiagnostics.dll");
 
-        public string UninstrumentedPackageProbePath =>
-            Path.Combine(ProjectDirectory, "obj/Release/net11.0/orleans-simulation/source", "PackageProbe.dll");
+        public string UninstrumentedProductionLibraryPath =>
+            Path.Combine(
+                ProjectDirectory,
+                "obj/Release/net11.0/orleans-simulation/source",
+                "Clockwork.Fixtures.Production.dll");
 
-        public string OutputPackageProbePath =>
-            Path.Combine(OutputDirectory, "PackageProbe.dll");
+        public string OutputProductionLibraryPath =>
+            Path.Combine(OutputDirectory, "Clockwork.Fixtures.Production.dll");
 
         public string OutputDiagnosticsPath =>
             Path.Combine(OutputDirectory, "Orleans.Durable.Storage.Diagnostics.dll");
@@ -1756,6 +2148,9 @@ public sealed class PackageSmokeTests
 
         public string CopyLocalReferencesPath =>
             Path.Combine(ProjectDirectory, "obj/Release/net11.0/orleans-simulation-copy-local-references.txt");
+
+        public string EvaluatedImportsPath =>
+            Path.Combine(ProjectDirectory, "obj/Release/net11.0/orleans-simulation-evaluated-imports.txt");
 
         public string RuntimeLoadsPath => Path.Combine(OutputDirectory, "orleans-simulation-runtime-loads.txt");
 

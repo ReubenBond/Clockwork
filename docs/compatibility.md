@@ -1336,6 +1336,16 @@ The implemented package boundaries under `src/` map to the modes above:
 | `Orleans.Testing.Simulation.Analyzers` | *(none)* | Roslyn diagnostics aligned with controlled/rejected direct BCL usage. |
 | `Orleans.Testing.Simulation.Testing` | `Orleans.Testing.Simulation` | Reusable test helpers, scenario builders, and in-memory log capture for consumers. |
 
+Source builds can import
+[`eng/Microsoft.Orleans.Testing.Simulation.SourceBuild.props`](../eng/Microsoft.Orleans.Testing.Simulation.SourceBuild.props)
+to enumerate the six package IDs and their source projects, assembly names, target frameworks, and roles.
+The map is declarative and adds no references or build hooks. Clog's future `eng/FastCasPaxos.props`
+owns replacing CASPaxos package references with project references into its vendored Clockwork source.
+That source build must redirect the complete mapped package set, which is preferred, or verify that any
+restored Orleans simulation packages were built from the identical Clockwork revision. Restoring those
+packages beside a different vendored simulation kernel is forbidden because it can load divergent package
+and source-build identities into one process.
+
 `Orleans.Testing.Simulation.Testing` remains a separate helper project while retaining the
 `Orleans.Testing.Simulation.Testing` namespace boundary. Application hosting and transport models are
 consumer-owned and outside the Clockwork core; consumers compose them over `SimulationNetwork` and

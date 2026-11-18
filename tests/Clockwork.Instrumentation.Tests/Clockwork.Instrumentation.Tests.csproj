@@ -9,6 +9,8 @@
     <PackageReference Include="xunit.v3.mtp-v2" />
     <PackageReference Include="Mono.Cecil" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+    <!-- Seed the isolated package-smoke feed so trim/AOT/single-file analyzer fixtures restore offline. -->
+    <PackageReference Include="Microsoft.NET.ILLink.Tasks" PrivateAssets="all" ExcludeAssets="all" />
   </ItemGroup>
 
   <ItemGroup>
