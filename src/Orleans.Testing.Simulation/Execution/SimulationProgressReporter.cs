@@ -13,7 +13,7 @@ internal readonly record struct SimulationProgressSnapshot(
 
 internal static class SimulationProgressOutput
 {
-    private const string AppContextKey = "Clockwork.SimulationProgressOutput";
+    private const string AppContextKey = "Orleans.Testing.Simulation.ProgressOutput";
 
     public static TextWriter Writer => AppContext.GetData(AppContextKey) as TextWriter ?? Console.Error;
 
@@ -97,7 +97,7 @@ internal sealed class SimulationProgressReporter
 
         _output.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
-            $"[Clockwork] runtime={_runtime.Id:N} seed={_runtime.Seed} wall={wallTime:c} " +
+            $"[Orleans simulation] runtime={_runtime.Id:N} seed={_runtime.Seed} wall={wallTime:c} " +
             $"iterations={iterations} steps={steps} timeAdvances={timeAdvances} " +
             $"consecutiveTimeAdvances={snapshot.ConsecutiveTimeAdvanceCount} simulated={simulatedTime:c} " +
             $"operations={_getPendingOperationCount()} runnable={pending.RunnableCount} " +

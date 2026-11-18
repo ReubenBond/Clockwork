@@ -57,7 +57,10 @@ public sealed class SimulationProgressReporterTests
         reporter.Report(snapshot);
 
         string line = output.ToString();
-        Assert.Contains("[Clockwork] runtime=00112233445566778899aabbccddeeff seed=17", line, StringComparison.Ordinal);
+        Assert.Contains(
+            "[Orleans simulation] runtime=00112233445566778899aabbccddeeff seed=17",
+            line,
+            StringComparison.Ordinal);
         Assert.Contains("wall=00:00:05", line, StringComparison.Ordinal);
         Assert.Contains("iterations=9 steps=7 timeAdvances=2 consecutiveTimeAdvances=1", line, StringComparison.Ordinal);
         Assert.Contains("simulated=00:10:00", line, StringComparison.Ordinal);

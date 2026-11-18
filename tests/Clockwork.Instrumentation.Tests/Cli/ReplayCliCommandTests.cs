@@ -47,7 +47,7 @@ public sealed class ReplayCliCommandTests : IDisposable
         Assert.Empty(traceError);
         Assert.Equal("Completed", JsonElement.Parse(runOutput).GetProperty("outcome").GetString());
         Assert.True(JsonElement.Parse(replayOutput).GetProperty("reproduced").GetBoolean());
-        Assert.Contains("Clockwork replay clockwork.replay/v2", traceOutput, StringComparison.Ordinal);
+        Assert.Contains("Orleans simulation replay clockwork.replay/v2", traceOutput, StringComparison.Ordinal);
     }
 
     [Fact]

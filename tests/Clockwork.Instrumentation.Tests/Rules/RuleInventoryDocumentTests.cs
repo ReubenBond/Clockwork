@@ -18,13 +18,13 @@ public sealed class RuleInventoryDocumentTests
         string expected = RuleInventoryDocument.Render();
         string path = Repository.PathOf("docs", "rule-inventory.md");
 
-        if (Environment.GetEnvironmentVariable("CLOCKWORK_UPDATE_DOCS") == "1")
+        if (Environment.GetEnvironmentVariable("ORLEANS_SIMULATION_UPDATE_DOCS") == "1")
         {
             File.WriteAllText(path, expected);
         }
 
         string refresh =
-            $"Refresh '{path}' with `$env:CLOCKWORK_UPDATE_DOCS='1'; dotnet run --project tests/Orleans.Testing.Simulation.Instrumentation.Tests/Orleans.Testing.Simulation.Instrumentation.Tests.csproj -- --filter-class {typeof(RuleInventoryDocumentTests).FullName}`.";
+            $"Refresh '{path}' with `$env:ORLEANS_SIMULATION_UPDATE_DOCS='1'; dotnet run --project tests/Clockwork.Instrumentation.Tests/Clockwork.Instrumentation.Tests.csproj -- --filter-class {typeof(RuleInventoryDocumentTests).FullName}`.";
         Assert.True(File.Exists(path), refresh);
         string[] expectedLines = expected.Split('\n');
         string[] actualLines = File.ReadAllText(path).Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');

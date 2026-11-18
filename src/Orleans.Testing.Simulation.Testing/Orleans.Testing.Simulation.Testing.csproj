@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>Test helpers and Microsoft Testing Platform integration for deterministic Clockwork scenarios, including live progress, in-memory log capture, stable test identity seeds, failure artifacts, and environment-driven replay.</Description>
+    <Description>Test helpers and Microsoft Testing Platform integration for deterministic Orleans simulation scenarios, including live progress, in-memory log capture, stable test identity seeds, failure artifacts, and environment-driven replay.</Description>
     <RootNamespace>Orleans.Testing.Simulation.Testing</RootNamespace>
     <AssemblyName>Orleans.Testing.Simulation.Testing</AssemblyName>
     <PackageId>Microsoft.Orleans.Testing.Simulation.Testing</PackageId>

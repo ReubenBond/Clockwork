@@ -60,12 +60,12 @@ public sealed class InstrumentationConfigurationTests
         InstrumentationConfiguration unset = new InstrumentationConfiguration()
             .WithTargetRuntime(new Version(12, 0), "--target-runtime");
         ConfigurationException conflict = Assert.Throws<ConfigurationException>(
-            () => file.WithTargetRuntime(new Version(12, 0), "ClockworkTargetRuntime"));
+            () => file.WithTargetRuntime(new Version(12, 0), "OrleansSimulationTargetRuntime"));
 
-        Assert.Same(file, file.WithTargetRuntime(null, "ClockworkTargetRuntime"));
-        Assert.Same(file, file.WithTargetRuntime(new Version(11, 0), "ClockworkTargetRuntime"));
+        Assert.Same(file, file.WithTargetRuntime(null, "OrleansSimulationTargetRuntime"));
+        Assert.Same(file, file.WithTargetRuntime(new Version(11, 0), "OrleansSimulationTargetRuntime"));
         Assert.Equal((new Version(12, 0), "--target-runtime"), (unset.TargetRuntime, unset.TargetRuntimeOrigin));
-        Assert.Contains("ClockworkTargetRuntime names target runtime 12.0", conflict.Message, StringComparison.Ordinal);
+        Assert.Contains("OrleansSimulationTargetRuntime names target runtime 12.0", conflict.Message, StringComparison.Ordinal);
         Assert.Contains("'targetRuntime' in configuration names 11.0", conflict.Message, StringComparison.Ordinal);
     }
 
@@ -154,10 +154,10 @@ public sealed class InstrumentationConfigurationTests
         string json = $$"""{ "schemaVersion": 2, "{{propertyName}}": true }""";
 
         ConfigurationException ex = Assert.Throws<ConfigurationException>(
-            () => InstrumentationConfigurationLoader.Parse(json, sourceName: "clockwork.config.json"));
+            () => InstrumentationConfigurationLoader.Parse(json, sourceName: "orleans-simulation.config.json"));
 
         Assert.Equal(
-            $"configuration 'clockwork.config.json': unknown property '{propertyName}'.",
+            $"configuration 'orleans-simulation.config.json': unknown property '{propertyName}'.",
             ex.Message);
         Assert.Null(ex.InnerException);
     }
@@ -205,10 +205,10 @@ public sealed class InstrumentationConfigurationTests
         ConfigurationException ex = Assert.Throws<ConfigurationException>(
             () => InstrumentationConfigurationLoader.Parse(
                 """{ "schemaVersion": 2, "mode": """,
-                sourceName: "clockwork.config.json"));
+                sourceName: "orleans-simulation.config.json"));
 
         Assert.StartsWith(
-            "configuration 'clockwork.config.json' is not valid JSON:",
+            "configuration 'orleans-simulation.config.json' is not valid JSON:",
             ex.Message,
             StringComparison.Ordinal);
         Assert.IsAssignableFrom<JsonException>(ex.InnerException);

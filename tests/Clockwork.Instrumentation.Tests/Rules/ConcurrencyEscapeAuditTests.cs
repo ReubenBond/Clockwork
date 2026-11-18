@@ -16,7 +16,7 @@ namespace Orleans.Testing.Simulation.Instrumentation.Tests.Rules;
 /// no longer has, or that a rule now classifies, is stale. A candidate classified by its assembly alone must also be in a
 /// snapshot of those candidates (<c>AuditedAssemblyCandidates.txt</c>), so a runtime which adds one to a classified
 /// assembly fails until it is reviewed against the assembly's reason. To check another operating system's implementation assemblies,
-/// set <c>CLOCKWORK_ESCAPE_FRAMEWORK_DIRECTORY</c> to the <c>lib</c> directory of its extracted
+/// set <c>ORLEANS_SIMULATION_ESCAPE_FRAMEWORK_DIRECTORY</c> to the <c>lib</c> directory of its extracted
 /// <c>Microsoft.NETCore.App.Runtime.&lt;rid&gt;</c> package.
 /// </summary>
 [Collection(ReferencePackGroup.Name)]
@@ -117,7 +117,7 @@ public sealed class ConcurrencyEscapeAuditTests
             return found.Contains(key) ? !byAssembly.Contains(entry) : !referenceMembers.Contains(key);
         }
 
-        if (Environment.GetEnvironmentVariable("CLOCKWORK_UPDATE_SNAPSHOTS") == "1")
+        if (Environment.GetEnvironmentVariable("ORLEANS_SIMULATION_UPDATE_SNAPSHOTS") == "1")
         {
             string[] updated = [.. expected.Where(entry => !IsStale(entry)).Union(byAssembly, StringComparer.Ordinal).Order(StringComparer.Ordinal)];
             File.WriteAllText(path, string.Join('\n', updated) + "\n");
@@ -131,8 +131,8 @@ public sealed class ConcurrencyEscapeAuditTests
             $"The candidates which the concurrency-escape scan of '{ConcurrencyEscapeScanner.FrameworkDirectory}' classifies " +
             $"by their assembly alone no longer match '{path}'. Check that each added member's behavior is the one its " +
             $"assembly's reason in {nameof(ConcurrencyEscapeAudit)} describes, and give it a rule or a member-level entry " +
-            "when it is not; then refresh the snapshot with `$env:CLOCKWORK_UPDATE_SNAPSHOTS='1'`, on each operating system " +
-            "(or with CLOCKWORK_ESCAPE_FRAMEWORK_DIRECTORY set to each runtime pack), since the snapshot holds the candidates " +
+            "when it is not; then refresh the snapshot with `$env:ORLEANS_SIMULATION_UPDATE_SNAPSHOTS='1'`, on each operating system " +
+            "(or with ORLEANS_SIMULATION_ESCAPE_FRAMEWORK_DIRECTORY set to each runtime pack), since the snapshot holds the candidates " +
             "of Windows, Linux, and macOS." + Environment.NewLine +
             "Added:" + Environment.NewLine + string.Join(Environment.NewLine, added.Select(entry => "    " + entry)) + Environment.NewLine +
             "Stale:" + Environment.NewLine + string.Join(Environment.NewLine, stale.Select(entry => "    " + entry)));

@@ -1591,7 +1591,7 @@ public static class InstrumentationRunner
             nameof(InstrumentationRequest.CachePath));
         string cacheIdentity = HashString(normalizedCachePath)[..16];
         DirectoryInfo directory = Directory.CreateTempSubdirectory(
-            $"clockwork-r2r-{cacheIdentity}-");
+            $"orleans-simulation-r2r-{cacheIdentity}-");
         if (PathsHaveHierarchyCollision(directory.FullName, sourceDirectory)
             || PathsHaveHierarchyCollision(directory.FullName, stagingDirectory))
         {

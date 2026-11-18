@@ -158,5 +158,5 @@ public static class TargetRuntimeDiscovery
     private static string CannotDeriveMessage(string reason) =>
         $"Clockwork evaluates rules against a target runtime, which is not configured and cannot be derived: {reason}. " +
         "Set it to a feature version such as 11.0 with the configuration file's 'targetRuntime', the " +
-        "ClockworkTargetRuntime MSBuild property, or the tool's '--target-runtime' option.";
+        "OrleansSimulationTargetRuntime MSBuild property, or the tool's '--target-runtime' option.";
 }

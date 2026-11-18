@@ -9,7 +9,7 @@ public static class SimulationProgressEnvironment
     /// Enables progress output when set to a positive duration such as <c>5s</c>, <c>500ms</c>,
     /// <c>2m</c>, or <c>00:00:05</c>.
     /// </summary>
-    public const string Interval = "CLOCKWORK_PROGRESS_INTERVAL";
+    public const string Interval = "ORLEANS_SIMULATION_PROGRESS_INTERVAL";
 
     internal static TimeSpan? GetInterval()
     {

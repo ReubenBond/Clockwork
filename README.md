@@ -15,7 +15,7 @@ Clockwork is a deterministic simulation testing framework for distributed system
 - Scheduler- and cluster-aware recording/replay with bounded seeded schedule exploration
 - Deterministic failure-trace minimization
 - Stable operation/resource wait graphs, deadlock cycles, race pairs, and timer diagnostics
-- `dotnet clockwork record`, `replay`, `explore`, `minimize`, and `trace show` commands
+- `dotnet orleans-simulation record`, `replay`, `explore`, `minimize`, and `trace show` commands
 - Fixed and adaptive `RunUntil`/`RunUntilIdle` execution budgets
 - Stable, cross-process-safe seed derivation from strings (`SimulationSeed`)
 - Reusable rendezvous primitives (`SimulationGate`, `SimulationLatch`, `SimulationBarrier`)
@@ -71,6 +71,25 @@ clone the repository or add it as a Git submodule and reference the correspondin
 | `Clockwork.Testing` | `Orleans.Testing.Simulation.Testing` |
 | `Clockwork.Tool` | `Orleans.Testing.Simulation.Tool` |
 
+### Integration surface migration
+
+| Previous integration family | Current integration family |
+|---|---|
+| `Clockwork*` MSBuild properties, items, targets, task names, and assembly metadata | `OrleansSimulation*` |
+| `Clockwork.Instrumentation.Build.props` / `.targets` | `Microsoft.Orleans.Testing.Simulation.Instrumentation.Build.props` / `.targets` |
+| `Clockwork.Simulation.Testing.props` and MTP display name | `Microsoft.Orleans.Testing.Simulation.Testing.props` and `Microsoft.Orleans.Testing.Simulation.Testing` |
+| `obj/.../clockwork/...` and `clockwork.config.json` | `obj/.../orleans-simulation/...` and `orleans-simulation.config.json` |
+| `CLOCKWORK_*` environment variables | `ORLEANS_SIMULATION_*` |
+| `--clockwork-progress` | `--orleans-simulation-progress` |
+| `dotnet-clockwork` / `dotnet clockwork` | `dotnet-orleans-simulation` / `dotnet orleans-simulation` |
+| `Clockwork.SimulationProgressOutput` AppContext key | `Orleans.Testing.Simulation.ProgressOutput` |
+
+This clean pre-1.0 migration retains no aliases for the previous integration names. Serialized and
+diagnostic identities remain stable: replay format `clockwork.replay` schema v2, `.cwr.json`,
+instrumentation configuration schema v2, closure manifest schema v3, built-in `clockwork.*` rule
+IDs, CW/CWR diagnostics, and the `Clockwork.RewriteSignature` / `Clockwork.SupportedRuntimes`
+assembly metadata keys.
+
 ## Instrumented simulation test projects
 
 Keep ordinary and simulation tests in separate projects. Only simulation test projects reference
@@ -78,8 +97,8 @@ Keep ordinary and simulation tests in separate projects. Only simulation test pr
 
 ```xml
 <PropertyGroup>
-  <ClockworkInstrumentedTestProject>true</ClockworkInstrumentedTestProject>
-  <ClockworkUseBuiltInRules>true</ClockworkUseBuiltInRules>
+  <OrleansSimulationInstrumentedTestProject>true</OrleansSimulationInstrumentedTestProject>
+  <OrleansSimulationUseBuiltInRules>true</OrleansSimulationUseBuiltInRules>
 </PropertyGroup>
 
 <ItemGroup>
@@ -102,11 +121,11 @@ solution command line.
 Race exploration is a build-time opt-in separate from ordinary controlled rewriting:
 
 ```xml
-<ClockworkInstrumentationEnabled>true</ClockworkInstrumentationEnabled>
-<ClockworkInstrumentationMode>RaceExploration</ClockworkInstrumentationMode>
+<OrleansSimulationInstrumentationEnabled>true</OrleansSimulationInstrumentationEnabled>
+<OrleansSimulationInstrumentationMode>RaceExploration</OrleansSimulationInstrumentationMode>
 ```
 
-The CLI equivalent is `dotnet clockwork instrument ... --mode RaceExploration`. JSON configuration
+The CLI equivalent is `dotnet orleans-simulation instrument ... --mode RaceExploration`. JSON configuration
 files require instrumentation-configuration schema version 2:
 
 ```json
@@ -291,11 +310,11 @@ engine, so time advancement and stuck detection remain consistent. Every drive m
 
 ### Live simulation progress
 
-Set `CLOCKWORK_PROGRESS_INTERVAL` to a positive wall-clock interval to report exact live drive-loop
+Set `ORLEANS_SIMULATION_PROGRESS_INTERVAL` to a positive wall-clock interval to report exact live drive-loop
 counters to standard error from every active cluster:
 
 ```powershell
-$env:CLOCKWORK_PROGRESS_INTERVAL = "5s"
+$env:ORLEANS_SIMULATION_PROGRESS_INTERVAL = "5s"
 dotnet run --project tests\Clockwork.Tests\Clockwork.Tests.csproj
 ```
 
@@ -303,7 +322,7 @@ Test projects which reference `Microsoft.Orleans.Testing.Simulation.Testing` and
 Testing Platform can set the same interval when invoking their generated test executable:
 
 ```powershell
-dotnet run --project tests\Clockwork.Tests\Clockwork.Tests.csproj -- --clockwork-progress 5s
+dotnet run --project tests\Clockwork.Tests\Clockwork.Tests.csproj -- --orleans-simulation-progress 5s
 ```
 
 Each line includes the runtime id and seed, wall-clock elapsed time, drive-loop iterations, scheduled
@@ -491,13 +510,13 @@ when a new runtime adds a member that is neither ruled nor listed.
 ```xml
 <!-- MSBuild -->
 <PropertyGroup>
-  <ClockworkUseBuiltInRules>true</ClockworkUseBuiltInRules>
+  <OrleansSimulationUseBuiltInRules>true</OrleansSimulationUseBuiltInRules>
 </PropertyGroup>
 ```
 
 ```
 # CLI
-dotnet clockwork instrument --source <directory> --output <dir> --builtin clockwork.bcl.deterministic
+dotnet orleans-simulation instrument --source <directory> --output <dir> --builtin clockwork.bcl.deterministic
 #   --builtin all                 enable every shipped rule set
 #   --builtin-include Clock Random restrict to specific families
 #   --builtin-exclude Crypto      drop a family
@@ -555,7 +574,7 @@ logical thread instead of the physical thread pool — again with no dependency 
 wiring. It is selected independently of the BCL rule set:
 
 ```
-dotnet clockwork instrument --source <directory> --output <dir> --builtin clockwork.tasks.controlled
+dotnet orleans-simulation instrument --source <directory> --output <dir> --builtin clockwork.tasks.controlled
 #   --builtin all   enable every shipped rule set (BCL + controlled tasks)
 ```
 

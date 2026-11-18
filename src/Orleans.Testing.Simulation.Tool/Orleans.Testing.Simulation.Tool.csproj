@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>The Clockwork command-line tool for deterministic IL instrumentation, explicit scenario recording, exact replay, bounded schedule exploration, trace minimization, and diagnostics. Requires the .NET 11 runtime.</Description>
+    <Description>The Orleans simulation command-line tool for deterministic IL instrumentation, explicit scenario recording, exact replay, bounded schedule exploration, trace minimization, and diagnostics. Requires the .NET 11 runtime.</Description>
     <RootNamespace>Orleans.Testing.Simulation.Tool</RootNamespace>
     <OutputType>Exe</OutputType>
     <AssemblyName>Orleans.Testing.Simulation.Tool</AssemblyName>
@@ -9,7 +9,7 @@
 
     <IsPackable>true</IsPackable>
     <PackAsTool>true</PackAsTool>
-    <ToolCommandName>dotnet-clockwork</ToolCommandName>
+    <ToolCommandName>dotnet-orleans-simulation</ToolCommandName>
     <PackageId>Microsoft.Orleans.Testing.Simulation.Tool</PackageId>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

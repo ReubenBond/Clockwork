@@ -11,9 +11,9 @@ public sealed class InstrumentationScaffoldTests
     }
 
     [Fact]
-    public void InstrumentationDependsOnClockworkButNotOnBuildOrTool()
+    public void InstrumentationDependsOnSimulationKernelButNotOnBuildOrTool()
     {
-        // Instrumentation sits above Clockwork and below Instrumentation.Build/Tool - verify the
+        // Instrumentation sits above the simulation kernel and below Instrumentation.Build/Tool - verify the
         // dependency edge points the right way.
         var assembly = System.Reflection.Assembly.Load("Orleans.Testing.Simulation.Instrumentation");
         var referencedNames = assembly.GetReferencedAssemblies().Select(a => a.Name).ToArray();

@@ -7,19 +7,22 @@ using Microsoft.Testing.Platform.Extensions.TestHostControllers;
 
 namespace Orleans.Testing.Simulation.Testing.Tests;
 
-[Collection("Clockwork progress environment")]
-public sealed class ClockworkProgressCommandLineOptionsProviderTests
+[Collection("Orleans simulation progress environment")]
+public sealed class OrleansSimulationProgressCommandLineOptionsProviderTests
 {
     [Fact]
-    public void ExposesClockworkProgressOption()
+    public void ExposesOrleansSimulationProgressOption()
     {
-        var provider = new ClockworkProgressCommandLineOptionsProvider();
+        var provider = new OrleansSimulationProgressCommandLineOptionsProvider();
 
         CommandLineOption option = Assert.Single(provider.GetCommandLineOptions());
 
-        Assert.Equal("clockwork-progress", option.Name);
+        Assert.Equal("orleans-simulation-progress", option.Name);
         Assert.Equal(ArgumentArity.ExactlyOne, option.Arity);
         Assert.False(option.IsHidden);
+        Assert.Equal(
+            "ORLEANS_SIMULATION_PROGRESS_INTERVAL",
+            SimulationProgressEnvironment.Interval);
     }
 
     [Theory]
@@ -30,7 +33,7 @@ public sealed class ClockworkProgressCommandLineOptionsProviderTests
     [InlineData("invalid", false)]
     public async Task ValidatesProgressInterval(string value, bool expectedValid)
     {
-        var provider = new ClockworkProgressCommandLineOptionsProvider();
+        var provider = new OrleansSimulationProgressCommandLineOptionsProvider();
         CommandLineOption option = Assert.Single(provider.GetCommandLineOptions());
 
         var result = await provider.ValidateOptionArgumentsAsync(option, [value]);
@@ -45,8 +48,8 @@ public sealed class ClockworkProgressCommandLineOptionsProviderTests
         try
         {
             Environment.SetEnvironmentVariable(SimulationProgressEnvironment.Interval, "1s");
-            var provider = new ClockworkProgressCommandLineOptionsProvider();
-            var options = new StubCommandLineOptions("clockwork-progress", "5s");
+            var provider = new OrleansSimulationProgressCommandLineOptionsProvider();
+            var options = new StubCommandLineOptions("orleans-simulation-progress", "5s");
 
             var result = await provider.ValidateCommandLineOptionsAsync(options);
 
@@ -64,8 +67,8 @@ public sealed class ClockworkProgressCommandLineOptionsProviderTests
     [Fact]
     public async Task ForwardsCommandLineIntervalToAnOrchestratedTestHost()
     {
-        var provider = new ClockworkProgressEnvironmentVariableProvider(
-            new StubCommandLineOptions("clockwork-progress", "5s"));
+        var provider = new OrleansSimulationProgressEnvironmentVariableProvider(
+            new StubCommandLineOptions("orleans-simulation-progress", "5s"));
         var environment = new StubEnvironmentVariables(provider);
 
         await provider.UpdateAsync(environment);
@@ -107,5 +110,5 @@ public sealed class ClockworkProgressCommandLineOptionsProviderTests
     }
 }
 
-[CollectionDefinition("Clockwork progress environment", DisableParallelization = true)]
-public sealed class ClockworkProgressEnvironmentGroup;
+[CollectionDefinition("Orleans simulation progress environment", DisableParallelization = true)]
+public sealed class OrleansSimulationProgressEnvironmentGroup;

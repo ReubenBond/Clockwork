@@ -17,16 +17,17 @@ namespace Orleans.Testing.Simulation.Instrumentation.Tests.Packaging;
 /// local feed, inspect their package boundaries, then consume them exactly as an end user would -
 /// the build package via a <c>PackageReference</c> that runs the real MSBuild targets during
 /// <c>dotnet build</c>, the kernel and testing packages from ordinary package-only projects, and
-/// the tool via <c>dotnet tool install</c> followed by invoking <c>dotnet-clockwork</c>. Project
+/// the tool via <c>dotnet tool install</c> followed by invoking <c>dotnet-orleans-simulation</c>. Project
 /// references are deliberately avoided so the published package topology is the system under test.
 /// </summary>
 /// <remarks>
-/// They are gated behind the <c>CLOCKWORK_SMOKE_TESTS=1</c> environment variable because each test
+/// They are gated behind the <c>ORLEANS_SIMULATION_SMOKE_TESTS=1</c> environment variable because each test
 /// runs several full SDK operations (pack, restore, build, tool install) and is far slower than a
 /// unit test. CI enables them in a dedicated step; a normal local test run skips them.
 /// </remarks>
 public sealed class PackageSmokeTests
 {
+    private const string SmokeEnvironmentVariable = "ORLEANS_SIMULATION_SMOKE_TESTS";
     private const string SimulationPackageId = "Microsoft.Orleans.Testing.Simulation";
     private const string InstrumentationPackageId = "Microsoft.Orleans.Testing.Simulation.Instrumentation";
     private const string BuildPackageId = "Microsoft.Orleans.Testing.Simulation.Instrumentation.Build";
@@ -35,14 +36,14 @@ public sealed class PackageSmokeTests
     private const string ToolPackageId = "Microsoft.Orleans.Testing.Simulation.Tool";
 
     private static readonly bool SmokeEnabled =
-        string.Equals(Environment.GetEnvironmentVariable("CLOCKWORK_SMOKE_TESTS"), "1", StringComparison.Ordinal);
+        string.Equals(Environment.GetEnvironmentVariable(SmokeEnvironmentVariable), "1", StringComparison.Ordinal);
 
     private static readonly Lazy<PackagedArtifacts> Artifacts = new(PackagedArtifacts.Build);
 
     [Fact]
     public void PackedPackagesContainExpectedAssemblyAssetsAndTargetFrameworks()
     {
-        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
         PackagedArtifacts artifacts = Artifacts.Value;
 
         AssertAssemblyAsset(
@@ -80,7 +81,7 @@ public sealed class PackageSmokeTests
     [Fact]
     public void PackedPackagesHaveExpectedDependencyGroups()
     {
-        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
         PackagedArtifacts artifacts = Artifacts.Value;
 
         AssertDependencyGroup(artifacts.PackagePath(SimulationPackageId), "net11.0");
@@ -102,7 +103,7 @@ public sealed class PackageSmokeTests
     [Fact]
     public void AnalyzerPackageContainsOnlyCompilerAnalyzerAsset()
     {
-        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
         string packagePath = Artifacts.Value.PackagePath(AnalyzersPackageId);
         string[] entries = PackageEntries(packagePath);
 
@@ -115,7 +116,7 @@ public sealed class PackageSmokeTests
     [Fact]
     public void BuildPackageContainsCompleteNet11TaskClosureWithoutNuGetDependencies()
     {
-        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
         string packagePath = Artifacts.Value.PackagePath(BuildPackageId);
         string[] entries = PackageEntries(packagePath);
 
@@ -130,13 +131,19 @@ public sealed class PackageSmokeTests
                 entry.StartsWith("build/", StringComparison.Ordinal)
                 && entry.EndsWith(".targets", StringComparison.Ordinal));
         Assert.Contains(
-            "<ClockworkInstrumentationEnabled",
+            "<OrleansSimulationInstrumentationEnabled",
             ReadPackageEntry(packagePath, propsPath),
             StringComparison.Ordinal);
         Assert.Contains(
-            "TaskName=\"Orleans.Testing.Simulation.Instrumentation.Build.ClockworkInstrumentTask\"",
+            "TaskName=\"Orleans.Testing.Simulation.Instrumentation.Build.OrleansSimulationInstrumentTask\"",
             ReadPackageEntry(packagePath, targetsPath),
             StringComparison.Ordinal);
+        Assert.Contains(
+            "TaskName=\"Orleans.Testing.Simulation.Instrumentation.Build.OrleansSimulationValidateInstrumentedTestTask\"",
+            ReadPackageEntry(packagePath, targetsPath),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("ClockworkInstrumentationEnabled", ReadPackageEntry(packagePath, propsPath), StringComparison.Ordinal);
+        Assert.DoesNotContain("ClockworkInstrumentTask", ReadPackageEntry(packagePath, targetsPath), StringComparison.Ordinal);
         Assert.Equal(
             [
                 "tasks/net11.0/Mono.Cecil.Mdb.dll",
@@ -159,7 +166,7 @@ public sealed class PackageSmokeTests
     [Fact]
     public void SimulationPackageSupportsOrdinaryDotNetConsumptionWithoutForbiddenRuntimeDependencies()
     {
-        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
         ConsumerProject consumer = Artifacts.Value.ScaffoldOrdinarySimulationConsumer("OrdinarySimulationConsumer");
 
         AppRunResult build = consumer.Build();
@@ -193,7 +200,7 @@ public sealed class PackageSmokeTests
     [Fact]
     public void TestingPackageDependsOnlyOnSimulationAndMicrosoftTestingPlatformAndPreservesMtpHook()
     {
-        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
         string packagePath = Artifacts.Value.PackagePath(TestingPackageId);
         string[] entries = PackageEntries(packagePath);
 
@@ -216,6 +223,10 @@ public sealed class PackageSmokeTests
             "<TypeFullName>Orleans.Testing.Simulation.Testing.TestingPlatformBuilderHook</TypeFullName>",
             ReadPackageEntry(packagePath, propsPath),
             StringComparison.Ordinal);
+        Assert.Contains(
+            "<DisplayName>Microsoft.Orleans.Testing.Simulation.Testing</DisplayName>",
+            ReadPackageEntry(packagePath, propsPath),
+            StringComparison.Ordinal);
         Assert.Equal(
             ReadPackageEntry(packagePath, propsPath),
             ReadPackageEntry(packagePath, multiTargetingPropsPath));
@@ -224,7 +235,7 @@ public sealed class PackageSmokeTests
     [Fact]
     public void BuildPackageInstrumentsAppWhenEnabled()
     {
-        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
         PackagedArtifacts artifacts = Artifacts.Value;
 
         ConsumerProject consumer = artifacts.ScaffoldConsumer("EnabledApp", instrumentationEnabled: true);
@@ -248,7 +259,7 @@ public sealed class PackageSmokeTests
     [Fact]
     public void BuildPackageBuiltInExecutableRequiresActiveSimulation()
     {
-        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
         ConsumerProject consumer = Artifacts.Value.ScaffoldConsumer(
             "BuiltInApp",
             instrumentationEnabled: true,
@@ -273,15 +284,15 @@ public sealed class PackageSmokeTests
     [Fact]
     public void BuildPackageFailsBuiltInRulesForAnotherTargetRuntime()
     {
-        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
         ConsumerProject consumer = Artifacts.Value.ScaffoldConsumer(
             "BuiltInOtherRuntimeApp",
             instrumentationEnabled: true,
             useBuiltInRules: true,
             useConfigurationFile: true);
 
-        // The configuration file names no targetRuntime, so ClockworkTargetRuntime sets the target.
-        AppRunResult build = consumer.Build("-p:ClockworkTargetRuntime=12.0");
+        // The configuration file names no targetRuntime, so OrleansSimulationTargetRuntime sets the target.
+        AppRunResult build = consumer.Build("-p:OrleansSimulationTargetRuntime=12.0");
 
         Assert.NotEqual(0, build.ExitCode);
         Assert.Contains(RewriteDiagnosticIds.RuntimeOutOfRange, build.StandardOutput, StringComparison.Ordinal);
@@ -290,7 +301,7 @@ public sealed class PackageSmokeTests
     [Fact]
     public void BuildPackageDoesNothingWhenDisabled()
     {
-        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
         PackagedArtifacts artifacts = Artifacts.Value;
 
         ConsumerProject consumer = artifacts.ScaffoldConsumer("DisabledApp", instrumentationEnabled: false);
@@ -300,6 +311,8 @@ public sealed class PackageSmokeTests
         // An ordinary build must not instrument: no manifest, no staged closure.
         Assert.False(File.Exists(consumer.ManifestPath), "Manifest was emitted on a non-opted-in build.");
         Assert.False(Directory.Exists(consumer.StagingDirectory), "Staging directory was created on a non-opted-in build.");
+        Assert.False(File.Exists(consumer.SuccessPath), "Success marker was emitted on a non-opted-in build.");
+        Assert.False(File.Exists(consumer.ModeStampPath), "Mode stamp was emitted on a non-opted-in build.");
 
         AppRunResult normal = ProcessAppRunner.Run(consumer.OutputAppPath);
         Assert.Equal(0, normal.ExitCode);
@@ -309,7 +322,7 @@ public sealed class PackageSmokeTests
     [Fact]
     public void BuildPackageRunsInstrumentedTestProjectsFromStagedClosure()
     {
-        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
         ConsumerProject consumer = Artifacts.Value.ScaffoldConsumer(
             "InstrumentedTestApp",
             instrumentationEnabled: false,
@@ -337,7 +350,7 @@ public sealed class PackageSmokeTests
     [Fact]
     public void MtpStagedClosureKeepsHostKernelAndExcludedDiagnosticsOrdinaryWhileRewritingSubject()
     {
-        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
         ConsumerProject consumer = Artifacts.Value.ScaffoldConsumer(
             "InstrumentedMtpTestApp",
             instrumentationEnabled: false,
@@ -393,11 +406,20 @@ public sealed class PackageSmokeTests
     [Fact]
     public void PackageOnlyMtpConsumerRunsInstrumentedDotnetTestNoBuildWithOrdinaryDiagnosticsAndNoCollisions()
     {
-        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
         ConsumerProject consumer = Artifacts.Value.ScaffoldPackageOnlyMtpConsumer("PackageOnlyMtpConsumer");
 
         XDocument project = XDocument.Load(consumer.ProjectPath);
+        string projectXml = File.ReadAllText(consumer.ProjectPath);
         Assert.Empty(project.Descendants("ProjectReference"));
+        Assert.Contains(
+            "<OrleansSimulationInstrumentedTestProject>true</OrleansSimulationInstrumentedTestProject>",
+            projectXml,
+            StringComparison.Ordinal);
+        Assert.Contains("<OrleansSimulationRuleSet ", projectXml, StringComparison.Ordinal);
+        Assert.Contains("<OrleansSimulationBuiltInRuleSet ", projectXml, StringComparison.Ordinal);
+        Assert.Contains("<OrleansSimulationExclude ", projectXml, StringComparison.Ordinal);
+        Assert.DoesNotContain("<Clockwork", projectXml, StringComparison.Ordinal);
         string[] packageReferences =
         [
             .. project.Descendants("PackageReference")
@@ -461,9 +483,28 @@ public sealed class PackageSmokeTests
     }
 
     [Fact]
+    public void BuildPackageRejectsMalformedConfigurationWithoutInstrumentationOutputs()
+    {
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
+        ConsumerProject consumer = Artifacts.Value.ScaffoldConsumer(
+            "MalformedConfigurationApp",
+            instrumentationEnabled: true,
+            useConfigurationFile: true);
+        consumer.WriteConfiguration("""{ "schemaVersion": 2, "ruleSets": [ }""");
+
+        AppRunResult build = consumer.Build();
+
+        Assert.NotEqual(0, build.ExitCode);
+        Assert.Contains("JSON", build.StandardOutput + build.StandardError, StringComparison.OrdinalIgnoreCase);
+        Assert.False(File.Exists(consumer.ManifestPath));
+        Assert.False(Directory.Exists(consumer.StagingDirectory));
+        Assert.False(File.Exists(consumer.SuccessPath));
+    }
+
+    [Fact]
     public void BuildPackageBuiltInRulesKeepTestingPlatformRunnable()
     {
-        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
         ConsumerProject consumer = Artifacts.Value.ScaffoldConsumer(
             "InstrumentedBuiltInMtpTestApp",
             instrumentationEnabled: false,
@@ -484,7 +525,7 @@ public sealed class PackageSmokeTests
     [Fact]
     public void BuildPackageSupportsExplicitRaceExplorationMode()
     {
-        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
         ConsumerProject consumer = Artifacts.Value.ScaffoldConsumer(
             "RaceExplorationApp",
             instrumentationEnabled: true,
@@ -503,7 +544,7 @@ public sealed class PackageSmokeTests
     [Fact]
     public void BuildPackageReinstrumentsWhenModeTogglesBackAndForth()
     {
-        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
         ConsumerProject consumer = Artifacts.Value.ScaffoldConsumer(
             "ModeToggleApp",
             instrumentationEnabled: true);
@@ -524,7 +565,7 @@ public sealed class PackageSmokeTests
     [Fact]
     public void BuildPackageStripsStrongNameWithoutMutatingProductionOutput()
     {
-        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
         ConsumerProject consumer = Artifacts.Value.ScaffoldConsumer(
             "SignedApp", instrumentationEnabled: true, signEntryAssembly: true);
 
@@ -544,7 +585,7 @@ public sealed class PackageSmokeTests
     [Fact]
     public void BuildPackageReinstrumentsWhenOnlyDependencyChanges()
     {
-        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
         ConsumerProject consumer = Artifacts.Value.ScaffoldConsumer("DependencyChangeApp", instrumentationEnabled: true);
 
         AppRunResult first = consumer.Build();
@@ -555,14 +596,14 @@ public sealed class PackageSmokeTests
         AppRunResult second = consumer.Build();
 
         Assert.Equal(0, second.ExitCode);
-        Assert.Contains("Clockwork: instrumenting", second.StandardOutput);
+        Assert.Contains("Orleans simulation: instrumenting", second.StandardOutput);
         Assert.Contains("ticks=777", ProcessAppRunner.Run(consumer.StagedAppPath).Output);
     }
 
     [Fact]
     public void BuildPackageRegeneratesDeletedManifest()
     {
-        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
         ConsumerProject consumer = Artifacts.Value.ScaffoldConsumer("DeletedManifestApp", instrumentationEnabled: true);
         Assert.Equal(0, consumer.Build().ExitCode);
         File.Delete(consumer.ManifestPath);
@@ -570,14 +611,14 @@ public sealed class PackageSmokeTests
         AppRunResult second = consumer.Build();
 
         Assert.Equal(0, second.ExitCode);
-        Assert.Contains("Clockwork: instrumenting", second.StandardOutput);
+        Assert.Contains("Orleans simulation: instrumenting", second.StandardOutput);
         Assert.True(File.Exists(consumer.ManifestPath));
     }
 
     [Fact]
     public void InstalledToolReportsVersion()
     {
-        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
         PackagedArtifacts artifacts = Artifacts.Value;
 
         AppRunResult version = artifacts.RunTool(["--version"]);
@@ -589,22 +630,25 @@ public sealed class PackageSmokeTests
     [Fact]
     public void InstalledToolListsReplayCommands()
     {
-        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
         AppRunResult help = Artifacts.Value.RunTool(["--help"]);
 
         Assert.Equal(0, help.ExitCode);
-        Assert.Contains("clockwork instrument", help.Output, StringComparison.Ordinal);
-        Assert.Contains("clockwork record", help.Output, StringComparison.Ordinal);
-        Assert.Contains("clockwork replay", help.Output, StringComparison.Ordinal);
-        Assert.Contains("clockwork explore", help.Output, StringComparison.Ordinal);
-        Assert.Contains("clockwork minimize", help.Output, StringComparison.Ordinal);
-        Assert.Contains("clockwork trace show", help.Output, StringComparison.Ordinal);
+        Assert.Contains("dotnet-orleans-simulation - deterministic Orleans simulation tool", help.Output, StringComparison.Ordinal);
+        Assert.Contains("dotnet orleans-simulation instrument", help.Output, StringComparison.Ordinal);
+        Assert.Contains("dotnet orleans-simulation record", help.Output, StringComparison.Ordinal);
+        Assert.Contains("dotnet orleans-simulation replay", help.Output, StringComparison.Ordinal);
+        Assert.Contains("dotnet orleans-simulation explore", help.Output, StringComparison.Ordinal);
+        Assert.Contains("dotnet orleans-simulation minimize", help.Output, StringComparison.Ordinal);
+        Assert.Contains("dotnet orleans-simulation trace show", help.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("dotnet clockwork", help.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("dotnet-clockwork", help.Output, StringComparison.Ordinal);
     }
 
     [Fact]
     public void InstalledToolInspectsAssemblyAsJson()
     {
-        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
         PackagedArtifacts artifacts = Artifacts.Value;
 
         string probeDir = Path.Combine(artifacts.Root, "probe");
@@ -625,7 +669,7 @@ public sealed class PackageSmokeTests
     [Fact]
     public void InstalledToolBuiltInInstrumentationRequiresActiveSimulation()
     {
-        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
         PackagedArtifacts artifacts = Artifacts.Value;
         ConsumerProject consumer = artifacts.ScaffoldConsumer(
             "ToolBuiltInApp",
@@ -656,7 +700,7 @@ public sealed class PackageSmokeTests
     [Fact]
     public void PackedPackagesCarryLicenseMetadataAndRedistributionNotices()
     {
-        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
         PackagedArtifacts artifacts = Artifacts.Value;
 
         AssertPackageMetadata(artifacts.PackagePath(SimulationPackageId), SimulationPackageId);
@@ -699,7 +743,7 @@ public sealed class PackageSmokeTests
     [Fact]
     public void PackedBuildTaskAndToolPayloadsHaveOneSimulationAssemblyAndNoNuGetDependenciesOrCollisions()
     {
-        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        Assert.SkipUnless(SmokeEnabled, $"Set {SmokeEnvironmentVariable}=1 to run package smoke tests.");
         PackagedArtifacts artifacts = Artifacts.Value;
 
         AssertPackageTopology(
@@ -936,7 +980,7 @@ public sealed class PackageSmokeTests
             Directory.CreateDirectory(packages);
 
             // Every consumer and the tool install sit under this root, so they find the repository's global.json by
-            // walking up: they build with the SDK band Clockwork builds with, and dotnet test selects the same runner.
+            // walking up: they build with the SDK band Orleans simulation builds with, and dotnet test selects the same runner.
             File.Copy(Path.Combine(repoRoot, "global.json"), Path.Combine(root, "global.json"));
             // A unique prerelease version per run guarantees the consumer resolves these freshly
             // packed artifacts rather than any identically named package in a shared cache.
@@ -989,7 +1033,10 @@ public sealed class PackageSmokeTests
         public AppRunResult RunTool(IReadOnlyList<string> arguments)
         {
             string executable = Path.Combine(
-                _toolPath, RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "dotnet-clockwork.exe" : "dotnet-clockwork");
+                _toolPath,
+                RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+                    ? "dotnet-orleans-simulation.exe"
+                    : "dotnet-orleans-simulation");
             return ProcessAppRunner.Execute(executable, arguments, _toolPath, timeout: TimeSpan.FromSeconds(120));
         }
 
@@ -1033,7 +1080,7 @@ public sealed class PackageSmokeTests
                 <configuration>
                   <packageSources>
                     <clear />
-                    <add key="clockwork-local" value="{_feed}" />
+                    <add key="orleans-simulation-local" value="{_feed}" />
                   </packageSources>
                 </configuration>
                 """);
@@ -1157,14 +1204,14 @@ public sealed class PackageSmokeTests
                 : string.Empty;
             string ordinaryIlExclusions = testingPlatformProject
                 ? """
-                      <ClockworkExclude Include="SmokeHost.dll" />
-                      <ClockworkExclude Include="SmokeKernel.dll" />
-                      <ClockworkExclude Include="SmokeDiagnostics.dll" />
+                      <OrleansSimulationExclude Include="SmokeHost.dll" />
+                      <OrleansSimulationExclude Include="SmokeKernel.dll" />
+                      <OrleansSimulationExclude Include="SmokeDiagnostics.dll" />
                     """
                 : string.Empty;
             string runtimeReference = useBuiltInRules
                 ? $"""
-                      <Reference Include="Clockwork">
+                      <Reference Include="Orleans.Testing.Simulation">
                         <HintPath>{typeof(SimulationNotActiveException).Assembly.Location}</HintPath>
                         <Private>true</Private>
                       </Reference>
@@ -1173,13 +1220,13 @@ public sealed class PackageSmokeTests
             string ruleSetItem = useBuiltInRules
                 ? testingPlatformProject && !useConfigurationFile
                     ? """
-                          <ClockworkBuiltInRuleSet Include="clockwork.tasks.controlled" />
+                          <OrleansSimulationBuiltInRuleSet Include="clockwork.tasks.controlled" />
                         """
                     : string.Empty
                 : useConfigurationFile
                     ? string.Empty
                     : """
-                      <ClockworkRuleSet Include="$(MSBuildProjectDirectory)/clockwork.rules.json" />
+                      <OrleansSimulationRuleSet Include="$(MSBuildProjectDirectory)/orleans-simulation.rules.json" />
                     """;
             string signingProperties = string.Empty;
             if (signEntryAssembly)
@@ -1199,10 +1246,10 @@ public sealed class PackageSmokeTests
                     <Nullable>enable</Nullable>
                     <ImplicitUsings>enable</ImplicitUsings>
                     <AssemblyName>SmokeApp</AssemblyName>
-                    <ClockworkInstrumentationEnabled>{enabled}</ClockworkInstrumentationEnabled>
-                    <ClockworkInstrumentedTestProject>{testProject}</ClockworkInstrumentedTestProject>
-                    <ClockworkInstrumentationMode>{mode}</ClockworkInstrumentationMode>
-                    <ClockworkUseBuiltInRules>{builtIn}</ClockworkUseBuiltInRules>
+                    <OrleansSimulationInstrumentationEnabled>{enabled}</OrleansSimulationInstrumentationEnabled>
+                    <OrleansSimulationInstrumentedTestProject>{testProject}</OrleansSimulationInstrumentedTestProject>
+                    <OrleansSimulationInstrumentationMode>{mode}</OrleansSimulationInstrumentationMode>
+                    <OrleansSimulationUseBuiltInRules>{builtIn}</OrleansSimulationUseBuiltInRules>
                 {signingProperties}
                   </PropertyGroup>
                   <ItemGroup>
@@ -1230,7 +1277,7 @@ public sealed class PackageSmokeTests
                         MemberSignature.Method("SmokeApi.RealClock", "UtcNowTicks"),
                         RewriteReplacement.Method("SmokeApi", "SmokeApi.Shim", "UtcNowTicks")),
                 ]);
-            File.WriteAllText(Path.Combine(appDir, "clockwork.rules.json"), RuleSetJson.Write(ruleSet));
+            File.WriteAllText(Path.Combine(appDir, "orleans-simulation.rules.json"), RuleSetJson.Write(ruleSet));
             if (useConfigurationFile)
             {
                 string configuration = useBuiltInRules
@@ -1246,10 +1293,10 @@ public sealed class PackageSmokeTests
                     : """
                         {
                           "schemaVersion": 2,
-                          "ruleSets": ["clockwork.rules.json"]
+                          "ruleSets": ["orleans-simulation.rules.json"]
                         }
                         """;
-                File.WriteAllText(Path.Combine(appDir, "clockwork.config.json"), configuration);
+                File.WriteAllText(Path.Combine(appDir, "orleans-simulation.config.json"), configuration);
             }
 
             return new ConsumerProject(appDir, _packagesDirectory, mode);
@@ -1317,7 +1364,7 @@ public sealed class PackageSmokeTests
                             .Order(StringComparer.Ordinal)
                             .ToArray();
                         File.WriteAllLines(
-                            Path.Combine(AppContext.BaseDirectory, "clockwork-runtime-loads.txt"),
+                            Path.Combine(AppContext.BaseDirectory, "orleans-simulation-runtime-loads.txt"),
                             loaded);
                     }
                 }
@@ -1331,7 +1378,7 @@ public sealed class PackageSmokeTests
                     <Nullable>enable</Nullable>
                     <ImplicitUsings>enable</ImplicitUsings>
                     <AssemblyName>SmokeApp</AssemblyName>
-                    <ClockworkInstrumentedTestProject>true</ClockworkInstrumentedTestProject>
+                    <OrleansSimulationInstrumentedTestProject>true</OrleansSimulationInstrumentedTestProject>
                   </PropertyGroup>
                   <ItemGroup>
                     <PackageReference Include="xunit.v3.mtp-v2" Version="3.2.1" />
@@ -1342,17 +1389,17 @@ public sealed class PackageSmokeTests
                     <PackageReference Include="Orleans.Durable.Storage.Diagnostics" Version="{_version}" />
                   </ItemGroup>
                   <ItemGroup>
-                    <ClockworkRuleSet Include="$(MSBuildProjectDirectory)/clockwork.rules.json" />
-                    <ClockworkBuiltInRuleSet Include="clockwork.bcl.deterministic" />
-                    <ClockworkExclude Include="Orleans.Durable.Storage.Diagnostics.dll" />
+                    <OrleansSimulationRuleSet Include="$(MSBuildProjectDirectory)/orleans-simulation.rules.json" />
+                    <OrleansSimulationBuiltInRuleSet Include="clockwork.bcl.deterministic" />
+                    <OrleansSimulationExclude Include="Orleans.Durable.Storage.Diagnostics.dll" />
                   </ItemGroup>
                   <Target Name="CapturePackageBoundaryReferences" AfterTargets="ResolveReferences">
                     <WriteLinesToFile
-                        File="$(IntermediateOutputPath)clockwork-evaluated-references.txt"
+                        File="$(IntermediateOutputPath)orleans-simulation-evaluated-references.txt"
                         Lines="@(ReferencePath->'%(FullPath)')"
                         Overwrite="true" />
                     <WriteLinesToFile
-                        File="$(IntermediateOutputPath)clockwork-copy-local-references.txt"
+                        File="$(IntermediateOutputPath)orleans-simulation-copy-local-references.txt"
                         Lines="@(ReferenceCopyLocalPaths->'%(FullPath)')"
                         Overwrite="true" />
                   </Target>
@@ -1371,7 +1418,7 @@ public sealed class PackageSmokeTests
                             "Orleans.Testing.Simulation.PackageApi.Shim",
                             "UtcNowTicks")),
                 ]);
-            File.WriteAllText(Path.Combine(appDir, "clockwork.rules.json"), RuleSetJson.Write(ruleSet));
+            File.WriteAllText(Path.Combine(appDir, "orleans-simulation.rules.json"), RuleSetJson.Write(ruleSet));
             return new ConsumerProject(appDir, _packagesDirectory, InstrumentationMode.Controlled);
         }
 
@@ -1444,7 +1491,7 @@ public sealed class PackageSmokeTests
                 <configuration>
                   <packageSources>
                     <clear />
-                    <add key="clockwork-local" value="{feed}" />
+                    <add key="orleans-simulation-local" value="{feed}" />
                   </packageSources>
                 </configuration>
                 """);
@@ -1584,7 +1631,7 @@ public sealed class PackageSmokeTests
                 <configuration>
                   <packageSources>
                     <clear />
-                    <add key="clockwork-local" value="{_feed}" />
+                    <add key="orleans-simulation-local" value="{_feed}" />
                   </packageSources>
                 </configuration>
                 """);
@@ -1597,7 +1644,7 @@ public sealed class PackageSmokeTests
                 <configuration>
                   <packageSources>
                     <clear />
-                    <add key="clockwork-local" value="{feed}" />
+                    <add key="orleans-simulation-local" value="{feed}" />
                   </packageSources>
                 </configuration>
                 """);
@@ -1621,7 +1668,7 @@ public sealed class PackageSmokeTests
             if (result.ExitCode != 0)
             {
                 throw new InvalidOperationException(
-                    $"Installing the clockwork tool failed:\n{result.StandardOutput}\n{result.StandardError}");
+                    $"Installing the Orleans simulation tool failed:\n{result.StandardOutput}\n{result.StandardError}");
             }
         }
 
@@ -1654,8 +1701,9 @@ public sealed class PackageSmokeTests
     private sealed class ConsumerProject
     {
         private const string OutputRelative = "bin/Release/net11.0";
-        private const string StagingRelative = "obj/Release/net11.0/clockwork/instrumented";
-        private const string ManifestRelative = "obj/Release/net11.0/clockwork/clockwork.manifest.json";
+        private const string StagingRelative = "obj/Release/net11.0/orleans-simulation/instrumented";
+        private const string ManifestRelative =
+            "obj/Release/net11.0/orleans-simulation/orleans-simulation.manifest.json";
         private readonly string _packagesDirectory;
         private readonly InstrumentationMode _mode;
 
@@ -1678,7 +1726,7 @@ public sealed class PackageSmokeTests
         public string OutputAppPath => Path.Combine(ProjectDirectory, OutputRelative, "SmokeApp.dll");
 
         public string UninstrumentedAppPath =>
-            Path.Combine(ProjectDirectory, "obj/Release/net11.0/clockwork/source", "SmokeApp.dll");
+            Path.Combine(ProjectDirectory, "obj/Release/net11.0/orleans-simulation/source", "SmokeApp.dll");
 
         public string StagingDirectory => Path.Combine(ProjectDirectory, StagingRelative);
 
@@ -1693,7 +1741,7 @@ public sealed class PackageSmokeTests
         public string StagedDiagnosticsPath => Path.Combine(StagingDirectory, "SmokeDiagnostics.dll");
 
         public string UninstrumentedPackageProbePath =>
-            Path.Combine(ProjectDirectory, "obj/Release/net11.0/clockwork/source", "PackageProbe.dll");
+            Path.Combine(ProjectDirectory, "obj/Release/net11.0/orleans-simulation/source", "PackageProbe.dll");
 
         public string OutputPackageProbePath =>
             Path.Combine(OutputDirectory, "PackageProbe.dll");
@@ -1704,18 +1752,22 @@ public sealed class PackageSmokeTests
         public string AssetsPath => Path.Combine(ProjectDirectory, "obj", "project.assets.json");
 
         public string EvaluatedReferencesPath =>
-            Path.Combine(ProjectDirectory, "obj/Release/net11.0/clockwork-evaluated-references.txt");
+            Path.Combine(ProjectDirectory, "obj/Release/net11.0/orleans-simulation-evaluated-references.txt");
 
         public string CopyLocalReferencesPath =>
-            Path.Combine(ProjectDirectory, "obj/Release/net11.0/clockwork-copy-local-references.txt");
+            Path.Combine(ProjectDirectory, "obj/Release/net11.0/orleans-simulation-copy-local-references.txt");
 
-        public string RuntimeLoadsPath => Path.Combine(OutputDirectory, "clockwork-runtime-loads.txt");
+        public string RuntimeLoadsPath => Path.Combine(OutputDirectory, "orleans-simulation-runtime-loads.txt");
 
         public string ManifestPath => Path.Combine(ProjectDirectory, ManifestRelative);
 
         public string SuccessPath => Path.Combine(
             ProjectDirectory,
-            $"obj/Release/net11.0/clockwork/clockwork.{_mode}.success");
+            $"obj/Release/net11.0/orleans-simulation/orleans-simulation.{_mode}.success");
+
+        public string ModeStampPath => Path.Combine(
+            ProjectDirectory,
+            "obj/Release/net11.0/orleans-simulation/orleans-simulation.mode");
 
         public static string SideEffectPath(string appPath) =>
             Path.Combine(Path.GetDirectoryName(appPath)!, "side-effect.txt");
@@ -1726,6 +1778,11 @@ public sealed class PackageSmokeTests
             string source = File.ReadAllText(sourcePath);
             File.WriteAllText(sourcePath, source.Replace("999L", ticks + "L", StringComparison.Ordinal));
         }
+
+        public void WriteConfiguration(string contents) =>
+            File.WriteAllText(
+                Path.Combine(ProjectDirectory, "orleans-simulation.config.json"),
+                contents);
 
         public void AddPassingTest()
         {
@@ -1756,8 +1813,8 @@ public sealed class PackageSmokeTests
             foreach (InstrumentationMode existing in Enum.GetValues<InstrumentationMode>())
             {
                 project = project.Replace(
-                    $"<ClockworkInstrumentationMode>{existing}</ClockworkInstrumentationMode>",
-                    $"<ClockworkInstrumentationMode>{mode}</ClockworkInstrumentationMode>",
+                    $"<OrleansSimulationInstrumentationMode>{existing}</OrleansSimulationInstrumentationMode>",
+                    $"<OrleansSimulationInstrumentationMode>{mode}</OrleansSimulationInstrumentationMode>",
                     StringComparison.Ordinal);
             }
 

@@ -22,7 +22,7 @@ namespace Orleans.Testing.Simulation.Instrumentation.Tests.Rules;
 [Collection(ReferencePackGroup.Name)]
 public sealed class BuiltInRuleSurfaceTests
 {
-    private const string SnapshotVariable = "CLOCKWORK_UPDATE_SNAPSHOTS";
+    private const string SnapshotVariable = "ORLEANS_SIMULATION_UPDATE_SNAPSHOTS";
 
     private static readonly string[] KnownProcessControlTypes =
     [

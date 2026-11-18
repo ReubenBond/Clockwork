@@ -13,7 +13,6 @@ public sealed class ReplayTestFixtureTests : IDisposable
     [
         ReplayTestEnvironment.Artifact,
         ReplayTestEnvironment.SimulationSeed,
-        ReplayTestEnvironment.LegacyRootSeed,
         ReplayTestEnvironment.ScheduleSeed,
         ReplayTestEnvironment.ArtifactDirectory,
         ReplayTestEnvironment.ExplorationIterations,
@@ -40,6 +39,20 @@ public sealed class ReplayTestFixtureTests : IDisposable
     }
 
     [Fact]
+    public void EnvironmentVariableNamesUseOrleansSimulationPrefix()
+    {
+        Assert.Equal("ORLEANS_SIMULATION_REPLAY_ARTIFACT", ReplayTestEnvironment.Artifact);
+        Assert.Equal("ORLEANS_SIMULATION_SEED", ReplayTestEnvironment.SimulationSeed);
+        Assert.Equal("ORLEANS_SIMULATION_SCHEDULE_SEED", ReplayTestEnvironment.ScheduleSeed);
+        Assert.Equal("ORLEANS_SIMULATION_ARTIFACT_DIRECTORY", ReplayTestEnvironment.ArtifactDirectory);
+        Assert.Equal("ORLEANS_SIMULATION_EXPLORATION_ITERATIONS", ReplayTestEnvironment.ExplorationIterations);
+        Assert.Equal("ORLEANS_SIMULATION_EXPLORATION_TIME_LIMIT", ReplayTestEnvironment.ExplorationTimeLimit);
+        Assert.Equal("ORLEANS_SIMULATION_EXPLORATION_MAX_FAILURES", ReplayTestEnvironment.ExplorationMaxFailures);
+        Assert.All(EnvironmentVariables, static name =>
+            Assert.StartsWith("ORLEANS_SIMULATION_", name, StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ReusesStableSimulationTestIdentitySeed()
     {
         var fixture = new ReplayTestFixture(new ReplayTestConfiguration
@@ -62,7 +75,11 @@ public sealed class ReplayTestFixtureTests : IDisposable
         Assert.NotNull(result.ArtifactPath);
         Assert.True(File.Exists(result.ArtifactPath));
         Assert.Contains(ReplayTestEnvironment.Artifact, result.ToFailureMessage(), StringComparison.Ordinal);
-        Assert.Contains("clockwork replay", result.GetReplayCommand("tests.dll", "Tests.Scenario"), StringComparison.Ordinal);
+        Assert.Contains("Orleans simulation test outcome", result.ToFailureMessage(), StringComparison.Ordinal);
+        Assert.Contains(
+            "dotnet orleans-simulation replay",
+            result.GetReplayCommand("tests.dll", "Tests.Scenario"),
+            StringComparison.Ordinal);
         ReplayTestFailureException exception = Assert.Throws<ReplayTestFailureException>(result.ThrowIfFailed);
         Assert.Same(result, exception.Result);
     }
@@ -239,37 +256,6 @@ public sealed class ReplayTestFixtureTests : IDisposable
                 Assert.Equal(12345, result.SimulationSeed);
                 Assert.Equal(12345, result.Execution.Artifact.SimulationSeed);
             });
-    }
-
-    [Fact]
-    public void LegacyRootSeedEnvironmentRemainsSupported()
-    {
-        WithEnvironmentVariable(
-            ReplayTestEnvironment.LegacyRootSeed,
-            "54321",
-            () =>
-            {
-                ReplayTestResult result = CreateFixture("LegacySimulationSeed").Run(
-                    static scheduler => scheduler.Schedule("complete", static () => { }),
-                    TestContext.Current.CancellationToken);
-
-                Assert.Equal(54321, result.SimulationSeed);
-            });
-    }
-
-    [Fact]
-    public void ConflictingSimulationSeedEnvironmentVariablesAreRejected()
-    {
-        WithEnvironmentVariable(
-            ReplayTestEnvironment.SimulationSeed,
-            "1",
-            () => WithEnvironmentVariable(
-                ReplayTestEnvironment.LegacyRootSeed,
-                "2",
-                () => Assert.Throws<InvalidOperationException>(
-                    () => CreateFixture("ConflictingSimulationSeeds").Run(
-                        static scheduler => scheduler.Schedule("complete", static () => { }),
-                        TestContext.Current.CancellationToken))));
     }
 
     [Fact]

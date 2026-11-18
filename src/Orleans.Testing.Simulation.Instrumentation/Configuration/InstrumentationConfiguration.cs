@@ -70,7 +70,7 @@ public sealed record InstrumentationConfiguration
     public Version? TargetRuntime { get; init; }
 
     /// <summary>
-    /// Gets where <see cref="TargetRuntime"/> came from, such as the configuration file or <c>ClockworkTargetRuntime</c>,
+    /// Gets where <see cref="TargetRuntime"/> came from, such as the configuration file or <c>OrleansSimulationTargetRuntime</c>,
     /// or <see langword="null"/> when it was set directly.
     /// </summary>
     public string? TargetRuntimeOrigin { get; internal init; }

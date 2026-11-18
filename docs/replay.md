@@ -184,29 +184,29 @@ cancels its pending operations; they appear as canceled operations.
 ## Commands
 
 ```powershell
-dotnet clockwork record `
+dotnet orleans-simulation record `
   --assembly .\tests.dll `
   --scenario-type Tests.TransferScenario `
   --artifact .\artifacts\transfer.cwr.json `
   --simulation-seed 123 --schedule-seed 7 --strategy seeded-random
 
-dotnet clockwork replay .\artifacts\transfer.cwr.json `
+dotnet orleans-simulation replay .\artifacts\transfer.cwr.json `
   --assembly .\tests.dll `
   --scenario-type Tests.TransferScenario
 
-dotnet clockwork explore `
+dotnet orleans-simulation explore `
   --assembly .\tests.dll `
   --scenario-type Tests.TransferScenario `
   --output .\artifacts `
   --simulation-seed 123 --schedule-seed 1 --count 100 --max-failures 1
 
-dotnet clockwork minimize .\artifacts\transfer.cwr.json `
+dotnet orleans-simulation minimize .\artifacts\transfer.cwr.json `
   --assembly .\tests.dll `
   --scenario-type Tests.TransferScenario `
   --output .\artifacts\transfer.min.cwr.json
 
-dotnet clockwork trace show .\artifacts\transfer.min.cwr.json
-dotnet clockwork trace show .\artifacts\transfer.min.cwr.json --json
+dotnet orleans-simulation trace show .\artifacts\transfer.min.cwr.json
+dotnet orleans-simulation trace show .\artifacts\transfer.min.cwr.json --json
 ```
 
 Supply `--manifest <closure-manifest>` when the scenario uses an instrumented closure. Replay compares
@@ -264,21 +264,20 @@ The callback is invoked once per fresh scheduler and must construct fresh scenar
 campaign options override environment values. With only a time limit, exploration continues until that
 limit; without either bound, campaigns default to 100 iterations. The time limit is checked between
 complete iterations, so it never truncates an artifact. Failed campaigns retain the smallest artifact
-for each stable failure identity. `CLOCKWORK_REPLAY_ARTIFACT` always performs exactly one replay and
+for each stable failure identity. `ORLEANS_SIMULATION_REPLAY_ARTIFACT` always performs exactly one replay and
 cannot be combined with campaign limits.
 
 Environment variables:
 
 | Variable | Meaning |
 |---|---|
-| `CLOCKWORK_REPLAY_ARTIFACT` | Replay this complete artifact instead of recording. |
-| `CLOCKWORK_SIMULATION_SEED` | Override the simulation seed. |
-| `CLOCKWORK_ROOT_SEED` | Legacy alias for `CLOCKWORK_SIMULATION_SEED`. |
-| `CLOCKWORK_SCHEDULE_SEED` | Override the schedule seed. |
-| `CLOCKWORK_ARTIFACT_DIRECTORY` | Directory for failed-test artifacts. |
-| `CLOCKWORK_EXPLORATION_ITERATIONS` | Override the campaign iteration limit. |
-| `CLOCKWORK_EXPLORATION_TIME_LIMIT` | Set a positive invariant `TimeSpan` wall-clock safety limit. |
-| `CLOCKWORK_EXPLORATION_MAX_FAILURES` | Stop after this many non-success outcomes. |
+| `ORLEANS_SIMULATION_REPLAY_ARTIFACT` | Replay this complete artifact instead of recording. |
+| `ORLEANS_SIMULATION_SEED` | Override the simulation seed. |
+| `ORLEANS_SIMULATION_SCHEDULE_SEED` | Override the schedule seed. |
+| `ORLEANS_SIMULATION_ARTIFACT_DIRECTORY` | Directory for failed-test artifacts. |
+| `ORLEANS_SIMULATION_EXPLORATION_ITERATIONS` | Override the campaign iteration limit. |
+| `ORLEANS_SIMULATION_EXPLORATION_TIME_LIMIT` | Set a positive invariant `TimeSpan` wall-clock safety limit. |
+| `ORLEANS_SIMULATION_EXPLORATION_MAX_FAILURES` | Stop after this many non-success outcomes. |
 
 The helper is framework-neutral and works with xUnit/Microsoft.Testing.Platform without coupling the
 runtime to either framework.

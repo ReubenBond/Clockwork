@@ -1,29 +1,29 @@
 <Project>
 
   <!--
-    Clockwork.Instrumentation.Build - default properties (imported early).
+    Microsoft.Orleans.Testing.Simulation.Instrumentation.Build - default properties (imported early).
 
     Instrumentation is strictly opt-in. Ordinary builds do nothing unless a consumer sets
-    ClockworkInstrumentationEnabled=true. All paths below are overridable by the consuming project.
+    OrleansSimulationInstrumentationEnabled=true. All paths below are overridable by the consuming project.
   -->
 
   <PropertyGroup>
     <!-- Master opt-in switch. Never instrument unless this is explicitly true. -->
-    <ClockworkInstrumentationEnabled Condition="'$(ClockworkInstrumentationEnabled)' == ''">false</ClockworkInstrumentationEnabled>
+    <OrleansSimulationInstrumentationEnabled Condition="'$(OrleansSimulationInstrumentationEnabled)' == ''">false</OrleansSimulationInstrumentationEnabled>
     <!-- Test-project opt-in. The targets turn this into instrumentation plus staged execution. -->
-    <ClockworkInstrumentedTestProject Condition="'$(ClockworkInstrumentedTestProject)' == ''">false</ClockworkInstrumentedTestProject>
-    <ClockworkInstrumentationMode Condition="'$(ClockworkInstrumentationMode)' == ''">Controlled</ClockworkInstrumentationMode>
+    <OrleansSimulationInstrumentedTestProject Condition="'$(OrleansSimulationInstrumentedTestProject)' == ''">false</OrleansSimulationInstrumentedTestProject>
+    <OrleansSimulationInstrumentationMode Condition="'$(OrleansSimulationInstrumentationMode)' == ''">Controlled</OrleansSimulationInstrumentationMode>
 
     <!--
-      Built-in deterministic BCL rule set. Set ClockworkUseBuiltInRules=true to enable the shipped
+      Built-in deterministic BCL rule set. Set OrleansSimulationUseBuiltInRules=true to enable the shipped
       deterministic clock/identity/random/crypto rules without authoring JSON.
     -->
-    <ClockworkUseBuiltInRules Condition="'$(ClockworkUseBuiltInRules)' == ''">false</ClockworkUseBuiltInRules>
+    <OrleansSimulationUseBuiltInRules Condition="'$(OrleansSimulationUseBuiltInRules)' == ''">false</OrleansSimulationUseBuiltInRules>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- When ClockworkUseBuiltInRules is on, enable the first production deterministic BCL rule set. -->
-    <ClockworkBuiltInRuleSet Condition="'$(ClockworkUseBuiltInRules)' == 'true'" Include="clockwork.bcl.deterministic" />
+    <!-- When OrleansSimulationUseBuiltInRules is on, enable the first production deterministic BCL rule set. -->
+    <OrleansSimulationBuiltInRuleSet Condition="'$(OrleansSimulationUseBuiltInRules)' == 'true'" Include="clockwork.bcl.deterministic" />
   </ItemGroup>
 
   <!--

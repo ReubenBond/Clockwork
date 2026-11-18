@@ -12,27 +12,27 @@ using Microsoft.Testing.Platform.Services;
 
 namespace Orleans.Testing.Simulation.Testing;
 
-/// <summary>Registers Clockwork's Microsoft Testing Platform command-line options.</summary>
+/// <summary>Registers Orleans simulation Microsoft Testing Platform command-line options.</summary>
 public static class TestingPlatformBuilderHook
 {
-    /// <summary>Adds Clockwork test-runner extensions to the application builder.</summary>
+    /// <summary>Adds Orleans simulation test-runner extensions to the application builder.</summary>
     /// <param name="testApplicationBuilder">The test application builder.</param>
     /// <param name="_">The test application command-line arguments.</param>
     public static void AddExtensions(ITestApplicationBuilder testApplicationBuilder, string[] _)
     {
         ArgumentNullException.ThrowIfNull(testApplicationBuilder);
-        testApplicationBuilder.CommandLine.AddProvider(static () => new ClockworkProgressCommandLineOptionsProvider());
+        testApplicationBuilder.CommandLine.AddProvider(static () => new OrleansSimulationProgressCommandLineOptionsProvider());
         testApplicationBuilder.TestHost.AddTestHostApplicationLifetime(
-            static serviceProvider => new ClockworkProgressOutputLifetime(serviceProvider.GetOutputDevice()));
+            static serviceProvider => new OrleansSimulationProgressOutputLifetime(serviceProvider.GetOutputDevice()));
         testApplicationBuilder.TestHostControllers.AddEnvironmentVariableProvider(
-            static serviceProvider => new ClockworkProgressEnvironmentVariableProvider(
+            static serviceProvider => new OrleansSimulationProgressEnvironmentVariableProvider(
                 serviceProvider.GetCommandLineOptions()));
     }
 }
 
-internal sealed class ClockworkProgressCommandLineOptionsProvider : ICommandLineOptionsProvider
+internal sealed class OrleansSimulationProgressCommandLineOptionsProvider : ICommandLineOptionsProvider
 {
-    internal const string OptionName = "clockwork-progress";
+    internal const string OptionName = "orleans-simulation-progress";
 
     private static readonly CommandLineOption[] s_options =
     [
@@ -43,13 +43,13 @@ internal sealed class ClockworkProgressCommandLineOptionsProvider : ICommandLine
             isHidden: false),
     ];
 
-    public string Uid => "ClockworkProgressCommandLineOptionsProvider";
+    public string Uid => "OrleansSimulationProgressCommandLineOptionsProvider";
 
     public string Version => "0.1.0";
 
-    public string DisplayName => "Clockwork simulation progress";
+    public string DisplayName => "Orleans simulation progress";
 
-    public string Description => "Enables periodic progress output from active Clockwork simulation drive loops.";
+    public string Description => "Enables periodic progress output from active Orleans simulation drive loops.";
 
     public IReadOnlyCollection<CommandLineOption> GetCommandLineOptions() => s_options;
 
@@ -89,17 +89,17 @@ internal sealed class ClockworkProgressCommandLineOptionsProvider : ICommandLine
     }
 }
 
-internal sealed class ClockworkProgressEnvironmentVariableProvider : ITestHostEnvironmentVariableProvider
+internal sealed class OrleansSimulationProgressEnvironmentVariableProvider : ITestHostEnvironmentVariableProvider
 {
     private readonly string? _value;
     private readonly string? _validationError;
 
-    public ClockworkProgressEnvironmentVariableProvider(ICommandLineOptions commandLineOptions)
+    public OrleansSimulationProgressEnvironmentVariableProvider(ICommandLineOptions commandLineOptions)
     {
         ArgumentNullException.ThrowIfNull(commandLineOptions);
 
         string? value = commandLineOptions.TryGetOptionArgumentList(
-            ClockworkProgressCommandLineOptionsProvider.OptionName,
+            OrleansSimulationProgressCommandLineOptionsProvider.OptionName,
             out string[]? arguments)
             ? arguments is [var argument] ? argument : null
             : Environment.GetEnvironmentVariable(SimulationProgressEnvironment.Interval);
@@ -118,13 +118,13 @@ internal sealed class ClockworkProgressEnvironmentVariableProvider : ITestHostEn
         }
     }
 
-    public string Uid => "ClockworkProgressEnvironmentVariableProvider";
+    public string Uid => "OrleansSimulationProgressEnvironmentVariableProvider";
 
     public string Version => "0.1.0";
 
-    public string DisplayName => "Clockwork simulation progress environment";
+    public string DisplayName => "Orleans simulation progress environment";
 
-    public string Description => "Forwards Clockwork progress configuration to orchestrated test hosts.";
+    public string Description => "Forwards Orleans simulation progress configuration to orchestrated test hosts.";
 
     public Task<bool> IsEnabledAsync() => Task.FromResult(_value is not null);
 
@@ -167,26 +167,26 @@ internal sealed class ClockworkProgressEnvironmentVariableProvider : ITestHostEn
     }
 }
 
-internal sealed class ClockworkProgressOutputLifetime :
+internal sealed class OrleansSimulationProgressOutputLifetime :
     ITestHostApplicationLifetime,
     IOutputDeviceDataProducer,
     IDisposable
 {
     private readonly TextWriter _writer;
 
-    public ClockworkProgressOutputLifetime(IOutputDevice outputDevice)
+    public OrleansSimulationProgressOutputLifetime(IOutputDevice outputDevice)
     {
         ArgumentNullException.ThrowIfNull(outputDevice);
         _writer = new OutputDeviceTextWriter(outputDevice, this);
     }
 
-    public string Uid => "ClockworkProgressOutputLifetime";
+    public string Uid => "OrleansSimulationProgressOutputLifetime";
 
     public string Version => "0.1.0";
 
-    public string DisplayName => "Clockwork simulation progress output";
+    public string DisplayName => "Orleans simulation progress output";
 
-    public string Description => "Routes Clockwork progress through the Microsoft Testing Platform output device.";
+    public string Description => "Routes Orleans simulation progress through the Microsoft Testing Platform output device.";
 
     public Task<bool> IsEnabledAsync() => Task.FromResult(true);
 

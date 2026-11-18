@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <Description>Roslyn analyzers that flag nondeterministic BCL usage at compile time. Diagnostics mirror the Clockwork built-in deterministic rule sets and identify surfaces that require instrumentation.</Description>
+    <Description>Roslyn analyzers that flag nondeterministic BCL usage at compile time. Diagnostics mirror the Orleans simulation built-in deterministic rule sets and identify surfaces that require instrumentation.</Description>
     <RootNamespace>Orleans.Testing.Simulation.Analyzers</RootNamespace>
     <AssemblyName>Orleans.Testing.Simulation.Analyzers</AssemblyName>
     <PackageId>Microsoft.Orleans.Testing.Simulation.Analyzers</PackageId>

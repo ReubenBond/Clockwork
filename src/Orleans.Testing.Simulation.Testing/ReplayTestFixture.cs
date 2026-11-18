@@ -12,28 +12,25 @@ namespace Orleans.Testing.Simulation.Testing;
 public static class ReplayTestEnvironment
 {
     /// <summary>Path to a complete artifact which should be replayed instead of recording a new run.</summary>
-    public const string Artifact = "CLOCKWORK_REPLAY_ARTIFACT";
+    public const string Artifact = "ORLEANS_SIMULATION_REPLAY_ARTIFACT";
 
     /// <summary>Optional simulation seed override.</summary>
-    public const string SimulationSeed = "CLOCKWORK_SIMULATION_SEED";
-
-    /// <summary>Legacy simulation seed override retained for compatibility.</summary>
-    public const string LegacyRootSeed = "CLOCKWORK_ROOT_SEED";
+    public const string SimulationSeed = "ORLEANS_SIMULATION_SEED";
 
     /// <summary>Optional schedule seed override.</summary>
-    public const string ScheduleSeed = "CLOCKWORK_SCHEDULE_SEED";
+    public const string ScheduleSeed = "ORLEANS_SIMULATION_SCHEDULE_SEED";
 
     /// <summary>Optional directory for failed-test artifacts.</summary>
-    public const string ArtifactDirectory = "CLOCKWORK_ARTIFACT_DIRECTORY";
+    public const string ArtifactDirectory = "ORLEANS_SIMULATION_ARTIFACT_DIRECTORY";
 
     /// <summary>Optional maximum exploration iteration count.</summary>
-    public const string ExplorationIterations = "CLOCKWORK_EXPLORATION_ITERATIONS";
+    public const string ExplorationIterations = "ORLEANS_SIMULATION_EXPLORATION_ITERATIONS";
 
     /// <summary>Optional exploration wall-clock safety limit as an invariant <see cref="TimeSpan"/>.</summary>
-    public const string ExplorationTimeLimit = "CLOCKWORK_EXPLORATION_TIME_LIMIT";
+    public const string ExplorationTimeLimit = "ORLEANS_SIMULATION_EXPLORATION_TIME_LIMIT";
 
     /// <summary>Optional maximum number of exploration failures to observe.</summary>
-    public const string ExplorationMaxFailures = "CLOCKWORK_EXPLORATION_MAX_FAILURES";
+    public const string ExplorationMaxFailures = "ORLEANS_SIMULATION_EXPLORATION_MAX_FAILURES";
 }
 
 /// <summary>Configures a framework-neutral replay-aware test fixture.</summary>
@@ -112,7 +109,7 @@ public sealed record ReplayTestResult
     public string ToFailureMessage()
     {
         var builder = new StringBuilder();
-        builder.Append("Clockwork test outcome: ").Append(Execution.Artifact.Outcome.Kind).Append('\n');
+        builder.Append("Orleans simulation test outcome: ").Append(Execution.Artifact.Outcome.Kind).Append('\n');
         builder.Append("Simulation seed: ").Append(SimulationSeed).Append('\n');
         builder.Append("Schedule seed: ").Append(ScheduleSeed).Append('\n');
         builder.Append("Failure identity: ")
@@ -149,7 +146,7 @@ public sealed record ReplayTestResult
 
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"dotnet clockwork replay \"{ArtifactPath}\" --assembly \"{assemblyPath}\" --scenario-type \"{scenarioType}\"");
+            $"dotnet orleans-simulation replay \"{ArtifactPath}\" --assembly \"{assemblyPath}\" --scenario-type \"{scenarioType}\"");
     }
 }
 
@@ -175,7 +172,7 @@ public sealed record ReplayTestCampaignResult
     public string ToFailureMessage()
     {
         var builder = new StringBuilder();
-        builder.Append("Clockwork exploration outcome: ")
+        builder.Append("Orleans simulation exploration outcome: ")
             .Append(Exploration.FailureCount)
             .Append(" failure(s) in ")
             .Append(Exploration.Iterations.Count)
@@ -480,20 +477,7 @@ public sealed class ReplayTestFixture
             return explicitSeed;
         }
 
-        string? simulationSeed = GetEnvironmentValue(ReplayTestEnvironment.SimulationSeed);
-        string? legacyRootSeed = GetEnvironmentValue(ReplayTestEnvironment.LegacyRootSeed);
-        if (simulationSeed is not null && legacyRootSeed is not null)
-        {
-            throw new InvalidOperationException(
-                $"Set either {ReplayTestEnvironment.SimulationSeed} or the legacy " +
-                $"{ReplayTestEnvironment.LegacyRootSeed}, not both.");
-        }
-
-        return ParseSeed(
-                simulationSeed is not null
-                    ? ReplayTestEnvironment.SimulationSeed
-                    : ReplayTestEnvironment.LegacyRootSeed,
-                simulationSeed ?? legacyRootSeed) ??
+        return ParseEnvironmentSeed(ReplayTestEnvironment.SimulationSeed) ??
             TestIdentitySeed;
     }
 
@@ -518,7 +502,7 @@ public sealed class ReplayTestFixture
     private string ResolveArtifactDirectory() =>
         _configuration.ArtifactDirectory ??
         GetEnvironmentValue(ReplayTestEnvironment.ArtifactDirectory) ??
-        Path.Combine(Path.GetTempPath(), "clockwork-test-artifacts");
+        Path.Combine(Path.GetTempPath(), "orleans-simulation-test-artifacts");
 
     private static void EnsureReplayHasNoCampaignOverrides(ReplayTestCampaignOptions options)
     {

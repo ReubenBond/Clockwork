@@ -103,7 +103,7 @@ public sealed class RuleSetRuntimeSupport
     }
 
     /// <summary>Creates the error reporting that the rule set does not support the target runtime.</summary>
-    /// <param name="targetRuntimeOrigin">Where the target runtime came from, such as <c>ClockworkTargetRuntime</c>.</param>
+    /// <param name="targetRuntimeOrigin">Where the target runtime came from, such as <c>OrleansSimulationTargetRuntime</c>.</param>
     /// <returns>The <see cref="RewriteDiagnosticIds.RuntimeOutOfRange"/> error.</returns>
     /// <exception cref="InvalidOperationException">The rule set supports the target runtime.</exception>
     public RewriteDiagnostic ToDiagnostic(string targetRuntimeOrigin)

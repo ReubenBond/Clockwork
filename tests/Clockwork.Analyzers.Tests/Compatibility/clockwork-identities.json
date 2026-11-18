@@ -119,6 +119,6 @@
     ]
   },
   "integration": {
-    "progressOutputAppContextKey": "Clockwork.SimulationProgressOutput"
+    "progressOutputAppContextKey": "Orleans.Testing.Simulation.ProgressOutput"
   }
 }

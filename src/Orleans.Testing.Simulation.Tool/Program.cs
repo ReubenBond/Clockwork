@@ -7,7 +7,7 @@ using Orleans.Testing.Simulation.Runtime.Replay;
 namespace Orleans.Testing.Simulation.Tool;
 
 /// <summary>
-/// Entry point for the <c>clockwork</c> CLI. It dispatches to a command, maps every failure class to a
+/// Entry point for the <c>orleans-simulation</c> CLI. It dispatches to a command, maps every failure class to a
 /// distinct <see cref="ExitCode"/>, and keeps output deterministic (no timestamps, stable ordering) so
 /// it is scriptable and testable.
 /// </summary>
@@ -86,7 +86,7 @@ internal static class Program
 
     private static ExitCode Fail(TextWriter error, string message, ExitCode code)
     {
-        error.WriteLine($"dotnet-clockwork: {message}");
+        error.WriteLine($"dotnet-orleans-simulation: {message}");
         return code;
     }
 
@@ -94,16 +94,16 @@ internal static class Program
 
     private static void WriteUsage(TextWriter output)
     {
-        output.WriteLine("dotnet-clockwork - deterministic IL instrumentation tool");
+        output.WriteLine("dotnet-orleans-simulation - deterministic Orleans simulation tool");
         output.WriteLine();
         output.WriteLine("Usage:");
-        output.WriteLine("  dotnet clockwork instrument --source <dir> --output <dir> [options]");
-        output.WriteLine("  dotnet clockwork inspect <assembly|dir>... [options]");
-        output.WriteLine("  dotnet clockwork record --assembly <path> --scenario-type <type> --artifact <path> --simulation-seed <int> [options]");
-        output.WriteLine("  dotnet clockwork replay <artifact> --assembly <path> --scenario-type <type> [options]");
-        output.WriteLine("  dotnet clockwork explore --assembly <path> --scenario-type <type> --output <dir> --simulation-seed <int> [options]");
-        output.WriteLine("  dotnet clockwork minimize <artifact> --assembly <path> --scenario-type <type> [options]");
-        output.WriteLine("  dotnet clockwork trace show <artifact> [--json]");
+        output.WriteLine("  dotnet orleans-simulation instrument --source <dir> --output <dir> [options]");
+        output.WriteLine("  dotnet orleans-simulation inspect <assembly|dir>... [options]");
+        output.WriteLine("  dotnet orleans-simulation record --assembly <path> --scenario-type <type> --artifact <path> --simulation-seed <int> [options]");
+        output.WriteLine("  dotnet orleans-simulation replay <artifact> --assembly <path> --scenario-type <type> [options]");
+        output.WriteLine("  dotnet orleans-simulation explore --assembly <path> --scenario-type <type> --output <dir> --simulation-seed <int> [options]");
+        output.WriteLine("  dotnet orleans-simulation minimize <artifact> --assembly <path> --scenario-type <type> [options]");
+        output.WriteLine("  dotnet orleans-simulation trace show <artifact> [--json]");
         output.WriteLine();
         output.WriteLine("instrument options:");
         output.WriteLine("  --source <dir>              application output/publish directory to read (required)");

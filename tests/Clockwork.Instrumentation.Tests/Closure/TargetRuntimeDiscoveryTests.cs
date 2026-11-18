@@ -52,11 +52,11 @@ public sealed class TargetRuntimeDiscoveryTests : IDisposable
             """{ "runtimeOptions": { "framework": { "name": "Microsoft.NETCore.App", "version": "11.0.0" } } }""");
 
         (Version targetRuntime, string origin) = TargetRuntimeDiscovery.Resolve(
-            new InstrumentationConfiguration().WithTargetRuntime(new Version(12, 0), "ClockworkTargetRuntime"),
+            new InstrumentationConfiguration().WithTargetRuntime(new Version(12, 0), "OrleansSimulationTargetRuntime"),
             Plan("App.dll"));
 
         Assert.Equal(new Version(12, 0), targetRuntime);
-        Assert.Equal("ClockworkTargetRuntime", origin);
+        Assert.Equal("OrleansSimulationTargetRuntime", origin);
     }
 
     [Theory]
@@ -76,7 +76,7 @@ public sealed class TargetRuntimeDiscoveryTests : IDisposable
             () => TargetRuntimeDiscovery.Resolve(new InstrumentationConfiguration(), Plan(entry)));
 
         Assert.Contains(reason, exception.Message, StringComparison.Ordinal);
-        Assert.Contains("ClockworkTargetRuntime", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("OrleansSimulationTargetRuntime", exception.Message, StringComparison.Ordinal);
     }
 
     private ClosurePlan Plan(string? entry) => new(_root, entry, []);

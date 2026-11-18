@@ -10,7 +10,7 @@ namespace Orleans.Testing.Simulation.Instrumentation.Build;
 /// Verifies that every managed assembly selected from an instrumented test closure was successfully
 /// rewritten and that its staged entry assembly is runnable.
 /// </summary>
-public sealed class ClockworkValidateInstrumentedTestTask : MSBuildTask
+public sealed class OrleansSimulationValidateInstrumentedTestTask : MSBuildTask
 {
     /// <summary>Gets or sets the staged instrumented closure directory.</summary>
     [Required]
@@ -44,7 +44,7 @@ public sealed class ClockworkValidateInstrumentedTestTask : MSBuildTask
                 0,
                 0,
                 0,
-                $"Clockwork could not validate the instrumented test manifest: {exception.Message}");
+                $"Orleans simulation could not validate the instrumented test manifest: {exception.Message}");
             return false;
         }
 
@@ -86,7 +86,7 @@ public sealed class ClockworkValidateInstrumentedTestTask : MSBuildTask
             {
                 LogError(
                     "CWR0207",
-                    $"Staged test assembly '{stagedPath}' does not carry a Clockwork rewrite signature.");
+                    $"Staged test assembly '{stagedPath}' does not carry an Orleans simulation rewrite signature.");
             }
         }
 

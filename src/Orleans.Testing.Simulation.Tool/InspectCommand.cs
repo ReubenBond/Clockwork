@@ -9,7 +9,7 @@ namespace Orleans.Testing.Simulation.Tool;
 
 /// <summary>
 /// The <c>inspect</c> command: reports the managed / ReadyToRun / mixed-mode shape, strong-name state,
-/// debug-symbol form, and Clockwork idempotence marker of one or more assemblies (given as files or
+/// debug-symbol form, and Orleans simulation idempotence marker of one or more assemblies (given as files or
 /// directories). When a rule set is supplied it also reports the merged rule-set identity and whether
 /// each already-instrumented assembly's marker matches that rule set's signature. Every value is an
 /// observed fact; nothing is claimed that is not read from the file. Output is text or JSON.

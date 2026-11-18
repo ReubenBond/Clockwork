@@ -10,15 +10,15 @@ using MSBuildTask = Microsoft.Build.Utilities.Task;
 namespace Orleans.Testing.Simulation.Instrumentation.Build;
 
 /// <summary>
-/// The MSBuild task that runs Clockwork's deterministic IL instrumentation over a resolved
+/// The MSBuild task that runs Orleans simulation's deterministic IL instrumentation over a resolved
 /// application output directory and stages the instrumented closure under <c>obj</c>. It is opt-in:
-/// the accompanying targets only invoke it when <c>ClockworkInstrumentationEnabled</c> is
+/// the accompanying targets only invoke it when <c>OrleansSimulationInstrumentationEnabled</c> is
 /// <see langword="true"/>. The task builds an <see cref="InstrumentationConfiguration"/> from either a
 /// configuration file or its own properties, merges the configured rule-set documents, runs the
 /// <see cref="InstrumentationRunner"/>, and surfaces every rewrite diagnostic as an MSBuild
 /// message/warning/error so a targeted failure fails the build rather than silently degrading output.
 /// </summary>
-public sealed class ClockworkInstrumentTask : MSBuildTask
+public sealed class OrleansSimulationInstrumentTask : MSBuildTask
 {
     /// <summary>Gets or sets the resolved application output directory to instrument.</summary>
     [Required]
@@ -139,13 +139,13 @@ public sealed class ClockworkInstrumentTask : MSBuildTask
 
         if (result.WasIncrementalHit)
         {
-            Log.LogMessage(MessageImportance.Low, "Clockwork instrumentation is up to date (incremental).");
+            Log.LogMessage(MessageImportance.Low, "Orleans simulation instrumentation is up to date (incremental).");
         }
         else if (result.Succeeded)
         {
             Log.LogMessage(
                 MessageImportance.Normal,
-                "Clockwork instrumented {0} assemblies ({1} verified no-ops) for .NET {2}, copied {3} assets to '{4}'.",
+                "Orleans simulation instrumented {0} assemblies ({1} verified no-ops) for .NET {2}, copied {3} assets to '{4}'.",
                 result.RewrittenCount,
                 result.NoOpCount,
                 result.TargetRuntime,
@@ -165,9 +165,9 @@ public sealed class ClockworkInstrumentTask : MSBuildTask
                 Mode = ParseEnum<InstrumentationMode>(InstrumentationMode, nameof(InstrumentationMode)),
             };
 
-        // ClockworkTargetRuntime must agree with a configuration file's targetRuntime; without either, the runner derives
+        // OrleansSimulationTargetRuntime must agree with a configuration file's targetRuntime; without either, the runner derives
         // the target from the closure's runtimeconfig.json.
-        configuration = configuration.WithTargetRuntime(ParseTargetRuntime(TargetRuntime), "ClockworkTargetRuntime");
+        configuration = configuration.WithTargetRuntime(ParseTargetRuntime(TargetRuntime), "OrleansSimulationTargetRuntime");
 
         System.Collections.Immutable.ImmutableArray<string> taskIncludes = ToPatternArray(IncludePatterns);
         if (!taskIncludes.IsDefaultOrEmpty)
@@ -253,7 +253,7 @@ public sealed class ClockworkInstrumentTask : MSBuildTask
         return RuntimeFeatureVersion.TryParse(text, out Version? version)
             ? version
             : throw new ConfigurationException(
-                $"ClockworkTargetRuntime '{text}' is not a runtime feature version (major.minor, such as 11.0).");
+                $"OrleansSimulationTargetRuntime '{text}' is not a runtime feature version (major.minor, such as 11.0).");
     }
 
     private static TEnum ParseEnum<TEnum>(string value, string propertyName)

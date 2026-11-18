@@ -186,7 +186,7 @@ public static class ReplayTraceRenderer
     {
         ArgumentNullException.ThrowIfNull(artifact);
         var builder = new StringBuilder();
-        builder.Append("Clockwork replay ").Append(artifact.Format).Append("/v")
+        builder.Append("Orleans simulation replay ").Append(artifact.Format).Append("/v")
             .Append(artifact.SchemaVersion).Append('\n');
         builder.Append("Outcome: ").Append(artifact.Outcome.Kind);
         if (artifact.Outcome.FailureIdentity is { } identity)
