@@ -22,12 +22,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="buildTransitive\Clockwork.Simulation.Testing.props"
+    <None Include="buildTransitive/Clockwork.Simulation.Testing.props"
           Pack="true"
-          PackagePath="buildTransitive\" />
-    <None Include="buildTransitive\Clockwork.Simulation.Testing.props"
+          PackagePath="buildTransitive/Clockwork.Simulation.Testing.props" />
+    <None Include="buildTransitive/Clockwork.Simulation.Testing.props"
           Pack="true"
-          PackagePath="buildMultiTargeting\" />
+          PackagePath="buildMultiTargeting/Clockwork.Simulation.Testing.props" />
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
     <InternalsVisibleTo Include="Clockwork.Testing.Tests" />
   </ItemGroup>

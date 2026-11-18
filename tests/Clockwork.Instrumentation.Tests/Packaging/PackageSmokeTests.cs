@@ -475,6 +475,35 @@ public sealed class PackageSmokeTests
     }
 
     [Fact]
+    public void PackedTestingPackageUsesCurrentPackageIdForBuildProps()
+    {
+        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        using ZipArchive package = ZipFile.OpenRead(Artifacts.Value.PackagePath("Clockwork.Simulation.Testing"));
+        string[] entries = package.Entries.Select(static entry => entry.FullName).ToArray();
+
+        Assert.Contains("buildTransitive/Clockwork.Simulation.Testing.props", entries);
+        Assert.Contains("buildMultiTargeting/Clockwork.Simulation.Testing.props", entries);
+        Assert.DoesNotContain(
+            entries,
+            static entry =>
+                entry.StartsWith("buildTransitive/", StringComparison.Ordinal)
+                && entry.EndsWith(".props", StringComparison.Ordinal)
+                && !string.Equals(
+                    entry,
+                    "buildTransitive/Clockwork.Simulation.Testing.props",
+                    StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            entries,
+            static entry =>
+                entry.StartsWith("buildMultiTargeting/", StringComparison.Ordinal)
+                && entry.EndsWith(".props", StringComparison.Ordinal)
+                && !string.Equals(
+                    entry,
+                    "buildMultiTargeting/Clockwork.Simulation.Testing.props",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void PackedBuildTaskAndToolPayloadsHaveOneClockworkAssemblyAndNoNuGetDependenciesOrCollisions()
     {
         Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
