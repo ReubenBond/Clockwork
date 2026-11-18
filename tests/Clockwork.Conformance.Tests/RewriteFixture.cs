@@ -43,6 +43,24 @@ internal sealed class RewriteFixture : IDisposable
             source,
             BuiltInRuleSets.BuildDeterministicBcl(families ?? BuiltInRuleSets.AllFamilies));
 
+    /// <summary>
+    /// Compiles preview-language source with the SDK compiler, rewrites it with the controlled-task
+    /// rule set, and loads the rewritten probe. This is opt-in so ordinary conformance fixtures keep
+    /// their existing language-version contract.
+    /// </summary>
+    public StagedProbe StagePreviewControlledTasks(
+        string assemblyName,
+        string typeName,
+        string source,
+        bool optimize)
+        => StageWith(
+            assemblyName,
+            typeName,
+            source,
+            BuiltInRuleSets.BuildControlledTasks(BuiltInRuleSets.AllFamilies),
+            optimize,
+            LanguageVersion.Preview);
+
     /// <summary>Compiles and loads an ordinary probe without applying instrumentation.</summary>
     public UninstrumentedProbe CompileUninstrumented(
         string assemblyName,
@@ -116,9 +134,10 @@ internal sealed class RewriteFixture : IDisposable
         string typeName,
         string source,
         RewriteRuleSet ruleSet,
-        bool optimize = true)
+        bool optimize = true,
+        LanguageVersion languageVersion = LanguageVersion.Latest)
     {
-        string sourceDll = Compile(assemblyName, source, optimize);
+        string sourceDll = Compile(assemblyName, source, optimize, languageVersion: languageVersion);
         string stagedDll = Path.Combine(StagingDir, assemblyName + ".dll");
 
         RewriteOptions options = CreateOptions();
@@ -145,9 +164,14 @@ internal sealed class RewriteFixture : IDisposable
         TargetRuntime = BuiltInRuleSets.SupportedRuntime,
     };
 
-    private string Compile(string assemblyName, string source, bool optimize = true, bool runtimeAsync = false)
+    private string Compile(
+        string assemblyName,
+        string source,
+        bool optimize = true,
+        bool runtimeAsync = false,
+        LanguageVersion languageVersion = LanguageVersion.Latest)
     {
-        var parseOptions = new CSharpParseOptions(LanguageVersion.Latest);
+        var parseOptions = new CSharpParseOptions(languageVersion);
         if (runtimeAsync)
         {
             parseOptions = parseOptions.WithFeatures([new("runtime-async", "on")]);

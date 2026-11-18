@@ -22,6 +22,21 @@ public enum DeliveryStatus
 }
 
 /// <summary>
+/// Represents the latency parameters for a network link.
+/// </summary>
+/// <param name="BaseDelay">The base (minimum) message delay.</param>
+/// <param name="MaxJitter">The maximum additional random delay.</param>
+public readonly record struct LinkLatency(TimeSpan BaseDelay, TimeSpan MaxJitter);
+
+/// <summary>
+/// Represents a directional per-link latency override.
+/// </summary>
+/// <param name="SourceAddress">The sending node's network address.</param>
+/// <param name="TargetAddress">The receiving node's network address.</param>
+/// <param name="Latency">The configured latency parameters.</param>
+public readonly record struct LinkLatencyOverride(string SourceAddress, string TargetAddress, LinkLatency Latency);
+
+/// <summary>
 /// Simulation network for in-memory transport between nodes.
 /// Provides hooks for injecting network faults like delays, partitions, and message loss.
 /// </summary>
@@ -31,6 +46,7 @@ public class SimulationNetwork
     private readonly Func<IReadOnlyList<SimulationNode>> _getNodes;
     private readonly SimulationRandom _random;
     private readonly ConcurrentDictionary<string, HashSet<string>> _partitions = new(StringComparer.Ordinal);
+    private readonly Dictionary<(string Source, string Target), LinkLatency> _linkLatencies = [];
     private readonly Lock _lock = new();
     private ILogger _logger;
     private TimeSpan _baseMessageDelay = TimeSpan.Zero;
@@ -261,8 +277,149 @@ public class SimulationNetwork
     /// </summary>
     public TimeSpan GetMessageDelay()
     {
-        var baseDelay = _baseMessageDelay;
-        var maxJitter = _maxJitter;
+        return GetMessageDelay(_baseMessageDelay, _maxJitter);
+    }
+
+    /// <summary>
+    /// Gets the simulated delay for a message between specific nodes.
+    /// Uses a directional per-link override when configured and otherwise uses the global delay.
+    /// Loopback messages always have zero delay.
+    /// </summary>
+    /// <param name="sourceAddress">The sending node's network address.</param>
+    /// <param name="targetAddress">The receiving node's network address.</param>
+    public TimeSpan GetMessageDelay(string sourceAddress, string targetAddress)
+    {
+        if (string.Equals(sourceAddress, targetAddress, StringComparison.Ordinal))
+        {
+            return TimeSpan.Zero;
+        }
+
+        LinkLatency latency;
+        lock (_lock)
+        {
+            if (!_linkLatencies.TryGetValue((sourceAddress, targetAddress), out latency))
+            {
+                latency = new LinkLatency(_baseMessageDelay, _maxJitter);
+            }
+        }
+
+        return GetMessageDelay(latency.BaseDelay, latency.MaxJitter);
+    }
+
+    /// <summary>
+    /// Sets a directional per-link latency override.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// A delay is negative, or their sum exceeds <see cref="TimeSpan.MaxValue"/>.
+    /// </exception>
+    public void SetLinkLatency(string sourceAddress, string targetAddress, TimeSpan baseDelay, TimeSpan maxJitter)
+    {
+        ValidateDelayPair(baseDelay, maxJitter, nameof(baseDelay), nameof(maxJitter));
+
+        lock (_lock)
+        {
+            _linkLatencies[(sourceAddress, targetAddress)] = new LinkLatency(baseDelay, maxJitter);
+        }
+
+        OnLinkLatencySet(sourceAddress, targetAddress, baseDelay, maxJitter);
+    }
+
+    /// <summary>
+    /// Sets the same per-link latency override in both directions.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// A delay is negative, or their sum exceeds <see cref="TimeSpan.MaxValue"/>.
+    /// </exception>
+    public void SetBidirectionalLinkLatency(string node1, string node2, TimeSpan baseDelay, TimeSpan maxJitter)
+    {
+        ValidateDelayPair(baseDelay, maxJitter, nameof(baseDelay), nameof(maxJitter));
+
+        lock (_lock)
+        {
+            var latency = new LinkLatency(baseDelay, maxJitter);
+            _linkLatencies[(node1, node2)] = latency;
+            _linkLatencies[(node2, node1)] = latency;
+        }
+
+        OnLinkLatencySet(node1, node2, baseDelay, maxJitter);
+        OnLinkLatencySet(node2, node1, baseDelay, maxJitter);
+    }
+
+    /// <summary>
+    /// Gets the directional per-link latency override, if configured.
+    /// </summary>
+    /// <returns>The override, or <see langword="null"/> when the link uses the global delay.</returns>
+    public LinkLatency? GetLinkLatency(string sourceAddress, string targetAddress)
+    {
+        lock (_lock)
+        {
+            return _linkLatencies.TryGetValue((sourceAddress, targetAddress), out var latency) ? latency : null;
+        }
+    }
+
+    /// <summary>
+    /// Removes a directional per-link latency override.
+    /// </summary>
+    /// <returns><see langword="true"/> when an override was removed; otherwise, <see langword="false"/>.</returns>
+    public bool ClearLinkLatency(string sourceAddress, string targetAddress)
+    {
+        bool removed;
+        lock (_lock)
+        {
+            removed = _linkLatencies.Remove((sourceAddress, targetAddress));
+        }
+
+        if (removed)
+        {
+            OnLinkLatencyCleared(sourceAddress, targetAddress);
+        }
+
+        return removed;
+    }
+
+    /// <summary>
+    /// Removes all per-link latency overrides.
+    /// </summary>
+    public void ClearAllLinkLatencies()
+    {
+        int count;
+        lock (_lock)
+        {
+            count = _linkLatencies.Count;
+            _linkLatencies.Clear();
+        }
+
+        OnAllLinkLatenciesCleared(count);
+    }
+
+    /// <summary>
+    /// Captures all per-link latency overrides ordered by source and then target address using ordinal comparison.
+    /// </summary>
+    public IReadOnlyList<LinkLatencyOverride> GetAllLinkLatencies()
+    {
+        LinkLatencyOverride[] result;
+        lock (_lock)
+        {
+            result = new LinkLatencyOverride[_linkLatencies.Count];
+            var index = 0;
+            foreach (var ((source, target), latency) in _linkLatencies)
+            {
+                result[index++] = new LinkLatencyOverride(source, target, latency);
+            }
+        }
+
+        Array.Sort(result, static (left, right) =>
+        {
+            var sourceComparison = StringComparer.Ordinal.Compare(left.SourceAddress, right.SourceAddress);
+            return sourceComparison != 0
+                ? sourceComparison
+                : StringComparer.Ordinal.Compare(left.TargetAddress, right.TargetAddress);
+        });
+        return Array.AsReadOnly(result);
+    }
+
+    private TimeSpan GetMessageDelay(TimeSpan baseDelay, TimeSpan maxJitter)
+    {
         if (maxJitter == TimeSpan.Zero)
         {
             return baseDelay;
@@ -302,23 +459,78 @@ public class SimulationNetwork
     /// <summary>Called when a message is randomly dropped.</summary>
     protected virtual void OnMessageDroppedRandom(string source, string target) => _logger.LogTrace("Message randomly dropped: {Source} -> {Target}", source, target);
 
+    /// <summary>Called when a per-link latency override is set.</summary>
+    protected virtual void OnLinkLatencySet(string source, string target, TimeSpan baseDelay, TimeSpan maxJitter) =>
+        _logger.LogDebug(
+            "Link latency set: {Source} -> {Target} (base={BaseDelay}, jitter={MaxJitter})",
+            source,
+            target,
+            baseDelay,
+            maxJitter);
+
+    /// <summary>Called when a per-link latency override is cleared.</summary>
+    protected virtual void OnLinkLatencyCleared(string source, string target) =>
+        _logger.LogDebug("Link latency cleared: {Source} -> {Target}", source, target);
+
+    /// <summary>Called when all per-link latency overrides are cleared.</summary>
+    protected virtual void OnAllLinkLatenciesCleared(int count) =>
+        _logger.LogDebug("All link latencies cleared: {Count} overrides", count);
+
 #pragma warning restore CA1873, CA1848
 
-    private string DebuggerDisplay => string.Create(CultureInfo.InvariantCulture, $"SimulationNetwork(Partitions={_partitions.Count}, DropRate={MessageDropRate:P0})");
+    private string DebuggerDisplay
+    {
+        get
+        {
+            int linkLatencyCount;
+            lock (_lock)
+            {
+                linkLatencyCount = _linkLatencies.Count;
+            }
+
+            return string.Create(
+                CultureInfo.InvariantCulture,
+                $"SimulationNetwork(Partitions={_partitions.Count}, LinkLatencies={linkLatencyCount}, DropRate={MessageDropRate:P0})");
+        }
+    }
 
     private static void ValidateDelay(TimeSpan value, TimeSpan otherDelay, string propertyName)
     {
+        ValidateNonnegativeDelay(value, propertyName);
+
+        if (value.Ticks > TimeSpan.MaxValue.Ticks - otherDelay.Ticks)
+        {
+            ThrowCombinedDelayOutOfRange(propertyName, value);
+        }
+    }
+
+    private static void ValidateDelayPair(
+        TimeSpan baseDelay,
+        TimeSpan maxJitter,
+        string baseDelayParameterName,
+        string maxJitterParameterName)
+    {
+        ValidateNonnegativeDelay(baseDelay, baseDelayParameterName);
+        ValidateNonnegativeDelay(maxJitter, maxJitterParameterName);
+        if (baseDelay.Ticks > TimeSpan.MaxValue.Ticks - maxJitter.Ticks)
+        {
+            ThrowCombinedDelayOutOfRange(baseDelayParameterName, baseDelay);
+        }
+    }
+
+    private static void ValidateNonnegativeDelay(TimeSpan value, string parameterName)
+    {
         if (value < TimeSpan.Zero)
         {
-            throw new ArgumentOutOfRangeException(propertyName, value, "Delay values must be nonnegative.");
+            throw new ArgumentOutOfRangeException(parameterName, value, "Delay values must be nonnegative.");
         }
+    }
 
-        if (value > TimeSpan.MaxValue - otherDelay)
-        {
-            throw new ArgumentOutOfRangeException(
-                propertyName,
-                value,
-                $"{nameof(BaseMessageDelay)} and {nameof(MaxJitter)} must not exceed {nameof(TimeSpan)}.{nameof(TimeSpan.MaxValue)} when combined.");
-        }
+    private static void ThrowCombinedDelayOutOfRange(string parameterName, TimeSpan value)
+    {
+        throw new ArgumentOutOfRangeException(
+            parameterName,
+            value,
+            $"{nameof(BaseMessageDelay)} and {nameof(MaxJitter)} must not exceed {nameof(TimeSpan)}.{nameof(TimeSpan.MaxValue)} when combined.");
     }
 }

@@ -169,6 +169,115 @@ public sealed class SimulationNetworkTests
     }
 
     [Fact]
+    public void DirectionalLinkLatencyOnlyOverridesConfiguredDirectionAndOtherLinksUseGlobalDelay()
+    {
+        var network = CreateNetwork([], seed: 1);
+        network.BaseMessageDelay = TimeSpan.FromMilliseconds(5);
+        network.SetLinkLatency("node-1", "node-2", TimeSpan.FromMilliseconds(50), TimeSpan.Zero);
+
+        Assert.Equal(TimeSpan.FromMilliseconds(50), network.GetMessageDelay("node-1", "node-2"));
+        Assert.Equal(TimeSpan.FromMilliseconds(5), network.GetMessageDelay("node-2", "node-1"));
+        Assert.Equal(TimeSpan.FromMilliseconds(5), network.GetMessageDelay("node-1", "node-3"));
+    }
+
+    [Fact]
+    public void BidirectionalLinkLatencySetsBothDirections()
+    {
+        var network = CreateNetwork([], seed: 1);
+
+        network.SetBidirectionalLinkLatency(
+            "node-1",
+            "node-2",
+            TimeSpan.FromMilliseconds(80),
+            TimeSpan.FromMilliseconds(5));
+
+        Assert.Equal(
+            new LinkLatency(TimeSpan.FromMilliseconds(80), TimeSpan.FromMilliseconds(5)),
+            network.GetLinkLatency("node-1", "node-2"));
+        Assert.Equal(
+            new LinkLatency(TimeSpan.FromMilliseconds(80), TimeSpan.FromMilliseconds(5)),
+            network.GetLinkLatency("node-2", "node-1"));
+    }
+
+    [Fact]
+    public void LoopbackDelayIsZeroWithoutConsumingRandomnessRegardlessOfOverrides()
+    {
+        var random = new SimulationRandom(seed: 2);
+        var comparisonRandom = new SimulationRandom(seed: 2);
+        var network = new SimulationNetwork(() => [], random)
+        {
+            BaseMessageDelay = TimeSpan.FromMilliseconds(10),
+            MaxJitter = TimeSpan.FromMilliseconds(5),
+        };
+        network.SetLinkLatency("node-1", "node-1", TimeSpan.FromMilliseconds(999), TimeSpan.FromMilliseconds(999));
+
+        Assert.Equal(TimeSpan.Zero, network.GetMessageDelay("node-1", "node-1"));
+        Assert.Equal(comparisonRandom.Next(), random.Next());
+    }
+
+    [Fact]
+    public void InvalidLinkLatencyIsRejectedWithoutChangingDirectionalOrBidirectionalState()
+    {
+        var network = CreateNetwork([], seed: 1);
+        var original = new LinkLatency(TimeSpan.FromMilliseconds(10), TimeSpan.FromMilliseconds(2));
+        network.SetLinkLatency("node-1", "node-2", original.BaseDelay, original.MaxJitter);
+
+        var negativeBase = Assert.Throws<ArgumentOutOfRangeException>(
+            () => network.SetLinkLatency("node-1", "node-2", TimeSpan.FromTicks(-1), TimeSpan.Zero));
+        var negativeJitter = Assert.Throws<ArgumentOutOfRangeException>(
+            () => network.SetLinkLatency("node-1", "node-2", TimeSpan.Zero, TimeSpan.FromTicks(-1)));
+        var overflow = Assert.Throws<ArgumentOutOfRangeException>(
+            () => network.SetBidirectionalLinkLatency("node-1", "node-2", TimeSpan.MaxValue, TimeSpan.FromTicks(1)));
+
+        Assert.Equal("baseDelay", negativeBase.ParamName);
+        Assert.Equal("maxJitter", negativeJitter.ParamName);
+        Assert.Equal("baseDelay", overflow.ParamName);
+        Assert.Equal(original, network.GetLinkLatency("node-1", "node-2"));
+        Assert.Null(network.GetLinkLatency("node-2", "node-1"));
+    }
+
+    [Fact]
+    public void GetClearClearAllAndOrderedSnapshotOperationsAreDeterministic()
+    {
+        var network = CreateNetwork([], seed: 1);
+        var first = new LinkLatency(TimeSpan.FromMilliseconds(10), TimeSpan.FromMilliseconds(1));
+        var second = new LinkLatency(TimeSpan.FromMilliseconds(20), TimeSpan.FromMilliseconds(2));
+        var third = new LinkLatency(TimeSpan.FromMilliseconds(30), TimeSpan.FromMilliseconds(3));
+        network.SetLinkLatency("node-2", "node-1", third.BaseDelay, third.MaxJitter);
+        network.SetLinkLatency("node-1", "node-3", second.BaseDelay, second.MaxJitter);
+        network.SetLinkLatency("node-1", "node-2", first.BaseDelay, first.MaxJitter);
+
+        var snapshot = network.GetAllLinkLatencies();
+
+        Assert.Equal(first, network.GetLinkLatency("node-1", "node-2"));
+        Assert.Collection(
+            snapshot,
+            item => Assert.Equal(new LinkLatencyOverride("node-1", "node-2", first), item),
+            item => Assert.Equal(new LinkLatencyOverride("node-1", "node-3", second), item),
+            item => Assert.Equal(new LinkLatencyOverride("node-2", "node-1", third), item));
+        Assert.True(network.ClearLinkLatency("node-1", "node-2"));
+        Assert.False(network.ClearLinkLatency("node-1", "node-2"));
+        Assert.Null(network.GetLinkLatency("node-1", "node-2"));
+
+        network.ClearAllLinkLatencies();
+
+        Assert.Empty(network.GetAllLinkLatencies());
+        Assert.Equal(3, snapshot.Count);
+    }
+
+    [Fact]
+    public void SameSeedProducesStableLinkDelayTrace()
+    {
+        var first = CollectLinkDelayTrace(seed: 17);
+        var second = CollectLinkDelayTrace(seed: 17);
+
+        Assert.Equal(first, second);
+        Assert.All(first, delay => Assert.InRange(delay, TimeSpan.FromMilliseconds(10), TimeSpan.FromMilliseconds(105)));
+        Assert.Contains(first, delay => delay < TimeSpan.FromMilliseconds(20));
+        Assert.Contains(first, delay => delay >= TimeSpan.FromMilliseconds(100));
+    }
+
+    [Fact]
     public void IsolateNodeBlocksDeliveryInBothDirectionsForAllPeersAndReconnectHeals()
     {
         var nodes = new List<SimulationNode> { new TestNode("node-1"), new TestNode("node-2"), new TestNode("node-3") };
@@ -215,6 +324,22 @@ public sealed class SimulationNetworkTests
         }
 
         return decisions;
+    }
+
+    private static List<TimeSpan> CollectLinkDelayTrace(int seed)
+    {
+        var network = CreateNetwork([], seed);
+        network.BaseMessageDelay = TimeSpan.FromMilliseconds(10);
+        network.MaxJitter = TimeSpan.FromMilliseconds(5);
+        network.SetLinkLatency("node-1", "node-2", TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(5));
+
+        var delays = new List<TimeSpan>();
+        for (var i = 0; i < 20; i++)
+        {
+            delays.Add(network.GetMessageDelay("node-1", i % 2 == 0 ? "node-2" : "node-3"));
+        }
+
+        return delays;
     }
 
     private static SimulationNetwork CreateNetwork(IReadOnlyList<SimulationNode> nodes, int seed) => new(() => nodes, new SimulationRandom(seed));

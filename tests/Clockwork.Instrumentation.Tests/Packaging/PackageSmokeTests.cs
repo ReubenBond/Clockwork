@@ -1,8 +1,10 @@
 using System.Runtime.InteropServices;
 using System.IO.Compression;
+using System.Text.Json;
 using System.Xml.Linq;
 using Clockwork.Instrumentation.Configuration;
 using Clockwork.Instrumentation.Diagnostics;
+using Clockwork.Instrumentation.Orchestration;
 using Clockwork.Instrumentation.Rules;
 using Clockwork.Instrumentation.Rules.BuiltIn;
 using Clockwork.Instrumentation.Tests.Infrastructure;
@@ -185,6 +187,76 @@ public sealed class PackageSmokeTests
             incrementalTestRun.ExitCode == 0,
             $"Instrumented test after incremental build failed ({incrementalTestRun.ExitCode}):\n{incrementalTestRun.StandardOutput}\n{incrementalTestRun.StandardError}");
         Assert.Contains("succeeded: 2", incrementalTestRun.StandardOutput, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void PackageOnlyMtpConsumerRunsInstrumentedDotnetTestNoBuildWithOrdinaryDiagnosticsAndNoCollisions()
+    {
+        Assert.SkipUnless(SmokeEnabled, "Set CLOCKWORK_SMOKE_TESTS=1 to run package smoke tests.");
+        ConsumerProject consumer = Artifacts.Value.ScaffoldPackageOnlyMtpConsumer("PackageOnlyMtpConsumer");
+
+        XDocument project = XDocument.Load(consumer.ProjectPath);
+        Assert.Empty(project.Descendants("ProjectReference"));
+        string[] packageReferences =
+        [
+            .. project.Descendants("PackageReference")
+                .Select(static element => (string?)element.Attribute("Include"))
+                .Where(static value => value is not null)
+                .Select(static value => value!),
+        ];
+        Assert.Contains("Clockwork.Simulation", packageReferences);
+        Assert.Contains("Clockwork.Simulation.Testing", packageReferences);
+        Assert.Contains("Clockwork.Instrumentation.Build", packageReferences);
+        Assert.Contains("Clockwork.PackageProbe", packageReferences);
+        Assert.Contains("Orleans.Durable.Storage.Diagnostics", packageReferences);
+
+        AppRunResult build = consumer.Build();
+        Assert.True(build.ExitCode == 0, $"Build failed:\n{build.StandardOutput}\n{build.StandardError}");
+
+        using (Mono.Cecil.ModuleDefinition ordinary =
+               Mono.Cecil.ModuleDefinition.ReadModule(consumer.UninstrumentedPackageProbePath))
+        {
+            Assert.False(CecilInspect.HasRewriteSignature(ordinary));
+        }
+        using (Mono.Cecil.ModuleDefinition rewritten =
+               Mono.Cecil.ModuleDefinition.ReadModule(consumer.OutputPackageProbePath))
+        {
+            Assert.True(CecilInspect.HasRewriteSignature(rewritten));
+        }
+        using (Mono.Cecil.ModuleDefinition diagnostics =
+               Mono.Cecil.ModuleDefinition.ReadModule(consumer.OutputDiagnosticsPath))
+        {
+            Assert.False(CecilInspect.HasRewriteSignature(diagnostics));
+        }
+
+        ClosureManifest manifest = ClosureManifestJson.Read(consumer.ManifestPath, out _);
+        Assert.Contains(
+            manifest.CopiedAssets,
+            static asset => asset.RelativePath == "Orleans.Durable.Storage.Diagnostics.dll");
+        Assert.DoesNotContain(
+            manifest.Assemblies,
+            static assembly => assembly.RelativePath == "Orleans.Durable.Storage.Diagnostics.dll");
+
+        AppRunResult testRun = consumer.TestNoBuild();
+        Assert.True(
+            testRun.ExitCode == 0,
+            $"Package-only instrumented dotnet test --no-build failed ({testRun.ExitCode}):\n"
+            + $"{testRun.StandardOutput}\n{testRun.StandardError}");
+        Assert.Contains("succeeded: 2", testRun.StandardOutput, StringComparison.OrdinalIgnoreCase);
+
+        SimulationAssemblyCollisionGate.AssertNoCollisionInAssetsFile(consumer.AssetsPath);
+        SimulationAssemblyCollisionGate.AssertNoCollisionInFile(
+            "evaluated references",
+            consumer.EvaluatedReferencesPath);
+        SimulationAssemblyCollisionGate.AssertNoCollisionInFile(
+            "copy-local references",
+            consumer.CopyLocalReferencesPath);
+        SimulationAssemblyCollisionGate.AssertNoCollisionInDirectory(
+            "copied test output",
+            consumer.OutputDirectory);
+        SimulationAssemblyCollisionGate.AssertNoCollisionInFile(
+            "runtime loads",
+            consumer.RuntimeLoadsPath);
     }
 
     [Fact]
@@ -458,8 +530,12 @@ public sealed class PackageSmokeTests
             // packed artifacts rather than any identically named package in a shared cache.
             string version = "9.9.9-smoke." + DateTime.UtcNow.ToString("yyyyMMddHHmmssfff", System.Globalization.CultureInfo.InvariantCulture);
 
+            SeedPackageClosureFromCurrentTestHost(repoRoot, feed);
+            Pack(repoRoot, "src/Clockwork/Clockwork.csproj", version, feed, packages);
+            Pack(repoRoot, "src/Clockwork.Testing/Clockwork.Testing.csproj", version, feed, packages);
             Pack(repoRoot, "src/Clockwork.Instrumentation.Build/Clockwork.Instrumentation.Build.csproj", version, feed, packages);
             Pack(repoRoot, "src/Clockwork.Tool/Clockwork.Tool.csproj", version, feed, packages);
+            PackFixturePackages(root, version, feed, packages);
 
             InstallTool(feed, packages, toolPath, version);
 
@@ -505,7 +581,6 @@ public sealed class PackageSmokeTests
                   <packageSources>
                     <clear />
                     <add key="clockwork-local" value="{_feed}" />
-                    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
                   </packageSources>
                 </configuration>
                 """);
@@ -711,21 +786,282 @@ public sealed class PackageSmokeTests
             return new ConsumerProject(appDir, _packagesDirectory, mode);
         }
 
+        public ConsumerProject ScaffoldPackageOnlyMtpConsumer(string name)
+        {
+            string rootDir = Path.Combine(Root, name);
+            string appDir = Path.Combine(rootDir, "app");
+            Directory.CreateDirectory(appDir);
+            WriteNuGetConfig(rootDir);
+
+            File.WriteAllText(Path.Combine(appDir, "Program.cs"), """
+                using Clockwork;
+                using Clockwork.PackageProbe;
+                using Clockwork.Testing;
+                using Orleans.Durable.Storage.Diagnostics;
+                using Xunit;
+
+                public sealed class PackagedSimulationTests
+                {
+                    [Fact]
+                    public void PackageDependencyIsInstrumented()
+                    {
+                        Assert.NotEmpty(typeof(SimulationCluster).Assembly.Location);
+                        Assert.NotEmpty(typeof(ReplayTestFixture).Assembly.Location);
+                        Assert.Equal(999L, Subject.Capture());
+                    }
+
+                    [Fact]
+                    public void DurableStorageDiagnosticsRemainsOrdinaryIl()
+                    {
+                        Assert.True(OrdinaryProbe.UtcNowTicks() > 0);
+                        string[] loaded = AppDomain.CurrentDomain.GetAssemblies()
+                            .Select(static assembly => assembly.GetName().Name)
+                            .Where(static name => name is not null)
+                            .Select(static name => name!)
+                            .Order(StringComparer.Ordinal)
+                            .ToArray();
+                        File.WriteAllLines(
+                            Path.Combine(AppContext.BaseDirectory, "clockwork-runtime-loads.txt"),
+                            loaded);
+                    }
+                }
+                """);
+
+            File.WriteAllText(Path.Combine(appDir, "SmokeApp.csproj"), $"""
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup>
+                    <OutputType>Exe</OutputType>
+                    <TargetFramework>net11.0</TargetFramework>
+                    <Nullable>enable</Nullable>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <AssemblyName>SmokeApp</AssemblyName>
+                    <ClockworkInstrumentedTestProject>true</ClockworkInstrumentedTestProject>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <PackageReference Include="xunit.v3.mtp-v2" Version="3.2.1" />
+                    <PackageReference Include="Clockwork.Simulation" Version="{_version}" />
+                    <PackageReference Include="Clockwork.Simulation.Testing" Version="{_version}" />
+                    <PackageReference Include="Clockwork.Instrumentation.Build" Version="{_version}" />
+                    <PackageReference Include="Clockwork.PackageProbe" Version="{_version}" />
+                    <PackageReference Include="Orleans.Durable.Storage.Diagnostics" Version="{_version}" />
+                  </ItemGroup>
+                  <ItemGroup>
+                    <ClockworkRuleSet Include="$(MSBuildProjectDirectory)/clockwork.rules.json" />
+                    <ClockworkBuiltInRuleSet Include="clockwork.bcl.deterministic" />
+                    <ClockworkExclude Include="Orleans.Durable.Storage.Diagnostics.dll" />
+                  </ItemGroup>
+                  <Target Name="CapturePackageBoundaryReferences" AfterTargets="ResolveReferences">
+                    <WriteLinesToFile
+                        File="$(IntermediateOutputPath)clockwork-evaluated-references.txt"
+                        Lines="@(ReferencePath->'%(FullPath)')"
+                        Overwrite="true" />
+                    <WriteLinesToFile
+                        File="$(IntermediateOutputPath)clockwork-copy-local-references.txt"
+                        Lines="@(ReferenceCopyLocalPaths->'%(FullPath)')"
+                        Overwrite="true" />
+                  </Target>
+                </Project>
+                """);
+
+            var ruleSet = new RewriteRuleSet(
+                "package-smoke.rules",
+                "1.0",
+                [
+                    RewriteRule.RedirectCall(
+                        "redirect-package-probe",
+                        MemberSignature.Method("Clockwork.PackageApi.RealClock", "UtcNowTicks"),
+                        RewriteReplacement.Method(
+                            "PackageApi",
+                            "Clockwork.PackageApi.Shim",
+                            "UtcNowTicks")),
+                ]);
+            File.WriteAllText(Path.Combine(appDir, "clockwork.rules.json"), RuleSetJson.Write(ruleSet));
+            return new ConsumerProject(appDir, _packagesDirectory, InstrumentationMode.Controlled);
+        }
+
         private static void Pack(string repoRoot, string relativeProject, string version, string feed, string packages)
+            => PackProject(Path.Combine(repoRoot, relativeProject), repoRoot, version, feed, packages);
+
+        private static void PackProject(
+            string projectPath,
+            string workingDirectory,
+            string version,
+            string feed,
+            string packages)
         {
             AppRunResult result = ProcessAppRunner.Execute(
                 "dotnet",
-                ["pack", relativeProject, "-c", "Release", $"-p:Version={version}", "-o", feed, "--nologo", "--disable-build-servers"],
-                repoRoot,
+                ["pack", projectPath, "-c", "Release", $"-p:Version={version}", "-o", feed, "--nologo", "--disable-build-servers"],
+                workingDirectory,
                 NuGetEnvironment(packages),
                 TimeSpan.FromSeconds(300));
 
             if (result.ExitCode != 0)
             {
                 throw new InvalidOperationException(
-                    $"Packing '{relativeProject}' failed:\n{result.StandardOutput}\n{result.StandardError}");
+                    $"Packing '{projectPath}' failed:\n{result.StandardOutput}\n{result.StandardError}");
             }
         }
+
+        private static void PackFixturePackages(string root, string version, string feed, string packages)
+        {
+            string fixtures = Path.Combine(root, "fixture-packages");
+            string api = Path.Combine(fixtures, "api");
+            string probe = Path.Combine(fixtures, "probe");
+            string diagnostics = Path.Combine(fixtures, "diagnostics");
+            Directory.CreateDirectory(api);
+            Directory.CreateDirectory(probe);
+            Directory.CreateDirectory(diagnostics);
+
+            File.WriteAllText(Path.Combine(fixtures, "nuget.config"), $"""
+                <?xml version="1.0" encoding="utf-8"?>
+                <configuration>
+                  <packageSources>
+                    <clear />
+                    <add key="clockwork-local" value="{feed}" />
+                  </packageSources>
+                </configuration>
+                """);
+
+            File.WriteAllText(Path.Combine(api, "Clockwork.PackageApi.csproj"), """
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup>
+                    <TargetFramework>net11.0</TargetFramework>
+                    <Nullable>enable</Nullable>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <AssemblyName>PackageApi</AssemblyName>
+                    <PackageId>Clockwork.PackageApi</PackageId>
+                  </PropertyGroup>
+                </Project>
+                """);
+            File.WriteAllText(Path.Combine(api, "Api.cs"), """
+                namespace Clockwork.PackageApi;
+
+                public static class RealClock
+                {
+                    public static long UtcNowTicks() => 100L;
+                }
+
+                public static class Shim
+                {
+                    public static long UtcNowTicks() => 999L;
+                }
+                """);
+
+            File.WriteAllText(Path.Combine(probe, "Clockwork.PackageProbe.csproj"), $"""
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup>
+                    <TargetFramework>net11.0</TargetFramework>
+                    <Nullable>enable</Nullable>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <AssemblyName>PackageProbe</AssemblyName>
+                    <PackageId>Clockwork.PackageProbe</PackageId>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <PackageReference Include="Clockwork.PackageApi" Version="{version}" />
+                  </ItemGroup>
+                </Project>
+                """);
+            File.WriteAllText(Path.Combine(probe, "Probe.cs"), """
+                using Clockwork.PackageApi;
+
+                namespace Clockwork.PackageProbe;
+
+                public static class Subject
+                {
+                    public static long Capture() => RealClock.UtcNowTicks();
+                }
+                """);
+
+            File.WriteAllText(Path.Combine(diagnostics, "Orleans.Durable.Storage.Diagnostics.csproj"), """
+                <Project Sdk="Microsoft.NET.Sdk">
+                  <PropertyGroup>
+                    <TargetFramework>net11.0</TargetFramework>
+                    <Nullable>enable</Nullable>
+                    <ImplicitUsings>enable</ImplicitUsings>
+                    <AssemblyName>Orleans.Durable.Storage.Diagnostics</AssemblyName>
+                    <PackageId>Orleans.Durable.Storage.Diagnostics</PackageId>
+                  </PropertyGroup>
+                </Project>
+                """);
+            File.WriteAllText(Path.Combine(diagnostics, "OrdinaryProbe.cs"), """
+                namespace Orleans.Durable.Storage.Diagnostics;
+
+                public static class OrdinaryProbe
+                {
+                    public static long UtcNowTicks() => DateTime.UtcNow.Ticks;
+                }
+                """);
+
+            PackProject(
+                Path.Combine(api, "Clockwork.PackageApi.csproj"),
+                api,
+                version,
+                feed,
+                packages);
+            PackProject(
+                Path.Combine(probe, "Clockwork.PackageProbe.csproj"),
+                probe,
+                version,
+                feed,
+                packages);
+            PackProject(
+                Path.Combine(diagnostics, "Orleans.Durable.Storage.Diagnostics.csproj"),
+                diagnostics,
+                version,
+                feed,
+                packages);
+        }
+
+        private static void SeedPackageClosureFromCurrentTestHost(string repoRoot, string feed)
+        {
+            string assetsPath = Path.Combine(
+                repoRoot,
+                "tests",
+                "Clockwork.Instrumentation.Tests",
+                "obj",
+                "project.assets.json");
+            using JsonDocument document = JsonDocument.Parse(File.ReadAllBytes(assetsPath));
+            string[] packageFolders =
+            [
+                .. document.RootElement.GetProperty("packageFolders")
+                .EnumerateObject()
+                .Select(static property => property.Name),
+            ];
+
+            foreach (JsonProperty library in document.RootElement.GetProperty("libraries").EnumerateObject())
+            {
+                if (!string.Equals(
+                    library.Value.GetProperty("type").GetString(),
+                    "package",
+                    StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                int separator = library.Name.LastIndexOf('/');
+                string packageId = library.Name[..separator];
+                string version = library.Name[(separator + 1)..];
+                string packagePath = packageFolders
+                    .Select(folder => Path.Combine(folder, packageId.ToLowerInvariant(), version))
+                    .Where(Directory.Exists)
+                    .SelectMany(static directory =>
+                        Directory.GetFiles(directory, "*.nupkg", SearchOption.TopDirectoryOnly))
+                    .First();
+                File.Copy(packagePath, Path.Combine(feed, Path.GetFileName(packagePath)), overwrite: false);
+            }
+        }
+
+        private void WriteNuGetConfig(string rootDir) =>
+            File.WriteAllText(Path.Combine(rootDir, "nuget.config"), $"""
+                <?xml version="1.0" encoding="utf-8"?>
+                <configuration>
+                  <packageSources>
+                    <clear />
+                    <add key="clockwork-local" value="{_feed}" />
+                  </packageSources>
+                </configuration>
+                """);
 
         private static void InstallTool(string feed, string packages, string toolPath, string version)
         {
@@ -789,6 +1125,10 @@ public sealed class PackageSmokeTests
 
         public string ProjectDirectory { get; }
 
+        public string ProjectPath => Path.Combine(ProjectDirectory, "SmokeApp.csproj");
+
+        public string OutputDirectory => Path.Combine(ProjectDirectory, OutputRelative);
+
         public string OutputAppPath => Path.Combine(ProjectDirectory, OutputRelative, "SmokeApp.dll");
 
         public string UninstrumentedAppPath =>
@@ -799,6 +1139,25 @@ public sealed class PackageSmokeTests
         public string StagedAppPath => Path.Combine(StagingDirectory, "SmokeApp.dll");
 
         public string StagedSubjectPath => Path.Combine(StagingDirectory, "SmokeSubject.dll");
+
+        public string UninstrumentedPackageProbePath =>
+            Path.Combine(ProjectDirectory, "obj/Release/net11.0/clockwork/source", "PackageProbe.dll");
+
+        public string OutputPackageProbePath =>
+            Path.Combine(OutputDirectory, "PackageProbe.dll");
+
+        public string OutputDiagnosticsPath =>
+            Path.Combine(OutputDirectory, "Orleans.Durable.Storage.Diagnostics.dll");
+
+        public string AssetsPath => Path.Combine(ProjectDirectory, "obj", "project.assets.json");
+
+        public string EvaluatedReferencesPath =>
+            Path.Combine(ProjectDirectory, "obj/Release/net11.0/clockwork-evaluated-references.txt");
+
+        public string CopyLocalReferencesPath =>
+            Path.Combine(ProjectDirectory, "obj/Release/net11.0/clockwork-copy-local-references.txt");
+
+        public string RuntimeLoadsPath => Path.Combine(OutputDirectory, "clockwork-runtime-loads.txt");
 
         public string ManifestPath => Path.Combine(ProjectDirectory, ManifestRelative);
 

@@ -194,6 +194,30 @@ The seed is a required constructor argument. Optional constructor arguments conf
 the simulated local time zone, and teardown cancellation. A
 zero-node cluster is valid and its `Network` is available immediately.
 
+`SimulationNetwork` applies `BaseMessageDelay` and `MaxJitter` globally. Directional overrides model
+asymmetric links while preserving those global values as the fallback:
+
+```csharp
+cluster.Network.SetLinkLatency(
+    node1.NetworkAddress,
+    node2.NetworkAddress,
+    baseDelay: TimeSpan.FromMilliseconds(50),
+    maxJitter: TimeSpan.FromMilliseconds(5));
+cluster.Network.SetBidirectionalLinkLatency(
+    node1.NetworkAddress,
+    node2.NetworkAddress,
+    baseDelay: TimeSpan.FromMilliseconds(20),
+    maxJitter: TimeSpan.Zero);
+
+LinkLatency? configured = cluster.Network.GetLinkLatency(node1.NetworkAddress, node2.NetworkAddress);
+IReadOnlyList<LinkLatencyOverride> snapshot = cluster.Network.GetAllLinkLatencies();
+cluster.Network.ClearLinkLatency(node1.NetworkAddress, node2.NetworkAddress);
+cluster.Network.ClearAllLinkLatencies();
+```
+
+Snapshots are ordered by source and target address using ordinal comparison. Link delays use the
+simulation seed for deterministic jitter, and loopback delay remains zero.
+
 ### Registering custom node subclasses
 
 `AddCustomNode<TNode>` creates and immediately returns a stateful custom `SimulationNode` subclass

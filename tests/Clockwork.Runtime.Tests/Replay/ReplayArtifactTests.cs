@@ -28,6 +28,26 @@ public sealed class ReplayArtifactTests : IDisposable
     }
 
     [Fact]
+    public void ExistingVersionTwoGoldenArtifactRemainsReadableAndCanonical()
+    {
+        string path = Path.Combine(
+            FindRepositoryRoot(),
+            "tests",
+            "Clockwork.Runtime.Tests",
+            "Replay",
+            "Golden",
+            "replay-v2.json");
+        string expected = File.ReadAllText(path).TrimEnd('\r', '\n');
+
+        ReplayArtifact artifact = ReplayArtifactSerializer.Deserialize(Encoding.UTF8.GetBytes(expected));
+
+        Assert.Equal("clockwork.replay", artifact.Format);
+        Assert.Equal(2, artifact.SchemaVersion);
+        Assert.Equal(42, artifact.SimulationSeed);
+        Assert.Equal(expected, ReplayArtifactSerializer.ToJson(artifact));
+    }
+
+    [Fact]
     public void CanonicalJsonSortsSchedulerOptions()
     {
         ReplayArtifact artifact = CreateArtifact() with
@@ -798,4 +818,20 @@ public sealed class ReplayArtifactTests : IDisposable
             },
         ],
     };
+
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "Clockwork.slnx")))
+            {
+                return directory.FullName;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new InvalidOperationException("Could not locate the repository root (Clockwork.slnx).");
+    }
 }
