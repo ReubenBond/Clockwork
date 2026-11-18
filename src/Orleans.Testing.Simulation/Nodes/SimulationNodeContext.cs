@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.ExceptionServices;
 using Orleans.Testing.Simulation.Runtime.Execution;
 using Orleans.Testing.Simulation.Runtime.Scheduling;
 using Microsoft.Extensions.Logging;
@@ -22,6 +23,11 @@ public enum SimulationNodeState
     /// Timers will accumulate and fire when the node is resumed if their due time has passed.
     /// </summary>
     Suspended,
+
+    /// <summary>
+    /// The node has explicitly discarded all pending work and cannot accept new work.
+    /// </summary>
+    Discarded,
 }
 
 internal enum SimulationNodeAttachmentState
@@ -143,7 +149,7 @@ public sealed partial class SimulationNodeContext
     {
         get
         {
-            if (State == SimulationNodeState.Suspended)
+            if (State != SimulationNodeState.Running)
                 return false;
 
             // Check if the lane has any items due at or before the current time
@@ -159,7 +165,8 @@ public sealed partial class SimulationNodeContext
     /// Gets the due time of the next waiting (not yet ready) task on this node's lane,
     /// or null if no tasks are waiting.
     /// </summary>
-    public DateTimeOffset? NextWaitingDueTime => SchedulerLane.NextWaitingDueTime;
+    public DateTimeOffset? NextWaitingDueTime =>
+        State == SimulationNodeState.Discarded ? null : SchedulerLane.NextWaitingDueTime;
 
     /// <summary>
     /// Executes one ready task from this node's lane.
@@ -171,6 +178,7 @@ public sealed partial class SimulationNodeContext
     public bool Step(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        ThrowIfPendingWorkDiscarded();
         if (State == SimulationNodeState.Suspended)
             return false;
 
@@ -187,6 +195,7 @@ public sealed partial class SimulationNodeContext
     public int RunUntilIdle(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        ThrowIfPendingWorkDiscarded();
         if (State == SimulationNodeState.Suspended)
             return 0;
 
@@ -200,7 +209,7 @@ public sealed partial class SimulationNodeContext
     public void Suspend()
     {
         using var _ = _guard.Enter();
-        ThrowIfDetached();
+        ThrowIfUnavailable();
         State = SimulationNodeState.Suspended;
         if (_attachmentState != SimulationNodeAttachmentState.Disposing)
         {
@@ -217,7 +226,7 @@ public sealed partial class SimulationNodeContext
     public void Resume()
     {
         using var _ = _guard.Enter();
-        ThrowIfDetached();
+        ThrowIfUnavailable();
         State = SimulationNodeState.Running;
         if (_attachmentState != SimulationNodeAttachmentState.Disposing)
         {
@@ -243,7 +252,7 @@ public sealed partial class SimulationNodeContext
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(duration, TimeSpan.Zero);
 
         using var _ = _guard.Enter();
-        ThrowIfDetached();
+        ThrowIfUnavailable();
         if (_externalSchedulerLane is null)
         {
             throw new InvalidOperationException(
@@ -280,6 +289,80 @@ public sealed partial class SimulationNodeContext
         }
     }
 
+    /// <summary>
+    /// Permanently discards every pending unit of work owned by this node.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Call this only after the simulated member has stopped. Ready and delayed scheduler-lane
+    /// callbacks, timers and virtual deadlines, controlled operations and resource waits, and
+    /// cluster-lane callbacks owned by this context (such as a timed-suspension resume) are canceled
+    /// without invoking their callbacks. Work owned by other nodes or by the cluster is unchanged.
+    /// </para>
+    /// <para>
+    /// The transition is permanent and idempotent while the context remains attached. The context
+    /// enters <see cref="SimulationNodeState.Discarded"/>, and later attempts to enqueue node-owned
+    /// work throw <see cref="ObjectDisposedException"/>. Calling this from work currently executing
+    /// for this node throws <see cref="InvalidOperationException"/> without discarding anything.
+    /// After the containing cluster has detached the context, this method throws
+    /// <see cref="ObjectDisposedException"/>.
+    /// </para>
+    /// </remarks>
+    public void DiscardPendingWork()
+    {
+        using IDisposable? control = Scheduler.CurrentOperation is null
+            ? Scheduler.EnterControlScope()
+            : null;
+        ScheduledItem[] laneItems;
+        ScheduledItem[] sharedLaneItems;
+        Exception? schedulerFailure = null;
+        using (var _ = _guard.Enter())
+        {
+            ThrowIfDetached();
+            SimulationNodeIdentity node = SchedulerLane.Node
+                ?? throw new InvalidOperationException("The scheduler lane is not node-scoped.");
+            if (State == SimulationNodeState.Discarded)
+            {
+                laneItems = SchedulerLane.CaptureItems();
+                sharedLaneItems = [];
+            }
+            else
+            {
+                Scheduler.EnsureNodeCanDiscardPendingWork(node);
+                State = SimulationNodeState.Discarded;
+                laneItems = SchedulerLane.MarkPendingWorkDiscarded();
+                sharedLaneItems = [.. _sharedLaneItems];
+                _sharedLaneItems.Clear();
+            }
+
+            try
+            {
+                Scheduler.DiscardPendingWork(node);
+            }
+            catch (Exception exception)
+            {
+                schedulerFailure = exception;
+            }
+        }
+
+        try
+        {
+            CancelScheduledItems(laneItems, sharedLaneItems);
+        }
+        catch (Exception cancellationFailure) when (schedulerFailure is not null)
+        {
+            throw new AggregateException(
+                "Simulation node pending-work discard failed during scheduler and lane cleanup.",
+                schedulerFailure,
+                cancellationFailure).Flatten();
+        }
+
+        if (schedulerFailure is not null)
+        {
+            ExceptionDispatchInfo.Capture(schedulerFailure).Throw();
+        }
+    }
+
     internal bool IsAttachmentInProgress
     {
         get
@@ -294,6 +377,11 @@ public sealed partial class SimulationNodeContext
         get
         {
             using var _ = _guard.Enter();
+            if (State == SimulationNodeState.Discarded)
+            {
+                return false;
+            }
+
             return SchedulerLane.HasPendingWork || _sharedLaneItems.Count > 0;
         }
     }
@@ -328,8 +416,11 @@ public sealed partial class SimulationNodeContext
         }
 
         _attachmentState = SimulationNodeAttachmentState.Disposing;
-        State = SimulationNodeState.Running;
-        SchedulerLane.SetEnabled(enabled: true);
+        if (State != SimulationNodeState.Discarded)
+        {
+            State = SimulationNodeState.Running;
+            SchedulerLane.SetEnabled(enabled: true);
+        }
     }
 
     internal void CompleteAttachmentCleanup()
@@ -347,7 +438,10 @@ public sealed partial class SimulationNodeContext
             laneItems = SchedulerLane.Detach();
             sharedLaneItems = [.. _sharedLaneItems];
             _sharedLaneItems.Clear();
-            State = SimulationNodeState.Running;
+            if (State != SimulationNodeState.Discarded)
+            {
+                State = SimulationNodeState.Running;
+            }
         }
 
         CancelScheduledItems(laneItems, sharedLaneItems);
@@ -404,6 +498,17 @@ public sealed partial class SimulationNodeContext
         ObjectDisposedException.ThrowIf(
             _attachmentState == SimulationNodeAttachmentState.Detached,
             this);
+
+    private void ThrowIfPendingWorkDiscarded() =>
+        ObjectDisposedException.ThrowIf(
+            State == SimulationNodeState.Discarded,
+            this);
+
+    private void ThrowIfUnavailable()
+    {
+        ThrowIfDetached();
+        ThrowIfPendingWorkDiscarded();
+    }
 
     private string DebuggerDisplay =>
         $"SimulationNodeContext({State}, Tasks={SchedulerLane.CaptureScheduledItems().Count})";

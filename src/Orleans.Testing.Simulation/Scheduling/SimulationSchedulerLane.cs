@@ -21,6 +21,7 @@ public sealed class SimulationSchedulerLane
     private readonly SimulationSynchronizationContext _synchronizationContext;
     private long _sequenceNumber;
     private bool _enabled = true;
+    private bool _pendingWorkDiscarded;
     private volatile bool _detached;
 
     /// <summary>Initializes a lane owned by <paramref name="scheduler"/>.</summary>
@@ -64,7 +65,9 @@ public sealed class SimulationSchedulerLane
     internal bool IsDetached => _detached;
 
     internal bool HasPendingWork =>
-        _node is { } node ? _scheduler.HasPendingWork(node) : HasItems;
+        _pendingWorkDiscarded
+            ? false
+            : _node is { } node ? _scheduler.HasPendingWork(node) : HasItems;
 
     /// <summary>Gets whether this lane has pending items.</summary>
     public bool HasItems
@@ -73,6 +76,11 @@ public sealed class SimulationSchedulerLane
         {
             using var _ = _guard.Enter();
             ThrowIfDetachedUnderGuard();
+            if (_pendingWorkDiscarded)
+            {
+                return false;
+            }
+
             return _items.Count > 0;
         }
     }
@@ -84,6 +92,11 @@ public sealed class SimulationSchedulerLane
         {
             using var _ = _guard.Enter();
             ThrowIfDetachedUnderGuard();
+            if (_pendingWorkDiscarded)
+            {
+                return null;
+            }
+
             var now = _scheduler.UtcNow;
             foreach (var item in _items)
             {
@@ -127,6 +140,7 @@ public sealed class SimulationSchedulerLane
 
         using var _ = _guard.Enter();
         ThrowIfDetachedUnderGuard();
+        ThrowIfPendingWorkDiscardedUnderGuard();
         var dueTime = _scheduler.UtcNow + delay;
         item.OnScheduled(this, dueTime, _sequenceNumber++);
         _items.Add(item);
@@ -158,6 +172,11 @@ public sealed class SimulationSchedulerLane
     {
         using var _ = _guard.Enter();
         ThrowIfDetachedUnderGuard();
+        if (_pendingWorkDiscarded)
+        {
+            return [];
+        }
+
         var now = _scheduler.UtcNow;
         var queueIdentity = _node?.Address ?? "cluster";
         var result = new SimulationScheduledItemDiagnostic[_items.Count];
@@ -219,7 +238,7 @@ public sealed class SimulationSchedulerLane
     /// <param name="cancellationToken">A token checked before dispatching the operation.</param>
     public bool RunOnce(CancellationToken cancellationToken)
     {
-        ThrowIfDetached();
+        ThrowIfUnavailable();
         using var control = _scheduler.EnterControlScope();
         return _scheduler.RunStep(cancellationToken);
     }
@@ -228,7 +247,7 @@ public sealed class SimulationSchedulerLane
     /// <param name="cancellationToken">A token that can cancel the run between scheduler dispatches.</param>
     public int RunUntilIdle(CancellationToken cancellationToken)
     {
-        ThrowIfDetached();
+        ThrowIfUnavailable();
         using var control = _scheduler.EnterControlScope();
         return _scheduler.RunUntilIdle(cancellationToken);
     }
@@ -237,6 +256,7 @@ public sealed class SimulationSchedulerLane
     {
         using var _ = _guard.Enter();
         ThrowIfDetachedUnderGuard();
+        ThrowIfPendingWorkDiscardedUnderGuard();
         _enabled = enabled;
         if (_node is { } node)
         {
@@ -253,11 +273,25 @@ public sealed class SimulationSchedulerLane
         }
 
         _detached = true;
-        if (_node is { } node)
+        if (!_pendingWorkDiscarded && _node is { } node)
         {
             _scheduler.RemovePendingWork(node);
         }
 
+        return [.. _items];
+    }
+
+    internal ScheduledItem[] MarkPendingWorkDiscarded()
+    {
+        using var _ = _guard.Enter();
+        ThrowIfDetachedUnderGuard();
+        if (_pendingWorkDiscarded)
+        {
+            return [];
+        }
+
+        _pendingWorkDiscarded = true;
+        _enabled = false;
         return [.. _items];
     }
 
@@ -267,11 +301,28 @@ public sealed class SimulationSchedulerLane
         ThrowIfDetachedUnderGuard();
     }
 
+    private void ThrowIfUnavailable()
+    {
+        using var _ = _guard.Enter();
+        ThrowIfDetachedUnderGuard();
+        ThrowIfPendingWorkDiscardedUnderGuard();
+    }
+
     private void ThrowIfDetachedWithoutGuard() =>
         ObjectDisposedException.ThrowIf(_detached, this);
 
     private void ThrowIfDetachedUnderGuard() =>
         ObjectDisposedException.ThrowIf(_detached, this);
+
+    private void ThrowIfPendingWorkDiscardedUnderGuard()
+    {
+        if (_pendingWorkDiscarded)
+        {
+            throw new ObjectDisposedException(
+                nameof(SimulationSchedulerLane),
+                "The owning simulation node discarded its pending work and cannot accept new work.");
+        }
+    }
 
     private string DebuggerDisplay
     {
