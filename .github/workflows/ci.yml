@@ -50,6 +50,14 @@ jobs:
           DOTNET_TieredCompilation: '0'
           DOTNET_ReadyToRun: '0'
         run: dotnet run --project tests/Clockwork.Conformance.Tests/Clockwork.Conformance.Tests.csproj --configuration Debug --no-build -- --timeout 300s --filter-class Orleans.Testing.Simulation.Conformance.Tests.ChannelConformanceTests
+      - name: Test awaiter conformance sequentially without tiered compilation
+        # Fully optimized Release runtime code is what a long sequential run reaches through tiering: the controlled
+        # ConfigureAwait(options) awaitables must keep the BCL's validation frame instead of inlining it into a hidden
+        # frame (#79).
+        env:
+          DOTNET_TieredCompilation: '0'
+          DOTNET_ReadyToRun: '0'
+        run: dotnet run --project tests/Clockwork.Conformance.Tests/Clockwork.Conformance.Tests.csproj --configuration Release --no-build -- --timeout 300s --parallel none --filter-class Orleans.Testing.Simulation.Conformance.Tests.ControlledAwaiterConformanceTests
       - name: Package smoke tests
         # Exercises all seven real packed NuGet artifacts end-to-end in an isolated feed,
         # verifies evaluated/restored/packed dependency boundaries and the source-build map,
